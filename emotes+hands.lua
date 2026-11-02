@@ -4411,7 +4411,7 @@ do
 end
 txt({ Text = "arraste para girar • scroll = zoom", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.new(0, 0, 1, -26), Size = UDim2.new(1, 0, 0, 16), Parent = DevPreviewWin })
 
-local SEL_W, SEL_H = 230, 300
+local SEL_W, SEL_H = 230, 340
 local DevSelector = frame({
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(SEL_W, SEL_H),
 	BackgroundColor3 = T.bg, Visible = false, ZIndex = 30, Parent = MainGui,
@@ -4420,7 +4420,7 @@ local selScale = new("UIScale", { Parent = DevSelector })
 ajustarEscala(selScale, SEL_W + 24, SEL_H + 24)
 local selHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 0), ZIndex = 30, Parent = DevSelector })
 local selList = new("ScrollingFrame", {
-	BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 36), Size = UDim2.new(1, 0, 1, -36),
+	BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 74), Size = UDim2.new(1, 0, 1, -74),
 	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
 	ScrollBarImageColor3 = T.stroke, ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 30, Parent = DevSelector,
 }, { lista(4), padding(0, 0, 6, 2) })
@@ -4432,7 +4432,62 @@ local closeSel = btn({ Text = "✕", TextSize = 13, TextColor3 = T.sub, Size = U
 hoverFX(closeSel, T.surface2, T.danger)
 closeSel.MouseButton1Click:Connect(function() DevSelector.Visible = false end)
 
-local function abrirDev(nome)
+local animNovo -- definido no bloco do ANIMADOR (zera a timeline e põe o nome do emote novo)
+
+-- ---------- CRIAR EMOTE (nome + pose em branco + animador zerado) ----------
+local criarNomeBox = new("TextBox", {
+	BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
+	PlaceholderText = "nome do novo emote", PlaceholderColor3 = T.dim, Text = "", ClearTextOnFocus = false,
+	TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, -78, 0, 28), ZIndex = 31, Parent = DevSelector,
+}, { round(7), padding(8, 0, 8, 0) })
+local criarBtn = btn({
+	Text = "＋ Criar Emote", Font = F.GothamBold, TextSize = 10, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+	Position = UDim2.new(1, -72, 0, 34), Size = UDim2.fromOffset(72, 28), ZIndex = 31, Parent = DevSelector,
+}, { round(7) })
+hoverFX(criarBtn, T.accent, Color3.fromRGB(148, 134, 255))
+local criarMsg = txt({
+	Text = "", TextSize = 10, TextColor3 = T.danger, Position = UDim2.fromOffset(0, 62), Size = UDim2.new(1, 0, 0, 12), ZIndex = 31, Parent = DevSelector,
+})
+
+local function poseEmBranco()
+	local function b6() return { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } end
+	local function v3() return { x = 0, y = 0, z = 0 } end
+	local function mao() return { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} } end
+	return {
+		dir = b6(), palmaDir = v3(), dedosDir = mao(), afastDir = 0,
+		esq = b6(), palmaEsq = v3(), dedosEsq = mao(), afastEsq = 0,
+		cabeca = b6(), torso = b6(), pernaDir = b6(), pernaEsq = b6(),
+	}
+end
+
+local abrirDev
+local adicionarLinhaDev
+
+local function criarEmoteNovo()
+	local n = criarNomeBox.Text:gsub('["\\%c]', ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if n == "" then
+		criarMsg.Text = "Digite um nome para o emote."
+		return
+	end
+	if defaultEmotes[n] or EMOTE_POR_NOME[n] then
+		criarMsg.Text = "Já existe um emote com esse nome."
+		return
+	end
+	criarMsg.Text = ""
+	defaultEmotes[n] = poseEmBranco()
+	criarNomeBox.Text = ""
+	adicionarLinhaDev(n, "✨")
+	abrirDev(n)
+	if animNovo then animNovo(n) end
+end
+
+criarBtn.MouseButton1Click:Connect(criarEmoteNovo)
+criarNomeBox.FocusLost:Connect(function(enter)
+	if enter then criarEmoteNovo() end
+end)
+criarNomeBox:GetPropertyChangedSignal("Text"):Connect(function() criarMsg.Text = "" end)
+
+function abrirDev(nome)
 	if not carregarEmote(nome) then return end
 	devTitle.Text = nome
 	prevNome.Text = nome
@@ -4811,6 +4866,19 @@ do
 		irPara(t, false)
 	end)
 
+	function animNovo(nome)
+		anim.tocando = false
+		atualizarPlay()
+		anim.nome = nome
+		nomeBox.Text = nome
+		anim.keys = {}
+		anim.sel = nil
+		anim.tempo = 0
+		cursor.Position = UDim2.fromScale(0, 0.5)
+		timeBox.Text = "0.00"
+		desenhar()
+	end
+
 	TLWin.Visible = DevPanel.Visible
 	DevPanel:GetPropertyChangedSignal("Visible"):Connect(function()
 		TLWin.Visible = DevPanel.Visible
@@ -4829,13 +4897,17 @@ local emotesDev = {
 	"Dormir", "Dormir2", "Siririca",
 	"Chupada de Dedo", "De Quatro", "Socar",
 }
-for i, nome in ipairs(emotesDev) do
-	local e = EMOTE_POR_NOME[nome]
-	local row = btn({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = i, ZIndex = 30, Parent = selList }, { round(8) })
-	txt({ Text = e.icone, TextSize = 15, TextXAlignment = CENTER, Position = UDim2.fromOffset(4, 0), Size = UDim2.fromOffset(26, 30), ZIndex = 31, Parent = row })
+local ordemLinhaDev = 0
+function adicionarLinhaDev(nome, icone)
+	ordemLinhaDev = ordemLinhaDev + 1
+	local row = btn({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = ordemLinhaDev, ZIndex = 30, Parent = selList }, { round(8) })
+	txt({ Text = icone, TextSize = 15, TextXAlignment = CENTER, Position = UDim2.fromOffset(4, 0), Size = UDim2.fromOffset(26, 30), ZIndex = 31, Parent = row })
 	txt({ Text = nome, Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -44, 1, 0), ZIndex = 31, Parent = row })
 	hoverFX(row, T.surface, T.surface3)
 	row.MouseButton1Click:Connect(function() abrirDev(nome) end)
+end
+for _, nome in ipairs(emotesDev) do
+	adicionarLinhaDev(nome, EMOTE_POR_NOME[nome].icone)
 end
 
 LocalPlayer.Chatted:Connect(function(msg)

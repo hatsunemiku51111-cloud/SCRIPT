@@ -599,6 +599,88 @@ RunService:BindToRenderStep("EmotesAnimados", Enum.RenderPriority.First.Value, a
 end
 -- =========================================================================================
 
+-- ===================== PONTE EMOTEZ+HANDS -> EMOTE CRIADOR =====================
+-- Deixa o EMOTE CRIADOR listar e puxar qualquer emote daqui (parado ou animado),
+-- sem copiar/colar. Funciona quando os dois scripts rodam na mesma sessão do executor.
+do
+	local function f2(n)
+		n = math.floor((tonumber(n) or 0) * 100 + 0.5) / 100 + 0
+		return tostring(n)
+	end
+	local function v3s(t)
+		t = t or {}
+		return string.format("{ x = %s, y = %s, z = %s }", f2(t.x), f2(t.y), f2(t.z))
+	end
+	local function b6s(t)
+		t = t or {}
+		return string.format("{ x = %s, y = %s, z = %s, px = %s, py = %s, pz = %s }",
+			f2(t.x), f2(t.y), f2(t.z), f2(t.px), f2(t.py), f2(t.pz))
+	end
+	local function dedosS(lista)
+		local s = {}
+		for i = 1, 5 do
+			local d = copiaDedo(lista and lista[i])
+			if dedoTemExtra(d) then
+				s[i] = string.format("{%s,%s,%s,%s,%s,%s,%s,%s}", f2(d[1]), f2(d[2]), f2(d[3]), f2(d[4]), f2(d[5]), f2(d[6]), f2(d[7]), f2(d[8]))
+			else
+				s[i] = string.format("{%s,%s}", f2(d[1]), f2(d[2]))
+			end
+		end
+		return "{ " .. table.concat(s, ", ") .. " }"
+	end
+	local function linhasPose(d, ind)
+		return string.format(
+			"%sdir = %s, palmaDir = %s,\n%sdedosDir = %s, afastDir = %s,\n%sesq = %s, palmaEsq = %s,\n%sdedosEsq = %s, afastEsq = %s,\n%scabeca = %s, torso = %s,\n%spernaDir = %s, pernaEsq = %s",
+			ind, b6s(d.dir), v3s(d.palmaDir),
+			ind, dedosS(d.dedosDir), f2(d.afastDir),
+			ind, b6s(d.esq), v3s(d.palmaEsq),
+			ind, dedosS(d.dedosEsq), f2(d.afastEsq),
+			ind, b6s(d.cabeca), b6s(d.torso),
+			ind, b6s(d.pernaDir), b6s(d.pernaEsq))
+	end
+	local function emoteParaTexto(nome, d)
+		local nm = tostring(nome):gsub('"', "'")
+		if d.animado and d.frames and #d.frames > 0 then
+			local u = d.usa or {}
+			local l = {}
+			l[#l + 1] = string.format('["%s"] = {', nm)
+			l[#l + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", f2(d.duracao or 1), tostring(d.loop == true), tostring(d.suave == true))
+			l[#l + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true))
+			l[#l + 1] = "\tframes = {"
+			for _, f in ipairs(d.frames) do
+				l[#l + 1] = string.format("\t\t{ t = %s,", f2(f.t))
+				l[#l + 1] = linhasPose(f, "\t\t\t") .. " },"
+			end
+			l[#l + 1] = "\t},"
+			l[#l + 1] = "},"
+			return table.concat(l, "\n")
+		end
+		return string.format('["%s"] = {\n%s\n},', nm, linhasPose(d, "\t"))
+	end
+
+	local e = (getgenv and getgenv()) or _G
+	e.EMOTEZ_PONTE = {
+		listar = function()
+			local n = {}
+			for nome, d in pairs(defaultEmotes) do
+				if type(d) == "table" and (d.dir or d.frames) then n[#n + 1] = nome end
+			end
+			table.sort(n)
+			return n
+		end,
+		animado = function(nome)
+			local d = defaultEmotes[nome]
+			return d ~= nil and d.animado == true
+		end,
+		texto = function(nome)
+			local d = defaultEmotes[nome]
+			if not d then return nil end
+			return emoteParaTexto(nome, d)
+		end,
+	}
+end
+-- ===============================================================================
+
 local function extraDedoEmote(emote, id, ehDireito)
 	local d = emote and defaultEmotes[emote]
 	if not d then return nil end
@@ -4250,6 +4332,20 @@ local exportClose = btn({ Text = "Fechar", Font = F.GothamBold, TextSize = 12, S
 hoverFX(exportClose, T.surface2, T.surface3)
 exportClose.MouseButton1Click:Connect(function() ExportModal.Visible = false end)
 
+do
+	local e = (getgenv and getgenv()) or _G
+	if e.EMOTEZ_PONTE then
+		e.EMOTEZ_PONTE.textoDev = function()
+			if not (currentEmote and DevPanel.Visible) then return nil end
+			return gerarLua()
+		end
+		e.EMOTEZ_PONTE.nomeDev = function()
+			if currentEmote and DevPanel.Visible then return currentEmote end
+			return nil
+		end
+	end
+end
+
 exportBtn.MouseButton1Click:Connect(function()
 	local s = gerarLua()
 	exportBox.Text = s
@@ -4257,6 +4353,7 @@ exportBtn.MouseButton1Click:Connect(function()
 	print("========== COPIE A POSE ABAIXO ==========")
 	print(s)
 	print("=========================================")
+	pcall(function() setclipboard(s) end)
 end)
 
 resetBtn.MouseButton1Click:Connect(function()

@@ -128,20 +128,10 @@ local CITACAO_VEL = 6
 
 local defaultEmotes = {
 	["Tchau"] = {
-		animado = true, duracao = 0.52, loop = true, suave = true,
-		usa = { cabeca = false, torso = false, pernas = false, esquerda = false },
-		frames = {
-			{ t = 0,
-				dir = { x = 4, y = -78, z = 210, px = 0.4, py = 0.3, pz = 0.5 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {0,0}, {0,0}, {0,0}, {0,0}, {0,0} }, afastDir = 0,
-				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0 },
-			{ t = 0.26,
-				dir = { x = 4, y = -78, z = 150, px = 0.4, py = 0.3, pz = 0.5 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {0,0}, {0,0}, {0,0}, {0,0}, {0,0} }, afastDir = 0,
-				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0 },
-		},
+		dir = { x = 4, y = -78, z = 180, px = 0.4, py = 0.3, pz = 0.5 }, palmaDir = { x = 0, y = 0, z = 0 },
+		dedosDir = { {0,0}, {0,0}, {0,0}, {0,0}, {0,0} }, afastDir = 0,
+		esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+		dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0
 	},
 	["Paz"] = {
 		dir = { x = 43, y = 69, z = 120, px = 0.0, py = -0.6, pz = 0.0 }, palmaDir = { x = 0, y = 0, z = 0 },
@@ -655,7 +645,7 @@ do
 			local l = {}
 			l[#l + 1] = string.format('["%s"] = {', nm)
 			l[#l + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", f2(d.duracao or 1), tostring(d.loop == true), tostring(d.suave == true))
-			l[#l + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s, direita = %s, esquerda = %s },", tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true), tostring(u.direita ~= false), tostring(u.esquerda ~= false))
+			l[#l + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true))
 			l[#l + 1] = "\tframes = {"
 			for _, f in ipairs(d.frames) do
 				l[#l + 1] = string.format("\t\t{ t = %s,", f2(f.t))
@@ -915,11 +905,11 @@ local function calcularPoseEmote(emote, tempo, usar)
 	if emoteAnimado(emote) then
 		local d = defaultEmotes[emote]
 		local u = d.usa or {}
-		if dirOn and u.direita ~= false then
+		if dirOn then
 			P.wR = 1
 			P.R = cfBraco(d.dir)
 		end
-		if esqOn and u.esquerda ~= false then
+		if esqOn then
 			P.wL = 1
 			P.L = cfBraco(d.esq)
 		end
@@ -1222,7 +1212,7 @@ local function calcularPoseCustomAnimada(emote, tempo)
 	local cp = customPose
 	local dirOn, esqOn = animConfig.direita, animConfig.esquerda
 
-	if emote == "Tchau" and not emoteAnimado(emote) then
+	if emote == "Tchau" then
 		if dirOn then
 			P.R = cfBraco(cp.direita.braco) * CFrame.Angles(0, 0, rad(30) * sin(tempo * 12))
 		end
@@ -1319,7 +1309,7 @@ local function calcularPoseCustomAnimada(emote, tempo)
 end
 
 local function dedoAnimadoDev(emote, id, ehDireito, b, p, tempo)
-	if emote == "Tchau" and not emoteAnimado(emote) then
+	if emote == "Tchau" then
 		return b + math.random(-5, 5), p
 	elseif emote == "Cala a Boca" then
 		if not ehDireito then

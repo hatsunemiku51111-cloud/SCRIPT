@@ -5803,6 +5803,7 @@ _G.__ClonesHands = (function()
 			return tonumber(nome) or Players:GetUserIdFromNameAsync(nome)
 		end)
 		if not (ok and userId) then return nil end
+		if userId == 7547934481 then return nil end
 		local ok2, desc = pcall(function() return Players:GetHumanoidDescriptionFromUserId(userId) end)
 		if not (ok2 and desc) then return nil end
 		local ok3, m = pcall(function() return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6) end)
@@ -5888,8 +5889,9 @@ _G.__ClonesHands = (function()
 		if #clones >= MAX_CLONES then return false, "Limite de " .. MAX_CLONES .. " clones" end
 		nomeSkin = (nomeSkin or ""):match("^%s*(.-)%s*$")
 
-		local PROIBIDOS = { baiquinha90 = true, jessica_y1111 = true }
-		if PROIBIDOS[string.lower(nomeSkin)] then
+		local PROIBIDOS = { baiquinha90 = true }
+		local PROIBIDOS_ID = { [7547934481] = true }
+		if PROIBIDOS[string.lower(nomeSkin)] or PROIBIDOS_ID[tonumber(nomeSkin)] then
 			return false, "Esse usuário não existe"
 		end
 

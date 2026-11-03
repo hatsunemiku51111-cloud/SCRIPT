@@ -35,13 +35,13 @@ local animConfig = {
 local WHEEL_KEY = Enum.KeyCode.G
 
 local EMOTES_TOGGLE = {
-	MeuEmote = true, Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
+	Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
 	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true,
 }
 
 local EMOTES_IMOVEIS = {
-	MeuEmote = true, Sentido = true, Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
+	Sentido = true, Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
 	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true,
 }
@@ -276,40 +276,44 @@ local defaultEmotes = {
 	},
 
 	["De Quatro"] = {
-		dir = { x = -82, y = -106, z = 74, px = 0.78, py = 0.58, pz = 0.25 }, palmaDir = { x = 0, y = 0, z = -8 },
-		dedosDir = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastDir = 0,
-		esq = { x = -82, y = 106, z = -74, px = -0.78, py = 0.58, pz = 0.25 }, palmaEsq = { x = 0, y = 0, z = 8 },
-		dedosEsq = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastEsq = 0,
-		cabeca = { x = -109, y = 0, z = 0, px = 0, py = 0, pz = 0.35 }, torso = { x = 115, y = 0, z = -1, px = 0, py = 0, pz = -0.74 },
-		pernaDir = { x = -15, y = -9, z = 112, px = -0.14, py = 0.04, pz = 0.19 }, pernaEsq = { x = -15, y = 9, z = -112, px = 0.14, py = 0.04, pz = 0.19 }
-	},
-
-	["Socar"] = {
-		dir = { x = 30, y = 0, z = 67, px = 0.35, py = -0.12, pz = 0 }, palmaDir = { x = 10, y = 20, z = 0 },
-		dedosDir = { {0,22,4,-45,0,0,0,0}, {35,45}, {35,45}, {35,45}, {40,50} }, afastDir = 5,
-		esq = { x = 30, y = 0, z = -67, px = -0.35, py = -0.12, pz = 0 }, palmaEsq = { x = 10, y = -20, z = 0 },
-		dedosEsq = { {0,22,4,-45,0,0,0,0}, {35,45}, {35,45}, {35,45}, {40,50} }, afastEsq = 5,
-		cabeca = { x = 8, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 18, y = 0, z = 0, px = 0, py = 0, pz = -0.08 },
-		pernaDir = { x = 0, y = -9, z = 16, px = 0.15, py = 0.02, pz = 0.09 }, pernaEsq = { x = 0, y = 9, z = -16, px = -0.15, py = 0.02, pz = 0.09 }
-	},
-	["MeuEmote"] = {
 		animado = true, duracao = 1, loop = true, suave = true,
 		usa = { cabeca = true, torso = true, pernas = true },
 		frames = {
 			{ t = 0,
-				dir = { x = -4, y = 15, z = 81, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -4, y = -15, z = -81, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				dir = { x = -82, y = -106, z = 74, px = 0.78, py = 0.58, pz = 0.25 }, palmaDir = { x = 0, y = 0, z = -8 },
+				dedosDir = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastDir = 0,
+				esq = { x = -82, y = 106, z = -74, px = -0.78, py = 0.58, pz = 0.25 }, palmaEsq = { x = 0, y = 0, z = 8 },
+				dedosEsq = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastEsq = 0,
+				cabeca = { x = -109, y = 0, z = 0, px = 0, py = 0, pz = 0.35 }, torso = { x = 115, y = 0, z = -1, px = 0, py = 0, pz = -0.74 },
+				pernaDir = { x = -15, y = -9, z = 117, px = -0.14, py = -0.18, pz = 0.19 }, pernaEsq = { x = -15, y = 9, z = -117, px = 0.14, py = -0.18, pz = 0.19 } },
+			{ t = 0.5,
+				dir = { x = -90, y = -119, z = 92, px = 0.75, py = 0.85, pz = 0.25 }, palmaDir = { x = 0, y = 0, z = -8 },
+				dedosDir = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastDir = 0,
+				esq = { x = -90, y = 119, z = -92, px = -0.75, py = 0.85, pz = 0.25 }, palmaEsq = { x = 0, y = 0, z = 8 },
+				dedosEsq = { {90,79,0,23,-50,0,0,0}, {90,90,8,2,54,0,0,0}, {90,90,1,1,38,0,0,0}, {90,90,1,4,37,0,0,0}, {90,90,0,6,43,0,0,0} }, afastEsq = 0,
+				cabeca = { x = -109, y = 0, z = 0, px = 0, py = 0, pz = 0.35 }, torso = { x = 120.99, y = 0, z = -1, px = 0, py = -0.28, pz = -0.74 },
+				pernaDir = { x = -15, y = -9, z = 114.01, px = -0.01, py = -0.18, pz = 0.19 }, pernaEsq = { x = -15, y = 9, z = -114.01, px = 0.01, py = -0.18, pz = 0.19 } },
+		},
+	},
+
+	["Socar"] = {
+		animado = true, duracao = 1, loop = true, suave = true,
+		usa = { cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				dir = { x = -4, y = 27, z = 50, px = -0.06, py = -0.22, pz = 0.1 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {17,20,0,-14,-64,0,0,0}, {10,17,0,-11,41,0,0,0}, {10,22,-8,-4,39,0,0,0}, {10,34,-16,-11,0,0,0,0}, {10,28,-20,-13,-17,0,0,0} }, afastDir = 0,
+				esq = { x = -4, y = -27, z = -50, px = 0.06, py = -0.22, pz = 0.1 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {17,22,0,-14,-64,0,0,0}, {10,17,0,-11,41,0,0,0}, {10,26,-8,-4,39,0,0,0}, {10,34,-16,-11,0,0,0,0}, {10,28,-20,-13,-17,0,0,0} }, afastEsq = 0,
 				cabeca = { x = -17, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 20, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = -1, y = 1, z = 31, px = 0.02, py = -0.01, pz = 0 }, pernaEsq = { x = -1, y = -1, z = -31, px = -0.02, py = -0.01, pz = 0 } },
 			{ t = 0.5,
-				dir = { x = -4, y = 15, z = 54, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -4, y = -15, z = -54, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				dir = { x = -1, y = 33, z = 22, px = 0, py = -0.26, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,34,0,0,-71,0,0,0}, {10,26,0,0,35,0,0,0}, {10,22,0,0,27,0,0,0}, {10,34,-25,-7,0,0,0,0}, {10,36,-28,-4,-19,0,0,0} }, afastDir = 0,
+				esq = { x = -1, y = -33, z = -22, px = 0, py = -0.26, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,34,0,0,-71,0,0,0}, {10,26,0,0,35,0,0,0}, {10,22,0,0,27,0,0,0}, {10,34,-25,-7,0,0,0,0}, {10,36,-28,-4,-19,0,0,0} }, afastEsq = 0,
 				cabeca = { x = 18, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = -11, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -1, y = 1, z = -14, px = 0.06, py = 0.21, pz = 0 }, pernaEsq = { x = -1, y = -1, z = 14, px = -0.06, py = 0.21, pz = 0 } },
+				pernaDir = { x = -1, y = 1, z = -14, px = 0, py = -0.03, pz = 0 }, pernaEsq = { x = -1, y = -1, z = 14, px = 0, py = -0.03, pz = 0 } },
 		},
 	},
 }
@@ -479,6 +483,11 @@ end
 -- ===================== EMOTES ANIMADOS (keyframes do EMOTE CRIADOR) =====================
 -- Cada emote com animado = true tem seus campos dir/esq/dedos/corpo atualizados a cada frame
 -- com a pose interpolada dos keyframes. Assim o resto do script lê defaultEmotes[nome] normalmente.
+-- De Quatro fica parado no 1o keyframe ate alguem entrar atras (tp). inicio = nil -> parado.
+local deQuatroSync = { inicio = nil, pendente = false, fase = 0, ultimo = 0, emote = "Socar" }
+local SYNC_ACELERA_APOS = 10   -- segundos ate acelerar
+local SYNC_VELOCIDADE = 1.25   -- multiplicador depois disso
+
 local emoteAnimado
 do
 local emoteAnimInicio = 0
@@ -562,9 +571,30 @@ local function atualizarEmotesAnimados()
 		emoteAnimUltimo = currentEmote
 		emoteAnimInicio = agora
 	end
+	if deQuatroSync.pendente and currentEmote == deQuatroSync.emote then
+		deQuatroSync.inicio = emoteAnimInicio -- mesmo instante em que o Socar comeca
+		deQuatroSync.fase = 0
+		deQuatroSync.ultimo = agora
+		deQuatroSync.pendente = false
+	end
+	if deQuatroSync.inicio then
+		local dtSync = agora - deQuatroSync.ultimo
+		deQuatroSync.ultimo = agora
+		local vel = (agora - deQuatroSync.inicio >= SYNC_ACELERA_APOS) and SYNC_VELOCIDADE or 1
+		deQuatroSync.fase = deQuatroSync.fase + dtSync * vel
+	end
 	for nome, d in pairs(defaultEmotes) do
 		if d.animado and d.frames and #d.frames > 0 then
 			local tempo = agora - ((nome == currentEmote) and emoteAnimInicio or 0)
+			if nome == "De Quatro" then
+				tempo = deQuatroSync.inicio and deQuatroSync.fase or 0
+			elseif nome == "Socar" then
+				if deQuatroSync.inicio then
+					tempo = deQuatroSync.fase
+				elseif currentEmote ~= "Socar" then
+					tempo = 0 -- Socar no clone fica parado no 1o keyframe ate o tp
+				end
+			end
 			if d.loop and d.duracao > 0 then
 				tempo = tempo % d.duracao
 			else
@@ -1136,7 +1166,7 @@ local function calcularPoseEmote(emote, tempo, usar)
 	elseif emote == "De Quatro" then
 		local d = defaultEmotes["De Quatro"]
 
-		local SWAY_YAW, SWAY_ROLL = 10, 3
+		local SWAY_YAW, SWAY_ROLL = 0, 0
 		local D = CFrame.Angles(0, rad(SWAY_YAW * sin(tempo * 4.2)), rad(SWAY_ROLL * cos(tempo * 3)))
 		if dirOn then
 			P.wR = 1
@@ -1269,7 +1299,7 @@ local function calcularPoseCustomAnimada(emote, tempo)
 		P.N = cfRot(cp.cabeca) * CFrame.Angles(rad(3 * sin(tempo * 7)), rad(2 * cos(tempo * 5)), 0)
 	elseif emote == "De Quatro" then
 
-		local D = CFrame.Angles(0, rad(10 * sin(tempo * 4.2)), rad(3 * cos(tempo * 3)))
+		local D = CFrame.Angles(0, 0, 0)
 		ligarCorpoDev(P, true, true, true)
 		if dirOn then P.R = fixaNoMundo(C0_R6.rs, cfBraco(cp.direita.braco), D) end
 		if esqOn then P.L = fixaNoMundo(C0_R6.ls, cfBraco(cp.esquerda.braco), D) end
@@ -1585,6 +1615,116 @@ local function ajustarEscala(uiScale, w, h)
 	aplicar()
 end
 
+-- ===== minimizar / fechar / reabrir (com animação) =====
+-- cfg: win, head, scale, w, h, headH, posMin, posX, size, radius, ativo(), btnX (opcional),
+--      semChip (opcional), onHide, onShow, onMin(min)
+local function janelaControles(cfg)
+	local win, head, scale = cfg.win, cfg.head, cfg.scale
+	local fullW, fullH, headH = cfg.w, cfg.h, cfg.headH or 34
+	local sz = cfg.size or 26
+	local minimizado, fechada, animando = false, false, false
+	local curH = fullH
+	local guardados = {}
+	local clipOriginal = win.ClipsDescendants
+
+	local btnMin = btn({ Text = "-", TextSize = 16, TextColor3 = T.sub, Size = UDim2.fromOffset(sz, sz), Position = cfg.posMin, Parent = head }, { round(cfg.radius or 8) })
+	hoverFX(btnMin, T.surface2, T.surface3)
+	local btnX = cfg.btnX
+	if not btnX then
+		btnX = btn({ Text = "X", TextSize = 13, TextColor3 = T.danger, Size = UDim2.fromOffset(sz, sz), Position = cfg.posX, Parent = head }, { round(cfg.radius or 8) })
+		hoverFX(btnX, T.surface2, T.danger)
+	end
+
+	-- quadradinho para reabrir (aparece quando a janela é fechada no X)
+	local chip
+	if not cfg.semChip then
+		chip = btn({
+			Text = "□", TextSize = 18, TextColor3 = T.accent, Size = UDim2.fromOffset(34, 34),
+			BackgroundColor3 = T.surface, Visible = false, ZIndex = 40, Parent = MainGui,
+		}, { round(10), outline(T.stroke, 1, 0.1) })
+		hoverFX(chip, T.surface, T.surface3)
+	end
+	local function atualizarChip()
+		if chip then chip.Visible = fechada and ((not cfg.ativo) or cfg.ativo()) end
+	end
+
+	local function minimizar(min)
+		if animando or fechada then return end
+		animando = true
+		minimizado = min
+		btnMin.Text = min and "□" or "-"
+		if cfg.onMin then cfg.onMin(min) end
+
+		local novaH = min and headH or fullH
+		local novaPos = win.Position + UDim2.fromOffset(0, win.AnchorPoint.Y * (novaH - curH) * scale.Scale)
+		curH = novaH
+		win.ClipsDescendants = true
+		if not min then
+			for o, vis in pairs(guardados) do
+				if o.Parent then o.Visible = vis end
+			end
+			guardados = {}
+		end
+		local t = tw(win, 0.22, { Size = UDim2.fromOffset(fullW, novaH), Position = novaPos }, Enum.EasingStyle.Quint)
+		t.Completed:Once(function()
+			if min then
+				for _, o in ipairs(win:GetChildren()) do
+					if o:IsA("GuiObject") and o ~= head then
+						guardados[o] = o.Visible
+						o.Visible = false
+					end
+				end
+			else
+				win.ClipsDescendants = clipOriginal
+			end
+			animando = false
+		end)
+	end
+
+	local function fechar()
+		if animando or fechada then return end
+		fechada = true
+		animando = true
+		local base = scale.Scale
+		if chip then
+			local ap = win.AbsolutePosition
+			chip.Position = UDim2.fromOffset(ap.X, ap.Y)
+		end
+		local t = tw(scale, 0.16, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		t.Completed:Once(function()
+			win.Visible = false
+			scale.Scale = base
+			animando = false
+			if cfg.onHide then cfg.onHide() end
+			atualizarChip()
+		end)
+	end
+
+	local function abrir()
+		if animando or not fechada then return end
+		fechada = false
+		if chip then chip.Visible = false end
+		local base = scale.Scale
+		scale.Scale = 0
+		win.Visible = true
+		tw(scale, 0.22, { Scale = base }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		if cfg.onShow then cfg.onShow() end
+	end
+
+	btnMin.MouseButton1Click:Connect(function() minimizar(not minimizado) end)
+	if not cfg.btnX then btnX.MouseButton1Click:Connect(fechar) end
+	if chip then chip.MouseButton1Click:Connect(abrir) end
+
+	-- se algo reabrir a janela por fora (ex.: abrir outro emote), limpa o estado de "fechada"
+	win:GetPropertyChangedSignal("Visible"):Connect(function()
+		if win.Visible and fechada and not animando then fechada = false end
+		atualizarChip()
+	end)
+	if cfg.ativo and cfg.pai then
+		cfg.pai:GetPropertyChangedSignal("Visible"):Connect(atualizarChip)
+	end
+end
+
 local J_R6 = {
 	root = { CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
 	neck = { CFrame.new(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
@@ -1862,6 +2002,7 @@ local function criarPreview(viewport)
 	end)
 
 	local arrastando = false
+	local pinchBase = nil
 	viewport.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			arrastando = true
@@ -1873,7 +2014,7 @@ local function criarPreview(viewport)
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if arrastando and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		if arrastando and not pinchBase and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			theta = theta - input.Delta.X * 0.012
 		end
 	end)
@@ -1882,12 +2023,32 @@ local function criarPreview(viewport)
 			dist = clamp(dist - input.Position.Z * 0.8, 5, 16)
 		end
 	end)
+	-- celular: pinça com dois dedos em cima do preview = zoom
+	UserInputService.TouchPinch:Connect(function(pos, escala, _, estado)
+		if estado == Enum.UserInputState.Begin then
+			pinchBase = nil
+			local p = pos[1]
+			if p and pos[2] then p = (pos[1] + pos[2]) / 2 end
+			if p and active and viewport.Visible then
+				local a, sz = viewport.AbsolutePosition, viewport.AbsoluteSize
+				-- folga de 60px por causa da diferença de offset da barra superior entre toque e GUI
+				if p.X >= a.X - 20 and p.X <= a.X + sz.X + 20 and p.Y >= a.Y - 60 and p.Y <= a.Y + sz.Y + 60 then
+					pinchBase = dist
+				end
+			end
+		elseif estado == Enum.UserInputState.Change then
+			if pinchBase then dist = clamp(pinchBase / math.max(escala, 0.1), 5, 16) end
+		else
+			pinchBase = nil
+		end
+	end)
 
 	function self.setEmote(nome) emote = nome end
 	function self.setCustom(b) custom = b end
 	function self.setActive(b) active = b end
 	function self.setAnimar(b) animar = b end
 	function self.resetCamera() theta, dist = 0.35, 9.5 end
+	function self.girar() theta = theta + math.pi end
 	function self.rebuild() lastTry = 0; destruir() end
 	return self
 end
@@ -2799,7 +2960,6 @@ local EMOTES = {
 	{ nome = "Chupada de Dedo", icone = "👅", cat = "+18", toggle = true },
 	{ nome = "De Quatro", icone = "🐕", cat = "+18", toggle = true },
 	{ nome = "Socar", icone = "🍆", cat = "+18", toggle = true },
-	{ nome = "MeuEmote", icone = "🕺", cat = "Gestos", toggle = true },
 }
 local EMOTE_POR_NOME = {}
 for _, e in ipairs(EMOTES) do EMOTE_POR_NOME[e.nome] = e end
@@ -2918,7 +3078,7 @@ txt({ Text = "Emotes", Font = F.GothamBold, TextSize = 17, Position = UDim2.from
 txt({ Text = "Passe o mouse para ver o preview", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(300, 14), Parent = Menu })
 
 local closeMenuBtn = btn({
-	Text = "✕", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -38, 0, 10), Parent = Menu,
+	Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -38, 0, 10), Parent = Menu,
 }, { round(13) })
 hoverFX(closeMenuBtn, T.surface2, T.surface3)
 
@@ -3460,7 +3620,34 @@ local EmoteButton = btn({
 	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 64), Size = UDim2.fromOffset(112, 38), Parent = MainGui,
 }, { round(19) })
 hoverFX(EmoteButton, T.accent, Color3.fromRGB(148, 134, 255))
-EmoteButton.MouseButton1Click:Connect(function() toggleMenu() end)
+local segurouWheel = false
+EmoteButton.MouseButton1Click:Connect(function()
+	if segurouWheel then segurouWheel = false return end
+	toggleMenu()
+end)
+-- celular/tablet: segure o botão por ~0.4s pra abrir a roda, arraste até o emote e solte (igual à tecla G no PC)
+do
+	local segurando = nil
+	EmoteButton.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		segurando = input
+		task.delay(0.4, function()
+			if segurando == input and input.UserInputState ~= Enum.UserInputState.End then
+				segurouWheel = true
+				abrirWheel()
+			end
+		end)
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input ~= segurando then return end
+		segurando = nil
+		if segurouWheel then
+			fecharWheel(true)
+			-- o clique do botão dispara logo depois de soltar; depois disso libera o botão de novo
+			task.delay(0.15, function() segurouWheel = false end)
+		end
+	end)
+end
 
 Pegar.botao = btn({
 	Text = "Pegar", Font = F.GothamBold, TextSize = 13, BackgroundColor3 = T.ok, TextColor3 = Color3.new(1, 1, 1),
@@ -3849,13 +4036,18 @@ local devHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52
 makeDraggable(DevPanel, devHead)
 local badge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(40, 22), Position = UDim2.fromOffset(14, 15), Parent = devHead }, { round(7) })
 txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = badge })
-txt({ Text = "Editor de pose", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(64, 8), Size = UDim2.new(1, -160, 0, 20), Parent = devHead })
-local devTitle = txt({ Text = "—", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(64, 28), Size = UDim2.new(1, -160, 0, 16), Parent = devHead })
+txt({ Text = "Editor de pose", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(64, 8), Size = UDim2.new(1, -196, 0, 20), Parent = devHead })
+local devTitle = txt({ Text = "—", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(64, 28), Size = UDim2.new(1, -196, 0, 16), Parent = devHead })
 
-local trocarBtn = btn({ Text = "⇄", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -78, 0, 11), Parent = devHead }, { round(15) })
-local closeDevBtn = btn({ Text = "✕", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -42, 0, 11), Parent = devHead }, { round(15) })
+local trocarBtn = btn({ Text = "⇄", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -114, 0, 11), Parent = devHead }, { round(15) })
+local closeDevBtn = btn({ Text = "X", Font = F.GothamBold, TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -42, 0, 11), Parent = devHead }, { round(15) })
 hoverFX(trocarBtn, T.surface2, T.surface3)
 hoverFX(closeDevBtn, T.surface2, T.danger)
+-- minimizar (- / □) com animação; o X continua fechando o editor inteiro
+janelaControles({
+	win = DevPanel, head = devHead, scale = devScale, w = DEV_W, h = DEV_H, headH = 52,
+	posMin = UDim2.new(1, -78, 0, 11), size = 30, radius = 15, btnX = closeDevBtn, semChip = true,
+})
 
 local statusCard = frame({ Position = UDim2.fromOffset(12, 56), Size = UDim2.new(1, -24, 0, 186), Parent = DevPanel }, { round(12), outline(T.stroke, 1, 0.5) })
 txt({ Text = "STATUS", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 8), Size = UDim2.fromOffset(80, 14), Parent = statusCard })
@@ -4098,13 +4290,16 @@ local function espelharPose(maoOrigem, pernaOrigem)
 	if maoOrigem then
 		local de = customPose[maoOrigem]
 		local para = customPose[maoOrigem == "direita" and "esquerda" or "direita"]
-		local b, d = de.braco, para.braco
-		d.x, d.y, d.z = b.x, 0 - b.y, 0 - b.z
-		d.px, d.py, d.pz = 0 - (b.px or 0), b.py or 0, b.pz or 0
-		para.palma.x, para.palma.y, para.palma.z = de.palma.x, 0 - de.palma.y, 0 - de.palma.z
-		para.afastamento = de.afastamento
-		for i = 1, 5 do
-			for k = 1, 8 do para.dedos[i][k] = de.dedos[i][k] or 0 end
+		if devTab == "Bracos" then
+			local b, d = de.braco, para.braco
+			d.x, d.y, d.z = b.x, 0 - b.y, 0 - b.z
+			d.px, d.py, d.pz = 0 - (b.px or 0), b.py or 0, b.pz or 0
+		elseif devTab == "Maos" then
+			para.palma.x, para.palma.y, para.palma.z = de.palma.x, 0 - de.palma.y, 0 - de.palma.z
+			para.afastamento = de.afastamento
+			for i = 1, 5 do
+				for k = 1, 8 do para.dedos[i][k] = de.dedos[i][k] or 0 end
+			end
 		end
 	end
 	if pernaOrigem then
@@ -4116,6 +4311,46 @@ local function espelharPose(maoOrigem, pernaOrigem)
 end
 
 local function ecoMao() espelharPose(currentHand, nil) end
+
+-- ESPELHAR V2: troca os lados só da categoria aberta (Braços, Mãos, Torso, Cabeça ou Pernas).
+-- Os eixos laterais (y, z, px) são invertidos para a pose ficar espelhada de verdade.
+local function trocarLados()
+	salvarSnapshotPose()
+	local D, E = customPose.direita, customPose.esquerda
+
+	local function invRot(t)
+		return { x = t.x, y = 0 - t.y, z = 0 - t.z, px = 0 - (t.px or 0), py = t.py or 0, pz = t.pz or 0 }
+	end
+	local function invPalma(p) return { x = p.x, y = 0 - p.y, z = 0 - p.z } end
+	local function copiaDedos(h)
+		local out = {}
+		for i = 1, 5 do
+			out[i] = {}
+			for k = 1, 8 do out[i][k] = h.dedos[i][k] or 0 end
+		end
+		return out
+	end
+
+	if devTab == "Bracos" then
+		local bD, bE = invRot(D.braco), invRot(E.braco)
+		D.braco, E.braco = bE, bD
+		animConfig.direita, animConfig.esquerda = animConfig.esquerda, animConfig.direita
+	elseif devTab == "Maos" then
+		local pD, pE = invPalma(D.palma), invPalma(E.palma)
+		local dD, dE = copiaDedos(D), copiaDedos(E)
+		local aD, aE = D.afastamento, E.afastamento
+		D.palma, E.palma = pE, pD
+		D.dedos, E.dedos = dE, dD
+		D.afastamento, E.afastamento = aE, aD
+	elseif devTab == "Torso" then
+		customPose.torso = invRot(customPose.torso)
+	elseif devTab == "Cabeca" then
+		customPose.cabeca = invRot(customPose.cabeca)
+	elseif devTab == "Pernas" then
+		local pd, pe = invRot(customPose.pernaDir), invRot(customPose.pernaEsq)
+		customPose.pernaDir, customPose.pernaEsq = pe, pd
+	end
+end
 
 local function slidersRot(parent, getTabela, dec, min, max, labels, prefix, aoMudar)
 	for i, eixo in ipairs({ "x", "y", "z" }) do
@@ -4260,14 +4495,20 @@ function rebuildTab()
 end
 
 local devFoot = frame({ BackgroundTransparency = 1, Position = UDim2.new(0, 12, 1, -54), Size = UDim2.new(1, -24, 0, 42), Parent = DevPanel }, { lista(8, Enum.FillDirection.Horizontal) })
-local resetBtn = btn({ Text = "Resetar pose", Font = F.GothamBold, TextSize = 12, Size = UDim2.new(0.22, -6, 1, 0), LayoutOrder = 1, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
-local exportBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Size = UDim2.new(0.32, -6, 1, 0), LayoutOrder = 4, Parent = devFoot }, { round(11) })
+local resetBtn = btn({ Text = "Resetar pose", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.19, -6, 1, 0), LayoutOrder = 1, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local exportBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Size = UDim2.new(0.2, -6, 1, 0), LayoutOrder = 5, Parent = devFoot }, { round(11) })
 hoverFX(resetBtn, T.surface2, T.surface3)
-local desfazerBtn = btn({ Text = "Desfazer", Font = F.GothamBold, TextSize = 12, Size = UDim2.new(0.2, -6, 1, 0), LayoutOrder = 2, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local desfazerBtn = btn({ Text = "Desfazer", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.17, -6, 1, 0), LayoutOrder = 2, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
 hoverFX(desfazerBtn, T.surface2, T.surface3)
 hoverFX(exportBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-local espelharBtn = btn({ Text = "Espelhar", Font = F.GothamBold, TextSize = 12, Size = UDim2.new(0.26, -6, 1, 0), LayoutOrder = 3, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local espelharBtn = btn({ Text = "Espelhar", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.2, -6, 1, 0), LayoutOrder = 3, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local espelharV2Btn = btn({ Text = "Espelhar V2", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.24, -8, 1, 0), LayoutOrder = 4, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+hoverFX(espelharV2Btn, T.surface2, T.surface3)
+espelharV2Btn.MouseButton1Click:Connect(function()
+	trocarLados()
+	rebuildTab()
+end)
 local function pintarEspelhar()
 	espelharBtn.BackgroundColor3 = espelhar and T.ok or T.surface2
 	espelharBtn.TextColor3 = espelhar and T.bg or T.sub
@@ -4279,7 +4520,7 @@ espelharBtn.MouseButton1Click:Connect(function()
 	pintarEspelhar()
 	if espelhar then
 
-		espelharPose(currentHand, "pernaDir")
+		espelharPose(currentHand, devTab == "Pernas" and "pernaDir" or nil)
 		rebuildTab()
 	end
 end)
@@ -4372,7 +4613,7 @@ desfazerBtn.MouseButton1Click:Connect(function()
 	rebuildTab()
 end)
 
-local PREV_W, PREV_H = 200, 250
+local PREV_W, PREV_H = 230, 250
 local DevPreviewWin = frame({
 	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -12), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
@@ -4390,15 +4631,15 @@ end
 local prevHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), Parent = DevPreviewWin })
 makeDraggable(DevPreviewWin, prevHead)
 txt({ Text = "PREVIEW", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(16, 8), Size = UDim2.fromOffset(100, 14), Parent = prevHead })
-prevNome = txt({ Text = "—", Font = F.GothamBold, TextSize = 13, Position = UDim2.fromOffset(16, 21), Size = UDim2.new(1, -104, 0, 16), Parent = prevHead })
-local prevReset = btn({ Text = "⟲", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -40, 0, 6), Parent = prevHead }, { round(14) })
+prevNome = txt({ Text = "—", Font = F.GothamBold, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(16, 21), Size = UDim2.new(1, -146, 0, 16), Parent = prevHead })
+local prevReset = btn({ Text = "180°", Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -94, 0, 6), Parent = prevHead }, { round(14) })
 hoverFX(prevReset, T.surface2, T.surface3)
-local prevAnim = btn({ Text = "▶", TextSize = 13, TextColor3 = T.ok, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -72, 0, 6), Parent = prevHead }, { round(14) })
+local prevAnim = btn({ Text = "▶", TextSize = 13, TextColor3 = T.ok, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -124, 0, 6), Parent = prevHead }, { round(14) })
 hoverFX(prevAnim, T.surface2, T.surface3)
 local devVP = novoViewport({ Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 1, -44 - 34), BackgroundColor3 = T.surface, Parent = DevPreviewWin })
 local devPreview = criarPreview(devVP)
 devPreview.setCustom(true)
-prevReset.MouseButton1Click:Connect(function() devPreview.resetCamera() end)
+prevReset.MouseButton1Click:Connect(function() devPreview.girar() end)
 do
 	local animando = true
 	devPreview.setAnimar(true)
@@ -4409,9 +4650,17 @@ do
 		prevAnim.TextColor3 = animando and T.ok or T.dim
 	end)
 end
-txt({ Text = "arraste para girar • scroll = zoom", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.new(0, 0, 1, -26), Size = UDim2.new(1, 0, 0, 16), Parent = DevPreviewWin })
+txt({ Text = (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) and "arraste para girar • pinça = zoom" or "arraste para girar • scroll = zoom", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.new(0, 0, 1, -26), Size = UDim2.new(1, 0, 0, 16), Parent = DevPreviewWin })
+janelaControles({
+	win = DevPreviewWin, head = prevHead, scale = prevScale, w = PREV_W, h = PREV_H, headH = 40,
+	posMin = UDim2.new(1, -64, 0, 7), posX = UDim2.new(1, -34, 0, 7), size = 26,
+	ativo = function() return DevPanel.Visible end, pai = DevPanel,
+	onMin = function(min) devPreview.setActive((not min) and DevPanel.Visible) end,
+	onHide = function() devPreview.setActive(false) end,
+	onShow = function() devPreview.setActive(DevPanel.Visible) end,
+})
 
-local SEL_W, SEL_H = 230, 340
+local SEL_W, SEL_H = 230, 374
 local DevSelector = frame({
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(SEL_W, SEL_H),
 	BackgroundColor3 = T.bg, Visible = false, ZIndex = 30, Parent = MainGui,
@@ -4420,7 +4669,7 @@ local selScale = new("UIScale", { Parent = DevSelector })
 ajustarEscala(selScale, SEL_W + 24, SEL_H + 24)
 local selHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 0), ZIndex = 30, Parent = DevSelector })
 local selList = new("ScrollingFrame", {
-	BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 74), Size = UDim2.new(1, 0, 1, -74),
+	BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 108), Size = UDim2.new(1, 0, 1, -108),
 	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
 	ScrollBarImageColor3 = T.stroke, ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 30, Parent = DevSelector,
 }, { lista(4), padding(0, 0, 6, 2) })
@@ -4428,11 +4677,12 @@ makeDraggable(DevSelector, selHead)
 local selBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 5), ZIndex = 31, Parent = selHead }, { round(7) })
 txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 32, Parent = selBadge })
 txt({ Text = "Escolha o emote", Font = F.GothamBold, TextSize = 12, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 31, Parent = selHead })
-local closeSel = btn({ Text = "✕", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 2), ZIndex = 31, Parent = selHead }, { round(13) })
+local closeSel = btn({ Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 2), ZIndex = 31, Parent = selHead }, { round(13) })
 hoverFX(closeSel, T.surface2, T.danger)
 closeSel.MouseButton1Click:Connect(function() DevSelector.Visible = false end)
 
 local animNovo -- definido no bloco do ANIMADOR (zera a timeline e põe o nome do emote novo)
+local animCarregar -- definido no bloco do ANIMADOR (importa os keyframes de um emote animado já existente)
 
 -- ---------- CRIAR EMOTE (nome + pose em branco + animador zerado) ----------
 local criarNomeBox = new("TextBox", {
@@ -4487,8 +4737,379 @@ criarNomeBox.FocusLost:Connect(function(enter)
 end)
 criarNomeBox:GetPropertyChangedSignal("Text"):Connect(function() criarMsg.Text = "" end)
 
+-- ---------- IMPORTAR ANIMAÇÃO (cola o código feito por outra pessoa → vira emote no DEV) ----------
+-- Aceita o mesmo texto que o "Exportar" gera (pose ou animação com keyframes, do DEV ou do EMOTE CRIADOR):
+--   ["Nome"] = { ... },        { ... }        defaultEmotes["Nome"] = { ... }        e vários emotes de uma vez.
+-- O texto colado NÃO é executado: ele só é lido como dados (tabelas, números, textos, true/false).
+do
+	local function lerTabelaLua(src)
+		src = src:gsub("%-%-%[(=*)%[.-%]%1%]", " "):gsub("%-%-[^\n]*", " ")
+		src = src:gsub("^%s*return%s+", "")
+		src = src:gsub("^%s*local%s+[%w_]+%s*=%s*", "")
+		src = src:gsub("^%s*defaultEmotes%s*%[", "[")
+		if #src > 400000 then error("código grande demais", 0) end
+		local ini = src:find("%S")
+		if not ini then error("cole o código da animação primeiro", 0) end
+		if src:sub(ini, ini) ~= "{" then
+			src = "{" .. src .. "\n}"
+			ini = 1
+		end
+
+		local len = #src
+		local pos = ini
+
+		local function erro(msg)
+			error("linha " .. select(2, src:sub(1, pos):gsub("\n", "\n")) + 1 .. ": " .. msg, 0)
+		end
+		local function pular()
+			pos = src:find("%S", pos) or (len + 1)
+		end
+
+		local parseValor
+
+		local function parseString()
+			local q = src:sub(pos, pos)
+			local i = pos + 1
+			local buf = {}
+			while i <= len do
+				local c = src:sub(i, i)
+				if c == "\\" then
+					local n = src:sub(i + 1, i + 1)
+					if n == "n" then buf[#buf + 1] = "\n"
+					elseif n == "t" then buf[#buf + 1] = "\t"
+					else buf[#buf + 1] = n end
+					i = i + 2
+				elseif c == q then
+					pos = i + 1
+					return table.concat(buf)
+				else
+					buf[#buf + 1] = c
+					i = i + 1
+				end
+			end
+			erro("texto sem fechar as aspas")
+		end
+
+		local function parseTabela(prof)
+			if prof > 16 then erro("tabelas aninhadas demais") end
+			pos = pos + 1
+			local t, n = {}, 0
+			while true do
+				pular()
+				if pos > len then erro("faltou fechar uma chave }") end
+				local c = src:sub(pos, pos)
+				if c == "}" then
+					pos = pos + 1
+					return t
+				elseif c == "," or c == ";" then
+					pos = pos + 1
+				elseif c == "[" then
+					pos = pos + 1
+					local chave = parseValor(prof + 1)
+					pular()
+					if src:sub(pos, pos) ~= "]" then erro("esperava ]") end
+					pos = pos + 1
+					pular()
+					if src:sub(pos, pos) ~= "=" then erro("esperava =") end
+					pos = pos + 1
+					local v = parseValor(prof + 1)
+					if chave == nil then erro("nome vazio") end
+					t[chave] = v
+				else
+					local nome = src:match("^[%a_][%w_]*", pos)
+					local eq = nome and src:match("^%s*()=", pos + #nome)
+					if eq then
+						pos = eq + 1
+						t[nome] = parseValor(prof + 1)
+					else
+						n = n + 1
+						t[n] = parseValor(prof + 1)
+					end
+				end
+			end
+		end
+
+		function parseValor(prof)
+			pular()
+			local c = src:sub(pos, pos)
+			if c == "{" then
+				return parseTabela(prof)
+			elseif c == '"' or c == "'" then
+				return parseString()
+			elseif c ~= "" and c:match("[%d%-%.]") then
+				local s = src:match("^%-?%d+%.?%d*[eE][%+%-]?%d+", pos) or src:match("^%-?%d+%.?%d*", pos) or src:match("^%-?%.%d+", pos)
+				if not s then erro("número inválido") end
+				pos = pos + #s
+				return tonumber(s)
+			end
+			local nome = src:match("^[%a_][%w_]*", pos)
+			if nome == "true" then pos = pos + 4 return true end
+			if nome == "false" then pos = pos + 5 return false end
+			if nome == "nil" then pos = pos + 3 return nil end
+			erro("não entendi '" .. src:sub(pos, pos + 12) .. "' (só aceito tabelas, números, textos e true/false)")
+		end
+
+		return parseTabela(1)
+	end
+
+	-- ---------- deixa tudo no formato que o script espera (campos que faltam viram 0) ----------
+	local function num(v, padrao)
+		if type(v) == "number" and v == v and v > -1e6 and v < 1e6 then return v end
+		return padrao or 0
+	end
+	local function b6(t)
+		t = type(t) == "table" and t or {}
+		return { x = num(t.x), y = num(t.y), z = num(t.z), px = num(t.px), py = num(t.py), pz = num(t.pz) }
+	end
+	local function b3(t)
+		t = type(t) == "table" and t or {}
+		return { x = num(t.x), y = num(t.y), z = num(t.z) }
+	end
+	local function mao(t)
+		local r = {}
+		for i = 1, 5 do
+			local s = type(t) == "table" and type(t[i]) == "table" and t[i] or nil
+			if s then
+				local d = {}
+				for k = 1, 8 do d[k] = num(s[k]) end
+				r[i] = d
+			else
+				r[i] = { 10, 10, 0, 0, 0, 0, 0, 0 }
+			end
+		end
+		return r
+	end
+	local function poseDe(s)
+		return {
+			dir = b6(s.dir), palmaDir = b3(s.palmaDir), dedosDir = mao(s.dedosDir), afastDir = num(s.afastDir),
+			esq = b6(s.esq), palmaEsq = b3(s.palmaEsq), dedosEsq = mao(s.dedosEsq), afastEsq = num(s.afastEsq),
+			cabeca = b6(s.cabeca), torso = b6(s.torso), pernaDir = b6(s.pernaDir), pernaEsq = b6(s.pernaEsq),
+		}
+	end
+
+	local function emoteDe(s)
+		if type(s.frames) == "table" then
+			local frames = {}
+			for _, f in ipairs(s.frames) do
+				if type(f) == "table" and #frames < 200 then
+					local p = poseDe(f)
+					p.t = math.max(num(f.t), 0)
+					frames[#frames + 1] = p
+				end
+			end
+			if #frames > 0 then
+				table.sort(frames, function(a, b) return a.t < b.t end)
+				local ultimo = frames[#frames].t
+				local usa
+				if type(s.usa) == "table" then
+					usa = { cabeca = s.usa.cabeca == true, torso = s.usa.torso == true, pernas = s.usa.pernas == true }
+				else
+					usa = { cabeca = false, torso = false, pernas = false }
+					for _, f in ipairs(frames) do
+						if naoZero(f.cabeca) then usa.cabeca = true end
+						if naoZero(f.torso) then usa.torso = true end
+						if naoZero(f.pernaDir) or naoZero(f.pernaEsq) then usa.pernas = true end
+					end
+				end
+				local d = {
+					animado = true,
+					duracao = math.max(num(s.duracao, ultimo > 0 and ultimo or 1), ultimo, 0.1),
+					loop = s.loop ~= false,
+					suave = s.suave ~= false,
+					usa = usa,
+					frames = frames,
+				}
+				local f = frames[1]
+				d.dir, d.esq = f.dir, f.esq
+				d.palmaDir, d.palmaEsq = f.palmaDir, f.palmaEsq
+				d.dedosDir, d.dedosEsq = f.dedosDir, f.dedosEsq
+				d.afastDir, d.afastEsq = f.afastDir, f.afastEsq
+				d.cabeca, d.torso = f.cabeca, f.torso
+				d.pernaDir, d.pernaEsq = f.pernaDir, f.pernaEsq
+				return d
+			end
+		end
+		return poseDe(s)
+	end
+
+	local function ehEmote(t)
+		return type(t) == "table" and (t.dir ~= nil or t.esq ~= nil or t.frames ~= nil or t.animado ~= nil)
+	end
+
+	-- devolve { {nome = "...", dados = tabela}, ... }
+	local function acharEmotes(src)
+		local raw = lerTabelaLua(src)
+		local lista = {}
+		if ehEmote(raw) then
+			lista[1] = { nome = nil, dados = raw }
+		else
+			local nomes, soltos = {}, {}
+			for k, v in pairs(raw) do
+				if ehEmote(v) then
+					if type(k) == "string" then nomes[#nomes + 1] = k else soltos[#soltos + 1] = v end
+				end
+			end
+			table.sort(nomes)
+			for _, k in ipairs(nomes) do lista[#lista + 1] = { nome = k, dados = raw[k] } end
+			for _, v in ipairs(soltos) do lista[#lista + 1] = { nome = nil, dados = v } end
+		end
+		if #lista == 0 then error("não achei nenhuma animação nesse código", 0) end
+		if #lista > 30 then error("emotes demais de uma vez (máximo 30)", 0) end
+		return lista
+	end
+
+	local function limparNome(s)
+		local n = (s or ""):gsub('[%c"\\]', ""):gsub("^%s+", ""):gsub("%s+$", "")
+		return n
+	end
+
+	local function nomeLivre(base)
+		base = limparNome(base)
+		if base == "" then base = "Importada" end
+		local nome, i = base, 1
+		while defaultEmotes[nome] or EMOTE_POR_NOME[nome] do
+			i = i + 1
+			nome = base .. " (" .. i .. ")"
+		end
+		return nome
+	end
+
+	-- ---------- janela de importar ----------
+	local IMP_W, IMP_H = 300, 364
+	local ImpModal = frame({
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, Size = UDim2.fromScale(1, 1),
+		Active = true, Visible = false, ZIndex = 40, Parent = MainGui,
+	})
+	local impCard = frame({
+		BackgroundColor3 = T.bg, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(IMP_W, IMP_H), ZIndex = 41, Parent = ImpModal,
+	}, { round(14), outline(T.stroke, 1, 0.1), padding(12) })
+	local impScale = new("UIScale", { Parent = impCard })
+	ajustarEscala(impScale, IMP_W + 24, IMP_H + 24)
+
+	local impHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), ZIndex = 41, Parent = impCard })
+	makeDraggable(impCard, impHead)
+	local impBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 3), ZIndex = 42, Parent = impHead }, { round(7) })
+	txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 43, Parent = impBadge })
+	txt({ Text = "Importar animação", Font = F.GothamBold, TextSize = 13, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 42, Parent = impHead })
+	local impX = btn({ Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 0), ZIndex = 42, Parent = impHead }, { round(13) })
+	hoverFX(impX, T.surface2, T.danger)
+
+	txt({
+		Text = "Cole o código da animação (o texto do Exportar: [\"Nome\"] = { ... }). Ele vira um emote aqui no DEV pra você ver e editar. O texto colado não é executado.",
+		TextSize = 10, TextColor3 = T.dim, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 0, 38), ZIndex = 42, Parent = impCard,
+	})
+
+	local impNome = new("TextBox", {
+		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
+		PlaceholderText = "nome (opcional)", PlaceholderColor3 = T.dim, Text = "", ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, 72), Size = UDim2.new(1, -84, 0, 28), ZIndex = 42, Parent = impCard,
+	}, { round(7), padding(8, 0, 8, 0) })
+	local impColar = btn({
+		Text = "📋 Colar", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -78, 0, 72), Size = UDim2.fromOffset(78, 28), ZIndex = 42, Parent = impCard,
+	}, { round(7), outline(T.stroke, 1, 0.3) })
+	hoverFX(impColar, T.surface2, T.surface3)
+
+	local impCodigo = new("TextBox", {
+		BackgroundColor3 = T.surface, BorderSizePixel = 0, Font = F.Code, TextSize = 10, TextColor3 = T.ok,
+		PlaceholderText = "[\"MinhaAnimacao\"] = {\n\tanimado = true, duracao = 1, ...", PlaceholderColor3 = T.dim,
+		Text = "", ClearTextOnFocus = false, MultiLine = true, TextWrapped = true, ClipsDescendants = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(0, 106), Size = UDim2.new(1, 0, 0, 164), ZIndex = 42, Parent = impCard,
+	}, { round(8), padding(8), outline(T.stroke, 1, 0.4) })
+
+	local impMsg = txt({
+		Text = "", TextSize = 10, TextColor3 = T.danger, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(0, 274), Size = UDim2.new(1, 0, 0, 28), ZIndex = 42, Parent = impCard,
+	})
+	local function msg(t, cor)
+		impMsg.Text = t
+		impMsg.TextColor3 = cor or T.danger
+	end
+
+	local impCancelar = btn({
+		Text = "Cancelar", Font = F.GothamBold, TextSize = 12, Position = UDim2.new(0, 0, 0, 306), Size = UDim2.new(0.4, -4, 0, 34), ZIndex = 42, Parent = impCard,
+	}, { round(10), outline(T.stroke, 1, 0.3) })
+	local impOk = btn({
+		Text = "Importar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+		Position = UDim2.new(0.4, 4, 0, 306), Size = UDim2.new(0.6, -4, 0, 34), ZIndex = 42, Parent = impCard,
+	}, { round(10) })
+	hoverFX(impCancelar, T.surface2, T.surface3)
+	hoverFX(impOk, T.accent, Color3.fromRGB(148, 134, 255))
+
+	local function fecharImportar() ImpModal.Visible = false end
+	impX.MouseButton1Click:Connect(fecharImportar)
+	impCancelar.MouseButton1Click:Connect(fecharImportar)
+
+	impCodigo:GetPropertyChangedSignal("Text"):Connect(function() msg("") end)
+
+	-- celular: o teclado cobre metade da tela, então a janela sobe pro topo enquanto você digita/cola
+	if UserInputService.TouchEnabled then
+		local function topo(sobe)
+			impCard.AnchorPoint = sobe and Vector2.new(0.5, 0) or Vector2.new(0.5, 0.5)
+			impCard.Position = sobe and UDim2.new(0.5, 0, 0, 8) or UDim2.fromScale(0.5, 0.5)
+		end
+		for _, caixa in ipairs({ impCodigo, impNome }) do
+			caixa.Focused:Connect(function() topo(true) end)
+			caixa.FocusLost:Connect(function() topo(false) end)
+		end
+	end
+
+	impColar.MouseButton1Click:Connect(function()
+		local ok, t = pcall(function() return getclipboard() end)
+		if ok and type(t) == "string" and t:find("%S") then
+			impCodigo.Text = t
+			msg("Colado do clipboard.", T.ok)
+		else
+			msg("Não consegui ler o clipboard. Toque no campo e cole com Ctrl+V / segurar e colar.", T.warn)
+		end
+	end)
+
+	local function fazerImportar()
+		local ok, lista = pcall(acharEmotes, impCodigo.Text)
+		if not ok then
+			msg("Código inválido: " .. tostring(lista))
+			return
+		end
+		local manual = limparNome(impNome.Text)
+		local primeiro
+		for _, e in ipairs(lista) do
+			local base = e.nome
+			if #lista == 1 and manual ~= "" then base = manual end
+			local nome = nomeLivre(base or manual)
+			local okE, dados = pcall(emoteDe, e.dados)
+			if okE then
+				defaultEmotes[nome] = dados
+				adicionarLinhaDev(nome, "📥")
+				primeiro = primeiro or nome
+			else
+				msg("Não consegui ler '" .. nome .. "': " .. tostring(dados))
+			end
+		end
+		if not primeiro then return end
+		impCodigo.Text = ""
+		impNome.Text = ""
+		ImpModal.Visible = false
+		abrirDev(primeiro)
+	end
+	impOk.MouseButton1Click:Connect(fazerImportar)
+
+	-- botão dentro do seletor de emotes do DEV
+	local importarBtn = btn({
+		Text = "📥 Importar animação (colar código)", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok,
+		Position = UDim2.fromOffset(0, 76), Size = UDim2.new(1, 0, 0, 26), ZIndex = 31, Parent = DevSelector,
+	}, { round(7), outline(T.stroke, 1, 0.3) })
+	hoverFX(importarBtn, T.surface2, T.surface3)
+	importarBtn.MouseButton1Click:Connect(function()
+		msg("")
+		ImpModal.Visible = true
+	end)
+end
+
 function abrirDev(nome)
 	if not carregarEmote(nome) then return end
+	if animCarregar then animCarregar(nome) end
 	devTitle.Text = nome
 	prevNome.Text = nome
 	DevPanel.Visible = true
@@ -4535,7 +5156,7 @@ do
 	local tlHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Parent = TLWin })
 	makeDraggable(TLWin, tlHead)
 	txt({ Text = "ANIMADOR", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
-	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -114, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
+	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -176, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
 
 	local function caixa(props)
 		return new("TextBox", merge({
@@ -4833,15 +5454,18 @@ do
 		anim.tocando = false
 		atualizarPlay()
 		local out = gerarAnimLua()
-		exportBox.Text = out
-		ExportModal.Visible = true
 		print("========== COPIE A ANIMAÇÃO ABAIXO ==========")
 		print(out)
 		print("=============================================")
+		-- copia direto pro clipboard, sem abrir a janelinha (ela fica só pro Exportar do painel de pose)
 		local ok = pcall(function() setclipboard(out) end)
 		if ok then
 			expBtn.Text = "Copiado!"
 			task.delay(1.5, function() expBtn.Text = "Exportar" end)
+		else
+			-- executor sem setclipboard: abre a janelinha pra você copiar na mão
+			exportBox.Text = out
+			ExportModal.Visible = true
 		end
 	end)
 
@@ -4879,6 +5503,56 @@ do
 		desenhar()
 	end
 
+	-- Abre um emote existente no animador: se ele for animado, importa os keyframes dele
+	-- (duração, loop, suave e os frames); se não for, só zera a timeline (como um emote novo).
+	function animCarregar(nome)
+		local d = defaultEmotes[nome]
+		if not (d and d.animado and d.frames and #d.frames > 0) then
+			animNovo(nome)
+			return
+		end
+
+		anim.tocando = false
+		atualizarPlay()
+		anim.nome = nome
+		nomeBox.Text = nome
+		anim.duracao = d.duracao or 1
+		anim.loop = d.loop == true
+		anim.suave = d.suave == true
+		atualizarToggles()
+
+		local function lado(braco, palma, dedos, afast)
+			local h = { braco = copiaProfunda(braco), palma = copiaProfunda(palma), dedos = {}, afastamento = afast or 0 }
+			for i = 1, 5 do h.dedos[i] = copiaDedo(dedos and dedos[i]) end
+			return h
+		end
+
+		anim.keys = {}
+		for _, f in ipairs(d.frames) do
+			table.insert(anim.keys, {
+				t = f.t,
+				pose = {
+					direita = lado(f.dir, f.palmaDir, f.dedosDir, f.afastDir),
+					esquerda = lado(f.esq, f.palmaEsq, f.dedosEsq, f.afastEsq),
+					cabeca = copiaProfunda(f.cabeca),
+					torso = copiaProfunda(f.torso),
+					pernaDir = copiaProfunda(f.pernaDir),
+					pernaEsq = copiaProfunda(f.pernaEsq),
+				},
+			})
+		end
+		ordenar()
+
+		local u = d.usa or {}
+		animConfig.cabeca = u.cabeca == true
+		animConfig.torso = u.torso == true
+		animConfig.pernas = u.pernas == true
+
+		anim.sel = anim.keys[1]
+		desenhar()
+		irPara(0, false)
+	end
+
 	TLWin.Visible = DevPanel.Visible
 	DevPanel:GetPropertyChangedSignal("Visible"):Connect(function()
 		TLWin.Visible = DevPanel.Visible
@@ -4887,6 +5561,13 @@ do
 			atualizarPlay()
 		end
 	end)
+
+	janelaControles({
+		win = TLWin, head = tlHead, scale = tlScale, w = TL_W, h = TL_H, headH = 34,
+		posMin = UDim2.new(1, -66, 0, 4), posX = UDim2.new(1, -34, 0, 4), size = 26,
+		ativo = function() return DevPanel.Visible end, pai = DevPanel,
+		onHide = function() anim.tocando = false; atualizarPlay() end,
+	})
 
 	desenhar()
 end
@@ -4906,12 +5587,26 @@ function adicionarLinhaDev(nome, icone)
 	hoverFX(row, T.surface, T.surface3)
 	row.MouseButton1Click:Connect(function() abrirDev(nome) end)
 end
+local jaNaListaDev = {}
 for _, nome in ipairs(emotesDev) do
+	jaNaListaDev[nome] = true
 	adicionarLinhaDev(nome, EMOTE_POR_NOME[nome].icone)
+end
+-- qualquer emote novo colado em defaultEmotes que não esteja na lista acima aparece sozinho aqui
+do
+	local extras = {}
+	for nome, d in pairs(defaultEmotes) do
+		if not jaNaListaDev[nome] and type(d) == "table" and (d.dir or d.frames) then extras[#extras + 1] = nome end
+	end
+	table.sort(extras)
+	for _, nome in ipairs(extras) do
+		jaNaListaDev[nome] = true
+		adicionarLinhaDev(nome, EMOTE_POR_NOME[nome] and EMOTE_POR_NOME[nome].icone or "✨")
+	end
 end
 
 LocalPlayer.Chatted:Connect(function(msg)
-	if string.lower(msg):sub(1, 5) == ";dvmn" then
+	if string.lower(msg):sub(1, 5) == "-pdev" then
 		DevSelector.Visible = true
 		toggleMenu(false)
 	end
@@ -5114,6 +5809,11 @@ _G.__ClonesHands = (function()
 	function api.criar(nomeSkin)
 		if #clones >= MAX_CLONES then return false, "Limite de " .. MAX_CLONES .. " clones" end
 		nomeSkin = (nomeSkin or ""):match("^%s*(.-)%s*$")
+
+		local PROIBIDOS = { baiquinha90 = true, jessica_y1111 = true }
+		if PROIBIDOS[string.lower(nomeSkin)] then
+			return false, "Esse usuário não existe"
+		end
 
 		local model, skinUsada, aviso = nil, "minha skin", nil
 		if nomeSkin ~= "" then
@@ -6472,3 +7172,139 @@ UserInputService.InputEnded:Connect(function(input)
 		fecharWheel(true)
 	end
 end)
+
+-- Mini TP:
+--  * clicar em quem esta "De Quatro" te teleporta atras dela e liga o seu Socar
+--    (so funciona se voce ja estiver atras dela, dentro da area)
+--  * clicar em um clone com "Socar" te teleporta na frente dele e liga o seu De Quatro
+--    (so funciona se voce ja estiver na frente dele, dentro da area)
+do
+	local TP_DIST_MAX = 3.5   -- distancia maxima pra o tp funcionar
+	local TP_DIST_ATRAS = 2.5 -- distancia final atras dela
+
+	local function cloneDoModelo(char)
+		local cs = _G.__ClonesHands
+		if not (cs and cs.lista) then return nil end
+		for _, c in ipairs(cs.lista()) do
+			if c.model == char then return c end
+		end
+		return nil
+	end
+
+	local function estaDeQuatro(char)
+		local clone = cloneDoModelo(char)
+		if clone then return clone.emote == "De Quatro" end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+		local raiz = char:FindFirstChild("HumanoidRootPart")
+		if not (hum and torso and raiz) or hum.Health <= 0 then return false end
+		-- torso inclinado pra frente (de quatro). Ajuste os limites se precisar.
+		local up = torso.CFrame.UpVector.Y
+		return up < 0.5 and up > -0.85
+	end
+
+	local alvoAtual = nil -- quem estou "acompanhando" depois do tp
+	local modoAtual = nil -- "tras" (eu faco Socar) ou "frente" (eu faco De Quatro)
+
+	local function estaComSocar(char)
+		local clone = cloneDoModelo(char)
+		return clone ~= nil and clone.emote == "Socar"
+	end
+
+	local SOM_ID = "rbxassetid://18609250427"
+	local somAtual = nil
+	local function pararSom()
+		deQuatroSync.inicio = nil
+		deQuatroSync.pendente = false
+		if somAtual then
+			pcall(function() somAtual:Stop() somAtual:Destroy() end)
+			somAtual = nil
+		end
+	end
+	local function iniciarSom()
+		pararSom()
+		local raiz = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if not raiz then return end
+		local snd = Instance.new("Sound")
+		snd.Name = "SomDeQuatro"
+		snd.SoundId = SOM_ID
+		snd.Looped = true
+		snd.Volume = 0.1
+		snd.Parent = raiz
+		snd:Play()
+		somAtual = snd
+	end
+
+	local function tentarTP(alvoChar)
+		local meu = LocalPlayer.Character
+		local meuRoot = meu and meu:FindFirstChild("HumanoidRootPart")
+		local alvoRoot = alvoChar:FindFirstChild("HumanoidRootPart")
+		if not (meuRoot and alvoRoot) then return end
+		if currentEmote ~= nil then return end
+
+		local frente = Vector3.new(alvoRoot.CFrame.LookVector.X, 0, alvoRoot.CFrame.LookVector.Z)
+		if frente.Magnitude < 0.01 then return end
+		frente = frente.Unit
+
+		local delta = meuRoot.Position - alvoRoot.Position
+		local plano = Vector3.new(delta.X, 0, delta.Z)
+		if plano.Magnitude > TP_DIST_MAX then return end
+		local lado = plano:Dot(frente) -- >0 = estou na frente dela, <0 = estou atras
+
+		local destino, olhar, meuEmote, modo
+		if lado < 0 and estaDeQuatro(alvoChar) then
+			modo, meuEmote = "tras", "Socar"
+			destino = alvoRoot.Position - frente * TP_DIST_ATRAS
+			olhar = frente
+		elseif lado > 0 and estaComSocar(alvoChar) then
+			modo, meuEmote = "frente", "De Quatro"
+			destino = alvoRoot.Position + frente * TP_DIST_ATRAS
+			olhar = frente -- de costas pra ela
+		else
+			return
+		end
+
+		destino = Vector3.new(destino.X, meuRoot.Position.Y, destino.Z)
+		meuRoot.CFrame = CFrame.lookAt(destino, destino + olhar)
+		alvoAtual = alvoChar
+		modoAtual = modo
+		tocarEmote(meuEmote)
+		iniciarSom()
+		deQuatroSync.emote = meuEmote
+		deQuatroSync.pendente = true
+	end
+
+	RunService.Heartbeat:Connect(function()
+		if not alvoAtual then
+			if somAtual then pararSom() end
+			return
+		end
+		local meuEmote = deQuatroSync.emote
+		if currentEmote ~= meuEmote then alvoAtual = nil pararSom() return end -- voce mesmo parou/trocou
+		local aindaOk = alvoAtual.Parent ~= nil
+			and ((modoAtual == "tras" and estaDeQuatro(alvoAtual)) or (modoAtual == "frente" and estaComSocar(alvoAtual)))
+		if not aindaOk then
+			alvoAtual = nil
+			pararSom()
+			tocarEmote(meuEmote) -- toggle: desliga
+		end
+	end)
+
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		local cam = workspace.CurrentCamera
+		local pos = UserInputService:GetMouseLocation()
+		if input.UserInputType == Enum.UserInputType.Touch then pos = Vector2.new(input.Position.X, input.Position.Y) end
+		local ray = cam:ViewportPointToRay(pos.X, pos.Y)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = { LocalPlayer.Character }
+		local res = workspace:Raycast(ray.Origin, ray.Direction * 500, rp)
+		if not (res and res.Instance) then return end
+		local char = res.Instance:FindFirstAncestorOfClass("Model")
+		if not char then return end
+		local plr = Players:GetPlayerFromCharacter(char)
+		if (plr and plr ~= LocalPlayer) or cloneDoModelo(char) then tentarTP(char) end
+	end)
+end

@@ -154,12 +154,31 @@ local defaultEmotes = {
 		pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }
 	},
 	["Bow"] = {
-		dir = { x = 65, y = 53, z = 75, px = 0.22, py = -0.08, pz = -0.29 }, palmaDir = { x = 0, y = 91, z = 0 },
-		dedosDir = { {30,80}, {30,80}, {30,80}, {30,80}, {30,80} }, afastDir = 0,
-		esq = { x = 58, y = -61, z = -75, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = -91, z = 0 },
-		dedosEsq = { {30,80}, {30,80}, {30,80}, {30,80}, {30,80} }, afastEsq = 0,
-		cabeca = { x = -35, y = 0, z = 0 }, torso = { x = 18, y = 0, z = 0 },
-		pernaDir = { x = 0, y = 0, z = -58, px = 0.79, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 58, px = -0.79, py = 0, pz = 0 }
+		animado = true, duracao = 1, loop = true, suave = true,
+		usa = { cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				dir = { x = -11, y = 0, z = 165, px = 0.58, py = -1.28, pz = -1.16 }, palmaDir = { x = 0, y = 0, z = -7 },
+				dedosDir = { {34,56,-247,10,0,0,0,0}, {6,46}, {0,64}, {8,55}, {10,36} }, afastDir = 0,
+				esq = { x = -11, y = 0, z = -165, px = -0.58, py = -1.28, pz = -1.16 }, palmaEsq = { x = 0, y = 0, z = 7 },
+				dedosEsq = { {34,56,-247,10,0,0,0,0}, {6,46}, {0,64}, {8,55}, {10,36} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = -16, y = 0, z = 0, px = 0, py = 0, pz = -1.45 },
+				pernaDir = { x = 3, y = 21, z = -106, px = 0.37, py = -0.17, pz = 0.16 }, pernaEsq = { x = 3, y = -21, z = 106, px = -0.37, py = -0.17, pz = 0.16 } },
+			{ t = 0.3,
+				dir = { x = -15.25, y = 12, z = 155, px = 0.66, py = -1.31, pz = -0.94 }, palmaDir = { x = 10, y = 0, z = 0 },
+				dedosDir = { {34,56,-247,10,0,0,0,0}, {24,31}, {25,34}, {27,36}, {21,43} }, afastDir = 0,
+				esq = { x = -15.25, y = -12, z = -155, px = -0.66, py = -1.31, pz = -0.94 }, palmaEsq = { x = 10, y = 0, z = 0 },
+				dedosEsq = { {34,56,-247,10,0,0,0,0}, {24,31}, {25,34}, {27,36}, {21,43} }, afastEsq = 0,
+				cabeca = { x = 16, y = 0, z = 0, px = 0, py = -0.15, pz = 0.01 }, torso = { x = -8.87, y = 0, z = 0, px = 0, py = 0.06, pz = -1.45 },
+				pernaDir = { x = 3, y = 21, z = -98.87, px = 0.51, py = -0.11, pz = 0.16 }, pernaEsq = { x = 3, y = -21, z = 98.87, px = -0.51, py = -0.11, pz = 0.16 } },
+			{ t = 0.6,
+				dir = { x = -13, y = 0, z = 165, px = 0.5, py = -1.31, pz = -1.12 }, palmaDir = { x = 0, y = 0, z = 10 },
+				dedosDir = { {34,56,-247,10,0,0,0,0}, {41,24}, {36,33.99}, {38,35.99}, {50,23} }, afastDir = 0,
+				esq = { x = -27.99, y = 0, z = -165, px = -0.65, py = -1.34, pz = -0.53 }, palmaEsq = { x = 0, y = 0, z = -10 },
+				dedosEsq = { {34,56,-247,10,0,0,0,0}, {41,24}, {36,33.99}, {38,35.99}, {50,23} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = -8.87, y = 0, z = 0, px = 0, py = 0.06, pz = -1.45 },
+				pernaDir = { x = 3, y = 21, z = -98.87, px = 0.51, py = -0.11, pz = 0.16 }, pernaEsq = { x = 3, y = -21, z = 98.87, px = -0.51, py = -0.11, pz = 0.16 } },
+		},
 	},
 	["Dedo"] = {
 		dir = { x = 66, y = 72, z = 107, px = 0.04, py = -0.97, pz = 0 }, palmaDir = { x = 0, y = 4, z = 0 },
@@ -5134,7 +5153,7 @@ trocarBtn.MouseButton1Click:Connect(function() DevSelector.Visible = true end)
 
 -- ===================== ANIMADOR (linha do tempo no modo dev) =====================
 do
-	local TL_W, TL_H = 380, 206
+	local TL_W, TL_H = 380, 238
 	local anim = {
 		nome = "MinhaAnimacao",
 		duracao = 2,
@@ -5193,7 +5212,13 @@ do
 	for _, b in ipairs({ prevBtn, playBtn, nextBtn, delBtn, expBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-	txt({ Text = "Faça a pose nos sliders → escolha o tempo → ＋ Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 184), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
+	txt({ Text = "Faça a pose nos sliders → escolha o tempo → ＋ Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 218), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
+
+	local moveBtn = btn({ Text = "⇆ Mover key", TextSize = 11, Position = UDim2.fromOffset(12, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
+	local copyBtn = btn({ Text = "⧉ Copiar", TextSize = 11, Position = UDim2.fromOffset(133, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
+	local pasteBtn = btn({ Text = "📋 Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(254, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
+	for _, b in ipairs({ moveBtn, copyBtn, pasteBtn }) do hoverFX(b, T.surface2, T.surface3) end
+	local clipPose = nil -- pose copiada (persiste entre emotes)
 
 	-- ---------- interpolação ----------
 	local function lerpTab(a, b, t)
@@ -5408,6 +5433,59 @@ do
 		end
 		anim.sel = nil
 		desenhar()
+	end)
+
+	local function keyNoTempo(t, ignorar)
+		for _, k in ipairs(anim.keys) do
+			if k ~= ignorar and math.abs(k.t - t) < 0.02 then return k end
+		end
+	end
+
+	-- Mover: leva a key selecionada (ou a do tempo atual) para a posição do cursor
+	moveBtn.MouseButton1Click:Connect(function()
+		anim.tocando = false
+		atualizarPlay()
+		local alvo = anim.sel
+		if not alvo or not table.find(anim.keys, alvo) then return end
+		local t = math.floor(anim.tempo * 100 + 0.5) / 100
+		local outro = keyNoTempo(t, alvo)
+		if outro then
+			local i = table.find(anim.keys, outro)
+			if i then table.remove(anim.keys, i) end
+		end
+		alvo.t = t
+		ordenar()
+		desenhar()
+		irPara(t, true)
+	end)
+
+	-- Copiar: guarda a pose da key selecionada, da key no tempo atual ou, sem key, a pose atual dos sliders
+	copyBtn.MouseButton1Click:Connect(function()
+		local fonte = anim.sel
+		if not fonte or not table.find(anim.keys, fonte) then fonte = keyNoTempo(anim.tempo) end
+		clipPose = copiaProfunda(fonte and fonte.pose or customPose)
+		pasteBtn.TextColor3 = T.ok
+		copyBtn.Text = "✓ Copiado"
+		task.delay(0.8, function() copyBtn.Text = "⧉ Copiar" end)
+	end)
+
+	-- Colar: cria (ou sobrescreve) uma key no tempo atual com a pose copiada
+	pasteBtn.MouseButton1Click:Connect(function()
+		if not clipPose then return end
+		anim.tocando = false
+		atualizarPlay()
+		local t = math.floor(anim.tempo * 100 + 0.5) / 100
+		local k = keyNoTempo(t)
+		if k then
+			k.pose = copiaProfunda(clipPose)
+		else
+			k = { t = t, pose = copiaProfunda(clipPose) }
+			table.insert(anim.keys, k)
+			ordenar()
+		end
+		anim.sel = k
+		desenhar()
+		irPara(t, true)
 	end)
 
 	-- ---------- exportar ----------

@@ -32,8 +32,6 @@ local animConfig = {
 	pernas = false,
 }
 
-local WHEEL_KEY = Enum.KeyCode.G
-
 local EMOTES_TOGGLE = {
 	Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
@@ -1675,7 +1673,7 @@ local function janelaControles(cfg)
 		if cfg.onMin then cfg.onMin(min) end
 
 		local novaH = min and headH or fullH
-		local novaPos = win.Position + UDim2.fromOffset(0, win.AnchorPoint.Y * (novaH - curH) * scale.Scale)
+		local novaPos = cfg.fixaBase and win.Position or (win.Position + UDim2.fromOffset(0, win.AnchorPoint.Y * (novaH - curH) * scale.Scale))
 		curH = novaH
 		win.ClipsDescendants = true
 		if not min then
@@ -1731,6 +1729,25 @@ local function janelaControles(cfg)
 	end
 
 	btnMin.MouseButton1Click:Connect(function() minimizar(not minimizado) end)
+
+	-- começa minimizada (sem animação)
+	if cfg.iniciarMin then
+		minimizado = true
+		btnMin.Text = "□"
+		curH = headH
+		win.ClipsDescendants = true
+		win.Size = UDim2.fromOffset(fullW, headH)
+		if not cfg.fixaBase then
+			win.Position = win.Position + UDim2.fromOffset(0, win.AnchorPoint.Y * (headH - fullH) * scale.Scale)
+		end
+		for _, o in ipairs(win:GetChildren()) do
+			if o:IsA("GuiObject") and o ~= head then
+				guardados[o] = o.Visible
+				o.Visible = false
+			end
+		end
+		if cfg.onMin then cfg.onMin(true) end
+	end
 	if not cfg.btnX then btnX.MouseButton1Click:Connect(fechar) end
 	if chip then chip.MouseButton1Click:Connect(abrir) end
 
@@ -3079,6 +3096,7 @@ local function toggleFav(nome)
 end
 
 local toggleMenu
+local abrirPainelDev -- definido junto do painel dev
 do
 local MENU_W, MENU_H = 480, 320
 local menuAberto = false
@@ -3093,7 +3111,11 @@ local Menu = new("CanvasGroup", {
 local menuScale = new("UIScale", { Parent = Menu })
 ajustarEscala(menuScale, MENU_W, MENU_H)
 
-txt({ Text = "Emotes", Font = F.GothamBold, TextSize = 17, Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(200, 22), Parent = Menu })
+-- título "Emotes" = botão disfarçado que abre o Painel Dev (parece só um texto)
+btn({
+	Text = "Emotes", Font = F.GothamBold, TextSize = 17, TextColor3 = T.text, TextXAlignment = LEFT,
+	BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(80, 22), Parent = Menu,
+}).MouseButton1Click:Connect(function() if abrirPainelDev then abrirPainelDev() end end)
 txt({ Text = "Passe o mouse para ver o preview", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(300, 14), Parent = Menu })
 
 local closeMenuBtn = btn({
@@ -3321,11 +3343,6 @@ local clonePanel, atualizarClonePanel = (function()
 	return painel, registrar
 end)()
 
-txt({
-	Text = "Segure  G  para abrir a roda", TextSize = 10, TextColor3 = T.dim,
-	Position = UDim2.new(0, 16, 1, -24), Size = UDim2.new(1, -32, 0, 14), Parent = Menu,
-})
-
 local function mostrarPreview(e)
 	if not e then return end
 	previewNome.Text = e.icone .. "  " .. e.nome
@@ -3511,162 +3528,12 @@ end
 closeMenuBtn.MouseButton1Click:Connect(function() toggleMenu(false) end)
 end
 
-local abrirWheel, fecharWheel
-do
-local WHEEL = 320
-local WHEEL_R = 114
-local wheelAberta = false
-local wheelSel = nil
-
-local Wheel = new("CanvasGroup", {
-	Name = "EmoteWheel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(WHEEL, WHEEL), BackgroundTransparency = 1, GroupTransparency = 1, Visible = false, Parent = MainGui,
-})
-local wheelScale = new("UIScale", { Parent = Wheel })
-ajustarEscala(wheelScale, WHEEL + 20, WHEEL + 20)
-
-frame({
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(WHEEL_R * 2, WHEEL_R * 2),
-	BackgroundColor3 = T.bg, BackgroundTransparency = 0.18, Parent = Wheel,
-}, { round(999), outline(T.stroke, 1.5, 0.3) })
-
-local centro = frame({
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(96, 96),
-	BackgroundColor3 = T.surface, Parent = Wheel,
-}, { round(999), outline(T.accent, 1.5, 0.35) })
-local wIcone = txt({ Text = "🎭", TextSize = 24, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 30), Parent = centro })
-local wNome = txt({ Text = "Emotes", Font = F.GothamBold, TextSize = 12, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 46), Size = UDim2.new(1, 0, 0, 16), Parent = centro })
-local wHint = txt({ Text = "aponte e solte", TextSize = 9, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 63), Size = UDim2.new(1, 0, 0, 12), Parent = centro })
-
-local wheelItens = {}
-for i, e in ipairs(EMOTES) do
-	local a = (i - 1) * (2 * math.pi / #EMOTES)
-	local item = btn({
-		AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = T.surface,
-		Size = UDim2.fromOffset(62, 62),
-		Position = UDim2.new(0.5, sin(a) * WHEEL_R, 0.5, -cos(a) * WHEEL_R), Parent = Wheel,
-	}, { round(999) })
-	local st = outline(T.stroke, 1.5, 0.3)
-	st.Parent = item
-	local wIc = txt({ Text = e.icone, TextSize = 21, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 26), Parent = item })
-	txt({ Text = e.nome, Font = F.GothamMedium, TextSize = 9, TextXAlignment = CENTER, TextColor3 = T.sub, Position = UDim2.fromOffset(0, 36), Size = UDim2.new(1, 0, 0, 14), Parent = item })
-	item.MouseButton1Click:Connect(function()
-		tocarEmote(e.nome)
-		wheelAberta = false
-		wheelSel = nil
-		tw(Wheel, 0.12, { GroupTransparency = 1 })
-		task.delay(0.13, function() if not wheelAberta then Wheel.Visible = false end end)
-	end)
-	wheelItens[i] = { item = item, stroke = st, icone = wIc }
-end
-
-local function atualizarLockRoda()
-	for i, w in ipairs(wheelItens) do
-		local e = EMOTES[i]
-		w.icone.Text = (e.cat == "+18" and not liberado18()) and "🔒" or e.icone
-	end
-end
-atualizarLockRoda()
-table.insert(lockRefreshers, atualizarLockRoda)
-
-local function wheelSelecionar(idx)
-	if idx == wheelSel then return end
-	wheelSel = idx
-	for i, w in ipairs(wheelItens) do
-		local sel = (i == idx)
-		tw(w.item, 0.1, { BackgroundColor3 = sel and T.accent or T.surface, Size = UDim2.fromOffset(sel and 72 or 62, sel and 72 or 62) })
-		w.stroke.Color = sel and Color3.new(1, 1, 1) or T.stroke
-		w.stroke.Transparency = sel and 0.2 or 0.3
-	end
-	if idx then
-		wIcone.Text = EMOTES[idx].icone
-		wNome.Text = EMOTES[idx].nome
-		wHint.Text = "solte para usar"
-	else
-		wIcone.Text = "🎭"
-		wNome.Text = "Emotes"
-		wHint.Text = "aponte e solte"
-	end
-end
-
-function abrirWheel()
-	if wheelAberta then return end
-	wheelAberta = true
-	toggleMenu(false)
-	Wheel.Visible = true
-	wheelSelecionar(nil)
-	tw(Wheel, 0.15, { GroupTransparency = 0 })
-end
-
-function fecharWheel(confirmar)
-	if not wheelAberta then return end
-	wheelAberta = false
-	if confirmar and wheelSel then tocarEmote(EMOTES[wheelSel].nome) end
-	wheelSelecionar(nil)
-	tw(Wheel, 0.12, { GroupTransparency = 1 })
-	task.delay(0.13, function() if not wheelAberta then Wheel.Visible = false end end)
-end
-
-RunService.RenderStepped:Connect(function()
-	if not wheelAberta then return end
-	local mouse = UserInputService:GetMouseLocation()
-	local c = Wheel.AbsolutePosition + Wheel.AbsoluteSize / 2
-	local d = mouse - c
-	local escala = math.max(wheelScale.Scale, 0.01)
-	if d.Magnitude < 36 * escala then
-		wheelSelecionar(nil)
-		return
-	end
-	local ang = math.atan2(d.X, -d.Y)
-	if ang < 0 then ang += 2 * math.pi end
-	local fatia = 2 * math.pi / #EMOTES
-	local idx = (math.floor((ang + fatia / 2) / fatia) % #EMOTES) + 1
-	wheelSelecionar(idx)
-end)
-
-table.insert(ativoRefreshers, function()
-	for i, w in ipairs(wheelItens) do
-		if i ~= wheelSel then
-			w.stroke.Color = emoteAtivo(EMOTES[i].nome) and T.ok or T.stroke
-		end
-	end
-end)
-
-end
-
 local EmoteButton = btn({
 	Text = "✦  Emotes", Font = F.GothamBold, TextSize = 13, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
 	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 64), Size = UDim2.fromOffset(112, 38), Parent = MainGui,
 }, { round(19) })
 hoverFX(EmoteButton, T.accent, Color3.fromRGB(148, 134, 255))
-local segurouWheel = false
-EmoteButton.MouseButton1Click:Connect(function()
-	if segurouWheel then segurouWheel = false return end
-	toggleMenu()
-end)
--- celular/tablet: segure o botão por ~0.4s pra abrir a roda, arraste até o emote e solte (igual à tecla G no PC)
-do
-	local segurando = nil
-	EmoteButton.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		segurando = input
-		task.delay(0.4, function()
-			if segurando == input and input.UserInputState ~= Enum.UserInputState.End then
-				segurouWheel = true
-				abrirWheel()
-			end
-		end)
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if input ~= segurando then return end
-		segurando = nil
-		if segurouWheel then
-			fecharWheel(true)
-			-- o clique do botão dispara logo depois de soltar; depois disso libera o botão de novo
-			task.delay(0.15, function() segurouWheel = false end)
-		end
-	end)
-end
+EmoteButton.MouseButton1Click:Connect(function() toggleMenu() end)
 
 Pegar.botao = btn({
 	Text = "Pegar", Font = F.GothamBold, TextSize = 13, BackgroundColor3 = T.ok, TextColor3 = Color3.new(1, 1, 1),
@@ -4633,8 +4500,9 @@ desfazerBtn.MouseButton1Click:Connect(function()
 end)
 
 local PREV_W, PREV_H = 230, 250
+local ANIM_H_REF = 238 -- altura do animador (TL_H): o preview fica logo acima dele
 local DevPreviewWin = frame({
-	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -12), Size = UDim2.fromOffset(PREV_W, PREV_H),
+	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -(12 + ANIM_H_REF + 8)), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
 }, { round(16), outline(T.stroke, 1, 0.1) })
 local prevScale = new("UIScale", { Parent = DevPreviewWin })
@@ -4673,6 +4541,7 @@ txt({ Text = (UserInputService.TouchEnabled and not UserInputService.KeyboardEna
 janelaControles({
 	win = DevPreviewWin, head = prevHead, scale = prevScale, w = PREV_W, h = PREV_H, headH = 40,
 	posMin = UDim2.new(1, -64, 0, 7), posX = UDim2.new(1, -34, 0, 7), size = 26,
+	iniciarMin = true, fixaBase = true,
 	ativo = function() return DevPanel.Visible end, pai = DevPanel,
 	onMin = function(min) devPreview.setActive((not min) and DevPanel.Visible) end,
 	onHide = function() devPreview.setActive(false) end,
@@ -5166,7 +5035,7 @@ do
 	}
 
 	local TLWin = frame({
-		Name = "AnimadorTL", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -12), Size = UDim2.fromOffset(TL_W, TL_H),
+		Name = "AnimadorTL", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -12), Size = UDim2.fromOffset(TL_W, TL_H),
 		BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
 	}, { round(16), outline(T.stroke, 1, 0.1) })
 	local tlScale = new("UIScale", { Parent = TLWin })
@@ -5683,12 +5552,10 @@ do
 	end
 end
 
-LocalPlayer.Chatted:Connect(function(msg)
-	if string.lower(msg):sub(1, 5) == "-pdev" then
-		DevSelector.Visible = true
-		toggleMenu(false)
-	end
-end)
+abrirPainelDev = function()
+	DevSelector.Visible = true
+	toggleMenu(false)
+end
 end
 montarDevPanel()
 
@@ -7241,15 +7108,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		typingMode = true
 		typingTimer = 3
-		if input.KeyCode == WHEEL_KEY then
-			abrirWheel()
-		end
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == WHEEL_KEY then
-		fecharWheel(true)
 	end
 end)
 

@@ -142,6 +142,19 @@ local KAME = {
 	flingForca = 250,     -- velocidade empurrando na direcao do feixe (studs/s)
 	flingCima = 60,       -- velocidade pra cima (studs/s)
 	flingGiro = 30,       -- giro aleatorio (rad/s)
+	-- bola mudando de cor (azul -> quase branca ao carregar)
+	bolaCorFim = Color3.fromRGB(240, 252, 255),
+	-- recuo ao disparar
+	recuoVel = 32,        -- velocidade inicial do recuo (studs/s), ~3.4 studs de deslize
+	recuoDur = 0.32,      -- duracao do recuo (s)
+	-- feixe com textura animada
+	feixeTex = "rbxassetid://6561033515", -- troque pelo id da textura de energia que preferir
+	feixeTexLen = 6,      -- comprimento (studs) de cada repeticao da textura
+	feixeTexVel = 10,     -- velocidade da textura correndo pelo feixe
+	-- repulsao das pecas soltas no ponto atingido
+	repelRaio = 14,       -- alcance da repulsao (studs)
+	repelForca = 90,      -- velocidade de afastamento (studs/s)
+	repelGiro = 15,       -- giro aleatorio (rad/s)
 	bolaFrente = 0,       -- desloca a bola para frente do ponto entre as maos (0 = exatamente no meio)
 	fxEntrada = 0.25,
 	fxSaida = 0.4,
@@ -7799,6 +7812,37 @@ local function criarMaoDinamica(character)
 		fx.feixeNucleo.Color = KAME.corNucleo
 		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
 
+		-- camadas com textura animada correndo pelo feixe
+		fx.feixeIni = nova("FeixeIni")
+		fx.feixeFim = nova("FeixeFim")
+		fx.beams = {}
+		local function criarBeam(k, vel, transp)
+			local a0 = Instance.new("Attachment")
+			a0.Parent = fx.feixeIni
+			local a1 = Instance.new("Attachment")
+			a1.Parent = fx.feixeFim
+			local b = Instance.new("Beam")
+			b.Attachment0 = a0
+			b.Attachment1 = a1
+			b.Texture = KAME.feixeTex
+			b.TextureMode = Enum.TextureMode.Wrap
+			b.TextureLength = KAME.feixeTexLen
+			b.TextureSpeed = vel
+			b.LightEmission = 1
+			b.LightInfluence = 0
+			b.FaceCamera = true
+			b.Segments = 1
+			b.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
+			b.Transparency = NumberSequence.new(transp)
+			b.Width0 = 0
+			b.Width1 = 0
+			b.Enabled = false
+			b.Parent = fx.feixeIni
+			table.insert(fx.beams, { b = b, k = k })
+		end
+		criarBeam(1.5, KAME.feixeTexVel, 0.25)
+		criarBeam(2.2, KAME.feixeTexVel * 0.6, 0.55)
+
 		-- vento cortado pelo feixe: casca de ar + riscos de vento correndo em volta
 		fx.ventoCasca = nova("VentoCasca", Enum.PartType.Cylinder)
 		fx.ventoCasca.Material = Enum.Material.ForceField
@@ -8028,6 +8072,9 @@ local function criarMaoDinamica(character)
 		fx.brilho.Size = Vector3.new(diam, diam, diam)
 		fx.brilho.CFrame = CFrame.new(origem)
 		fx.brilho.Transparency = 0.45 + (1 - g) * 0.55
+		local corBola = KAME.cor:Lerp(KAME.bolaCorFim, prog ^ 1.2)
+		fx.brilho.Color = corBola
+		fx.luz.Color = corBola
 		fx.nucleo.Size = Vector3.new(diam * 0.62, diam * 0.62, diam * 0.62)
 		fx.nucleo.CFrame = CFrame.new(origem)
 		fx.nucleo.Transparency = (1 - g)
@@ -8080,8 +8127,25 @@ local function criarMaoDinamica(character)
 		if fase == 3 and not fx.disparou then
 			fx.disparou = true
 			kameCamIniciar(dir)
+			local plano = Vector3.new(dir.X, 0, dir.Z)
+			if plano.Magnitude > 0.01 then
+				fx.recuoDir = -plano.Unit
+				fx.recuoT0 = agora
+			end
 		elseif fase ~= 3 then
 			fx.disparou = false
+		end
+
+		-- recuo: desliza pra tras ao soltar o feixe
+		if fx.recuoT0 then
+			local a = (agora - fx.recuoT0) / KAME.recuoDur
+			if a >= 1 then
+				fx.recuoT0 = nil
+			else
+				local v = KAME.recuoVel * (1 - a) ^ 2
+				local vy = rootPart.AssemblyLinearVelocity.Y
+				rootPart.AssemblyLinearVelocity = Vector3.new(fx.recuoDir.X * v, vy, fx.recuoDir.Z * v)
+			end
 		end
 
 		-- ondas de choque
@@ -8122,6 +8186,15 @@ local function criarMaoDinamica(character)
 				fx.feixeNucleo.Transparency = 0
 				fx.feixeMeio.Transparency = 0.2
 				fx.feixeFora.Transparency = 0.6
+
+				-- textura animada
+				fx.feixeIni.CFrame = CFrame.new(origem)
+				fx.feixeFim.CFrame = CFrame.new(origem + dir * len)
+				for _, bm in ipairs(fx.beams) do
+					bm.b.Enabled = true
+					bm.b.Width0 = esp * bm.k
+					bm.b.Width1 = esp * bm.k
+				end
 
 				-- fling: blocos, itens e pecas soltas (nao ancoradas) que encostam no feixe sao arremessados
 				local op = fx.flingParams
@@ -8175,6 +8248,28 @@ local function criarMaoDinamica(character)
 				if agora - (fx.repelT or 0) > 0.16 then
 					fx.repelT = agora
 					kameOnda(fx, res.Position + res.Normal * 0.2, true, 2, 16, 0.5, 0.3, res.Normal)
+
+					-- repele blocos, itens e pecas soltas ao redor do ponto atingido
+					local repelidos = {}
+					local ao_redor = workspace:GetPartBoundsInRadius(res.Position, KAME.repelRaio, fx.flingParams)
+					for _, part in ipairs(ao_redor) do
+						local modelo = part:FindFirstAncestorOfClass("Model")
+						if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
+						local raiz = part.AssemblyRootPart or part
+						if repelidos[raiz] or raiz.Anchored then continue end
+						local dono = raiz:FindFirstAncestorOfClass("Model")
+						if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
+						repelidos[raiz] = true
+
+						local fora = raiz.Position - res.Position
+						if fora.Magnitude < 0.1 then fora = res.Normal end
+						local d = (fora.Unit + res.Normal * 0.6).Unit
+						pcall(function()
+							raiz.AssemblyLinearVelocity = d * KAME.repelForca
+							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * 20, 0))
+							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.repelGiro
+						end)
+					end
 				end
 			else
 				fx.impBola.Transparency = 1
@@ -8183,6 +8278,7 @@ local function criarMaoDinamica(character)
 			end
 		end
 		if not visivel then
+			for _, bm in ipairs(fx.beams) do bm.b.Enabled = false end
 			fx.feixeNucleo.Transparency = 1
 			fx.feixeMeio.Transparency = 1
 			fx.feixeFora.Transparency = 1

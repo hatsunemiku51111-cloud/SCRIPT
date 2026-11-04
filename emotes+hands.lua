@@ -260,11 +260,14 @@ local defaultEmotes = {
 	},
 	["Dormir2"] = {
 		dir = { x = 43, y = 67, z = 37, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-		dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+		dedosDir = { {70,90}, {17,13}, {20,10}, {14,19}, {17,29} }, afastDir = 0,
 		esq = { x = 47, y = -107, z = -134, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 162, z = 1 },
-		dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-		cabeca = { x = 0, y = 0, z = 26 }, torso = { x = -90, y = 0, z = 90 },
-		pernaDir = { x = 9, y = 6, z = 9, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 }
+		dedosEsq = { {90,8,0,-100,-16,0,0,0}, {10,22,0,10,0,0,0,0}, {12,17,-1,-4,0,0,0,0}, {90,90}, {90,90} }, afastEsq = 6,
+		cabeca = { x = -6, y = -29, z = 9, px = -0.22, py = 0, pz = 0 }, torso = { x = -90, y = 0, z = 90, px = 0, py = 0, pz = 0 },
+		pernaDir = { x = 9, y = 6, z = 9, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+		itens = {
+			{ tipo = "acessorio", id = "17135170320", parte = "Head", pos = { x = -0.42, y = -0.5, z = -0.18 }, rot = { x = 0, y = 0, z = 14 }, size = { x = 1, y = 1, z = 1 } },
+		}
 	},
 	["Braços Cruzados"] = {
 		dir = { x = -20, y = 60, z = 88, px = 0.23, py = -0.31, pz = -0.29 }, palmaDir = { x = 0, y = 0, z = 0 },
@@ -346,6 +349,7 @@ local function poseMaoVazia()
 end
 
 local customPose = {
+	itens = {},
 	direita = poseMaoVazia(),
 	esquerda = poseMaoVazia(),
 	torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
@@ -496,6 +500,380 @@ local function dedoTemExtra(t)
 	end
 	return false
 end
+
+-- ===================== ITENS DO EMOTE (acessórios / roupas / mesh pelo ID) =====================
+-- Cada emote pode ter:  itens = { { tipo = "acessorio" | "roupa" | "mesh", id = "123", parte = "Head",
+--                                   pos = { x, y, z }, rot = { x, y, z }, size = { x, y, z }, tex = "456" }, ... }
+-- parte = Head, Torso, Right Arm, Left Arm, Right Leg ou Left Leg (nomes do R6; no R15 usa a parte equivalente).
+-- Acessório: ID do catálogo (usa o Handle; se tiver attachment já encaixa na parte). Roupa 2D (camisa/calça/camiseta):
+-- troca a textura enquanto o emote toca. Mesh: MeshId (+ tex = TextureId opcional) vira uma peça com SpecialMesh.
+-- Acessório e roupa precisam do game:GetObjects (executor). Tudo é só local (só você vê).
+local ItensEmote = { MAX = 12, orig = {} }
+ItensEmote.TIPOS = {
+	{ id = "acessorio", nome = "Acessório" },
+	{ id = "roupa", nome = "Roupa" },
+	{ id = "mesh", nome = "Mesh" },
+}
+ItensEmote.PARTES = {
+	{ id = "Head", nome = "Cabeça" }, { id = "Torso", nome = "Torso" },
+	{ id = "Right Arm", nome = "Braço D" }, { id = "Left Arm", nome = "Braço E" },
+	{ id = "Right Leg", nome = "Perna D" }, { id = "Left Leg", nome = "Perna E" },
+}
+ItensEmote.ESPELHO = {
+	["Right Arm"] = "Left Arm", ["Left Arm"] = "Right Arm",
+	["Right Leg"] = "Left Leg", ["Left Leg"] = "Right Leg",
+}
+function ItensEmote.status(it) end -- a aba Itens do DEV troca isso pra atualizar o texto de status
+ItensEmote.aoKind = nil -- idem: a aba Itens redesenha quando descobre que o item é roupa
+
+do
+	local TIPO_OK, PARTE_OK = {}, {}
+	for _, t in ipairs(ItensEmote.TIPOS) do TIPO_OK[t.id] = true end
+	for _, p in ipairs(ItensEmote.PARTES) do PARTE_OK[p.id] = true end
+	local R15 = {
+		Head = "Head", Torso = "UpperTorso",
+		["Right Arm"] = "RightUpperArm", ["Left Arm"] = "LeftUpperArm",
+		["Right Leg"] = "RightUpperLeg", ["Left Leg"] = "LeftUpperLeg",
+	}
+
+	local function v3(t, padrao, lo, hi)
+		t = type(t) == "table" and t or {}
+		local function n(v)
+			v = tonumber(v)
+			if not v or v ~= v then return padrao end
+			return clamp(v, lo, hi)
+		end
+		return { x = n(t.x), y = n(t.y), z = n(t.z) }
+	end
+
+	-- copia + valida uma lista de itens (usada ao carregar emote, importar código e desfazer)
+	function ItensEmote.copiar(lista)
+		local r = {}
+		if type(lista) ~= "table" then return r end
+		for _, it in ipairs(lista) do
+			if type(it) == "table" and #r < ItensEmote.MAX then
+				local id = tostring(it.id or ""):match("%d+")
+				if id and #id <= 20 then
+					local tex = tostring(it.tex or ""):match("%d+")
+					r[#r + 1] = {
+						tipo = TIPO_OK[it.tipo] and it.tipo or "acessorio",
+						id = id,
+						parte = PARTE_OK[it.parte] and it.parte or "Head",
+						tex = (tex and #tex <= 20) and tex or "",
+						pos = v3(it.pos, 0, -50, 50),
+						rot = v3(it.rot, 0, -720, 720),
+						size = v3(it.size, 1, 0.01, 50),
+						kind = (it.kind == "roupa") and "roupa" or nil,
+					}
+				end
+			end
+		end
+		return r
+	end
+
+	-- texto do "itens = { ... }" pros Exportar (nil quando o emote não tem itens)
+	function ItensEmote.texto(lista, ind)
+		if type(lista) ~= "table" or #lista == 0 then return nil end
+		local function f(n)
+			n = math.floor((tonumber(n) or 0) * 100 + 0.5) / 100 + 0
+			return tostring(n)
+		end
+		local function v(t) return string.format("{ x = %s, y = %s, z = %s }", f(t.x), f(t.y), f(t.z)) end
+		local l = {}
+		l[#l + 1] = ind .. "-- ITENS DESTE EMOTE: " .. #lista .. " (acessório / roupa / mesh)"
+		l[#l + 1] = ind .. "itens = {"
+		for _, it in ipairs(lista) do
+			local tex = (it.tex and it.tex ~= "") and (' tex = "' .. it.tex .. '",') or ""
+			l[#l + 1] = string.format('%s\t{ tipo = "%s", id = "%s", parte = "%s",%s pos = %s, rot = %s, size = %s },',
+				ind, it.tipo, it.id, it.parte, tex, v(it.pos), v(it.rot), v(it.size))
+		end
+		l[#l + 1] = ind .. "}"
+		return table.concat(l, "\n")
+	end
+
+	function ItensEmote.parteDoChar(char, nome)
+		return char:FindFirstChild(nome) or char:FindFirstChild(R15[nome] or "")
+	end
+
+	-- ---------- carregar o asset pelo ID (com cache) ----------
+	local cache = {}
+
+	local function classificar(obj)
+		if obj:IsA("Accessory") then return { kind = "acc", inst = obj } end
+		if obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") then return { kind = "roupa", inst = obj } end
+		if obj:IsA("BasePart") then return { kind = "parte", inst = obj } end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("Accessory") then return { kind = "acc", inst = d } end
+		end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("Shirt") or d:IsA("Pants") or d:IsA("ShirtGraphic") then return { kind = "roupa", inst = d } end
+		end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("BasePart") then return { kind = "parte", inst = d } end
+		end
+		return nil
+	end
+
+	local function carregar(id, cb)
+		local c = cache[id]
+		if c then
+			if c.estado == "carregando" then c.espera[#c.espera + 1] = cb else cb(c.res) end
+			return
+		end
+		c = { estado = "carregando", espera = { cb } }
+		cache[id] = c
+		task.spawn(function()
+			local obj
+			local ok, r = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
+			if ok and type(r) == "table" then obj = r[1] end
+			if not obj then
+				local ok2, r2 = pcall(function() return game:GetService("InsertService"):LoadAsset(tonumber(id)) end)
+				if ok2 then obj = r2 end
+			end
+			local res = obj and classificar(obj) or nil
+			c.res = res
+			c.estado = res and "ok" or "erro"
+			local espera = c.espera
+			c.espera = nil
+			for _, f in ipairs(espera) do pcall(f, res) end
+			if not res then
+				task.delay(5, function() if cache[id] == c then cache[id] = nil end end)
+			end
+		end)
+	end
+
+	local function limparClone(raiz)
+		for _, d in ipairs(raiz:GetDescendants()) do
+			if d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("BaseScript") or d:IsA("Sound")
+				or d:IsA("WrapLayer") or d:IsA("WrapTarget") or d:IsA("Constraint") then
+				d:Destroy()
+			end
+		end
+	end
+
+	local function objDe(peca, atts)
+		local o = { peca = peca, base = peca.Size, atts = atts, meshes = {} }
+		for _, m in ipairs(peca:GetChildren()) do
+			if m:IsA("SpecialMesh") then o.meshes[#o.meshes + 1] = { m = m, base = m.Scale } end
+		end
+		return o
+	end
+
+	-- cb(obj, kind): obj = { peca, base, atts, meshes } (peça nova) ou { roupa = Shirt/Pants/ShirtGraphic }; nil se falhou
+	function ItensEmote.criar(it, cb)
+		if it.tipo == "mesh" then
+			local p = Instance.new("Part")
+			p.Name = "EMOTEZ_ITEM"
+			p.Size = Vector3.new(1, 1, 1)
+			local m = Instance.new("SpecialMesh")
+			m.MeshType = Enum.MeshType.FileMesh
+			m.MeshId = "rbxassetid://" .. it.id
+			if it.tex and it.tex ~= "" then m.TextureId = "rbxassetid://" .. it.tex end
+			m.Scale = Vector3.new(1, 1, 1)
+			m.Parent = p
+			cb(objDe(p, nil), "mesh")
+			return
+		end
+		carregar(it.id, function(res)
+			if not res then cb(nil, "erro") return end
+			if res.kind == "roupa" then cb({ roupa = res.inst }, "roupa") return end
+			local h = res.inst
+			if res.kind == "acc" then
+				h = res.inst:FindFirstChild("Handle")
+				if not (h and h:IsA("BasePart")) then
+					h = nil
+					for _, d in ipairs(res.inst:GetDescendants()) do
+						if d:IsA("BasePart") then h = d break end
+					end
+				end
+			end
+			if not h then cb(nil, "erro") return end
+			h.Archivable = true
+			local p = h:Clone()
+			if not p then cb(nil, "erro") return end
+			local atts = {}
+			for _, a in ipairs(p:GetChildren()) do
+				if a:IsA("Attachment") then atts[a.Name] = a.CFrame end
+			end
+			limparClone(p)
+			for _, a in ipairs(p:GetChildren()) do
+				if a:IsA("Attachment") then a:Destroy() end
+			end
+			p.Name = "EMOTEZ_ITEM"
+			if res.kind == "acc" then cb(objDe(p, atts), "acessorio") else cb(objDe(p, nil), "parte") end
+		end)
+	end
+
+	function ItensEmote.tamanho(obj, s)
+		local v = Vector3.new(clamp(s.x, 0.01, 50), clamp(s.y, 0.01, 50), clamp(s.z, 0.01, 50))
+		if obj.ultimo == v then return end
+		obj.ultimo = v
+		obj.peca.Size = obj.base * v
+		for _, mm in ipairs(obj.meshes) do mm.m.Scale = mm.base * v end
+	end
+
+	-- troca a textura da camisa/calça/camiseta e devolve a função que desfaz
+	local function aplicarRoupa(raiz, modelo, real)
+		local classe = modelo.ClassName
+		local prop = (classe == "Shirt" and "ShirtTemplate") or (classe == "Pants" and "PantsTemplate") or "Graphic"
+		local novo = modelo[prop]
+		local orig = ItensEmote.orig
+		local atual = raiz:FindFirstChildOfClass(classe)
+		if atual then
+			local antigo = atual[prop]
+			if real then
+				if orig[classe] == nil then orig[classe] = antigo end
+			elseif orig[classe] ~= nil then
+				antigo = (orig[classe] == false) and "" or orig[classe]
+			end
+			atual[prop] = novo
+			return function()
+				if atual.Parent then atual[prop] = antigo end
+				if real and orig[classe] == antigo then orig[classe] = nil end
+			end
+		end
+		if real and orig[classe] == nil then orig[classe] = false end
+		local c = Instance.new(classe)
+		c[prop] = novo
+		c.Parent = raiz
+		return function()
+			c:Destroy()
+			if real and orig[classe] == false then orig[classe] = nil end
+		end
+	end
+
+	-- modo "weld": peças coladas (Weld) no personagem de verdade | outro modo: peças ancoradas no boneco do preview
+	function ItensEmote.novo(modo, resolver)
+		local A = { vivos = {}, assin = "", raiz = nil, ger = 0, undo = {}, pasta = nil, lista = nil }
+		local real = (modo == "weld")
+
+		local function limpar()
+			A.ger += 1
+			for i = #A.undo, 1, -1 do pcall(A.undo[i]) end
+			A.undo = {}
+			for _, v in pairs(A.vivos) do pcall(function() v.peca:Destroy() end) end
+			A.vivos = {}
+			if A.pasta then
+				pcall(function() A.pasta:Destroy() end)
+				A.pasta = nil
+			end
+			A.assin, A.raiz = "", nil
+		end
+		A.limpar = limpar
+
+		local function pastaDe()
+			if not A.pasta then
+				local f = Instance.new("Folder")
+				f.Name = "EMOTEZ_ITENS"
+				f.Parent = workspace
+				A.pasta = f
+			end
+			return A.pasta
+		end
+
+		function A.sincronizar(raiz, lista)
+			A.lista = lista
+			if not raiz or not raiz.Parent or type(lista) ~= "table" or #lista == 0 then
+				if A.raiz ~= nil then limpar() end
+				return
+			end
+			local s = {}
+			for i, it in ipairs(lista) do s[i] = it.tipo .. "|" .. it.id .. "|" .. it.parte .. "|" .. (it.tex or "") end
+			local assin = table.concat(s, ";")
+			if A.raiz == raiz and A.assin == assin then return end
+
+			limpar()
+			A.raiz, A.assin = raiz, assin
+			local ger = A.ger
+			for i, it0 in ipairs(lista) do
+				it0.status = "carregando…"
+				ItensEmote.status(it0)
+				ItensEmote.criar(it0, function(obj, kind)
+					if ger ~= A.ger or not raiz.Parent then return end
+					local it = (A.lista and A.lista[i]) or it0
+					if not obj then
+						it.status = "falhou: ID inválido, sem permissão ou executor sem GetObjects"
+						ItensEmote.status(it)
+						return
+					end
+					local k0 = it.kind
+					it.kind = (kind == "roupa") and "roupa" or nil
+					if obj.roupa then
+						A.undo[#A.undo + 1] = aplicarRoupa(raiz, obj.roupa, real)
+						it.status = "roupa aplicada (textura 2D: sem posição/rotação/tamanho)"
+					else
+						local body = resolver(raiz, it.parte)
+						if not body then
+							it.status = "parte do corpo não encontrada"
+							ItensEmote.status(it)
+							return
+						end
+						local peca = obj.peca
+						peca.Anchored = not real
+						peca.CanCollide = false
+						peca.CanQuery = false
+						peca.CanTouch = false
+						peca.Massless = true
+						local v = { peca = peca, obj = obj, body = body, base = CFrame.new() }
+						if obj.atts then
+							for nome, ha in pairs(obj.atts) do
+								local b = body:FindFirstChild(nome)
+								if b and b:IsA("Attachment") then
+									v.base = b.CFrame * ha:Inverse()
+									break
+								end
+							end
+						end
+						if real then
+							local w = Instance.new("Weld")
+							w.Part0 = body
+							w.Part1 = peca
+							w.Parent = peca
+							v.weld = w
+							peca.Parent = pastaDe()
+						else
+							peca.Parent = raiz
+						end
+						A.vivos[i] = v
+						it.status = "ok"
+					end
+					ItensEmote.status(it)
+					if k0 ~= it.kind and ItensEmote.aoKind then ItensEmote.aoKind() end
+				end)
+			end
+		end
+
+		function A.atualizar(lista)
+			A.lista = lista
+			if A.raiz == nil or type(lista) ~= "table" then return end
+			for i, v in pairs(A.vivos) do
+				local it = lista[i]
+				if it and v.peca.Parent then
+					ItensEmote.tamanho(v.obj, it.size)
+					local p, r = it.pos, it.rot
+					local cf = v.base * CFrame.new(p.x, p.y, p.z) * CFrame.Angles(rad(r.x), rad(r.y), rad(r.z))
+					if v.weld then v.weld.C0 = cf else v.peca.CFrame = v.body.CFrame * cf end
+				end
+			end
+		end
+
+		return A
+	end
+
+	ItensEmote.real = ItensEmote.novo("weld", ItensEmote.parteDoChar)
+
+	function ItensEmote.novoPreview()
+		return ItensEmote.novo("preview", function(m, n) return m:FindFirstChild(n) end)
+	end
+
+	-- lista que o preview deve mostrar: a do editor (DEV) ou a do emote escolhido no menu
+	function ItensEmote.listaPreview(custom, emote)
+		if custom then return customPose.itens end
+		local d = (type(emote) == "string") and defaultEmotes[emote] or nil
+		return d and d.itens or nil
+	end
+end
+-- ==============================================================================================
 
 -- ===================== EMOTES ANIMADOS (keyframes do EMOTE CRIADOR) =====================
 -- Cada emote com animado = true tem seus campos dir/esq/dedos/corpo atualizados a cada frame
@@ -693,6 +1071,8 @@ do
 			l[#l + 1] = string.format('["%s"] = {', nm)
 			l[#l + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", f2(d.duracao or 1), tostring(d.loop == true), tostring(d.suave == true))
 			l[#l + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true))
+			local itensTxt = ItensEmote.texto(d.itens, "\t")
+			if itensTxt then l[#l + 1] = itensTxt .. "," end
 			l[#l + 1] = "\tframes = {"
 			for _, f in ipairs(d.frames) do
 				l[#l + 1] = string.format("\t\t{ t = %s,", f2(f.t))
@@ -702,7 +1082,10 @@ do
 			l[#l + 1] = "},"
 			return table.concat(l, "\n")
 		end
-		return string.format('["%s"] = {\n%s\n},', nm, linhasPose(d, "\t"))
+		local corpo = linhasPose(d, "\t")
+		local itensTxt = ItensEmote.texto(d.itens, "\t")
+		if itensTxt then corpo = corpo .. ",\n" .. itensTxt end
+		return string.format('["%s"] = {\n%s\n},', nm, corpo)
 	end
 
 	local e = (getgenv and getgenv()) or _G
@@ -1431,8 +1814,8 @@ local function restaurarSnapshotPose()
 	for _, lado in ipairs({ "direita", "esquerda" }) do
 		for k, v in pairs(snap.pose[lado]) do customPose[lado][k] = v end
 	end
-	for _, parte in ipairs({ "cabeca", "torso", "pernaDir", "pernaEsq" }) do
-		customPose[parte] = snap.pose[parte]
+	for _, parte in ipairs({ "cabeca", "torso", "pernaDir", "pernaEsq", "itens" }) do
+		customPose[parte] = snap.pose[parte] or customPose[parte]
 	end
 	for k, v in pairs(snap.anim) do animConfig[k] = v end
 	return snap.emote
@@ -1461,6 +1844,7 @@ local function carregarEmote(nome)
 	customPose.torso = copiaPerna(d.torso)
 	customPose.pernaDir = copiaPerna(d.pernaDir)
 	customPose.pernaEsq = copiaPerna(d.pernaEsq)
+	customPose.itens = ItensEmote.copiar(d.itens)
 
 	animConfig.direita = true
 	animConfig.esquerda = true
@@ -1495,6 +1879,8 @@ local function resetarParte(parte)
 	elseif parte == "pernas" then
 		customPose.pernaDir = copiaPerna(d.pernaDir)
 		customPose.pernaEsq = copiaPerna(d.pernaEsq)
+	elseif parte == "itens" then
+		customPose.itens = ItensEmote.copiar(d.itens)
 	else
 		return false
 	end
@@ -1792,8 +2178,10 @@ local function criarPreview(viewport)
 	local theta, dist = 0.35, 9.5
 	local lastTry = 0
 	local CENTRO = Vector3.new(0, -0.4, 0)
+	local itensPrev = ItensEmote.novoPreview()
 
 	local function destruir()
+		itensPrev.limpar()
 		if rig then rig.model:Destroy() end
 		rig, rigChar = nil, nil
 	end
@@ -1973,6 +2361,10 @@ local function criarPreview(viewport)
 		for _, a in ipairs(rig.accs) do
 			a.handle.CFrame = a.body.CFrame * a.ba * a.ha:Inverse()
 		end
+
+		local listaItens = ItensEmote.listaPreview(custom, emote)
+		itensPrev.sincronizar(rig.model, listaItens)
+		itensPrev.atualizar(listaItens)
 
 		for _, h in ipairs(rig.hands) do
 			if h then
@@ -3097,6 +3489,8 @@ end
 
 local toggleMenu
 local abrirPainelDev -- definido junto do painel dev
+local configPreviewDev = false -- config: preview do Painel Dev (desativado por padrão)
+local aoMudarPreviewDev -- definido junto do painel dev (mostra/esconde o preview na hora)
 do
 local MENU_W, MENU_H = 480, 320
 local menuAberto = false
@@ -3122,6 +3516,53 @@ local closeMenuBtn = btn({
 	Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -38, 0, 10), Parent = Menu,
 }, { round(13) })
 hoverFX(closeMenuBtn, T.surface2, T.surface3)
+
+-- ===== configurações =====
+local configBtn = btn({
+	Text = "⚙", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -70, 0, 10), Parent = Menu,
+}, { round(13) })
+hoverFX(configBtn, T.surface2, T.surface3)
+
+local configOverlay = frame({
+	BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1),
+	Visible = false, ZIndex = 60, Active = true, Parent = Menu,
+}, { round(18) })
+local configCard = frame({
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(300, 132),
+	BackgroundColor3 = T.surface, ZIndex = 61, Parent = configOverlay,
+}, { round(14), outline(T.stroke, 1, 0.2) })
+txt({ Text = "Configurações", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(16, 12), Size = UDim2.new(1, -60, 0, 18), ZIndex = 62, Parent = configCard })
+local configClose = btn({
+	Text = "X", TextSize = 12, TextColor3 = T.sub, Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -36, 0, 10), ZIndex = 62, Parent = configCard,
+}, { round(12) })
+hoverFX(configClose, T.surface2, T.surface3)
+
+local cfgRow = frame({
+	BackgroundColor3 = T.surface2, Position = UDim2.fromOffset(12, 44), Size = UDim2.new(1, -24, 0, 56), ZIndex = 62, Parent = configCard,
+}, { round(10) })
+txt({ Text = "Preview do Painel Dev", Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(12, 9), Size = UDim2.new(1, -76, 0, 16), ZIndex = 63, Parent = cfgRow })
+txt({ Text = "mostra o boneco ao editar emotes", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 28), Size = UDim2.new(1, -76, 0, 14), ZIndex = 63, Parent = cfgRow })
+local cfgSwitch = btn({
+	BackgroundColor3 = T.surface3, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(40, 22), ZIndex = 63, Parent = cfgRow,
+}, { round(11) })
+local cfgKnob = frame({
+	BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(16, 16), ZIndex = 64, Parent = cfgSwitch,
+}, { round(8) })
+
+local function pintarSwitch()
+	local on = configPreviewDev
+	tw(cfgSwitch, 0.12, { BackgroundColor3 = on and T.ok or T.surface3 })
+	tw(cfgKnob, 0.12, { Position = UDim2.new(0, on and 21 or 3, 0.5, 0) })
+end
+pintarSwitch()
+
+cfgSwitch.MouseButton1Click:Connect(function()
+	configPreviewDev = not configPreviewDev
+	pintarSwitch()
+	if aoMudarPreviewDev then aoMudarPreviewDev(configPreviewDev) end
+end)
+configBtn.MouseButton1Click:Connect(function() configOverlay.Visible = not configOverlay.Visible end)
+configClose.MouseButton1Click:Connect(function() configOverlay.Visible = false end)
 
 local chipsBar = frame({ BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 54), Size = UDim2.new(1, -32, 0, 24), Parent = Menu }, {
 	lista(6, Enum.FillDirection.Horizontal),
@@ -3518,6 +3959,7 @@ function toggleMenu(abrir)
 		mostrarPreview(EMOTE_POR_NOME[currentEmote or ""] or EMOTES[1])
 	else
 		senhaOverlay.Visible = false
+		configOverlay.Visible = false
 		tw(Menu, 0.16, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, 0.5, 10) })
 		menuPreview.setActive(false)
 		task.delay(0.17, function()
@@ -4025,11 +4467,12 @@ local TABS = {
 	{ id = "Torso", nome = "Torso" },
 	{ id = "Cabeca", nome = "Cabeça" },
 	{ id = "Pernas", nome = "Pernas" },
+	{ id = "Itens", nome = "Itens" },
 }
 local tabBar = frame({ BackgroundColor3 = T.surface, Position = UDim2.fromOffset(12, 250), Size = UDim2.new(1, -24, 0, 34), Parent = DevPanel }, { round(10), padding(3), lista(2, Enum.FillDirection.Horizontal) })
 local tabBtns = {}
 for i, tb in ipairs(TABS) do
-	local b = btn({ Text = tb.nome, Font = F.GothamBold, TextSize = 11, BackgroundTransparency = 1, TextColor3 = T.sub, Size = UDim2.new(0.2, -2, 1, 0), LayoutOrder = i, Parent = tabBar }, { round(8) })
+	local b = btn({ Text = tb.nome, Font = F.GothamBold, TextSize = 10, BackgroundTransparency = 1, TextColor3 = T.sub, Size = UDim2.new(1 / #TABS, -2, 1, 0), LayoutOrder = i, Parent = tabBar }, { round(8) })
 	b.MouseButton1Click:Connect(function()
 		devTab = tb.id
 		rebuildTab()
@@ -4235,6 +4678,12 @@ local function trocarLados()
 	elseif devTab == "Pernas" then
 		local pd, pe = invRot(customPose.pernaDir), invRot(customPose.pernaEsq)
 		customPose.pernaDir, customPose.pernaEsq = pe, pd
+	elseif devTab == "Itens" then
+		for _, it in ipairs(customPose.itens) do
+			it.parte = ItensEmote.ESPELHO[it.parte] or it.parte
+			it.pos.x = 0 - it.pos.x
+			it.rot.y, it.rot.z = 0 - it.rot.y, 0 - it.rot.z
+		end
 	end
 end
 
@@ -4364,7 +4813,170 @@ local function montarPernas()
 	slidersPosPerna(S5, function() return customPose.pernaEsq end, function() espelharPose(nil, "pernaEsq") end)
 end
 
-local MONTADORES = { Bracos = montarBracos, Maos = montarMaos, Torso = montarTorso, Cabeca = montarCabeca, Pernas = montarPernas }
+-- ===== aba ITENS: acessórios / roupas / mesh pelo ID (posição, rotação e tamanho) =====
+local ITU = { tipo = "acessorio", parte = "Head", id = "", tex = "", aberto = 1, refs = setmetatable({}, { __mode = "k" }) }
+
+ItensEmote.status = function(it)
+	local l = ITU.refs[it]
+	if l and l.Parent then l.Text = it.status or "" end
+end
+ItensEmote.aoKind = function()
+	if devTab == "Itens" then rebuildTab() end
+end
+
+local function itemBox(parent, placeholder, texto, order, aoMudar)
+	local b = new("TextBox", {
+		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
+		PlaceholderText = placeholder, PlaceholderColor3 = T.dim, Text = texto, ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left, Size = UDim2.new(1, 0, 0, 28), LayoutOrder = order, Parent = parent,
+	}, { round(7), padding(8, 0, 8, 0) })
+	b:GetPropertyChangedSignal("Text"):Connect(function() aoMudar(b.Text) end)
+	return b
+end
+
+local function seletorParte(parent, atual, aoEscolher, order)
+	local w = frame({
+		BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = order, Parent = parent,
+	}, { lista(4) })
+	local P = ItensEmote.PARTES
+	criarSegmentado(w, { P[1], P[2], P[3] }, atual, aoEscolher, 1)
+	criarSegmentado(w, { P[4], P[5], P[6] }, atual, aoEscolher, 2)
+	return w
+end
+
+local function nomeDe(opcoes, id)
+	for _, x in ipairs(opcoes) do
+		if x.id == id then return x.nome end
+	end
+	return id
+end
+
+local function montarItens()
+	botaoResetParte("itens", "itens")
+
+	local S1 = criarSecao(Content, "it_add", "ADICIONAR ITEM (POR ID)", T.ok, 1)
+	criarSegmentado(S1, ItensEmote.TIPOS, ITU.tipo, function(id)
+		ITU.tipo = id
+		rebuildTab()
+	end, 1)
+	itemBox(S1, ITU.tipo == "mesh" and "MeshId (número)" or "ID do asset (número)", ITU.id, 2, function(s) ITU.id = s end)
+	if ITU.tipo == "mesh" then
+		itemBox(S1, "TextureId (opcional)", ITU.tex, 3, function(s) ITU.tex = s end)
+	end
+	txt({ Text = "Parte do corpo", TextSize = 11, TextColor3 = T.sub, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4, Parent = S1 })
+	seletorParte(S1, ITU.parte, function(id)
+		ITU.parte = id
+		rebuildTab()
+	end, 5)
+	local addBtn = btn({
+		Text = "＋ Adicionar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 6, Parent = S1,
+	}, { round(9) })
+	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
+	local aviso = txt({ Text = "", TextSize = 10, TextColor3 = T.danger, TextWrapped = true, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 7, Parent = S1 })
+	txt({
+		Text = "Acessório e Roupa: ID do catálogo (precisa de executor com GetObjects). Mesh: MeshId, e TextureId se quiser textura. Os Exportar já levam os itens.",
+		TextSize = 10, TextColor3 = T.dim, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+		Size = UDim2.new(1, 0, 0, 40), LayoutOrder = 8, Parent = S1,
+	})
+	addBtn.MouseButton1Click:Connect(function()
+		local id = ITU.id:match("%d+")
+		if not id or #id > 20 then
+			aviso.Text = "Digite o número do ID."
+			return
+		end
+		if #customPose.itens >= ItensEmote.MAX then
+			aviso.Text = "Máximo de " .. ItensEmote.MAX .. " itens por emote."
+			return
+		end
+		salvarSnapshotPose()
+		local tex = (ITU.tipo == "mesh") and ITU.tex:match("%d+") or nil
+		table.insert(customPose.itens, {
+			tipo = ITU.tipo, id = id, parte = ITU.parte, tex = tex or "",
+			pos = { x = 0, y = 0, z = 0 }, rot = { x = 0, y = 0, z = 0 }, size = { x = 1, y = 1, z = 1 },
+		})
+		ITU.id, ITU.tex = "", ""
+		ITU.aberto = #customPose.itens
+		rebuildTab()
+	end)
+
+	if #customPose.itens == 0 then
+		txt({ Text = "Nenhum item neste emote ainda.", TextSize = 11, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 2, Parent = Content })
+	end
+
+	for i, it in ipairs(customPose.itens) do
+		local titulo = string.format("#%d  %s  •  %s  →  %s", i, nomeDe(ItensEmote.TIPOS, it.tipo), it.id, nomeDe(ItensEmote.PARTES, it.parte))
+		local B = criarSecao(Content, "it_item" .. i, titulo, T.warn, 10 + i, i == ITU.aberto)
+		ITU.refs[it] = txt({
+			Text = it.status or "", TextSize = 10, TextColor3 = T.dim, TextWrapped = true,
+			Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, Parent = B,
+		})
+
+		if it.kind ~= "roupa" then
+			seletorParte(B, it.parte, function(id)
+				salvarSnapshotPose()
+				it.parte = id
+				rebuildTab()
+			end, 2)
+
+			local function cabecalho(texto, ordem)
+				txt({ Text = texto, Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = ordem, Parent = B })
+			end
+			local EIXOS = { "x", "y", "z" }
+			cabecalho("POSIÇÃO", 3)
+			for k, eixo in ipairs(EIXOS) do
+				criarSlider(B, {
+					label = ({ "Lado", "Cima / baixo", "Frente / trás" })[k], axis = k, min = -5, max = 5, dec = 2, order = 3 + k,
+					value = it.pos[eixo], onChange = function(v) it.pos[eixo] = v end,
+				})
+			end
+			cabecalho("ROTAÇÃO", 7)
+			for k, eixo in ipairs(EIXOS) do
+				criarSlider(B, {
+					label = ROT_LABELS[k], axis = k, min = -360, max = 360, dec = 0, order = 7 + k,
+					value = it.rot[eixo], onChange = function(v) it.rot[eixo] = v end,
+				})
+			end
+			cabecalho("TAMANHO", 11)
+			for k, eixo in ipairs(EIXOS) do
+				criarSlider(B, {
+					label = ({ "Largura (X)", "Altura (Y)", "Profundidade (Z)" })[k], axis = k, min = 0.05, max = 6, dec = 2, order = 11 + k,
+					value = it.size[eixo], onChange = function(v) it.size[eixo] = v end,
+				})
+			end
+		end
+
+		local linha = frame({
+			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 20, Parent = B,
+		}, { lista(6, Enum.FillDirection.Horizontal) })
+		if it.kind ~= "roupa" then
+			local igualar = btn({
+				Text = "Igualar tamanho (X)", Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
+				Size = UDim2.new(0.5, -3, 1, 0), LayoutOrder = 1, Parent = linha,
+			}, { round(9), outline(T.stroke, 1, 0.3) })
+			hoverFX(igualar, T.surface2, T.surface3)
+			igualar.MouseButton1Click:Connect(function()
+				salvarSnapshotPose()
+				it.size.y, it.size.z = it.size.x, it.size.x
+				rebuildTab()
+			end)
+		end
+		local remover = btn({
+			Text = "Remover", Font = F.GothamBold, TextSize = 10, TextColor3 = T.danger, BackgroundColor3 = T.surface2,
+			Size = it.kind ~= "roupa" and UDim2.new(0.5, -3, 1, 0) or UDim2.new(1, 0, 1, 0), LayoutOrder = 2, Parent = linha,
+		}, { round(9), outline(T.stroke, 1, 0.3) })
+		hoverFX(remover, T.surface2, T.surface3)
+		remover.MouseButton1Click:Connect(function()
+			salvarSnapshotPose()
+			table.remove(customPose.itens, i)
+			ITU.refs[it] = nil
+			rebuildTab()
+		end)
+	end
+end
+
+local MONTADORES = { Bracos = montarBracos, Maos = montarMaos, Torso = montarTorso, Cabeca = montarCabeca, Pernas = montarPernas, Itens = montarItens }
 
 function rebuildTab()
 	for _, c in ipairs(Content:GetChildren()) do
@@ -4416,7 +5028,7 @@ local function fmt(n)
 	return tostring(n)
 end
 
-local function gerarLua()
+local function gerarLuaBase()
 	local function v3(t) return string.format("{ x = %s, y = %s, z = %s }", fmt(t.x), fmt(t.y), fmt(t.z)) end
 	local function br(t) return string.format("{ x = %s, y = %s, z = %s, px = %s, py = %s, pz = %s }", fmt(t.x), fmt(t.y), fmt(t.z), fmt(t.px or 0), fmt(t.py or 0), fmt(t.pz or 0)) end
 	local function dedos(h)
@@ -4440,6 +5052,13 @@ local function gerarLua()
 		br(E.braco), v3(E.palma), dedos(E), fmt(E.afastamento),
 		br(customPose.cabeca), br(customPose.torso), br(customPose.pernaDir), br(customPose.pernaEsq)
 	)
+end
+
+local function gerarLua()
+	local s = gerarLuaBase()
+	local itensTxt = ItensEmote.texto(customPose.itens, "\t")
+	if itensTxt then s = s:sub(1, -4) .. ",\n" .. itensTxt .. "\n}," end
+	return s
 end
 
 local ExportModal = frame({
@@ -4806,6 +5425,7 @@ do
 					suave = s.suave ~= false,
 					usa = usa,
 					frames = frames,
+					itens = ItensEmote.copiar(s.itens),
 				}
 				local f = frames[1]
 				d.dir, d.esq = f.dir, f.esq
@@ -4817,7 +5437,9 @@ do
 				return d
 			end
 		end
-		return poseDe(s)
+		local p = poseDe(s)
+		p.itens = ItensEmote.copiar(s.itens)
+		return p
 	end
 
 	local function ehEmote(t)
@@ -5001,8 +5623,8 @@ function abrirDev(nome)
 	devTitle.Text = nome
 	prevNome.Text = nome
 	DevPanel.Visible = true
-	DevPreviewWin.Visible = true
-	devPreview.setActive(true)
+	DevPreviewWin.Visible = configPreviewDev
+	devPreview.setActive(configPreviewDev)
 	ExportModal.Visible = false
 	DevSelector.Visible = false
 	toggleMenu(false)
@@ -5380,6 +6002,8 @@ do
 		linhas[#linhas + 1] = string.format('["%s"] = {', anim.nome)
 		linhas[#linhas + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", fmt(anim.duracao), tostring(anim.loop), tostring(anim.suave))
 		linhas[#linhas + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(animConfig.cabeca == true), tostring(animConfig.torso == true), tostring(animConfig.pernas == true))
+		local itensTxt = ItensEmote.texto(customPose.itens, "\t")
+		if itensTxt then linhas[#linhas + 1] = itensTxt .. "," end
 		linhas[#linhas + 1] = "\tframes = {"
 		for _, k in ipairs(anim.keys) do
 			local P = k.pose
@@ -5555,6 +6179,12 @@ end
 abrirPainelDev = function()
 	DevSelector.Visible = true
 	toggleMenu(false)
+end
+aoMudarPreviewDev = function(on)
+	if DevPanel.Visible then
+		DevPreviewWin.Visible = on
+		devPreview.setActive(on)
+	end
 end
 end
 montarDevPanel()
@@ -6171,6 +6801,7 @@ end)()
 
 local function limparMaos()
 	Pegar.soltar()
+	ItensEmote.real.limpar()
 	if loopConnectionRender then loopConnectionRender:Disconnect(); loopConnectionRender = nil end
 	if loopConnectionStepped then loopConnectionStepped:Disconnect(); loopConnectionStepped = nil end
 	local antigo = workspace:FindFirstChild("DynamicFingersFolder")
@@ -6860,6 +7491,21 @@ local function criarMaoDinamica(character)
 		travarImovel(currentEmote ~= nil and EMOTES_IMOVEIS[currentEmote] == true and ((not freezeEmote and emoteTimer > 0) or devBaixo))
 
 		local tempo = tick()
+
+		do
+			-- itens do emote (acessórios / roupas / mesh): no DEV mostra os que você está editando; fora dele, os do emote
+			local listaItens = nil
+			if currentEmote ~= nil then
+				if freezeEmote then
+					listaItens = customPose.itens
+				elseif emoteTimer > 0 then
+					local dEmote = defaultEmotes[currentEmote]
+					listaItens = dEmote and dEmote.itens
+				end
+			end
+			ItensEmote.real.sincronizar(character, listaItens)
+			ItensEmote.real.atualizar(listaItens)
+		end
 
 		if currentEmote ~= nil and DORMIR.emotes[currentEmote] then
 			dormirLigar()

@@ -251,22 +251,41 @@ local defaultEmotes = {
 		pernaDir = { x = -2, y = 14, z = -85, px = 1.03, py = -0.36, pz = -0.01 }, pernaEsq = { x = 0, y = -1, z = 7, px = -1.15, py = 1.05, pz = 0 }
 	},
 	["Dormir"] = {
-		dir = { x = -6, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-		dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-		esq = { x = -6, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-		dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-		cabeca = { x = 0, y = 0, z = 0 }, torso = { x = -90, y = 0, z = 0 },
-		pernaDir = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 }
+		animado = true, duracao = 60, loop = true, suave = true,
+		usa = { cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				dir = { x = -6, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -6, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = -90, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.3,
+				dir = { x = -57, y = -4, z = 190, px = -0.24, py = -0.3, pz = 0.08 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {6,38}, {10,36}, {10,28}, {10,23} }, afastDir = 0,
+				esq = { x = -57, y = 4, z = -190, px = 0.24, py = -0.3, pz = 0.08 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {6,38}, {10,36}, {10,28}, {10,23} }, afastEsq = 0,
+				cabeca = { x = 16, y = 0, z = 0, px = 0, py = -0.06, pz = 0 }, torso = { x = -80, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -5, y = 0, z = 9, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = -9, px = 0, py = 0, pz = 0 } },
+			{ t = 60,
+				dir = { x = -57, y = -4, z = 190, px = -0.24, py = -0.3, pz = 0.08 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {6,38}, {10,36}, {10,28}, {10,23} }, afastDir = 0,
+				esq = { x = -57, y = 4, z = -190, px = 0.24, py = -0.3, pz = 0.08 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {6,38}, {10,36}, {10,28}, {10,23} }, afastEsq = 0,
+				cabeca = { x = 16, y = 0, z = 0, px = 0, py = -0.06, pz = 0 }, torso = { x = -80, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -5, y = 0, z = 9, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = -9, px = 0, py = 0, pz = 0 } },
+		},
 	},
 	["Dormir2"] = {
-		dir = { x = 43, y = 67, z = 37, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+		dir = { x = 43, y = 67, z = 36, px = 0, py = 0, pz = 0 }, palmaDir = { x = -4, y = 0, z = 0 },
 		dedosDir = { {70,90}, {17,13}, {20,10}, {14,19}, {17,29} }, afastDir = 0,
-		esq = { x = 47, y = -107, z = -134, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 162, z = 1 },
-		dedosEsq = { {90,8,0,-100,-16,0,0,0}, {10,22,0,10,0,0,0,0}, {12,17,-1,-4,0,0,0,0}, {90,90}, {90,90} }, afastEsq = 6,
-		cabeca = { x = -6, y = -29, z = 9, px = -0.22, py = 0, pz = 0 }, torso = { x = -90, y = 0, z = 90, px = 0, py = 0, pz = 0 },
-		pernaDir = { x = 9, y = 6, z = 9, px = 0, py = 0, pz = 0 }, pernaEsq = { x = -5, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+		esq = { x = 56, y = -107, z = -134, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 180, z = 1 },
+		dedosEsq = { {90,8,-1,-78,-13,0.02,-0.08,0}, {10,22,-26,4,0,0,0,0}, {12,17,-29,9,0,0,0,0}, {14,44,-39,0,0,0,0,0}, {90,90} }, afastEsq = 6,
+		cabeca = { x = -6, y = -25, z = 9, px = -0.05, py = 0, pz = 0 }, torso = { x = -78, y = 0, z = 90, px = 0, py = 0, pz = 0 },
+		pernaDir = { x = -14, y = 15, z = 19, px = 0.01, py = -0.02, pz = 0.12 }, pernaEsq = { x = 13, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 		itens = {
-			{ tipo = "acessorio", id = "17135170320", parte = "Head", pos = { x = -0.42, y = -0.5, z = -0.18 }, rot = { x = 0, y = 0, z = 14 }, size = { x = 1, y = 1, z = 1 } },
+			{ tipo = "acessorio", id = "17135170320", parte = "Left Arm", pos = { x = -0.05, y = -0.41, z = 0.48 }, rot = { x = -36, y = 85, z = 12 }, size = { x = 1, y = 1, z = 1 } },
 		}
 	},
 	["Braços Cruzados"] = {
@@ -580,7 +599,6 @@ do
 		end
 		local function v(t) return string.format("{ x = %s, y = %s, z = %s }", f(t.x), f(t.y), f(t.z)) end
 		local l = {}
-		l[#l + 1] = ind .. "-- ITENS DESTE EMOTE: " .. #lista .. " (acessório / roupa / mesh)"
 		l[#l + 1] = ind .. "itens = {"
 		for _, it in ipairs(lista) do
 			local tex = (it.tex and it.tex ~= "") and (' tex = "' .. it.tex .. '",') or ""

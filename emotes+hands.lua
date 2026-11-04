@@ -136,6 +136,12 @@ local KAME = {
 	camPuxa = 1.2,        -- quanto a camera avanca na direcao do disparo (studs)
 	shakeForca = 0.18,    -- tremor da camera (studs)
 	shakeAng = 0.012,     -- tremor de rotacao (radianos)
+	ventoQtd = 22,        -- riscos de vento em volta do feixe
+	ventoCasca = 0.82,    -- transparencia da casca de ar (ForceField) em volta do feixe (1 = some)
+	-- fling em quem passar pelo feixe
+	flingForca = 250,     -- velocidade empurrando na direcao do feixe (studs/s)
+	flingCima = 60,       -- velocidade pra cima (studs/s)
+	flingGiro = 30,       -- giro aleatorio (rad/s)
 	bolaFrente = 0,       -- desloca a bola para frente do ponto entre as maos (0 = exatamente no meio)
 	fxEntrada = 0.25,
 	fxSaida = 0.4,
@@ -7793,6 +7799,44 @@ local function criarMaoDinamica(character)
 		fx.feixeNucleo.Color = KAME.corNucleo
 		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
 
+		-- vento cortado pelo feixe: casca de ar + riscos de vento correndo em volta
+		fx.ventoCasca = nova("VentoCasca", Enum.PartType.Cylinder)
+		fx.ventoCasca.Material = Enum.Material.ForceField
+		fx.ventoCasca.Color = Color3.fromRGB(215, 240, 255)
+		fx.ventoLigado = false
+		fx.vento = {}
+		for i = 1, KAME.ventoQtd do
+			local vp = nova("Vento")
+			vp.Size = Vector3.new(0.2, 0.2, 0.2)
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.12, 0)
+			a0.Parent = vp
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.12, 0)
+			a1.Parent = vp
+			local tr = Instance.new("Trail")
+			tr.Texture = KAME.trailTex
+			tr.TextureMode = Enum.TextureMode.Stretch
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Lifetime = 0.2
+			tr.MinLength = 0.02
+			tr.FaceCamera = true
+			tr.LightEmission = 0.5
+			tr.Color = ColorSequence.new(Color3.fromRGB(235, 248, 255), Color3.fromRGB(160, 215, 255))
+			tr.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.55),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			tr.WidthScale = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			tr.Enabled = false
+			tr.Parent = vp
+			fx.vento[i] = { p = vp, tr = tr, s = 0, ang = 0, rad = 1, vel = 80, giro = 0 }
+		end
+
 		-- impacto do feixe
 		fx.imp = nova("Impacto")
 		fx.impBola = nova("ImpactoBola")
@@ -7802,11 +7846,6 @@ local function criarMaoDinamica(character)
 		fx.impLuz.Brightness = 0
 		fx.impLuz.Shadows = false
 		fx.impLuz.Parent = fx.imp
-		fx.impFaiscaE = kameEmissor(fx.imp, {
-			vida = NumberRange.new(0.4, 0.9), vel = NumberRange.new(16, 34), drag = 2,
-			acel = Vector3.new(0, -30, 0), spread = Vector2.new(60, 60),
-			tam = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.1), NumberSequenceKeypoint.new(1, 0) }),
-		})
 		fx.impPoeiraE = kameEmissor(fx.imp, {
 			tex = "rbxasset://textures/particles/smoke_main.dds", luz = 0.5,
 			vida = NumberRange.new(0.8, 1.5), vel = NumberRange.new(10, 22), drag = 2,
@@ -7887,13 +7926,68 @@ local function criarMaoDinamica(character)
 		return soma / n
 	end
 
-	local function kameOnda(fx, pos, anel, s0, s1, dur, tr0)
+	local function kameOnda(fx, pos, anel, s0, s1, dur, tr0, normal)
 		local p = kameParte(anel and "Anel" or "Onda", anel and Enum.PartType.Cylinder or Enum.PartType.Ball)
 		p.Material = Enum.Material.ForceField
 		p.Transparency = tr0
-		p.CFrame = anel and (CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)) or CFrame.new(pos)
+		if anel and normal then
+			p.CFrame = CFrame.lookAt(pos, pos + normal) * CFrame.Angles(0, math.pi / 2, 0)
+		else
+			p.CFrame = anel and (CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)) or CFrame.new(pos)
+		end
 		p.Parent = fx.pasta
 		table.insert(fx.ondas, { p = p, t0 = os.clock(), dur = dur, s0 = s0, s1 = s1, tr0 = tr0, anel = anel })
+	end
+
+	local function kameVentoSortear(v, s0)
+		v.s = s0
+		v.ang = math.random() * math.pi * 2
+		v.rad = 0.9 + math.random() * 1.0 -- multiplicador da espessura do feixe
+		v.vel = 70 + math.random() * 50
+		v.giro = (math.random() * 2 - 1) * 2.5
+	end
+
+	local function kameVentoAtualizar(fx, origem, dir, len, esp, dt, ligado)
+		if not ligado then
+			fx.ventoCasca.Transparency = 1
+			if fx.ventoLigado then
+				fx.ventoLigado = false
+				for _, v in ipairs(fx.vento) do v.tr.Enabled = false end
+			end
+			return
+		end
+
+		local base = CFrame.lookAt(origem, origem + dir)
+		local dirDe, cimaDe = base.RightVector, base.UpVector
+
+		-- casca de ar translucida em volta do feixe
+		local mid = origem + dir * (len / 2)
+		local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
+		fx.ventoCasca.Size = Vector3.new(len, esp * 2.8, esp * 2.8)
+		fx.ventoCasca.CFrame = cf
+		fx.ventoCasca.Transparency = KAME.ventoCasca
+
+		-- riscos de vento correndo no sentido do feixe
+		local primeiro = not fx.ventoLigado
+		fx.ventoLigado = true
+		for _, v in ipairs(fx.vento) do
+			if primeiro then
+				kameVentoSortear(v, math.random() * len)
+				v.tr.Enabled = true
+				v.tr:Clear()
+			end
+			v.s = v.s + v.vel * dt
+			v.ang = v.ang + v.giro * dt
+			if v.s > len then
+				kameVentoSortear(v, 0)
+				v.tr.Enabled = false
+				v.tr.Enabled = true
+				v.tr:Clear()
+			end
+			local r = esp * v.rad
+			local pos = origem + dir * v.s + (dirDe * math.cos(v.ang) + cimaDe * math.sin(v.ang)) * r
+			v.p.CFrame = CFrame.lookAt(pos, pos + dir)
+		end
 	end
 
 	local function kameVfxAtualizar(fase, t, dt)
@@ -7985,7 +8079,6 @@ local function criarMaoDinamica(character)
 		-- disparo
 		if fase == 3 and not fx.disparou then
 			fx.disparou = true
-			kameOnda(fx, origem, false, 2, 20, 0.5, 0.25)
 			kameCamIniciar(dir)
 		elseif fase ~= 3 then
 			fx.disparou = false
@@ -8008,6 +8101,7 @@ local function criarMaoDinamica(character)
 
 		-- feixe
 		local visivel = false
+		local ventoLen, ventoEsp = 0, 0
 		if fase == 3 then
 			local res = workspace:Raycast(origem, dir * KAME.alcance, kameRay)
 			local alc = res and (res.Position - origem).Magnitude or KAME.alcance
@@ -8016,6 +8110,7 @@ local function criarMaoDinamica(character)
 			local esp = KAME.raio * (1 + 0.08 * math.sin(agora * 45)) * fimFade * clamp(tr / 0.12, 0, 1)
 			if esp > 0.05 then
 				visivel = true
+				ventoLen, ventoEsp = len, esp
 				local mid = origem + dir * (len / 2)
 				local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
 				fx.feixeNucleo.Size = Vector3.new(len, esp * 0.55, esp * 0.55)
@@ -8027,6 +8122,42 @@ local function criarMaoDinamica(character)
 				fx.feixeNucleo.Transparency = 0
 				fx.feixeMeio.Transparency = 0.2
 				fx.feixeFora.Transparency = 0.6
+
+				-- fling: blocos, itens e pecas soltas (nao ancoradas) que encostam no feixe sao arremessados
+				local op = fx.flingParams
+				if not op then
+					op = OverlapParams.new()
+					op.FilterType = Enum.RaycastFilterType.Exclude
+					op.FilterDescendantsInstances = { character, folder }
+					fx.flingParams = op
+					fx.flingTempo = setmetatable({}, { __mode = "k" })
+				end
+				local caixa = CFrame.lookAt(mid, mid + dir)
+				local partes = workspace:GetPartBoundsInBox(caixa, Vector3.new(esp * 1.6, esp * 1.6, len), op)
+				local feitos = {}
+				for _, part in ipairs(partes) do
+					-- ignora personagens / humanoides (jogadores e NPCs): so blocos, itens e pecas soltas
+					local modelo = part:FindFirstAncestorOfClass("Model")
+					if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
+					local raiz = part.AssemblyRootPart or part
+					if feitos[raiz] or raiz.Anchored then continue end
+					local dono = raiz:FindFirstAncestorOfClass("Model")
+					if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
+					feitos[raiz] = true
+
+					local ultimo = fx.flingTempo[raiz]
+					local novo = (not ultimo) or (agora - ultimo > 0.4)
+					fx.flingTempo[raiz] = agora
+
+					pcall(function()
+						raiz.AssemblyLinearVelocity = dir * KAME.flingForca + Vector3.new(0, KAME.flingCima, 0)
+						if novo then
+							-- impulso extra proporcional a massa: tira ate peca pesada do chao (atrito)
+							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * KAME.flingCima, 0))
+							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.flingGiro
+						end
+					end)
+				end
 			end
 
 			-- impacto
@@ -8038,12 +8169,16 @@ local function criarMaoDinamica(character)
 				fx.impBola.CFrame = CFrame.new(ip)
 				fx.impBola.Transparency = 0.35
 				fx.impLuz.Brightness = 5 * fimFade
-				fx.impFaiscaE.Rate = 45 * fimFade
 				fx.impPoeiraE.Rate = 18 * fimFade
+
+				-- repelicao: aneis de choque saindo do ponto atingido, na direcao da superficie
+				if agora - (fx.repelT or 0) > 0.16 then
+					fx.repelT = agora
+					kameOnda(fx, res.Position + res.Normal * 0.2, true, 2, 16, 0.5, 0.3, res.Normal)
+				end
 			else
 				fx.impBola.Transparency = 1
 				fx.impLuz.Brightness = 0
-				fx.impFaiscaE.Rate = 0
 				fx.impPoeiraE.Rate = 0
 			end
 		end
@@ -8053,9 +8188,9 @@ local function criarMaoDinamica(character)
 			fx.feixeFora.Transparency = 1
 			fx.impBola.Transparency = 1
 			fx.impLuz.Brightness = 0
-			fx.impFaiscaE.Rate = 0
 			fx.impPoeiraE.Rate = 0
 		end
+		kameVentoAtualizar(fx, origem, dir, ventoLen, ventoEsp, dt, visivel)
 	end
 
 	loopConnectionRender = RunService.RenderStepped:Connect(function(dt)

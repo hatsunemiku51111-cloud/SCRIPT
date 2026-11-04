@@ -41,7 +41,7 @@ local EMOTES_TOGGLE = {
 local EMOTES_IMOVEIS = {
 	Sentido = true, Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
-	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true,
+	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true, Kamehameha = true,
 }
 
 local EMOTES_CORPO = {
@@ -102,6 +102,44 @@ local GOZAR = {
 
 local siriricaTempo = 0
 local siriricaSoundPlayed = false
+
+-- Kamehameha: fases por keyframe (tempos em segundos, iguais aos "t" dos frames do emote)
+--  fase 1 = KF1 ao KF3  (t 0 ate antes de 0.85): anda normalmente
+--  fase 2 = KF4 ao KF9  (t 0.85 ate antes de 2.7): parado + som de recarga
+--  fase 3 = KF10 ao KF11 (t 2.7 ate 5): parado + som de disparo
+local KAME = {
+	ciclo = 5,            -- mesma duracao do emote
+	tFase2 = 0.85,        -- tempo do KF4
+	tFase3 = 2.7,         -- tempo do KF10
+	somRecarga = "rbxassetid://1370232812",
+	somDisparo = "rbxassetid://79853512837585",
+	volume = 1,
+
+	-- fade dos sons (segundos)
+	fadeEntrada = 0.18,   -- sobe o volume no inicio de cada som
+	fadeSaida = 0.45,     -- desce o volume antes do fim da fase (nao corta mais seco)
+	fadeParar = 0.3,      -- fade ao interromper (emote cancelado / troca de fase)
+
+	-- VFX
+	cor = Color3.fromRGB(70, 180, 255),
+	corNucleo = Color3.fromRGB(235, 250, 255),
+	alcance = 80,         -- tamanho maximo do feixe (studs)
+	raio = 3.2,           -- espessura do feixe (studs)
+	bolaMax = 3.4,        -- tamanho da esfera de energia carregada
+	trailTex = "rbxassetid://6561033515", -- imagem dos mini trails sugados pra bola
+	trailQtd = 28,        -- quantidade de mini trails ao mesmo tempo
+	trailRaio = 5,        -- distancia de onde os trails comecam (studs)
+	trailTransp = 0.35,   -- transparencia inicial do trail (0 = opaco)
+	-- camera ao disparar
+	camDur = 0.55,        -- duracao do efeito de camera (s)
+	fovPuxa = 14,         -- quanto o FOV fecha no disparo (graus), da o efeito de puxar a camera
+	camPuxa = 1.2,        -- quanto a camera avanca na direcao do disparo (studs)
+	shakeForca = 0.18,    -- tremor da camera (studs)
+	shakeAng = 0.012,     -- tremor de rotacao (radianos)
+	bolaFrente = 0,       -- desloca a bola para frente do ponto entre as maos (0 = exatamente no meio)
+	fxEntrada = 0.25,
+	fxSaida = 0.4,
+}
 
 local Pegar = {
 	ativo = false,
@@ -353,6 +391,90 @@ local defaultEmotes = {
 				dedosEsq = { {10,34,0,0,-71,0,0,0}, {10,26,0,0,35,0,0,0}, {10,22,0,0,27,0,0,0}, {10,34,-25,-7,0,0,0,0}, {10,36,-28,-4,-19,0,0,0} }, afastEsq = 0,
 				cabeca = { x = 18, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = -11, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = -1, y = 1, z = -14, px = 0, py = -0.03, pz = 0 }, pernaEsq = { x = -1, y = -1, z = 14, px = 0, py = -0.03, pz = 0 } },
+		},
+	},
+
+	["Kamehameha"] = {
+		animado = true, duracao = 5, loop = true, suave = true,
+		usa = { cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				dir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.3,
+				dir = { x = 12, y = 31, z = 91, px = 0, py = -0.8, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -23, y = -46, z = -93, px = -0.1, py = -0.26, pz = -0.13 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.6,
+				dir = { x = 39, y = -58, z = 83.5, px = -0.61, py = -0.17, pz = -0.58 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.85,
+				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -2.11, y = -10.53, z = 1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -11, px = 0.02, py = 0, pz = 0.02 } },
+			{ t = 1.1,
+				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -2.11, y = -10.53, z = -1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -39, px = 0.06, py = -0.01, pz = 0.35 } },
+			{ t = 1.4,
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -25, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -8, px = 0.12, py = 0.05, pz = 0.08 }, pernaEsq = { x = 12, y = 28, z = -35, px = -0.3, py = 0.02, pz = 0.37 } },
+			{ t = 1.5,
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
+			{ t = 1.9,
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
+			{ t = 2.5,
+				dir = { x = 12.06, y = -43.73, z = 62.95, px = -0.51, py = -0.51, pz = -0.57 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -16.59, y = -93.48, z = -64.33, px = -0.61, py = -0.39, pz = -0.88 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -12.82, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -22, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 7, y = -7, z = -17, px = -0.06, py = -0.27, pz = 0 }, pernaEsq = { x = 4, y = 35, z = -25, px = -0.21, py = 0.19, pz = 0.45 } },
+			{ t = 2.7,
+				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
+				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
+				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
+			{ t = 5,
+				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
+				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
+				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
 		},
 	},
 }
@@ -3406,6 +3528,7 @@ local EMOTES = {
 	{ nome = "Chupada de Dedo", icone = "👅", cat = "+18", toggle = true },
 	{ nome = "De Quatro", icone = "🐕", cat = "+18", toggle = true },
 	{ nome = "Socar", icone = "🍆", cat = "+18", toggle = true },
+	{ nome = "Kamehameha", icone = "🌀", cat = "Gestos" },
 }
 local EMOTE_POR_NOME = {}
 for _, e in ipairs(EMOTES) do EMOTE_POR_NOME[e.nome] = e end
@@ -3481,9 +3604,10 @@ local function tocarEmote(nome)
 			if nome == "Siririca" then siriricaTempo = 0 end
 		end
 	else
+		if nome == "Kamehameha" and currentEmote == nome and emoteTimer > 0 then return end -- nao reinicia no meio do ciclo
 		if nome ~= "Siririca" then siriricaTempo = 0 end
 		currentEmote = nome
-		emoteTimer = emoteDuration
+		emoteTimer = (nome == "Kamehameha") and KAME.ciclo or emoteDuration -- toca o ciclo inteiro uma vez
 		if nome == "Siririca" then siriricaTempo = 0 end
 	end
 	refreshAtivos()
@@ -6165,7 +6289,7 @@ local emotesDev = {
 	"Tchau", "Paz", "Sim", "Maçaneta", "Bow", "Dedo", "Citação", "Sentido", "Convidando",
 	"Dancinha", "Cala a Boca", "Braços Cruzados", "Deitado de Frente", "Sentar", "Ajoelhar",
 	"Dormir", "Dormir2", "Siririca",
-	"Chupada de Dedo", "De Quatro", "Socar",
+	"Chupada de Dedo", "De Quatro", "Socar", "Kamehameha",
 }
 local ordemLinhaDev = 0
 function adicionarLinhaDev(nome, icone)
@@ -7480,6 +7604,460 @@ local function criarMaoDinamica(character)
 		end
 	end
 
+	-- Kamehameha: estado, sons (com fade) e VFX
+	local kameFase, kameInicio, kameUltimoEmote = nil, 0, nil
+	local kameFxFase, kameFxT = nil, 0
+	local kameSnds = {}
+
+	local function kameSomParar(imediato)
+		local agora = os.clock()
+		for i = #kameSnds, 1, -1 do
+			local e = kameSnds[i]
+			if imediato or not (e.inst and e.inst.Parent) then
+				pcall(function() e.inst:Stop() e.inst:Destroy() end)
+				table.remove(kameSnds, i)
+			elseif not e.morrendo then
+				e.morrendo = true
+				e.mInicio = agora
+				e.mVol = e.inst.Volume
+			end
+		end
+	end
+
+	-- fimClock: os.clock() em que a fase termina (o volume desce suave ate la)
+	local function kameSomTocar(id, fimClock)
+		kameSomParar()
+		if not (rootPart and rootPart.Parent) then return end
+		local s = Instance.new("Sound")
+		s.Name = "SomKamehameha"
+		s.SoundId = id
+		s.Volume = 0
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.MaxDistance = 120
+		s.Parent = rootPart
+		s:Play()
+		game:GetService("Debris"):AddItem(s, 10)
+		table.insert(kameSnds, { inst = s, inicio = os.clock(), fim = fimClock })
+	end
+
+	local function kameSomAtualizar()
+		local agora = os.clock()
+		for i = #kameSnds, 1, -1 do
+			local e = kameSnds[i]
+			local s = e.inst
+			if not (s and s.Parent) then
+				table.remove(kameSnds, i)
+			elseif e.morrendo then
+				local a = (agora - e.mInicio) / KAME.fadeParar
+				if a >= 1 then
+					pcall(function() s:Stop() s:Destroy() end)
+					table.remove(kameSnds, i)
+				else
+					s.Volume = e.mVol * (1 - a)
+				end
+			else
+				local v = clamp((agora - e.inicio) / KAME.fadeEntrada, 0, 1)
+				if e.fim then v = v * clamp((e.fim - agora) / KAME.fadeSaida, 0, 1) end
+				v = v * v * (3 - 2 * v)
+				s.Volume = KAME.volume * v
+			end
+		end
+	end
+
+	-- ===== Kamehameha VFX =====
+	local kameFX = nil
+	local kameRay = RaycastParams.new()
+	kameRay.FilterType = Enum.RaycastFilterType.Exclude
+	kameRay.FilterDescendantsInstances = { character, folder }
+
+	local function kameParte(nome, forma)
+		local p = Instance.new("Part")
+		p.Name = nome
+		p.Shape = forma or Enum.PartType.Ball
+		p.Material = Enum.Material.Neon
+		p.Color = KAME.cor
+		p.Size = Vector3.new(1, 1, 1)
+		p.Transparency = 1
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		return p
+	end
+
+	local function kameEmissor(pai, cfg)
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = cfg.tex or "rbxasset://textures/particles/sparkles_main.dds"
+		e.Color = ColorSequence.new(cfg.cor or KAME.cor)
+		e.LightEmission = cfg.luz or 1
+		e.Lifetime = cfg.vida
+		e.Speed = cfg.vel
+		e.Size = cfg.tam
+		e.Transparency = cfg.transp or NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(0.7, 0.3),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		e.Rate = 0
+		e.Rotation = NumberRange.new(0, 360)
+		e.Acceleration = cfg.acel or Vector3.new(0, 0, 0)
+		e.Drag = cfg.drag or 0
+		e.Shape = cfg.forma or Enum.ParticleEmitterShape.Box
+		e.ShapeInOut = cfg.dentro or Enum.ParticleEmitterShapeInOut.Outward
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		e.SpreadAngle = cfg.spread or Vector2.new(0, 0)
+		e.EmissionDirection = cfg.dir or Enum.NormalId.Top
+		e.Parent = pai
+		return e
+	end
+
+	local function kameVfxCriar()
+		local pasta = Instance.new("Folder")
+		pasta.Name = "KamehamehaFX"
+		pasta.Parent = folder
+
+		local fx = { pasta = pasta, g = 0, ondas = {}, raios = {}, disparou = false }
+		local function nova(nome, forma)
+			local p = kameParte(nome, forma)
+			p.Parent = pasta
+			return p
+		end
+
+		-- esfera de energia
+		fx.brilho = nova("Brilho")
+		fx.nucleo = nova("Nucleo")
+		fx.nucleo.Color = KAME.corNucleo
+		fx.luz = Instance.new("PointLight")
+		fx.luz.Color = KAME.cor
+		fx.luz.Range = 24
+		fx.luz.Brightness = 0
+		fx.luz.Shadows = false
+		fx.luz.Parent = fx.brilho
+
+		-- raios de luz saindo da esfera
+		for i = 1, 9 do
+			local p = nova("Raio", Enum.PartType.Block)
+			p.Color = (i % 2 == 0) and KAME.corNucleo or KAME.cor
+			fx.raios[i] = {
+				p = p,
+				d0 = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit,
+				vel = (math.random() * 2 - 1) * 2.4,
+				ph = math.random() * 6.28,
+				esp = 0.08 + math.random() * 0.1,
+			}
+		end
+
+		-- particulas convergindo pra esfera + explosao de faiscas
+		fx.conv = nova("Ancora")
+		-- mini trails semi transparentes sendo sugados pra esfera (no lugar das estrelinhas)
+		fx.sugados = {}
+		fx.sugAcc = 0
+		for i = 1, KAME.trailQtd do
+			local tp = nova("Sugado")
+			tp.Size = Vector3.new(0.2, 0.2, 0.2)
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.15, 0)
+			a0.Parent = tp
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.15, 0)
+			a1.Parent = tp
+			local tr = Instance.new("Trail")
+			tr.Texture = KAME.trailTex
+			tr.TextureMode = Enum.TextureMode.Stretch
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Lifetime = 0.25
+			tr.MinLength = 0.02
+			tr.FaceCamera = true
+			tr.LightEmission = 1
+			tr.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
+			tr.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, KAME.trailTransp),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			tr.WidthScale = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			tr.Enabled = false
+			tr.Parent = tp
+			fx.sugados[i] = { p = tp, tr = tr, vivo = false, t = 0, dur = 0.5, d = Vector3.new(0, 1, 0), r = 0, giro = 0 }
+		end
+		fx.conv.Size = Vector3.new(7, 7, 7)
+
+		-- feixe (3 camadas)
+		fx.feixeFora = nova("FeixeFora", Enum.PartType.Cylinder)
+		fx.feixeMeio = nova("FeixeMeio", Enum.PartType.Cylinder)
+		fx.feixeNucleo = nova("FeixeNucleo", Enum.PartType.Cylinder)
+		fx.feixeNucleo.Color = KAME.corNucleo
+		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
+
+		-- impacto do feixe
+		fx.imp = nova("Impacto")
+		fx.impBola = nova("ImpactoBola")
+		fx.impLuz = Instance.new("PointLight")
+		fx.impLuz.Color = KAME.cor
+		fx.impLuz.Range = 28
+		fx.impLuz.Brightness = 0
+		fx.impLuz.Shadows = false
+		fx.impLuz.Parent = fx.imp
+		fx.impFaiscaE = kameEmissor(fx.imp, {
+			vida = NumberRange.new(0.4, 0.9), vel = NumberRange.new(16, 34), drag = 2,
+			acel = Vector3.new(0, -30, 0), spread = Vector2.new(60, 60),
+			tam = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.1), NumberSequenceKeypoint.new(1, 0) }),
+		})
+		fx.impPoeiraE = kameEmissor(fx.imp, {
+			tex = "rbxasset://textures/particles/smoke_main.dds", luz = 0.5,
+			vida = NumberRange.new(0.8, 1.5), vel = NumberRange.new(10, 22), drag = 2,
+			spread = Vector2.new(80, 80),
+			tam = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3), NumberSequenceKeypoint.new(1, 9) }),
+			transp = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1) }),
+		})
+
+		kameFX = fx
+		return fx
+	end
+
+	-- ===== camera do disparo: FOV puxa pra direcao do feixe + mini shake =====
+	local kameCam = nil
+	local KAME_CAM_NOME = "KamehamehaCam"
+
+	local function kameCamParar()
+		local st = kameCam
+		if not st then return end
+		kameCam = nil
+		pcall(function() RunService:UnbindFromRenderStep(KAME_CAM_NOME) end)
+		local cam = workspace.CurrentCamera
+		if cam then cam.FieldOfView = st.baseFov end
+	end
+
+	local function kameCamPasso()
+		local st = kameCam
+		local cam = workspace.CurrentCamera
+		if not st or not cam then kameCamParar() return end
+		local agora = os.clock()
+		local a = (agora - st.t0) / KAME.camDur
+		if a >= 1 then kameCamParar() return end
+
+		-- sobe rapido (18% inicial) e volta suave
+		local env
+		if a < 0.18 then env = a / 0.18 else env = (1 - (a - 0.18) / 0.82) ^ 2 end
+		local amp = (1 - a) ^ 2
+
+		cam.FieldOfView = st.baseFov - KAME.fovPuxa * env
+		local off = Vector3.new(math.sin(agora * 71), math.sin(agora * 89 + 1.3), math.sin(agora * 53 + 2.1)) * (KAME.shakeForca * amp)
+		local rot = Vector3.new(math.sin(agora * 77 + 0.7), math.sin(agora * 61 + 2.4), math.sin(agora * 47)) * (KAME.shakeAng * amp)
+		cam.CFrame = CFrame.new(st.dir * (KAME.camPuxa * env)) * cam.CFrame * CFrame.new(off) * CFrame.Angles(rot.X, rot.Y, rot.Z)
+	end
+
+	local function kameCamIniciar(dir)
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		kameCamParar()
+		kameCam = { t0 = os.clock(), dir = dir, baseFov = cam.FieldOfView }
+		RunService:BindToRenderStep(KAME_CAM_NOME, Enum.RenderPriority.Camera.Value + 2, kameCamPasso)
+	end
+
+	local function kameVfxDestruir()
+		kameCamParar()
+		if kameFX then
+			pcall(function() kameFX.pasta:Destroy() end)
+			kameFX = nil
+		end
+	end
+
+	-- centro real da mao (palma + dedos), em vez da ponta do braco: a mao fica alem da ponta
+	local function kameMaoPonta(braco)
+		local soma, n, vistos = Vector3.new(0, 0, 0), 0, {}
+		for _, m in ipairs(partesMao) do
+			if m.braco == braco then
+				for _, p in ipairs({ m.palma, m.pBase, m.pPonta }) do
+					if p and p.Parent and not vistos[p] then
+						vistos[p] = true
+						soma = soma + p.Position
+						n = n + 1
+					end
+				end
+			end
+		end
+		if n == 0 then
+			return (braco.CFrame * CFrame.new(0, -1, 0)).Position
+		end
+		return soma / n
+	end
+
+	local function kameOnda(fx, pos, anel, s0, s1, dur, tr0)
+		local p = kameParte(anel and "Anel" or "Onda", anel and Enum.PartType.Cylinder or Enum.PartType.Ball)
+		p.Material = Enum.Material.ForceField
+		p.Transparency = tr0
+		p.CFrame = anel and (CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)) or CFrame.new(pos)
+		p.Parent = fx.pasta
+		table.insert(fx.ondas, { p = p, t0 = os.clock(), dur = dur, s0 = s0, s1 = s1, tr0 = tr0, anel = anel })
+	end
+
+	local function kameVfxAtualizar(fase, t, dt)
+		local ativo = (fase == 2 or fase == 3)
+		if ativo and not kameFX then kameVfxCriar() end
+		local fx = kameFX
+		if not fx then return end
+		if not fx.pasta.Parent then kameFX = nil return end
+
+		-- fade geral do efeito
+		local alvo = ativo and 1 or 0
+		local passo = dt / (ativo and KAME.fxEntrada or KAME.fxSaida)
+		fx.g = fx.g + clamp(alvo - fx.g, -passo, passo)
+		if not ativo and fx.g <= 0.001 then kameVfxDestruir() return end
+		local g = fx.g
+		local agora = os.clock()
+
+		local dir = rootPart.CFrame.LookVector
+		local origem = (kameMaoPonta(rightArm) + kameMaoPonta(leftArm)) / 2 + dir * KAME.bolaFrente
+
+		local prog = 0
+		local tr = 0
+		if fase == 2 then
+			prog = clamp((t - KAME.tFase2) / (KAME.tFase3 - KAME.tFase2), 0, 1)
+		elseif fase == 3 then
+			prog = 1
+			tr = t - KAME.tFase3
+		end
+		local fimFade = (fase == 3) and clamp((KAME.ciclo - t) / 0.5, 0, 1) or 1
+
+		-- esfera de energia
+		local pulso = 1 + 0.07 * math.sin(agora * 32)
+		local diam = KAME.bolaMax * (0.15 + 0.85 * prog ^ 1.4)
+		if fase == 3 then
+			diam = KAME.bolaMax * (1.1 - 0.25 * clamp(tr / 0.5, 0, 1))
+		end
+		diam = math.max(diam * g * fimFade * pulso, 0.05)
+		fx.brilho.Size = Vector3.new(diam, diam, diam)
+		fx.brilho.CFrame = CFrame.new(origem)
+		fx.brilho.Transparency = 0.45 + (1 - g) * 0.55
+		fx.nucleo.Size = Vector3.new(diam * 0.62, diam * 0.62, diam * 0.62)
+		fx.nucleo.CFrame = CFrame.new(origem)
+		fx.nucleo.Transparency = (1 - g)
+		fx.luz.Brightness = (2 + 4 * prog) * g * fimFade
+
+		-- raios de luz
+		local raioAmt = (fase == 2) and prog or (fase == 3 and (1 - clamp(tr / 0.5, 0, 1)) or 0)
+		for _, r in ipairs(fx.raios) do
+			local d = CFrame.Angles(0, agora * r.vel, 0):VectorToWorldSpace(r.d0)
+			local flick = 0.55 + 0.45 * math.abs(math.sin(agora * 14 + r.ph))
+			local len = math.max((1.5 + 5.5 * raioAmt) * flick * g, 0.05)
+			local pos = origem + d * (diam * 0.4 + len / 2)
+			r.p.Size = Vector3.new(r.esp, r.esp, len)
+			r.p.CFrame = CFrame.lookAt(pos, pos + d)
+			r.p.Transparency = 1 - clamp(raioAmt * 1.6, 0, 0.85) * g
+		end
+
+		-- particulas
+		fx.conv.CFrame = CFrame.new(origem)
+		-- mini trails sendo sugados pra esfera
+		local taxaSug = (fase == 2) and (25 + 35 * prog) * g or 0
+		fx.sugAcc = fx.sugAcc + taxaSug * dt
+		for _, sg in ipairs(fx.sugados) do
+			if not sg.vivo and fx.sugAcc >= 1 then
+				fx.sugAcc = fx.sugAcc - 1
+				sg.vivo = true
+				sg.t = 0
+				sg.dur = 0.35 + math.random() * 0.25
+				sg.d = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit
+				sg.r = KAME.trailRaio * (0.7 + 0.5 * math.random())
+				sg.giro = (math.random() * 2 - 1) * 2.5
+				sg.p.CFrame = CFrame.new(origem + sg.d * sg.r)
+				sg.tr:Clear()
+				sg.tr.Enabled = true
+			end
+			if sg.vivo then
+				sg.t = sg.t + dt / sg.dur
+				if sg.t >= 1 then
+					sg.vivo = false
+					sg.tr.Enabled = false
+				else
+					local e = sg.t ^ 1.6
+					local dd = CFrame.Angles(0, sg.giro * sg.t, 0):VectorToWorldSpace(sg.d)
+					sg.p.CFrame = CFrame.new(origem + dd * (sg.r * (1 - e)))
+				end
+			end
+		end
+
+		-- disparo
+		if fase == 3 and not fx.disparou then
+			fx.disparou = true
+			kameOnda(fx, origem, false, 2, 20, 0.5, 0.25)
+			kameCamIniciar(dir)
+		elseif fase ~= 3 then
+			fx.disparou = false
+		end
+
+		-- ondas de choque
+		for i = #fx.ondas, 1, -1 do
+			local o = fx.ondas[i]
+			local a = (agora - o.t0) / o.dur
+			if a >= 1 then
+				o.p:Destroy()
+				table.remove(fx.ondas, i)
+			else
+				local e = 1 - (1 - a) ^ 3
+				local s = o.s0 + (o.s1 - o.s0) * e
+				o.p.Size = o.anel and Vector3.new(0.4, s, s) or Vector3.new(s, s, s)
+				o.p.Transparency = o.tr0 + (1 - o.tr0) * a
+			end
+		end
+
+		-- feixe
+		local visivel = false
+		if fase == 3 then
+			local res = workspace:Raycast(origem, dir * KAME.alcance, kameRay)
+			local alc = res and (res.Position - origem).Magnitude or KAME.alcance
+			local cresce = 1 - (1 - clamp(tr / 0.3, 0, 1)) ^ 3
+			local len = math.max(alc * cresce, 0.1)
+			local esp = KAME.raio * (1 + 0.08 * math.sin(agora * 45)) * fimFade * clamp(tr / 0.12, 0, 1)
+			if esp > 0.05 then
+				visivel = true
+				local mid = origem + dir * (len / 2)
+				local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
+				fx.feixeNucleo.Size = Vector3.new(len, esp * 0.55, esp * 0.55)
+				fx.feixeMeio.Size = Vector3.new(len, esp * 0.9, esp * 0.9)
+				fx.feixeFora.Size = Vector3.new(len, esp * 1.6, esp * 1.6)
+				fx.feixeNucleo.CFrame = cf
+				fx.feixeMeio.CFrame = cf
+				fx.feixeFora.CFrame = cf
+				fx.feixeNucleo.Transparency = 0
+				fx.feixeMeio.Transparency = 0.2
+				fx.feixeFora.Transparency = 0.6
+			end
+
+			-- impacto
+			if res and visivel and cresce >= 0.98 then
+				local ip = res.Position + res.Normal * 0.6
+				local ib = esp * 2.4 * (1 + 0.1 * math.sin(agora * 38))
+				fx.imp.CFrame = CFrame.lookAt(ip, ip + res.Normal)
+				fx.impBola.Size = Vector3.new(ib, ib, ib)
+				fx.impBola.CFrame = CFrame.new(ip)
+				fx.impBola.Transparency = 0.35
+				fx.impLuz.Brightness = 5 * fimFade
+				fx.impFaiscaE.Rate = 45 * fimFade
+				fx.impPoeiraE.Rate = 18 * fimFade
+			else
+				fx.impBola.Transparency = 1
+				fx.impLuz.Brightness = 0
+				fx.impFaiscaE.Rate = 0
+				fx.impPoeiraE.Rate = 0
+			end
+		end
+		if not visivel then
+			fx.feixeNucleo.Transparency = 1
+			fx.feixeMeio.Transparency = 1
+			fx.feixeFora.Transparency = 1
+			fx.impBola.Transparency = 1
+			fx.impLuz.Brightness = 0
+			fx.impFaiscaE.Rate = 0
+			fx.impPoeiraE.Rate = 0
+		end
+	end
+
 	loopConnectionRender = RunService.RenderStepped:Connect(function(dt)
 		if not character or not character.Parent or humanoid.Health <= 0 then
 			dormirDesligar()
@@ -7487,6 +8065,8 @@ local function criarMaoDinamica(character)
 			siriricaTempo = 0
 			siriricaSoundPlayed = false
 			travarImovel(false)
+			kameSomParar(true)
+			kameVfxDestruir()
 			limparMaos(); return
 		end
 
@@ -7505,8 +8085,39 @@ local function criarMaoDinamica(character)
 			end
 		end
 
+		-- Kamehameha: KF1-3 anda, KF4-9 parado + som de recarga, KF10-11 parado + som de disparo
+		local kameParado = false
+		kameFxFase, kameFxT = nil, 0
+		if currentEmote == "Kamehameha" and not freezeEmote and emoteTimer > 0 then
+			if kameUltimoEmote ~= "Kamehameha" then kameInicio = os.clock() end
+			local t = (os.clock() - kameInicio) % KAME.ciclo
+			local fase = (t < KAME.tFase2) and 1 or ((t < KAME.tFase3) and 2 or 3)
+			kameParado = (fase ~= 1)
+			kameFxFase, kameFxT = fase, t
+			if fase ~= kameFase then
+				kameFase = fase
+				if fase == 2 then
+					kameSomTocar(KAME.somRecarga, os.clock() + (KAME.tFase3 - t))
+				elseif fase == 3 then
+					kameSomTocar(KAME.somDisparo, os.clock() + (KAME.ciclo - t))
+				else
+					kameSomParar()
+				end
+			end
+		elseif kameFase ~= nil then
+			kameFase = nil
+			kameSomParar()
+		end
+		kameUltimoEmote = currentEmote
+		kameSomAtualizar()
+		kameVfxAtualizar(kameFxFase, kameFxT, dt)
+
 		local devBaixo = freezeEmote and currentEmote ~= nil and EMOTES_BAIXOS[currentEmote] ~= nil
-		travarImovel(currentEmote ~= nil and EMOTES_IMOVEIS[currentEmote] == true and ((not freezeEmote and emoteTimer > 0) or devBaixo))
+		local travar = currentEmote ~= nil and EMOTES_IMOVEIS[currentEmote] == true and ((not freezeEmote and emoteTimer > 0) or devBaixo)
+		if currentEmote == "Kamehameha" and not freezeEmote then
+			travar = travar and kameParado
+		end
+		travarImovel(travar)
 
 		local tempo = tick()
 

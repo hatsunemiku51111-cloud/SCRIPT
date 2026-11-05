@@ -5084,7 +5084,85 @@ do
 	EmoteButton.MouseButton1Down:Connect(function() tw(esc, 0.08, { Scale = 0.92 }) end)
 	EmoteButton.MouseButton1Up:Connect(function() tw(esc, 0.1, { Scale = 1 }) end)
 end
-EmoteButton.MouseButton1Click:Connect(function() toggleMenu() end)
+-- Segurar o botao por 1.5s liga o modo arrastar (o contorno fica branco/grosso). Solte para fixar.
+-- Clique rapido continua abrindo o menu; depois de arrastar, soltar nao abre o menu.
+do
+	local HOLD = 1.5        -- segundos segurando para poder arrastar
+	local TOLERANCIA = 14   -- se mexer mais que isso (px) antes dos 1.5s, cancela
+	local BTN = 48          -- tamanho do botao (px)
+	local MouseB1, Touch, MouseMov = Enum.UserInputType.MouseButton1, Enum.UserInputType.Touch, Enum.UserInputType.MouseMovement
+
+	local stroke = EmoteButton:FindFirstChildOfClass("UIStroke")
+	local strokeNormal = stroke and { stroke.Color, stroke.Thickness, stroke.Transparency } or nil
+	local estado = nil      -- { input, inicio, abs, armado }
+	local bloqueia = false  -- true = ignora o clique que vem ao soltar depois de arrastar
+
+	local function marcar(on)
+		if not stroke then return end
+		if on then
+			stroke.Color, stroke.Thickness, stroke.Transparency = Color3.new(1, 1, 1), 3, 0
+		else
+			stroke.Color, stroke.Thickness, stroke.Transparency = strokeNormal[1], strokeNormal[2], strokeNormal[3]
+		end
+	end
+
+	EmoteButton.InputBegan:Connect(function(input)
+		local tipo = input.UserInputType
+		if tipo ~= MouseB1 and tipo ~= Touch then return end
+		local est = {
+			input = input,
+			inicio = Vector2.new(input.Position.X, input.Position.Y),
+			abs = EmoteButton.AbsolutePosition,
+			armado = false,
+		}
+		estado = est
+		task.delay(HOLD, function()
+			if estado ~= est or est.armado then return end
+			est.armado = true
+			bloqueia = true
+			marcar(true)
+			if Pegar and Pegar.aviso then Pegar.aviso("Arraste para mover") end
+		end)
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		local est = estado
+		if not est then return end
+		local ok = (est.input.UserInputType == MouseB1 and input.UserInputType == MouseMov)
+			or (est.input.UserInputType == Touch and input == est.input)
+		if not ok then return end
+
+		local delta = Vector2.new(input.Position.X, input.Position.Y) - est.inicio
+		if not est.armado then
+			if delta.Magnitude > TOLERANCIA then estado = nil end
+			return
+		end
+
+		local vp = MainGui.AbsoluteSize
+		if vp.X <= 0 or vp.Y <= 0 then return end
+		local pos = est.abs + delta
+		local x = clamp(pos.X + BTN, BTN, vp.X)   -- ancora do botao e o canto direito
+		local y = clamp(pos.Y, 0, vp.Y - BTN)
+		EmoteButton.Position = UDim2.new(x / vp.X, 0, y / vp.Y, 0)
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		local est = estado
+		if not est then return end
+		if est.input.UserInputType == Touch and input ~= est.input then return end
+		if est.input.UserInputType == MouseB1 and input.UserInputType ~= MouseB1 then return end
+		estado = nil
+		if est.armado then
+			marcar(false)
+			task.delay(0.25, function() bloqueia = false end)
+		end
+	end)
+
+	EmoteButton.MouseButton1Click:Connect(function()
+		if bloqueia then return end
+		toggleMenu()
+	end)
+end
 
 -- o "Pegar" agora é um emote dentro do menu (veja tocarEmote / EMOTES)
 

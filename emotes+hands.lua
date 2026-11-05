@@ -4445,7 +4445,7 @@ local EMOTES = {
 	{ nome = "Chupada de Dedo", icone = "👅", cat = "+18", toggle = true },
 	{ nome = "De Quatro", icone = "🐕", cat = "+18", toggle = true },
 	{ nome = "Socar", icone = "🍆", cat = "+18", toggle = true },
-	{ nome = "Kamehameha", icone = "🌀", cat = "Gestos" },
+	{ nome = "Kamehameha", icone = "🌀", cat = "Gestos", toggle = true },
 }
 local EMOTE_POR_NOME = {}
 for _, e in ipairs(EMOTES) do EMOTE_POR_NOME[e.nome] = e end
@@ -4475,13 +4475,20 @@ local function emoteAtivo(nome)
 	if nome == "Apontar" then return apontarCamera end
 	if nome == "Ragdoll" then return Ragdoll.isOn() end
 	if nome == "Pegar" then return Pegar.ativo == true end
+	if nome == "Kamehameha" then return KAME.habilidade ~= nil and KAME.habilidade.ativo == true end
 	if EMOTES_TOGGLE[nome] then return currentEmote == nome and emoteTimer > 0 end
 	return currentEmote == nome and (emoteTimer > 0 or freezeEmote)
 end
 
-local function tocarEmote(nome)
+local function tocarEmote(nome, direto)
 	local def = EMOTE_POR_NOME[nome]
 	if def and def.cat == "+18" and not liberado18() then return end
+	if nome == "Kamehameha" and not direto then -- pelo menu: liga/desliga o botao de habilidade na tela
+		local h = KAME.habilidade
+		if h and h.alternar then h.alternar() end
+		refreshAtivos()
+		return
+	end
 	if nome == "Pegar" then -- pegar/soltar objeto agora é um emote do menu
 		if Pegar.ativo then Pegar.soltar() else Pegar.pegar() end
 		refreshAtivos()
@@ -5084,15 +5091,14 @@ do
 	EmoteButton.MouseButton1Down:Connect(function() tw(esc, 0.08, { Scale = 0.92 }) end)
 	EmoteButton.MouseButton1Up:Connect(function() tw(esc, 0.1, { Scale = 1 }) end)
 end
--- Segurar o botao por 1.5s liga o modo arrastar (o contorno fica branco/grosso). Solte para fixar.
--- Clique rapido continua abrindo o menu; depois de arrastar, soltar nao abre o menu.
-do
+-- Segurar 1.5s = modo arrastar (contorno branco/grosso; solte para fixar). Clique rapido chama aoClique.
+-- Serve para botoes quadrados (tam x tam) com AnchorPoint (1, 0).
+function T.arrastavel(botao, tam, aoClique)
 	local HOLD = 1.5        -- segundos segurando para poder arrastar
-	local TOLERANCIA = 14   -- se mexer mais que isso (px) antes dos 1.5s, cancela
-	local BTN = 48          -- tamanho do botao (px)
+	local TOLERANCIA = 14   -- se mexer mais que isso (px) antes do tempo, cancela
 	local MouseB1, Touch, MouseMov = Enum.UserInputType.MouseButton1, Enum.UserInputType.Touch, Enum.UserInputType.MouseMovement
 
-	local stroke = EmoteButton:FindFirstChildOfClass("UIStroke")
+	local stroke = botao:FindFirstChildOfClass("UIStroke")
 	local strokeNormal = stroke and { stroke.Color, stroke.Thickness, stroke.Transparency } or nil
 	local estado = nil      -- { input, inicio, abs, armado }
 	local bloqueia = false  -- true = ignora o clique que vem ao soltar depois de arrastar
@@ -5106,13 +5112,13 @@ do
 		end
 	end
 
-	EmoteButton.InputBegan:Connect(function(input)
+	botao.InputBegan:Connect(function(input)
 		local tipo = input.UserInputType
 		if tipo ~= MouseB1 and tipo ~= Touch then return end
 		local est = {
 			input = input,
 			inicio = Vector2.new(input.Position.X, input.Position.Y),
-			abs = EmoteButton.AbsolutePosition,
+			abs = botao.AbsolutePosition,
 			armado = false,
 		}
 		estado = est
@@ -5141,9 +5147,9 @@ do
 		local vp = MainGui.AbsoluteSize
 		if vp.X <= 0 or vp.Y <= 0 then return end
 		local pos = est.abs + delta
-		local x = clamp(pos.X + BTN, BTN, vp.X)   -- ancora do botao e o canto direito
-		local y = clamp(pos.Y, 0, vp.Y - BTN)
-		EmoteButton.Position = UDim2.new(x / vp.X, 0, y / vp.Y, 0)
+		local x = clamp(pos.X + tam, tam, vp.X)   -- a ancora do botao e o canto direito
+		local y = clamp(pos.Y, 0, vp.Y - tam)
+		botao.Position = UDim2.new(x / vp.X, 0, y / vp.Y, 0)
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
@@ -5158,9 +5164,90 @@ do
 		end
 	end)
 
-	EmoteButton.MouseButton1Click:Connect(function()
+	botao.MouseButton1Click:Connect(function()
 		if bloqueia then return end
-		toggleMenu()
+		aoClique()
+	end)
+end
+
+T.arrastavel(EmoteButton, 48, function() toggleMenu() end)
+
+-- ===== Botao de habilidade: Kamehameha =====
+-- No menu de emotes, tocar no card "Kamehameha" liga/desliga este botao. O botao dispara o golpe
+-- (mostra a contagem enquanto toca). Para tirar o botao, desligue o card no menu de novo.
+do
+	local HAB = KAME.habilidade or {}
+	KAME.habilidade = HAB
+	HAB.ativo = false
+
+	local TAM = 56
+	local botao = btn({
+		Text = "", BackgroundColor3 = Color3.fromRGB(20, 40, 90), ClipsDescendants = true, Visible = false,
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 124), Size = UDim2.fromOffset(TAM, TAM),
+		ZIndex = 5, Parent = MainGui,
+	}, {
+		round(14),
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(46, 110, 200), Color3.fromRGB(16, 30, 78)) }),
+		outline(Color3.fromRGB(120, 230, 255), 2, 0.15),
+	})
+	local esc = new("UIScale", { Parent = botao })
+	T.Icones.criar("Kamehameha", botao, 44, { Position = UDim2.fromOffset(6, 6), ZIndex = 6 })
+
+	local sombra = frame({
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1),
+		Visible = false, ZIndex = 7, Parent = botao,
+	}, { round(14) }) -- mesmo raio do botao: ClipsDescendants nao recorta cantos arredondados
+	local tempoLbl = txt({
+		Font = F.GothamBold, TextSize = 16, TextXAlignment = CENTER, TextColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromScale(1, 1), Visible = false, ZIndex = 8, Parent = botao,
+	})
+
+	function HAB.alternar(ligar)
+		if ligar == nil then ligar = not HAB.ativo end
+		HAB.ativo = ligar
+		if ligar then
+			esc.Scale = 0
+			botao.Visible = true
+			tw(esc, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+		else
+			botao.Visible = false
+			sombra.Visible = false
+			tempoLbl.Visible = false
+		end
+		if Pegar and Pegar.aviso then Pegar.aviso(ligar and "Kamehameha ativado" or "Kamehameha desativado") end
+		refreshAtivos()
+	end
+
+	-- recarga: depois que o golpe termina, o botao fica bloqueado por COOLDOWN segundos
+	local COOLDOWN = 2
+	HAB.recargaAte = 0
+	local estavaTocando = false
+
+	RunService.RenderStepped:Connect(function()
+		local tocando = currentEmote == "Kamehameha" and not freezeEmote and emoteTimer > 0 and emoteTimer < math.huge
+		if estavaTocando and not tocando then HAB.recargaAte = os.clock() + COOLDOWN end
+		estavaTocando = tocando
+		if not HAB.ativo then return end
+
+		local resto = HAB.recargaAte - os.clock()
+		local emRecarga = (not tocando) and resto > 0
+		sombra.Visible = tocando or emRecarga
+		tempoLbl.Visible = tocando or emRecarga
+		if tocando then
+			tempoLbl.Text = string.format("%.1f", emoteTimer)
+		elseif emRecarga then
+			tempoLbl.Text = string.format("%.1f", resto)
+		end
+	end)
+
+	T.arrastavel(botao, TAM, function()
+		if not HAB.ativo then return end
+		if os.clock() < HAB.recargaAte then return end -- ainda em recarga
+		if Ragdoll.isOn() then
+			if Pegar and Pegar.aviso then Pegar.aviso("Em ragdoll") end
+			return
+		end
+		tocarEmote("Kamehameha", true)
 	end)
 end
 

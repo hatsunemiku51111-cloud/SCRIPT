@@ -183,6 +183,8 @@ local TELE = {
 
 	-- VFX do teletransporte instantaneo (estilo Goku). So visual, so pra voce (local).
 	vfx = true,
+	camDeslizar = true,    -- camera desliza rapido da origem ate o destino em vez de cortar seco
+	camDur = 0.3,          -- duracao (s) da camera deslizando
 	-- so o corpo piscando (saida: pisca devagar e some | chegada: pisca bem rapido)
 	preparo = 0.55,        -- tempo (s) entre o clique e o corpo sumir de fato
 	piscaSaida = { 0.05, 0.14, 0.25, 0.37, 0.5 },   -- saida: piscadas mais lentas, o corpo carrega e some (numero IMPAR = termina invisivel)
@@ -5551,6 +5553,33 @@ do
 		task.delay(ultimo + 0.04, function() set(fim) end) -- garante o estado final (o corpo sempre volta a aparecer)
 	end
 
+	-- camera desliza da origem ate o destino. Em vez de trocar o CameraType (que deixava a camera atrasada
+	-- quando o teleporte era feito andando), a camera normal continua seguindo o personagem e so somamos
+	-- um deslocamento que comeca "la atras" (na origem) e vai a zero em camDur segundos.
+	local camConexao = false
+	local function fxCamDeslizar(deslocamento, dur)
+		if not TELE.camDeslizar then return end
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		if camConexao then pcall(function() RunService:UnbindFromRenderStep("TeleporteCamDeslizar") end) end
+		camConexao = true
+		local off0 = -deslocamento
+		local t0 = os.clock()
+		dur = math.max(dur, 0.05)
+		local function parar()
+			camConexao = false
+			pcall(function() RunService:UnbindFromRenderStep("TeleporteCamDeslizar") end)
+		end
+		RunService:BindToRenderStep("TeleporteCamDeslizar", Enum.RenderPriority.Camera.Value + 1, function()
+			local c = workspace.CurrentCamera
+			local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+			if not c or a >= 1 then parar() return end
+			local e = TweenService:GetValue(a, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+			c.CFrame = c.CFrame + off0 * (1 - e)
+		end)
+		task.delay(dur + 0.3, function() if camConexao and os.clock() - t0 >= dur then parar() end end) -- seguranca
+	end
+
 	-- chamado ANTES de mover o personagem: o corpo pisca (devagar) ate sumir
 	local function fxSaida(char, root, hum)
 		if not TELE.vfx then return end
@@ -5592,6 +5621,8 @@ do
 
 		local function mover()
 			if not (root.Parent and hum.Parent) or hum.Health <= 0 then return end
+			local antes = root.Position -- posicao no instante do teleporte (o personagem pode ter andado durante o preparo)
+			if TELE.vfx then pcall(fxCamDeslizar, dest - antes, TELE.camDur or 0.3) end
 			root.CFrame = CFrame.new(dest) * root.CFrame.Rotation
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero

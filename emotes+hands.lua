@@ -35,7 +35,7 @@ local animConfig = {
 local EMOTES_TOGGLE = {
 	Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
-	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true,
+	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true, Teleporte = true,
 }
 
 local EMOTES_IMOVEIS = {
@@ -177,6 +177,8 @@ local Pegar = {
 	lentidaoLeve = 0.9,
 	lentidaoPesado = 0.6,
 }
+
+local TELE = { cooldown = 10 } -- habilidade Teleporte (botao na tela, veja o bloco 'Botao de habilidade: Teleporte')
 
 local CITACAO_AMP = 0.3
 local CITACAO_VEL = 6
@@ -415,7 +417,101 @@ local defaultEmotes = {
 
 	["Kamehameha"] = {
 		animado = true, duracao = 5, loop = true, suave = true,
-		usa = { cabeca = true, torso = true, pernas = true },
+		usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				usa = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false },
+				dir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.3,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = false, torso = true, pernas = false },
+				dir = { x = 12, y = 31, z = 91, px = 0, py = -0.8, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -23, y = -46, z = -93, px = -0.1, py = -0.26, pz = -0.13 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.6,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = false },
+				dir = { x = 39, y = -58, z = 83.5, px = -0.61, py = -0.17, pz = -0.58 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.85,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -2.11, y = -10.53, z = 1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -11, px = 0.02, py = 0, pz = 0.02 } },
+			{ t = 1.1,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -2.11, y = -10.53, z = -1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -39, px = 0.06, py = -0.01, pz = 0.35 } },
+			{ t = 1.4,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -25, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -8, px = 0.12, py = 0.05, pz = 0.08 }, pernaEsq = { x = 12, y = 28, z = -35, px = -0.3, py = 0.02, pz = 0.37 } },
+			{ t = 1.5,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
+			{ t = 1.9,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
+			{ t = 2.5,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 12.06, y = -43.73, z = 62.95, px = -0.51, py = -0.51, pz = -0.57 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -16.59, y = -93.48, z = -64.33, px = -0.61, py = -0.39, pz = -0.88 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -12.82, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -22, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 7, y = -7, z = -17, px = -0.06, py = -0.27, pz = 0 }, pernaEsq = { x = 4, y = 35, z = -25, px = -0.21, py = 0.19, pz = 0.45 } },
+			{ t = 2.7,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
+				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
+				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
+			{ t = 5,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
+				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
+				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
+		},
+	},
+	["Teleporte"] = {
+		animado = true, duracao = 1, loop = false, suave = true,
+		usa = { bracoDir = true, bracoEsq = false, cabeca = true, torso = false, pernas = false },
 		frames = {
 			{ t = 0,
 				dir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
@@ -424,76 +520,20 @@ local defaultEmotes = {
 				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
 				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
-			{ t = 0.3,
-				dir = { x = 12, y = 31, z = 91, px = 0, py = -0.8, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -23, y = -46, z = -93, px = -0.1, py = -0.26, pz = -0.13 }, palmaEsq = { x = 0, y = 0, z = 0 },
+			{ t = 0.4,
+				dir = { x = 0, y = 88, z = 152, px = 0.26, py = -0.91, pz = -0.2 }, palmaDir = { x = 0, y = 0, z = -23 },
+				dedosDir = { {49,53,0,-42,0,0,0,0}, {10,10}, {10,10}, {39,89}, {44,82} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
 				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				cabeca = { x = 9, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
-			{ t = 0.6,
-				dir = { x = 39, y = -58, z = 83.5, px = -0.61, py = -0.17, pz = -0.58 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
+			{ t = 1,
+				dir = { x = 0, y = 88, z = 152, px = 0.26, py = -0.91, pz = -0.2 }, palmaDir = { x = 0, y = 0, z = -23 },
+				dedosDir = { {49,53,0,-42,0,0,0,0}, {10,10}, {10,10}, {39,89}, {44,82} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
 				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				cabeca = { x = 9, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
-			{ t = 0.85,
-				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -2.11, y = -10.53, z = 1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -11, px = 0.02, py = 0, pz = 0.02 } },
-			{ t = 1.1,
-				dir = { x = 33, y = -55, z = 89, px = -0.65, py = -0.43, pz = -0.67 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -29, y = -122, z = -92, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -8.95, y = -2, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 11.06, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -2.11, y = -10.53, z = -1, px = 0.06, py = 0.02, pz = 0.04 }, pernaEsq = { x = 6.32, y = 40, z = -39, px = 0.06, py = -0.01, pz = 0.35 } },
-			{ t = 1.4,
-				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -25, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -4, y = -20, z = -8, px = 0.12, py = 0.05, pz = 0.08 }, pernaEsq = { x = 12, y = 28, z = -35, px = -0.3, py = 0.02, pz = 0.37 } },
-			{ t = 1.5,
-				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
-			{ t = 1.9,
-				dir = { x = 16, y = -58, z = 83.5, px = -0.68, py = -0.67, pz = -0.76 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -22, y = -124, z = -85.33, px = -0.81, py = -0.52, pz = -1.17 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -20, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 21, y = 0, z = 0, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = -4, y = -20, z = -30, px = 0.12, py = -0.22, pz = 0 }, pernaEsq = { x = 5, y = 20, z = -35, px = -0.3, py = 0.02, pz = 0.3 } },
-			{ t = 2.5,
-				dir = { x = 12.06, y = -43.73, z = 62.95, px = -0.51, py = -0.51, pz = -0.57 }, palmaDir = { x = 0, y = 0, z = 0 },
-				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -16.59, y = -93.48, z = -64.33, px = -0.61, py = -0.39, pz = -0.88 }, palmaEsq = { x = 0, y = 0, z = 0 },
-				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -12.82, y = 0, z = 25, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -22, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = 7, y = -7, z = -17, px = -0.06, py = -0.27, pz = 0 }, pernaEsq = { x = 4, y = 35, z = -25, px = -0.21, py = 0.19, pz = 0.45 } },
-			{ t = 2.7,
-				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
-				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
-				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
-			{ t = 5,
-				dir = { x = 20, y = 45, z = 100, px = 0.27, py = -0.71, pz = -0.32 }, palmaDir = { x = 0, y = 0, z = 42 },
-				dedosDir = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-				esq = { x = -30, y = -20, z = -105, px = -0.17, py = -0.05, pz = 0.01 }, palmaEsq = { x = 0, y = 0, z = -26 },
-				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
-				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
 		},
 	},
 }
@@ -1034,6 +1074,43 @@ do
 end
 -- ==============================================================================================
 
+-- ===================== "USA" POR KEYFRAME (partes liberadas em cada keyframe) =====================
+local USA = {} -- (tabela unica pra nao gastar variaveis locais do script)
+-- Cada keyframe guarda quais partes a animacao controla ali (usa = { bracoDir, bracoEsq, cabeca, torso, pernas }).
+-- O keyframe vale a partir do seu tempo ate o proximo keyframe. Frames sem "usa" (animacoes antigas)
+-- usam o "usa" geral do emote.
+function USA.norm(u)
+	if type(u) ~= "table" then return nil end
+	return {
+		bracoDir = u.bracoDir ~= false, bracoEsq = u.bracoEsq ~= false,
+		cabeca = u.cabeca == true, torso = u.torso == true, pernas = u.pernas == true,
+	}
+end
+
+-- uniao de todos os keyframes (vira o "usa" geral do emote, pra compatibilidade)
+function USA.uniao(frames, base)
+	local r = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false }
+	local fallback = USA.norm(base) or USA.norm({})
+	for _, f in ipairs(frames) do
+		local u = USA.norm(f.usa) or fallback
+		for k in pairs(r) do
+			if u[k] then r[k] = true end
+		end
+	end
+	return r
+end
+
+function USA.texto(u)
+	u = USA.norm(u) or USA.norm({})
+	return string.format("usa = { bracoDir = %s, bracoEsq = %s, cabeca = %s, torso = %s, pernas = %s }",
+		tostring(u.bracoDir), tostring(u.bracoEsq), tostring(u.cabeca), tostring(u.torso), tostring(u.pernas))
+end
+
+-- usa valido agora: do frame amostrado > do keyframe atual do emote > geral do emote
+function USA.atual(d0, frame)
+	return (frame and frame.usa) or d0.usaAtual or d0.usa
+end
+
 -- ===================== EMOTES ANIMADOS (keyframes do EMOTE CRIADOR) =====================
 -- Cada emote com animado = true tem seus campos dir/esq/dedos/corpo atualizados a cada frame
 -- com a pose interpolada dos keyframes. Assim o resto do script lê defaultEmotes[nome] normalmente.
@@ -1067,9 +1144,11 @@ local function lerpAnim(a, b, t)
 		if type(b) == "number" then return a + (b - a) * t end
 		return a
 	end
+	if type(a) ~= "table" then return a end
 	local r = {}
 	for k, v in pairs(a) do
-		if b[k] ~= nil then r[k] = lerpAnim(v, b[k], t) else r[k] = v end
+		if k == "usa" then r[k] = v -- vale o do keyframe de origem, nao interpola
+		elseif b[k] ~= nil then r[k] = lerpAnim(v, b[k], t) else r[k] = v end
 	end
 	return r
 end
@@ -1084,6 +1163,7 @@ local function prepararEmoteAnimado(d)
 		f.cabeca, f.torso = n6(f.cabeca), n6(f.torso)
 		f.pernaDir, f.pernaEsq = n6(f.pernaDir), n6(f.pernaEsq)
 		f.afastDir, f.afastEsq = f.afastDir or 0, f.afastEsq or 0
+		f.usa = USA.norm(f.usa) -- nil = usa o "usa" geral do emote
 		f.dedosDir, f.dedosEsq = f.dedosDir or {}, f.dedosEsq or {}
 		for i = 1, 5 do
 			f.dedosDir[i] = copiaDedo(f.dedosDir[i])
@@ -1157,6 +1237,7 @@ local function atualizarEmotesAnimados()
 				tempo = clamp(tempo, 0, d.duracao)
 			end
 			local f = amostrarFrame(d, tempo)
+			d.usaAtual = f.usa
 			d.dir, d.esq = f.dir, f.esq
 			d.palmaDir, d.palmaEsq = f.palmaDir, f.palmaEsq
 			d.dedosDir, d.dedosEsq = f.dedosDir, f.dedosEsq
@@ -1171,6 +1252,7 @@ for _, d in pairs(defaultEmotes) do
 	if d.animado and d.frames and #d.frames > 0 then
 		prepararEmoteAnimado(d)
 		local f = d.frames[1]
+		d.usaAtual = f.usa
 		d.dir, d.esq = f.dir, f.esq
 		d.palmaDir, d.palmaEsq = f.palmaDir, f.palmaEsq
 		d.dedosDir, d.dedosEsq = f.dedosDir, f.dedosEsq
@@ -1227,16 +1309,17 @@ do
 	local function emoteParaTexto(nome, d)
 		local nm = tostring(nome):gsub('"', "'")
 		if d.animado and d.frames and #d.frames > 0 then
-			local u = d.usa or {}
+			local u = USA.uniao(d.frames, d.usa)
 			local l = {}
 			l[#l + 1] = string.format('["%s"] = {', nm)
 			l[#l + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", f2(d.duracao or 1), tostring(d.loop == true), tostring(d.suave == true))
-			l[#l + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true))
+			l[#l + 1] = string.format("\tusa = { bracoDir = %s, bracoEsq = %s, cabeca = %s, torso = %s, pernas = %s },", tostring(u.bracoDir ~= false), tostring(u.bracoEsq ~= false), tostring(u.cabeca == true), tostring(u.torso == true), tostring(u.pernas == true))
 			local itensTxt = ItensEmote.texto(d.itens, "\t")
 			if itensTxt then l[#l + 1] = itensTxt .. "," end
 			l[#l + 1] = "\tframes = {"
 			for _, f in ipairs(d.frames) do
 				l[#l + 1] = string.format("\t\t{ t = %s,", f2(f.t))
+				l[#l + 1] = "\t\t\t" .. USA.texto(f.usa or d.usa) .. ","
 				l[#l + 1] = linhasPose(f, "\t\t\t") .. " },"
 			end
 			l[#l + 1] = "\t},"
@@ -1271,6 +1354,15 @@ do
 	}
 end
 -- ===============================================================================
+
+-- true quando o emote animado deixa esse braco livre (usa.bracoDir / usa.bracoEsq = false)
+local function bracoLivre(emote, ehDireito, frame)
+	local d = emote and defaultEmotes[emote]
+	if not (d and d.animado and d.usa) then return false end
+	local u = USA.atual(d, frame) or d.usa
+	if ehDireito then return u.bracoDir == false end
+	return u.bracoEsq == false
+end
 
 local function extraDedoEmote(emote, id, ehDireito, frame)
 	local d = frame or (emote and defaultEmotes[emote])
@@ -1496,12 +1588,12 @@ local function calcularPoseEmote(emote, tempo, usar, frame)
 	if emoteAnimado(emote) then
 		local d0 = defaultEmotes[emote]
 		local d = frame or d0
-		local u = d0.usa or {}
-		if dirOn then
+		local u = USA.atual(d0, frame) or {}
+		if dirOn and u.bracoDir ~= false then
 			P.wR = 1
 			P.R = cfBraco(d.dir)
 		end
-		if esqOn then
+		if esqOn and u.bracoEsq ~= false then
 			P.wL = 1
 			P.L = cfBraco(d.esq)
 		end
@@ -2008,8 +2100,8 @@ local function carregarEmote(nome)
 	customPose.pernaEsq = copiaPerna(d.pernaEsq)
 	customPose.itens = ItensEmote.copiar(d.itens)
 
-	animConfig.direita = true
-	animConfig.esquerda = true
+	animConfig.direita = not (d.animado and d.usa and d.usa.bracoDir == false)
+	animConfig.esquerda = not (d.animado and d.usa and d.usa.bracoEsq == false)
 	animConfig.cabeca = naoZero(customPose.cabeca)
 	animConfig.torso = naoZero(customPose.torso)
 	animConfig.pernas = naoZero(customPose.pernaDir) or naoZero(customPose.pernaEsq)
@@ -2555,7 +2647,7 @@ local function criarPreview(viewport)
 						end
 						afast = afastGraus(id, h.ehDireito, pm.afastamento)
 						ext = pm.dedos[id]
-					elseif (not custom) and emote then
+					elseif (not custom) and emote and not bracoLivre(emote, h.ehDireito) then
 						local b, p = alvoDedosEmote(emote, id, h.ehDireito)
 						alvoB, alvoP = b or 0, p or 0
 						ext = extraDedoEmote(emote, id, h.ehDireito)
@@ -3973,6 +4065,19 @@ T.Icones = (function()
 			{"l",17.4,6.8,20,4.2,1.8,"grn","T0.8","grnO"},
 			{"l",16.4,7.4,18.2,9.2,0.7,"grnD","D",false},
 		},
+		["Teleporte"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"purD",0.9,"purO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pur",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"a",12,13,6.6,0,360,2.2,"cyan",false,false},
+			{"a",12,13,3.4,0,360,1.4,"cyanL",false,false},
+			{"c",12,13,1.8,"wh",false,false},
+			{"q",5.2,6.8,1.09,2.6,0,0.52,"purL",false,false},
+			{"q",5.2,6.8,2.6,1.09,0,0.52,"purL",false,false},
+			{"q",19.2,6.4,0.84,2,0,0.4,"purL",false,false},
+			{"q",19.2,6.4,2,0.84,0,0.4,"purL",false,false},
+		},
 		["Kamehameha"] = {
 			{"r",1.4,1.4,21.2,21.2,6.4,"nightD",0.9,"nightO"},
 			{"r",1.4,1.4,21.2,18.4,6.4,"night",0,false},
@@ -4445,7 +4550,8 @@ local EMOTES = {
 	{ nome = "Chupada de Dedo", icone = "👅", cat = "+18", toggle = true },
 	{ nome = "De Quatro", icone = "🐕", cat = "+18", toggle = true },
 	{ nome = "Socar", icone = "🍆", cat = "+18", toggle = true },
-	{ nome = "Kamehameha", icone = "🌀", cat = "Gestos", toggle = true },
+	{ nome = "Kamehameha", icone = "🌀", cat = "Habilidades", toggle = true },
+	{ nome = "Teleporte", icone = "✨", cat = "Habilidades", toggle = true },
 }
 local EMOTE_POR_NOME = {}
 for _, e in ipairs(EMOTES) do EMOTE_POR_NOME[e.nome] = e end
@@ -4476,6 +4582,7 @@ local function emoteAtivo(nome)
 	if nome == "Ragdoll" then return Ragdoll.isOn() end
 	if nome == "Pegar" then return Pegar.ativo == true end
 	if nome == "Kamehameha" then return KAME.habilidade ~= nil and KAME.habilidade.ativo == true end
+	if nome == "Teleporte" then return TELE.habilidade ~= nil and TELE.habilidade.ativo == true end
 	if EMOTES_TOGGLE[nome] then return currentEmote == nome and emoteTimer > 0 end
 	return currentEmote == nome and (emoteTimer > 0 or freezeEmote)
 end
@@ -4485,6 +4592,12 @@ local function tocarEmote(nome, direto)
 	if def and def.cat == "+18" and not liberado18() then return end
 	if nome == "Kamehameha" and not direto then -- pelo menu: liga/desliga o botao de habilidade na tela
 		local h = KAME.habilidade
+		if h and h.alternar then h.alternar() end
+		refreshAtivos()
+		return
+	end
+	if nome == "Teleporte" and not direto then -- pelo menu: liga/desliga o botao de habilidade na tela
+		local h = TELE.habilidade
 		if h and h.alternar then h.alternar() end
 		refreshAtivos()
 		return
@@ -4567,7 +4680,7 @@ do
 local MENU_W, MENU_H = 480, 320
 local menuAberto = false
 local catAtual = "Todos"
-local CATEGORIAS = { "Todos", "Favoritos", "Clone", "+18" }
+local CATEGORIAS = { "Todos", "Favoritos", "Clone", "Habilidades", "+18" }
 
 local Menu = new("CanvasGroup", {
 	Name = "EmoteMenu", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
@@ -4878,7 +4991,7 @@ local cardRefs = {}
 
 local function passaFiltro(e)
 	local bloqueado = (e.cat == "+18" and not liberado18())
-	if catAtual == "Todos" then return e.cat ~= "+18" end
+	if catAtual == "Todos" then return e.cat ~= "+18" and e.cat ~= "Habilidades" end
 	if catAtual == "Favoritos" then return favSet[e.nome] == true and not bloqueado end
 	return e.cat == catAtual and not bloqueado
 end
@@ -5014,7 +5127,7 @@ for i, nome in ipairs(CATEGORIAS) do
 		Text = nome, TextSize = 10, Font = F.GothamMedium, AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 1, 0), LayoutOrder = i, Parent = chipsBar,
 	}, { round(12), padding(nome == "+18" and 10 or 28, 0, 10, 0) })
-	local icAba = ({ Todos = "_todos", Favoritos = "_star_on", Clone = "_clone" })[nome]
+	local icAba = ({ Todos = "_todos", Favoritos = "_star_on", Clone = "_clone", Habilidades = "Kamehameha" })[nome]
 	if icAba then T.Icones.criar(icAba, chip, 14, { Name = "IconeAba", Position = UDim2.new(0, -19, 0.5, -7), ZIndex = 3 }) end
 	chip.MouseButton1Click:Connect(function()
 		if nome == "+18" and not liberado18() then abrirSenha() return end
@@ -5248,6 +5361,163 @@ do
 			return
 		end
 		tocarEmote("Kamehameha", true)
+	end)
+end
+
+-- ===== Botao de habilidade: Teleporte =====
+-- No menu de emotes, tocar no card "Teleporte" liga/desliga este botao. Clicar no botao arma a habilidade
+-- (contorno prateado + animacao travada no 3o keyframe). O proximo clique/toque no mundo teleporta ate la,
+-- encerra a animacao e inicia o cooldown (TELE.cooldown segundos). Clicar de novo no botao cancela sem cooldown.
+do
+	local HAB = TELE.habilidade or {}
+	TELE.habilidade = HAB
+	HAB.ativo = false
+	HAB.armado = false
+	HAB.recargaAte = 0
+
+	local TAM = 56
+	local PRATA = Color3.fromRGB(205, 212, 230)
+	local COR_BORDA = Color3.fromRGB(190, 170, 255)
+	local botao = btn({
+		Text = "", BackgroundColor3 = Color3.fromRGB(60, 40, 120), ClipsDescendants = true, Visible = false,
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 188), Size = UDim2.fromOffset(TAM, TAM),
+		ZIndex = 5, Parent = MainGui,
+	}, {
+		round(14),
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(120, 90, 230), Color3.fromRGB(44, 28, 98)) }),
+		outline(COR_BORDA, 2, 0.15),
+	})
+	local esc = new("UIScale", { Parent = botao })
+	local stroke = botao:FindFirstChildOfClass("UIStroke")
+	T.Icones.criar("Teleporte", botao, 44, { Position = UDim2.fromOffset(6, 6), ZIndex = 6 })
+
+	local sombra = frame({
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1),
+		Visible = false, ZIndex = 7, Parent = botao,
+	}, { round(14) })
+	local tempoLbl = txt({
+		Font = F.GothamBold, TextSize = 16, TextXAlignment = CENTER, TextColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromScale(1, 1), Visible = false, ZIndex = 8, Parent = botao,
+	})
+
+	-- desarma sem cooldown (cancelou, trocou de emote, ragdoll, morreu...)
+	local function cancelar()
+		if not HAB.armado then return end
+		HAB.armado = false
+		if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end -- toggle: desliga a animacao
+	end
+
+	function HAB.alternar(ligar)
+		if ligar == nil then ligar = not HAB.ativo end
+		HAB.ativo = ligar
+		if ligar then
+			esc.Scale = 0
+			botao.Visible = true
+			tw(esc, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+		else
+			cancelar()
+			botao.Visible = false
+			sombra.Visible = false
+			tempoLbl.Visible = false
+		end
+		if Pegar and Pegar.aviso then Pegar.aviso(ligar and "Teleporte ativado" or "Teleporte desativado") end
+		refreshAtivos()
+	end
+
+	local function alvoDoClique(input)
+		local cam = workspace.CurrentCamera
+		if not cam then return nil end
+		local ray
+		if input.UserInputType == Enum.UserInputType.Touch then
+			ray = cam:ScreenPointToRay(input.Position.X, input.Position.Y)
+		else
+			local m = UserInputService:GetMouseLocation()
+			ray = cam:ViewportPointToRay(m.X, m.Y)
+		end
+		local excluir = { LocalPlayer.Character }
+		for _, n in ipairs({ "DynamicFingersFolder", "PegarFolder", "DynamicClonesFolder", "EMOTEZ_ITENS" }) do
+			local f = workspace:FindFirstChild(n)
+			if f then excluir[#excluir + 1] = f end
+		end
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = excluir
+		return workspace:Raycast(ray.Origin, ray.Direction * 1000, rp)
+	end
+
+	local function teleportar(res)
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not (root and hum) or hum.Health <= 0 then return false end
+		local origem = root.Position
+		local n = res.Normal
+		local dest = res.Position + Vector3.new(n.X, 0, n.Z) * 1.5 + Vector3.new(0, hum.HipHeight + root.Size.Y / 2 + 2.1, 0)
+		root.CFrame = CFrame.new(dest) * root.CFrame.Rotation
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		return true
+	end
+
+	-- clique/toque no mundo enquanto armado = teleporta (cliques em botoes da GUI chegam com gp = true e sao ignorados)
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or not HAB.armado then return end
+		local tipo = input.UserInputType
+		if tipo ~= Enum.UserInputType.MouseButton1 and tipo ~= Enum.UserInputType.Touch then return end
+		local res = alvoDoClique(input)
+		if not res then
+			if Pegar and Pegar.aviso then Pegar.aviso("Sem alvo") end
+			return
+		end
+		if not teleportar(res) then return end
+		HAB.armado = false
+		HAB.recargaAte = os.clock() + TELE.cooldown
+		-- encerra a animacao no proximo frame (evita conflito com o mini TP, que tambem le este clique)
+		task.defer(function()
+			if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end
+		end)
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		if HAB.armado then
+			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if currentEmote ~= "Teleporte" or not hum or hum.Health <= 0 then HAB.armado = false end
+		end
+
+		-- destaque prateado enquanto armado (nao mexe no contorno branco do modo arrastar)
+		if stroke and stroke.Color ~= Color3.new(1, 1, 1) then
+			if HAB.armado then
+				stroke.Color, stroke.Thickness, stroke.Transparency = PRATA, 3.5, 0
+			else
+				stroke.Color, stroke.Thickness, stroke.Transparency = COR_BORDA, 2, 0.15
+			end
+		end
+
+		if not HAB.ativo then return end
+		local resto = HAB.recargaAte - os.clock()
+		local emRecarga = (not HAB.armado) and resto > 0
+		sombra.Visible = emRecarga
+		tempoLbl.Visible = emRecarga
+		if emRecarga then tempoLbl.Text = string.format("%.1f", resto) end
+	end)
+
+	T.arrastavel(botao, TAM, function()
+		if not HAB.ativo then return end
+		if HAB.armado then
+			cancelar()
+			if Pegar and Pegar.aviso then Pegar.aviso("Teleporte cancelado") end
+			return
+		end
+		if os.clock() < HAB.recargaAte then return end -- ainda em recarga
+		if Ragdoll.isOn() then
+			if Pegar and Pegar.aviso then Pegar.aviso("Em ragdoll") end
+			return
+		end
+		tocarEmote("Teleporte", true)
+		if currentEmote == "Teleporte" then
+			HAB.armado = true
+			if Pegar and Pegar.aviso then Pegar.aviso("Toque onde quer ir") end
+		end
 	end)
 end
 
@@ -6388,7 +6658,7 @@ desfazerBtn.MouseButton1Click:Connect(function()
 end)
 
 local PREV_W, PREV_H = 230, 250
-local ANIM_H_REF = 238 -- altura do animador (TL_H): o preview fica logo acima dele
+local ANIM_H_REF = 268 -- altura do animador (TL_H): o preview fica logo acima dele
 local DevPreviewWin = frame({
 	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -(12 + ANIM_H_REF + 8)), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
@@ -6663,6 +6933,7 @@ do
 			dir = b6(s.dir), palmaDir = b3(s.palmaDir), dedosDir = mao(s.dedosDir), afastDir = num(s.afastDir),
 			esq = b6(s.esq), palmaEsq = b3(s.palmaEsq), dedosEsq = mao(s.dedosEsq), afastEsq = num(s.afastEsq),
 			cabeca = b6(s.cabeca), torso = b6(s.torso), pernaDir = b6(s.pernaDir), pernaEsq = b6(s.pernaEsq),
+			usa = USA.norm(s.usa),
 		}
 	end
 
@@ -6681,14 +6952,17 @@ do
 				local ultimo = frames[#frames].t
 				local usa
 				if type(s.usa) == "table" then
-					usa = { cabeca = s.usa.cabeca == true, torso = s.usa.torso == true, pernas = s.usa.pernas == true }
+					usa = { bracoDir = s.usa.bracoDir ~= false, bracoEsq = s.usa.bracoEsq ~= false, cabeca = s.usa.cabeca == true, torso = s.usa.torso == true, pernas = s.usa.pernas == true }
 				else
-					usa = { cabeca = false, torso = false, pernas = false }
+					usa = { bracoDir = true, bracoEsq = true, cabeca = false, torso = false, pernas = false }
 					for _, f in ipairs(frames) do
 						if naoZero(f.cabeca) then usa.cabeca = true end
 						if naoZero(f.torso) then usa.torso = true end
 						if naoZero(f.pernaDir) or naoZero(f.pernaEsq) then usa.pernas = true end
 					end
+				end
+				for _, f in ipairs(frames) do
+					if f.usa then usa = USA.uniao(frames, usa) break end
 				end
 				local d = {
 					animado = true,
@@ -6919,7 +7193,7 @@ trocarBtn.MouseButton1Click:Connect(function() DevSelector.Visible = true end)
 
 -- ===================== ANIMADOR (linha do tempo no modo dev) =====================
 do
-	local TL_W, TL_H = 380, 238
+	local TL_W, TL_H = 380, 268
 	local anim = {
 		nome = "MinhaAnimacao",
 		duracao = 2,
@@ -6982,7 +7256,44 @@ do
 	for _, b in ipairs({ prevBtn, playBtn, nextBtn, delBtn, expBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-	txt({ Text = "Faça a pose nos sliders → escolha o tempo → Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 218), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
+	-- partes que a animacao controla (ligado = anima; desligado = fica livre, anda/mexe normal). Vai no Exportar como "usa".
+	local usaChips = {}
+	local usaPintar
+	local sincronizarUsaAnim -- definido mais abaixo (salva os chips no keyframe do cursor)
+	usaPintar = function()
+		for _, c in ipairs(usaChips) do
+			local on = animConfig[c.chave] == true
+			c.b.BackgroundColor3 = on and T.accentSoft or T.surface2
+			c.b.TextColor3 = on and T.ok or T.dim
+		end
+	end
+	do
+		local PARTES = { { "direita", "Braço D" }, { "esquerda", "Braço E" }, { "cabeca", "Cabeça" }, { "torso", "Torso" }, { "pernas", "Pernas" } }
+		for i, pr in ipairs(PARTES) do
+			local b = btn({
+				Text = pr[2], Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim,
+				Position = UDim2.fromOffset(12 + (i - 1) * 72, 216), Size = UDim2.fromOffset(68, 24), Parent = TLWin,
+			}, { round(7) })
+			table.insert(usaChips, { b = b, chave = pr[1] })
+			b.MouseButton1Click:Connect(function()
+				animConfig[pr[1]] = not animConfig[pr[1]]
+				usaPintar()
+				if sincronizarUsaAnim then sincronizarUsaAnim() end
+				rebuildTab()
+			end)
+		end
+		local acumUsa = 0
+		RunService.RenderStepped:Connect(function(dt)
+			acumUsa += dt
+			if acumUsa < 0.2 or not TLWin.Visible then return end
+			acumUsa = 0
+			if sincronizarUsaAnim then sincronizarUsaAnim() end
+			usaPintar()
+		end)
+		usaPintar()
+	end
+
+	txt({ Text = "Faça a pose nos sliders → escolha o tempo → Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 248), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
 
 	local moveBtn = btn({ Text = "Mover key", TextSize = 11, Position = UDim2.fromOffset(12, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
 	T.Icones.lado(moveBtn, "_trocar", 16, 2, 19)
@@ -7048,6 +7359,57 @@ do
 		end
 	end
 
+	-- ---------- partes liberadas por keyframe ----------
+	-- cada key guarda k.usa = { bracoDir, bracoEsq, cabeca, torso, pernas } (o que estava ligado nos chips quando ela foi criada)
+	local function usaDosChips()
+		return {
+			bracoDir = animConfig.direita == true, bracoEsq = animConfig.esquerda == true,
+			cabeca = animConfig.cabeca == true, torso = animConfig.torso == true, pernas = animConfig.pernas == true,
+		}
+	end
+
+	local function aplicarUsaNosChips(u)
+		if not u then return end
+		animConfig.direita = u.bracoDir == true
+		animConfig.esquerda = u.bracoEsq == true
+		animConfig.cabeca = u.cabeca == true
+		animConfig.torso = u.torso == true
+		animConfig.pernas = u.pernas == true
+		if usaPintar then usaPintar() end
+	end
+
+	local function usaIgual(a, b)
+		if not a or not b then return false end
+		return a.bracoDir == b.bracoDir and a.bracoEsq == b.bracoEsq and a.cabeca == b.cabeca
+			and a.torso == b.torso and a.pernas == b.pernas
+	end
+
+	local function keyExata(t)
+		for _, k in ipairs(anim.keys) do
+			if math.abs(k.t - t) < 0.02 then return k end
+		end
+	end
+
+	-- key que vale em "tempo" (a ultima que comecou ate esse tempo; antes da 1a vale a 1a)
+	local function keyBase(tempo)
+		local base = anim.keys[1]
+		for _, k in ipairs(anim.keys) do
+			if k.t <= tempo + 0.001 then base = k end
+		end
+		return base
+	end
+
+	-- se o cursor esta numa key, o que esta ligado nos chips fica salvo nela
+	local function sincronizarUsa()
+		if anim.tocando then return end
+		local k = keyExata(anim.tempo)
+		if not k then return end
+		local u = usaDosChips()
+		if not usaIgual(k.usa, u) then k.usa = u end
+	end
+
+	sincronizarUsaAnim = sincronizarUsa
+
 	-- ---------- UI ----------
 	local irPara
 
@@ -7076,8 +7438,16 @@ do
 	end
 
 	function irPara(tempo, reconstruir)
+		sincronizarUsa() -- salva no key atual o que foi mexido nos chips antes de sair dele
 		anim.tempo = clamp(tempo, 0, anim.duracao)
 		aplicarPose(poseEm(anim.tempo))
+		local ke = keyExata(anim.tempo)
+		if ke then
+			aplicarUsaNosChips(ke.usa)
+		elseif anim.tocando then
+			local kb = keyBase(anim.tempo)
+			if kb then aplicarUsaNosChips(kb.usa) end
+		end
 		cursor.Position = UDim2.fromScale(clamp(anim.tempo / anim.duracao, 0, 1), 0.5)
 		timeBox.Text = string.format("%.2f", anim.tempo)
 		if reconstruir then rebuildTab() end
@@ -7184,9 +7554,10 @@ do
 		end
 		if existente then
 			existente.pose = copiaProfunda(customPose)
+			existente.usa = usaDosChips()
 			anim.sel = existente
 		else
-			local k = { t = t, pose = copiaProfunda(customPose) }
+			local k = { t = t, pose = copiaProfunda(customPose), usa = usaDosChips() }
 			table.insert(anim.keys, k)
 			ordenar()
 			anim.sel = k
@@ -7256,8 +7627,9 @@ do
 		local k = keyNoTempo(t)
 		if k then
 			k.pose = copiaProfunda(clipPose)
+			k.usa = usaDosChips()
 		else
-			k = { t = t, pose = copiaProfunda(clipPose) }
+			k = { t = t, pose = copiaProfunda(clipPose), usa = usaDosChips() }
 			table.insert(anim.keys, k)
 			ordenar()
 		end
@@ -7285,10 +7657,12 @@ do
 			return "{ " .. table.concat(o, ", ") .. " }"
 		end
 
+		sincronizarUsa()
 		local linhas = {}
 		linhas[#linhas + 1] = string.format('["%s"] = {', anim.nome)
 		linhas[#linhas + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", fmt(anim.duracao), tostring(anim.loop), tostring(anim.suave))
-		linhas[#linhas + 1] = string.format("\tusa = { cabeca = %s, torso = %s, pernas = %s },", tostring(animConfig.cabeca == true), tostring(animConfig.torso == true), tostring(animConfig.pernas == true))
+		-- "usa" geral = uniao de todos os keyframes (as partes liberadas de verdade ficam em cada frame)
+		linhas[#linhas + 1] = "\t" .. USA.texto(USA.uniao(anim.keys, usaDosChips())) .. ","
 		local itensTxt = ItensEmote.texto(customPose.itens, "\t")
 		if itensTxt then linhas[#linhas + 1] = itensTxt .. "," end
 		linhas[#linhas + 1] = "\tframes = {"
@@ -7296,6 +7670,7 @@ do
 			local P = k.pose
 			local D, E = P.direita, P.esquerda
 			linhas[#linhas + 1] = string.format("\t\t{ t = %s,", fmt(k.t))
+			linhas[#linhas + 1] = "\t\t\t" .. USA.texto(k.usa or usaDosChips()) .. ","
 			linhas[#linhas + 1] = string.format("\t\t\tdir = %s, palmaDir = %s,", br(D.braco), v3(D.palma))
 			linhas[#linhas + 1] = string.format("\t\t\tdedosDir = %s, afastDir = %s,", dedos(D), fmt(D.afastamento))
 			linhas[#linhas + 1] = string.format("\t\t\tesq = %s, palmaEsq = %s,", br(E.braco), v3(E.palma))
@@ -7397,14 +7772,20 @@ do
 					pernaDir = copiaProfunda(f.pernaDir),
 					pernaEsq = copiaProfunda(f.pernaEsq),
 				},
+				usa = USA.norm(f.usa) or USA.norm(d.usa) or USA.norm({}),
 			})
 		end
 		ordenar()
 
 		local u = d.usa or {}
+		animConfig.direita = u.bracoDir ~= false
+		animConfig.esquerda = u.bracoEsq ~= false
 		animConfig.cabeca = u.cabeca == true
 		animConfig.torso = u.torso == true
 		animConfig.pernas = u.pernas == true
+		anim.tempo = 0
+		aplicarUsaNosChips(anim.keys[1].usa) -- os chips mostram o que esta liberado no 1o keyframe
+		if usaPintar then usaPintar() end
 
 		anim.sel = anim.keys[1]
 		desenhar()
@@ -8509,7 +8890,7 @@ _G.__ClonesHands = (function()
 	local DIST_PARAR = 7.3
 	local DIST_ANDAR = 8.6
 	local DIST_TELEPORTE = 110
-	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true, Pegar = true }
+	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true, Pegar = true, Teleporte = true }
 
 	local NOMES_CLONE = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg" }
 	local NOMES_MEUS = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg", "Left Arm", "Right Arm" }
@@ -9040,14 +9421,15 @@ _G.__ClonesHands = (function()
 		local defE = kf or (emote and defaultEmotes[emote])
 		for _, art in ipairs(c.dedos) do
 			local alvoB, alvoP, ext = 0, 0, nil
-			local pp = defE and (art.ehDireito and defE.palmaDir or defE.palmaEsq)
+			local livre = emote and bracoLivre(emote, art.ehDireito, kf)
+			local pp = (not livre) and defE and (art.ehDireito and defE.palmaDir or defE.palmaEsq)
 			if pp then
 				art.palmaWeld.C0 = CFrame.new(0, -1.0, 0) * CFrame.Angles(rad(pp.x), rad(pp.y), rad(pp.z))
 			else
 				art.palmaWeld.C0 = CFrame.new(0, -1.0, 0)
 			end
 
-			if emote then
+			if emote and not livre then
 				local b, p = alvoDedosEmote(emote, art.id, art.ehDireito, kf)
 				alvoB, alvoP = b or 0, p or 0
 				ext = extraDedoEmote(emote, art.id, art.ehDireito, kf)
@@ -10006,6 +10388,7 @@ local function criarMaoDinamica(character)
 			local poseMao = art.ehDireito and customPose.direita or customPose.esquerda
 			local bracoAtivo
 			if art.ehDireito then bracoAtivo = animConfig.direita else bracoAtivo = animConfig.esquerda end
+			if not freezeEmote and currentEmote and bracoLivre(currentEmote, art.ehDireito) then bracoAtivo = false end
 			local modoDev = (freezeEmote and currentEmote ~= nil and bracoAtivo)
 
 			if modoDev then

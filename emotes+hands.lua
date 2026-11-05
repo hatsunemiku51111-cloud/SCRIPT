@@ -178,7 +178,18 @@ local Pegar = {
 	lentidaoPesado = 0.6,
 }
 
-local TELE = { cooldown = 10 } -- habilidade Teleporte (botao na tela, veja o bloco 'Botao de habilidade: Teleporte')
+local TELE = {
+	cooldown = 3, -- habilidade Teleporte (botao na tela, veja o bloco 'Botao de habilidade: Teleporte')
+
+	-- VFX do teletransporte instantaneo (estilo Goku). So visual, so pra voce (local).
+	vfx = true,
+	-- so o corpo piscando (saida: pisca devagar e some | chegada: pisca bem rapido)
+	preparo = 0.55,        -- tempo (s) entre o clique e o corpo sumir de fato
+	piscaSaida = { 0.05, 0.14, 0.25, 0.37, 0.5 },   -- saida: piscadas mais lentas, o corpo carrega e some (numero IMPAR = termina invisivel)
+	piscaChegada = { 0.01, 0.025, 0.04, 0.055, 0.07, 0.085, 0.1 }, -- chegada: piscadas MUITO mais rapidas (numero IMPAR = termina visivel)
+	sons = { "rbxassetid://130812445847353", "rbxassetid://124934430745275" }, -- variantes do som ao teleportar: toca uma sorteada a cada teleporte (lista vazia = sem som)
+	volume = 1,
+}
 
 local CITACAO_AMP = 0.3
 local CITACAO_VEL = 6
@@ -5332,7 +5343,7 @@ do
 	end
 
 	-- recarga: depois que o golpe termina, o botao fica bloqueado por COOLDOWN segundos
-	local COOLDOWN = 2
+	local COOLDOWN = 5
 	HAB.recargaAte = 0
 	local estavaTocando = false
 
@@ -5445,6 +5456,130 @@ do
 		return workspace:Raycast(ray.Origin, ray.Direction * 1000, rp)
 	end
 
+	-- ===== VFX: teletransporte instantaneo (estilo Goku) =====
+	-- saida: imagem residual azul + flash + anel no chao + faiscas. Corpo some por um instante.
+	-- meio: linhas de velocidade brancas/azuis ligando saida e chegada.
+	-- chegada: pilar de luz + flash + anel + faiscas e o corpo reaparece com fade.
+	local Debris = game:GetService("Debris")
+	local pastaFx = workspace:FindFirstChild("TeleporteVFX")
+	if not pastaFx then
+		pastaFx = Instance.new("Folder")
+		pastaFx.Name = "TeleporteVFX"
+		pastaFx.Parent = workspace
+	end
+
+	local function fxParte(props)
+		local p = Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Material = Enum.Material.Neon
+		p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		for k, v in pairs(props) do p[k] = v end
+		p.Parent = pastaFx
+		return p
+	end
+
+	local function fxTween(obj, dur, goal, estilo, dir)
+		local t = TweenService:Create(obj, TweenInfo.new(dur, estilo or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), goal)
+		t:Play()
+		return t
+	end
+
+	-- som 2D (sem posicao): o som da saida tocava na posicao de origem e, como a camera ja estava la longe
+	-- depois do teleporte, nao dava pra ouvir. Parent no SoundService toca igual em qualquer lugar.
+	local SoundService = game:GetService("SoundService")
+	local function fxSom()
+		local sons = TELE.sons
+		if type(sons) ~= "table" or #sons == 0 then return end
+		local id = sons[math.random(1, #sons)]
+		if type(id) ~= "string" or id == "" then return end
+		local snd = Instance.new("Sound")
+		snd.Name = "TeleporteSom"
+		snd.SoundId = id
+		snd.Volume = TELE.volume or 1
+		snd.Parent = SoundService
+		snd:Play()
+		snd.Ended:Once(function() snd:Destroy() end)
+		Debris:AddItem(snd, 8)
+	end
+
+	-- pre-carrega os sons pra tocarem na hora certa (sem atraso de download no primeiro uso)
+	task.spawn(function()
+		local lista = {}
+		for _, id in ipairs(TELE.sons or {}) do
+			if type(id) == "string" and id ~= "" then
+				local x = Instance.new("Sound")
+				x.SoundId = id
+				lista[#lista + 1] = x
+			end
+		end
+		pcall(function() game:GetService("ContentProvider"):PreloadAsync(lista) end)
+		for _, x in ipairs(lista) do x:Destroy() end
+	end)
+
+	local function pePos(root, hum)
+		return root.Position - Vector3.new(0, hum.HipHeight + root.Size.Y / 2 - 0.1, 0)
+	end
+
+	-- corpo liga/desliga nos tempos dados (so visual, so pra voce). inicio/fim = visivel ou nao
+	local function fxPiscar(char, tempos, inicio, fim)
+		local lista = {}
+		for _, d in ipairs(char:GetDescendants()) do
+			if d:IsA("BasePart") then lista[#lista + 1] = d end
+		end
+		-- maos e dedos ficam numa pasta separada do personagem: piscam junto com o corpo
+		local pastaMaos = workspace:FindFirstChild("DynamicFingersFolder")
+		if pastaMaos then
+			for _, d in ipairs(pastaMaos:GetDescendants()) do
+				if d:IsA("BasePart") then lista[#lista + 1] = d end
+			end
+		end
+		local function set(vis)
+			for _, d in ipairs(lista) do
+				if d.Parent then d.LocalTransparencyModifier = vis and 0 or 1 end
+			end
+		end
+		local estado = inicio
+		set(estado)
+		local ultimo = 0
+		for _, t in ipairs(tempos) do
+			ultimo = math.max(ultimo, t)
+			task.delay(t, function()
+				estado = not estado
+				set(estado)
+			end)
+		end
+		task.delay(ultimo + 0.04, function() set(fim) end) -- garante o estado final (o corpo sempre volta a aparecer)
+	end
+
+	-- chamado ANTES de mover o personagem: o corpo pisca (devagar) ate sumir
+	local function fxSaida(char, root, hum)
+		if not TELE.vfx then return end
+		local prep = math.max(TELE.preparo or 0, 0.2)
+		local centro = root.Position
+		fxPiscar(char, TELE.piscaSaida, true, false)
+		task.delay(math.max(prep - 0.03, 0), function()
+			fxSom() -- som (variante sorteada) no instante do teleporte
+		end)
+		-- seguranca: se o teleporte nao completar, o corpo de verdade volta a aparecer
+		task.delay(prep + 0.8, function()
+			for _, d in ipairs(char:GetDescendants()) do
+				if d:IsA("BasePart") then d.LocalTransparencyModifier = 0 end
+			end
+			local pm = workspace:FindFirstChild("DynamicFingersFolder")
+			if pm then
+				for _, d in ipairs(pm:GetDescendants()) do
+					if d:IsA("BasePart") then d.LocalTransparencyModifier = 0 end
+				end
+			end
+		end)
+	end
+
+	-- chamado DEPOIS de mover o personagem: o corpo pisca MUITO mais rapido ate aparecer
+	local function fxChegada(char, root, hum, origem)
+		if not TELE.vfx then return end
+		fxPiscar(char, TELE.piscaChegada, false, true)
+	end
+
 	local function teleportar(res)
 		local char = LocalPlayer.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -5453,9 +5588,17 @@ do
 		local origem = root.Position
 		local n = res.Normal
 		local dest = res.Position + Vector3.new(n.X, 0, n.Z) * 1.5 + Vector3.new(0, hum.HipHeight + root.Size.Y / 2 + 2.1, 0)
-		root.CFrame = CFrame.new(dest) * root.CFrame.Rotation
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
+		pcall(fxSaida, char, root, hum)
+
+		local function mover()
+			if not (root.Parent and hum.Parent) or hum.Health <= 0 then return end
+			root.CFrame = CFrame.new(dest) * root.CFrame.Rotation
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			pcall(fxChegada, char, root, hum, origem)
+		end
+		local prep = TELE.vfx and (TELE.preparo or 0) or 0
+		if prep > 0 then task.delay(prep, mover) else mover() end
 		return true
 	end
 
@@ -5473,7 +5616,7 @@ do
 		HAB.armado = false
 		HAB.recargaAte = os.clock() + TELE.cooldown
 		-- encerra a animacao no proximo frame (evita conflito com o mini TP, que tambem le este clique)
-		task.defer(function()
+		task.delay((TELE.vfx and TELE.preparo or 0) + 0.03, function()
 			if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end
 		end)
 	end)

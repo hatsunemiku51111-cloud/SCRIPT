@@ -1119,6 +1119,8 @@ local function amostrarFrame(d, tempo)
 	return ultimo
 end
 
+KAME.amostrar = amostrarFrame -- usado pelos clones (cada clone tem o proprio relogio)
+
 local function atualizarEmotesAnimados()
 	local agora = os.clock()
 	if currentEmote ~= emoteAnimUltimo then
@@ -1270,8 +1272,8 @@ do
 end
 -- ===============================================================================
 
-local function extraDedoEmote(emote, id, ehDireito)
-	local d = emote and defaultEmotes[emote]
+local function extraDedoEmote(emote, id, ehDireito, frame)
+	local d = frame or (emote and defaultEmotes[emote])
 	if not d then return nil end
 	local lista = ehDireito and d.dedosDir or d.dedosEsq
 	return lista and lista[id] or nil
@@ -1328,9 +1330,9 @@ local function calcJuntaCFrames(id, ehDireito, angPonta, pivotCF)
 	return cf1, Vector3.new(prof, b, a), cf2, Vector3.new(prof, b, a)
 end
 
-local function alvoDedosEmote(emote, id, ehDireito)
+local function alvoDedosEmote(emote, id, ehDireito, frame)
 	if emoteAnimado(emote) then
-		local d = defaultEmotes[emote]
+		local d = frame or defaultEmotes[emote]
 		local f = (ehDireito and d.dedosDir or d.dedosEsq)[id]
 		return f[1], f[2]
 	elseif emote == "Tchau" then
@@ -1486,14 +1488,15 @@ local function calcularPoseCustom()
 	return P
 end
 
-local function calcularPoseEmote(emote, tempo, usar)
+local function calcularPoseEmote(emote, tempo, usar, frame)
 	local P = poseVazia()
 	local dirOn = (not usar) or animConfig.direita
 	local esqOn = (not usar) or animConfig.esquerda
 
 	if emoteAnimado(emote) then
-		local d = defaultEmotes[emote]
-		local u = d.usa or {}
+		local d0 = defaultEmotes[emote]
+		local d = frame or d0
+		local u = d0.usa or {}
 		if dirOn then
 			P.wR = 1
 			P.R = cfBraco(d.dir)
@@ -2189,22 +2192,25 @@ local function janelaControles(cfg)
 	local guardados = {}
 	local clipOriginal = win.ClipsDescendants
 
-	local btnMin = btn({ Text = "-", TextSize = 16, TextColor3 = T.sub, Size = UDim2.fromOffset(sz, sz), Position = cfg.posMin, Parent = head }, { round(cfg.radius or 8) })
+	local btnMin = btn({ Text = "", TextSize = 16, TextColor3 = T.sub, Size = UDim2.fromOffset(sz, sz), Position = cfg.posMin, Parent = head }, { round(cfg.radius or 8) })
 	hoverFX(btnMin, T.surface2, T.surface3)
+	T.Icones.centro(btnMin, "_min", 14, 2)
 	local btnX = cfg.btnX
 	if not btnX then
-		btnX = btn({ Text = "X", TextSize = 13, TextColor3 = T.danger, Size = UDim2.fromOffset(sz, sz), Position = cfg.posX, Parent = head }, { round(cfg.radius or 8) })
+		btnX = btn({ Text = "", TextSize = 13, TextColor3 = T.danger, Size = UDim2.fromOffset(sz, sz), Position = cfg.posX, Parent = head }, { round(cfg.radius or 8) })
 		hoverFX(btnX, T.surface2, T.danger)
+		T.Icones.centro(btnX, "_fechar_r", 14, 2)
 	end
 
 	-- quadradinho para reabrir (aparece quando a janela é fechada no X)
 	local chip
 	if not cfg.semChip then
 		chip = btn({
-			Text = "□", TextSize = 18, TextColor3 = T.accent, Size = UDim2.fromOffset(34, 34),
+			Text = "", TextSize = 18, TextColor3 = T.accent, Size = UDim2.fromOffset(34, 34),
 			BackgroundColor3 = T.surface, Visible = false, ZIndex = 40, Parent = MainGui,
 		}, { round(10), outline(T.stroke, 1, 0.1) })
 		hoverFX(chip, T.surface, T.surface3)
+		T.Icones.centro(chip, "_restaurar", 18, 41)
 	end
 	local function atualizarChip()
 		if chip then chip.Visible = fechada and ((not cfg.ativo) or cfg.ativo()) end
@@ -2214,7 +2220,7 @@ local function janelaControles(cfg)
 		if animando or fechada then return end
 		animando = true
 		minimizado = min
-		btnMin.Text = min and "□" or "-"
+		T.Icones.centro(btnMin, min and "_restaurar" or "_min", 14, 2)
 		if cfg.onMin then cfg.onMin(min) end
 
 		local novaH = min and headH or fullH
@@ -2278,7 +2284,7 @@ local function janelaControles(cfg)
 	-- começa minimizada (sem animação)
 	if cfg.iniciarMin then
 		minimizado = true
-		btnMin.Text = "□"
+		T.Icones.centro(btnMin, "_restaurar", 14, 2)
 		curH = headH
 		win.ClipsDescendants = true
 		win.Size = UDim2.fromOffset(fullW, headH)
@@ -3523,6 +3529,897 @@ api.busy = function() return gettingUp end
 return api
 end)()
 
+-- ===== ÍCONES DESENHADOS (sem emoji, sem imagem): tudo feito com Frames + UICorner =====
+-- Cada ícone é uma lista de formas numa grade 24x24: r = retângulo, c = círculo, l = linha (ponta redonda),
+-- a = arco, q = retângulo girado. Usa só Scale, então o ícone escala para qualquer tamanho sem falhas.
+T.Icones = (function()
+	local M = {}
+	local c3 = Color3.fromRGB
+	local PAL = {
+		blue = c3(88, 140, 250),
+		blueD = c3(52, 92, 190),
+		blueO = c3(24, 40, 100),
+		blueL = c3(150, 190, 255),
+		grnL = c3(150, 235, 185),
+		pinkL = c3(255, 185, 200),
+		orgL = c3(255, 195, 130),
+		redL = c3(255, 150, 150),
+		blush = c3(255, 150, 120),
+		brn = c3(176, 120, 74),
+		brnD = c3(124, 80, 46),
+		brnO = c3(62, 38, 22),
+		cyan = c3(120, 230, 255),
+		cyanD = c3(40, 170, 230),
+		cyanL = c3(200, 246, 255),
+		cyanO = c3(14, 70, 120),
+		dk = c3(40, 30, 40),
+		gold = c3(255, 206, 70),
+		goldD = c3(214, 150, 30),
+		goldO = c3(110, 70, 10),
+		grn = c3(62, 200, 128),
+		grnD = c3(36, 140, 86),
+		grnO = c3(14, 70, 44),
+		gry = c3(200, 206, 222),
+		gryD = c3(140, 148, 172),
+		gryL = c3(236, 240, 250),
+		gryO = c3(52, 58, 80),
+		hole = c3(20, 22, 32),
+		night = c3(34, 40, 86),
+		org = c3(255, 150, 60),
+		orgD = c3(220, 100, 30),
+		orgO = c3(110, 50, 14),
+		pink = c3(255, 130, 150),
+		pinkD = c3(214, 84, 110),
+		pinkO = c3(130, 40, 66),
+		pur = c3(150, 110, 255),
+		purD = c3(96, 64, 200),
+		purL = c3(196, 170, 255),
+		purO = c3(40, 24, 98),
+		red = c3(236, 86, 92),
+		redD = c3(176, 48, 60),
+		redO = c3(100, 22, 34),
+		skin = c3(255, 212, 166),
+		skinD = c3(226, 164, 116),
+		skinL = c3(255, 236, 208),
+		skinO = c3(120, 70, 48),
+		wh = c3(255, 255, 255),
+		yel = c3(255, 214, 72),
+		yelD = c3(240, 170, 40),
+		yelL = c3(255, 240, 170),
+		yelO = c3(122, 78, 20),
+		pants = c3(92, 108, 176),
+		pantsD = c3(60, 72, 132),
+		nightD = c3(20, 24, 62),
+		nightO = c3(10, 12, 38),
+		brnL = c3(214, 160, 108),
+		cheek = c3(255, 140, 120),
+	}
+	local DADOS = {
+		["Tchau"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"blueD",0.9,"blueO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"blue",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"blueL",false,false},
+			{"c",10.6,4.6,1.3,"blueL",false,false},
+			{"a",12,11.4,9.6,158,205,1.2,"blueL",false,false},
+			{"a",12,11.4,9.6,-25,22,1.2,"blueL",false,false},
+			{"a",12,11.4,7.6,165,200,1,"blueL",false,false},
+			{"a",12,11.4,7.6,-20,15,1,"blueL",false,false},
+			{"l",8.49,17.55,17.01,16.35,2.6,"wh","T0.8","blueO"},
+			{"q",12.08,12.19,8.4,7.6,-8,2.8,"skin","T0.8","blueO"},
+			{"l",8.6,9.65,6.65,4.83,2.3,"skin","T0.8","blueO"},
+			{"l",10.63,9.37,9.34,3.3,2.3,"skin","T0.8","blueO"},
+			{"l",12.71,9.08,12.4,3.29,2.3,"skin","T0.8","blueO"},
+			{"l",14.74,8.79,15.27,4.42,2.3,"skin","T0.8","blueO"},
+			{"l",8.94,14.25,5.18,11.95,2.5,"skin","T0.8","blueO"},
+		},
+		["Paz"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"purD",0.9,"purO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pur",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"l",7.7,17.2,16.3,17.2,2.6,"wh","T0.8","purO"},
+			{"q",12,12.4,8.4,7.6,0,2.8,"skin","T0.8","purO"},
+			{"l",8.9,9.2,8.9,7.6,2.3,"skin","T0.8","purO"},
+			{"l",10.95,9.4,9.58,2.94,2.3,"skin","T0.8","purO"},
+			{"l",13.05,9.4,14.42,2.94,2.3,"skin","T0.8","purO"},
+			{"l",15.1,9.2,15.1,7.6,2.3,"skin","T0.8","purO"},
+			{"l",8.6,14,8.4,12.2,2.5,"skin","T0.8","purO"},
+			{"q",5,6,1.09,2.6,0,0.52,"purL",false,false},
+			{"q",5,6,2.6,1.09,0,0.52,"purL",false,false},
+			{"q",19.4,5.4,0.84,2,0,0.4,"purL",false,false},
+			{"q",19.4,5.4,2,0.84,0,0.4,"purL",false,false},
+		},
+		["Sim"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"grnD",0.9,"grnO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"grn",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"grnL",false,false},
+			{"c",10.6,4.6,1.3,"grnL",false,false},
+			{"q",10,11.2,12.6,12.6,0,4.03,"yel","T0.8","grnO"},
+			{"r",6.2,8.6,2,3.4,1,"dk","D",false},
+			{"r",11.8,8.6,2,3.4,1,"dk","D",false},
+			{"c",7.2,9.4,0.9,"wh","D",false},
+			{"c",12.8,9.4,0.9,"wh","D",false},
+			{"a",10,11.8,3.4,25,155,1.5,"dk","D",false},
+			{"c",4.8,13.4,2.4,"cheek","D",false},
+			{"c",15.2,13.4,2.4,"cheek","D",false},
+			{"l",18.2,8.6,19.8,7,1.3,"grnL",false,false},
+			{"l",19.8,7,21.4,8.6,1.3,"grnL",false,false},
+			{"l",18.2,13.6,19.8,15.2,1.3,"grnL",false,false},
+			{"l",19.8,15.2,21.4,13.6,1.3,"grnL",false,false},
+		},
+		["Maçaneta"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"orgD",0.9,"orgO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"org",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"orgL",false,false},
+			{"c",10.6,4.6,1.3,"orgL",false,false},
+			{"q",12,11.4,13.4,13.4,0,4.29,"yel","T0.8","orgO"},
+			{"r",6.4,10,4.6,3,1.2,"wh","D",false},
+			{"r",13,10,4.6,3,1.2,"wh","D",false},
+			{"c",9.6,11.6,1.7,"dk","D",false},
+			{"c",16.2,11.6,1.7,"dk","D",false},
+			{"r",6,8.8,5.4,1.5,0.6,"yelD","D",false},
+			{"r",12.6,8.8,5.4,1.5,0.6,"yelD","D",false},
+			{"l",13.4,7.2,18,6,1.1,"yelO","D",false},
+			{"l",7.4,7.6,10.8,7.6,1.1,"yelO","D",false},
+			{"l",8.4,16.2,14,15.4,1.1,"dk","D",false},
+			{"l",14,15.4,15.6,14.2,1.1,"dk","D",false},
+			{"c",5.8,14.8,2.2,"cheek","D",false},
+		},
+		["Apontar"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"blueD",0.9,"cyanO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"cyanD",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"cyanL",false,false},
+			{"c",10.6,4.6,1.3,"cyanL",false,false},
+			{"l",3.8,7.5,3.8,16.1,2.6,"wh","T0.8","cyanO"},
+			{"q",8.6,11.8,8.4,7.6,90,2.8,"skin","T0.8","cyanO"},
+			{"l",11.8,8.7,13.4,8.7,2.3,"skin","T0.8","cyanO"},
+			{"l",11.6,10.75,18.8,10.75,2.3,"skin","T0.8","cyanO"},
+			{"l",11.8,12.85,13.4,12.85,2.3,"skin","T0.8","cyanO"},
+			{"l",11.8,14.9,13.4,14.9,2.3,"skin","T0.8","cyanO"},
+			{"l",7,15.2,10.6,12.4,2.5,"skin","T0.8","cyanO"},
+			{"a",20.2,8.6,1.8,-50,50,1,"cyanL",false,false},
+			{"a",20.2,8.6,3.4,-50,50,1,"cyanL",false,false},
+		},
+		["Bow"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"blueD",0.9,"blueO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"blue",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"blueL",false,false},
+			{"c",10.6,4.6,1.3,"blueL",false,false},
+			{"l",10,13.4,10,18.4,2.8,"pants","T0.8","blueO"},
+			{"r",8.6,17.8,4.6,2,1,"wh","T0.8","blueO"},
+			{"q",13.2,11.6,6.4,4.6,-30,1.5,"wh","T0.8","blueO"},
+			{"q",18.4,10,5.2,5.2,24,1.66,"yel","T0.8","blueO"},
+			{"c",20,10.6,0.95,"dk","D",false},
+			{"l",15,11.2,16.2,16,2.2,"yel","T0.8","blueO"},
+			{"q",5.4,7,1.09,2.6,0,0.52,"blueL",false,false},
+			{"q",5.4,7,2.6,1.09,0,0.52,"blueL",false,false},
+			{"q",8.6,3.8,0.67,1.6,0,0.32,"blueL",false,false},
+			{"q",8.6,3.8,1.6,0.67,0,0.32,"blueL",false,false},
+		},
+		["Dedo"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"redD",0.9,"redO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"red",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"redL",false,false},
+			{"c",10.6,4.6,1.3,"redL",false,false},
+			{"l",7.7,17.8,16.3,17.8,2.6,"wh","T0.8","redO"},
+			{"q",12,13,8.4,7.6,0,2.8,"skin","T0.8","redO"},
+			{"l",8.9,9.8,8.9,8.2,2.3,"skin","T0.8","redO"},
+			{"l",10.95,10,10.95,4,2.3,"skin","T0.8","redO"},
+			{"l",13.05,9.8,13.05,8.2,2.3,"skin","T0.8","redO"},
+			{"l",15.1,9.8,15.1,8.2,2.3,"skin","T0.8","redO"},
+			{"l",8.6,14.6,8.5,12.6,2.5,"skin","T0.8","redO"},
+		},
+		["Citação"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"pinkD",0.9,"pinkO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pink",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"pinkL",false,false},
+			{"c",10.6,4.6,1.3,"pinkL",false,false},
+			{"l",8.13,17.49,16.71,18.09,2.6,"wh","T0.8","pinkO"},
+			{"q",12.76,13,8.4,7.6,4,2.8,"skin","T0.8","pinkO"},
+			{"l",11.92,9.93,11.92,3.53,2.3,"skin","T0.8","pinkO"},
+			{"l",14.01,10.08,15.09,3.97,2.3,"skin","T0.8","pinkO"},
+			{"l",16.06,10.22,17.7,5.71,2.3,"skin","T0.8","pinkO"},
+			{"c",10.04,8.8,6.6,"skin","T0.8","pinkO"},
+			{"c",10.04,8.8,3,"pink","D",false},
+			{"c",8.34,6.9,1,"skinL","D",false},
+			{"q",19.6,4.8,0.92,2.2,0,0.44,"pinkL",false,false},
+			{"q",19.6,4.8,2.2,0.92,0,0.44,"pinkL",false,false},
+		},
+		["Sentido"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"goldD",0.9,"goldO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"gold",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"yelL",false,false},
+			{"c",10.6,4.6,1.3,"yelL",false,false},
+			{"l",9.6,9.8,6.4,12.6,2.4,"yel","T0.8","goldO"},
+			{"l",6.4,12.6,10.6,13.4,2.4,"yel","T0.8","goldO"},
+			{"l",14.4,9.8,17.6,12.6,2.4,"yel","T0.8","goldO"},
+			{"l",17.6,12.6,13.4,13.4,2.4,"yel","T0.8","goldO"},
+			{"l",10.4,14,10.4,18.2,2.8,"pants","T0.8","goldO"},
+			{"l",13.6,14,13.6,18.2,2.8,"pants","T0.8","goldO"},
+			{"r",8.6,17.8,3.8,1.9,0.9,"wh","T0.8","goldO"},
+			{"r",13,17.8,3.8,1.9,0.9,"wh","T0.8","goldO"},
+			{"q",12,11.4,6.8,6.2,0,1.8,"wh","T0.8","goldO"},
+			{"c",14.2,10.6,1.8,"gold","D",false},
+			{"c",14.2,10.6,0.8,"goldD","D",false},
+			{"l",9.4,9.6,14.6,9.6,0.5,"gry","D",false},
+			{"q",12,6.2,5.6,5.6,0,1.79,"yel","T0.8","goldO"},
+			{"q",12,3.4,6.8,3,0,1.4,"redD","T0.8","goldO"},
+			{"r",9.6,2.2,4.8,1,0.5,"red","D",false},
+			{"c",10.4,6.8,0.95,"dk","D",false},
+			{"c",13.6,6.8,0.95,"dk","D",false},
+			{"l",11,8.4,13,8.4,0.7,"dk","D",false},
+		},
+		["Convidando"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"purD",0.9,"purO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pur",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"l",6.89,19.82,15.44,18.92,2.6,"wh","T0.8","purO"},
+			{"q",10.66,14.6,8.4,7.6,-6,2.8,"skin","T0.8","purO"},
+			{"l",7.25,11.74,7.08,10.15,2.3,"skin","T0.8","purO"},
+			{"l",9.28,11.52,9.12,9.93,2.3,"skin","T0.8","purO"},
+			{"l",11.37,11.3,11.21,9.71,2.3,"skin","T0.8","purO"},
+			{"l",13.41,11.09,13.24,9.5,2.3,"skin","T0.8","purO"},
+			{"l",7.45,16.54,7.35,13.74,2.5,"skin","T0.8","purO"},
+			{"l",9.3,11.72,8.89,7.74,2.3,"skin","T0.8","purO"},
+			{"l",8.89,7.74,12.15,5.79,2.3,"skin","T0.8","purO"},
+			{"a",18,7.4,3.4,-70,70,1.1,"purL",false,false},
+			{"a",18,7.4,5.4,-60,60,1,"purL",false,false},
+		},
+		["Dancinha"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"pinkD",0.9,"pinkO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pink",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"pinkL",false,false},
+			{"c",10.6,4.6,1.3,"pinkL",false,false},
+			{"l",10.4,13.4,8,16,2.8,"pants","T0.8","pinkO"},
+			{"l",8,16,6.6,18.8,2.8,"pants","T0.8","pinkO"},
+			{"l",13,13.4,16,15.4,2.8,"pants","T0.8","pinkO"},
+			{"l",16,15.4,14.4,18.4,2.8,"pants","T0.8","pinkO"},
+			{"q",11.8,11,4.6,5.4,-6,1.5,"wh","T0.8","pinkO"},
+			{"l",9.8,9.6,6.6,11.2,2.4,"yel","T0.8","pinkO"},
+			{"l",6.6,11.2,5.2,14,2.4,"yel","T0.8","pinkO"},
+			{"l",14,9.6,16.8,6.4,2.4,"yel","T0.8","pinkO"},
+			{"l",16.8,6.4,18.4,3.8,2.4,"yel","T0.8","pinkO"},
+			{"q",11.6,5.6,5.4,5.4,-8,1.73,"yel","T0.8","pinkO"},
+			{"c",10.5,5.54,0.95,"dk","D",false},
+			{"c",12.64,5.24,0.95,"dk","D",false},
+			{"a",11.74,6.45,0.92,20,160,0.8,"dk","D",false},
+			{"c",4.4,6.4,2,"gold","D",false},
+			{"l",5.2,6.4,5.2,2.2,0.8,"gold","D",false},
+			{"l",5.2,2.2,7,3,0.8,"gold","D",false},
+		},
+		["Cala a Boca"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"blueD",0.9,"cyanO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"cyanD",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"cyanL",false,false},
+			{"c",10.6,4.6,1.3,"cyanL",false,false},
+			{"q",12,8.6,13.2,13.2,0,4.22,"yel","T0.8","cyanO"},
+			{"c",8.4,6.8,3,"wh","D",false},
+			{"c",15.6,6.8,3,"wh","D",false},
+			{"c",9,7,1.5,"dk","D",false},
+			{"c",16.2,7,1.5,"dk","D",false},
+			{"c",5.4,10.6,2,"cheek","D",false},
+			{"c",18.6,10.6,2,"cheek","D",false},
+			{"l",7.6,12.2,10.4,12.2,0.9,"dk","D",false},
+			{"l",13.6,12.2,16.4,12.2,0.9,"dk","D",false},
+			{"l",8.35,20.99,15.65,20.99,2.21,"wh","T0.8","cyanO"},
+			{"q",12,16.91,7.14,6.46,0,2.38,"skin","T0.8","cyanO"},
+			{"l",9.37,14.19,9.37,12.83,1.95,"skin","T0.8","cyanO"},
+			{"l",11.11,14.36,11.11,11.3,1.95,"skin","T0.8","cyanO"},
+			{"l",12.89,14.19,12.89,12.83,1.95,"skin","T0.8","cyanO"},
+			{"l",14.63,14.19,14.63,12.83,1.95,"skin","T0.8","cyanO"},
+			{"l",9.11,18.27,8.94,16.91,2.12,"skin","T0.8","cyanO"},
+			{"a",20.4,5.2,2.2,-60,60,1,"cyanL",false,false},
+		},
+		["Braços Cruzados"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"gryO",0.9,"gryO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"gryD",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"gryL",false,false},
+			{"c",10.6,4.6,1.3,"gryL",false,false},
+			{"q",12,14.6,10.8,8.4,0,3,"wh","T0.8","gryO"},
+			{"q",12,6.4,6.4,6.4,0,2.05,"yel","T0.8","gryO"},
+			{"r",8.6,5,2.6,2,0.8,"wh","D",false},
+			{"r",12.8,5,2.6,2,0.8,"wh","D",false},
+			{"c",9.9,6.2,1,"dk","D",false},
+			{"c",14.1,6.2,1,"dk","D",false},
+			{"l",8.4,4.8,11.4,4.8,0.8,"yelD","D",false},
+			{"l",12.6,4.8,15.6,4.8,0.8,"yelD","D",false},
+			{"l",10.2,8.6,13.8,8.6,0.8,"dk","D",false},
+			{"l",7,11.8,16.4,15.6,2.8,"yel","T0.8","gryO"},
+			{"l",17,11.8,7.6,15.6,2.8,"yel","T0.8","gryO"},
+			{"c",16.8,15.8,3,"yel","T0.8","gryO"},
+			{"c",7.2,15.8,3,"yel","T0.8","gryO"},
+		},
+		["Deitado de Frente"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"orgD",0.9,"orgO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"org",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"orgL",false,false},
+			{"c",10.6,4.6,1.3,"orgL",false,false},
+			{"q",12.6,15.4,9.4,4.4,0,1.5,"wh","T0.8","orgO"},
+			{"l",16.6,15.6,20.6,15.6,2.8,"pants","T0.8","orgO"},
+			{"l",20.6,15.6,20.4,11.8,2.8,"pants","T0.8","orgO"},
+			{"l",7.6,14.6,7.8,18.2,2.4,"yel","T0.8","orgO"},
+			{"q",5.8,11.4,5.4,5.4,-6,1.73,"yel","T0.8","orgO"},
+			{"c",4.4,11.2,0.95,"dk","D",false},
+			{"l",3.6,13,4.8,13,0.7,"dk","D",false},
+		},
+		["Sentar"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"orgD",0.9,"orgO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"org",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"orgL",false,false},
+			{"c",10.6,4.6,1.3,"orgL",false,false},
+			{"l",5.6,4.8,5.6,18.6,1.8,"brnL","T0.8","orgO"},
+			{"l",5.6,13.8,16.6,13.8,2,"brnL","T0.8","orgO"},
+			{"l",15.6,13.8,15.6,19,1.8,"brnL","T0.8","orgO"},
+			{"l",6,14,6,19,1.8,"brnL","T0.8","orgO"},
+			{"q",10,10,4.6,5.6,0,1.5,"wh","T0.8","orgO"},
+			{"l",10.2,12.6,16.2,12.4,2.8,"pants","T0.8","orgO"},
+			{"l",16.2,12.6,16.6,17.8,2.6,"pants","T0.8","orgO"},
+			{"r",15.4,17.4,4.6,2,1,"wh","T0.8","orgO"},
+			{"l",10.4,9.2,13.2,11.6,2.2,"yel","T0.8","orgO"},
+			{"q",10.8,4.8,5.2,5.2,0,1.66,"yel","T0.8","orgO"},
+			{"c",12.6,4.6,0.95,"dk","D",false},
+		},
+		["Ajoelhar"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"grnD",0.9,"grnO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"grn",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"grnL",false,false},
+			{"c",10.6,4.6,1.3,"grnL",false,false},
+			{"q",9.8,10,4.6,5.6,0,1.5,"wh","T0.8","grnO"},
+			{"l",9.6,12.8,14.4,13.2,2.8,"pants","T0.8","grnO"},
+			{"l",14.4,13.4,14.8,18.2,2.6,"pants","T0.8","grnO"},
+			{"r",14,17.8,4.6,2,1,"wh","T0.8","grnO"},
+			{"l",9.2,13,8.4,17.6,2.8,"pants","T0.8","grnO"},
+			{"l",8.4,17.8,3.6,17.8,2.6,"pants","T0.8","grnO"},
+			{"l",10.2,9.2,13.6,11.8,2.2,"yel","T0.8","grnO"},
+			{"q",10.6,4.8,5.2,5.2,0,1.66,"yel","T0.8","grnO"},
+			{"c",12.4,4.6,0.95,"dk","D",false},
+		},
+		["Dormir"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"nightD",0.9,"nightO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"night",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"r",3.2,7.8,2.2,10.6,0.8,"brnL","T0.8","nightO"},
+			{"r",3.2,16.4,17.6,2.2,0.8,"brnL","T0.8","nightO"},
+			{"r",18.6,12.8,2.2,5.8,0.8,"brnL","T0.8","nightO"},
+			{"r",5.2,11,6.6,3.4,1.4,"wh","T0.8","nightO"},
+			{"q",8,11.2,4.6,4.6,0,1.47,"yel","T0.8","nightO"},
+			{"a",8.6,11.2,1,20,160,0.7,"dk","D",false},
+			{"r",9.8,11.6,9.6,5,2,"blue","T0.8","nightO"},
+			{"l",11.4,13.4,18,13.4,0.7,"blueD","D",false},
+			{"l",12.4,4,15.4,4,1,"cyanL","D",false},
+			{"l",15.4,4,12.4,7,1,"cyanL","D",false},
+			{"l",12.4,7,15.4,7,1,"cyanL","D",false},
+			{"l",17,7.4,19.2,7.4,1,"cyanL","D",false},
+			{"l",19.2,7.4,17,9.6,1,"cyanL","D",false},
+			{"l",17,9.6,19.2,9.6,1,"cyanL","D",false},
+		},
+		["Dormir2"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"nightD",0.9,"nightO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"night",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"c",10.6,11.6,13.4,"gold","T0.8","nightO"},
+			{"c",15,9.4,11,"night","D",false},
+			{"r",7.6,12.4,3,0.1,0.1,"goldD","D",false},
+			{"a",7.4,12.6,1.5,20,160,0.8,"goldO","D",false},
+			{"c",5.6,14.6,1.9,"orgL","D",false},
+			{"q",17.4,5.2,1.09,2.6,0,0.52,"yelL","D",false},
+			{"q",17.4,5.2,2.6,1.09,0,0.52,"yelL","D",false},
+			{"q",19.6,13,0.76,1.8,0,0.36,"yelL","D",false},
+			{"q",19.6,13,1.8,0.76,0,0.36,"yelL","D",false},
+			{"q",13.8,17,0.67,1.6,0,0.32,"yelL","D",false},
+			{"q",13.8,17,1.6,0.67,0,0.32,"yelL","D",false},
+			{"l",16,16.4,18.6,16.4,0.9,"cyanL","D",false},
+			{"l",18.6,16.4,16,19,0.9,"cyanL","D",false},
+			{"l",16,19,18.6,19,0.9,"cyanL","D",false},
+		},
+		["Ragdoll"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"purD",0.9,"purO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"pur",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"l",10.2,13.6,7,16.4,2.8,"pants","T0.8","purO"},
+			{"l",7,16.4,9.6,19,2.8,"pants","T0.8","purO"},
+			{"l",12.4,14.2,16.2,15.4,2.8,"pants","T0.8","purO"},
+			{"l",16.2,15.4,14.6,18.8,2.8,"pants","T0.8","purO"},
+			{"q",11.6,10.6,4.6,5.4,32,1.5,"wh","T0.8","purO"},
+			{"l",9.4,9,5.4,6.6,2.4,"yel","T0.8","purO"},
+			{"l",5.4,6.6,4.2,10.4,2.4,"yel","T0.8","purO"},
+			{"l",14,11,18.4,12.6,2.4,"yel","T0.8","purO"},
+			{"l",18.4,12.6,20,8.6,2.4,"yel","T0.8","purO"},
+			{"q",14.2,5.4,5.4,5.4,28,1.73,"yel","T0.8","purO"},
+			{"l",12.2,4.4,13.8,6,0.8,"purD","D",false},
+			{"l",12.2,6,13.8,4.4,0.8,"purD","D",false},
+			{"l",14.8,5,16.4,6.6,0.8,"purD","D",false},
+			{"l",14.8,6.6,16.4,5,0.8,"purD","D",false},
+			{"q",5.2,4.6,0.84,2,0,0.4,"yelL",false,false},
+			{"q",5.2,4.6,2,0.84,0,0.4,"yelL",false,false},
+			{"q",19.8,15.8,0.67,1.6,0,0.32,"yelL",false,false},
+			{"q",19.8,15.8,1.6,0.67,0,0.32,"yelL",false,false},
+		},
+		["Siririca"] = {
+			{"c",12,12,22.6,"blue",0.9,"blueO"},
+			{"a",12,12,9.6,20,95,1.7,"blueD",false,false},
+			{"a",12,12,9.6,205,250,1.2,"blueL",false,false},
+			{"q",8.8,12.2,5.4,5.4,45,0.6,"cyanL","T0.8","blueO"},
+			{"c",8.8,14.4,8.6,"cyanL","T0.8","blueO"},
+			{"q",16.6,7.4,3.6,3.6,45,0.4,"cyanL","T0.8","blueO"},
+			{"c",16.6,9,6,"cyanL","T0.8","blueO"},
+			{"q",16.4,16.2,3,3,45,0.3,"cyanL","T0.8","blueO"},
+			{"c",16.4,17.6,5,"cyanL","T0.8","blueO"},
+			{"a",8.8,14.4,3.4,20,80,0.9,"cyanD","D",false},
+			{"c",7.2,12.8,1.6,"wh","D",false},
+		},
+		["De Quatro"] = {
+			{"c",12,12,22.6,"org",0.9,"orgO"},
+			{"a",12,12,9.6,20,95,1.7,"orgD",false,false},
+			{"a",12,12,9.6,205,250,1.2,"orgL",false,false},
+			{"l",4.4,20.4,19.6,20.4,1.6,"gryL","T0.8","orgO"},
+			{"l",7.4,19,7.4,13.4,2.6,"wh","T0.8","orgO"},
+			{"l",15,19,15,13.4,2.6,"wh","T0.8","orgO"},
+			{"l",7.4,12.8,15,12.8,4.4,"wh","T0.8","orgO"},
+			{"c",18.6,10.8,5.2,"wh","T0.8","orgO"},
+			{"l",19.6,11.2,19.6,11.3,1,"dk","D",false},
+		},
+		["Socar"] = {
+			{"c",12,12,22.6,"yel",0.9,"yelO"},
+			{"a",12,12,9.6,20,95,1.7,"yelD",false,false},
+			{"a",12,12,9.6,205,250,1.2,"yelL",false,false},
+			{"l",7.6,17,14.2,10.4,7.6,"pur","T0.8","purO"},
+			{"l",8.8,15.6,11.8,12.6,1.3,"purL","D",false},
+			{"q",16.6,7.6,6.4,3.8,-45,1.8,"grn","T0.8","grnO"},
+			{"l",17.4,6.8,20,4.2,1.8,"grn","T0.8","grnO"},
+			{"l",16.4,7.4,18.2,9.2,0.7,"grnD","D",false},
+		},
+		["Kamehameha"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"nightD",0.9,"nightO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"night",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"purL",false,false},
+			{"c",10.6,4.6,1.3,"purL",false,false},
+			{"r",8,8.6,14,6.8,3,"cyanD",0,false},
+			{"r",8,9.6,14.2,4.8,2.2,"cyan",0,false},
+			{"r",8,10.6,14.4,2.8,1.4,"cyanL",0,false},
+			{"r",8,11.4,14.4,1.2,0.6,"wh",0,false},
+			{"c",8.6,12,11.6,"cyanD",0,false},
+			{"c",8.6,12,9.2,"cyan",0,false},
+			{"c",8.6,12,6.4,"cyanL",0,false},
+			{"c",8.6,12,3.4,"wh",0,false},
+			{"l",15.2,12,17.2,12,1,"cyanL",false,false},
+			{"l",13.27,16.67,14.68,18.08,1,"cyanL",false,false},
+			{"l",8.6,18.6,8.6,20.6,1,"cyanL",false,false},
+			{"l",3.93,16.67,2.52,18.08,1,"cyanL",false,false},
+			{"l",2,12,0,12,1,"cyanL",false,false},
+			{"l",3.93,7.33,2.52,5.92,1,"cyanL",false,false},
+			{"l",8.6,5.4,8.6,3.4,1,"cyanL",false,false},
+			{"l",13.27,7.33,14.68,5.92,1,"cyanL",false,false},
+			{"l",15,5.6,21,5.6,0.9,"cyanL",false,false},
+			{"l",16.6,17.2,21,17.2,0.9,"cyanL",false,false},
+		},
+		["Pegar"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"orgD",0.9,"orgO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"org",0,false},
+			{"l",4.8,4.6,8.2,4.6,1.3,"orgL",false,false},
+			{"c",10.6,4.6,1.3,"orgL",false,false},
+			{"r",6,4.6,12,11.8,1.6,"brnL","T0.8","orgO"},
+			{"r",10.8,4.6,2.4,11.8,0.4,"brn","D",false},
+			{"l",6.8,7.8,17.2,7.8,0.6,"brn","D",false},
+			{"r",2.2,10,4,7,2,"skin","T0.8","orgO"},
+			{"r",17.8,10,4,7,2,"skin","T0.8","orgO"},
+			{"l",5.2,10.4,8.2,10.4,2.4,"skin","T0.8","orgO"},
+			{"l",18.8,10.4,15.8,10.4,2.4,"skin","T0.8","orgO"},
+			{"l",5.2,14.2,8.2,14.2,2.4,"skin","T0.8","orgO"},
+			{"l",18.8,14.2,15.8,14.2,2.4,"skin","T0.8","orgO"},
+			{"q",12,2.4,0.76,1.8,0,0.36,"orgL",false,false},
+			{"q",12,2.4,1.8,0.76,0,0.36,"orgL",false,false},
+		},
+		["_star_on"] = {
+			{"l",12,13.2,12,8.69,5,"gold",0.9,"goldO"},
+			{"l",12,13.2,12,7.3,3.8,"gold",0.9,"goldO"},
+			{"l",12,13.2,12,5.98,2.6,"gold",0.9,"goldO"},
+			{"l",12,13.2,12,5,1.5,"gold",0.9,"goldO"},
+			{"l",12,13.2,16.29,11.81,5,"gold",0.9,"goldO"},
+			{"l",12,13.2,17.62,11.38,3.8,"gold",0.9,"goldO"},
+			{"l",12,13.2,18.86,10.97,2.6,"gold",0.9,"goldO"},
+			{"l",12,13.2,19.8,10.67,1.5,"gold",0.9,"goldO"},
+			{"l",12,13.2,14.65,16.85,5,"gold",0.9,"goldO"},
+			{"l",12,13.2,15.47,17.98,3.8,"gold",0.9,"goldO"},
+			{"l",12,13.2,16.24,19.04,2.6,"gold",0.9,"goldO"},
+			{"l",12,13.2,16.82,19.83,1.5,"gold",0.9,"goldO"},
+			{"l",12,13.2,9.35,16.85,5,"gold",0.9,"goldO"},
+			{"l",12,13.2,8.53,17.98,3.8,"gold",0.9,"goldO"},
+			{"l",12,13.2,7.76,19.04,2.6,"gold",0.9,"goldO"},
+			{"l",12,13.2,7.18,19.83,1.5,"gold",0.9,"goldO"},
+			{"l",12,13.2,7.71,11.81,5,"gold",0.9,"goldO"},
+			{"l",12,13.2,6.38,11.38,3.8,"gold",0.9,"goldO"},
+			{"l",12,13.2,5.14,10.97,2.6,"gold",0.9,"goldO"},
+			{"l",12,13.2,4.2,10.67,1.5,"gold",0.9,"goldO"},
+			{"c",12,13.2,8.4,"gold",0.9,"goldO"},
+			{"l",9.6,8.6,10.8,6.8,0.8,"yelL",false,false},
+			{"a",12,13.2,4.2,200,250,0.9,"yelL",false,false},
+		},
+		["_star_off"] = {
+			{"l",12,13.2,12,8.69,5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,12,7.3,3.8,"gryO",0.9,"gryD"},
+			{"l",12,13.2,12,5.98,2.6,"gryO",0.9,"gryD"},
+			{"l",12,13.2,12,5,1.5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,16.29,11.81,5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,17.62,11.38,3.8,"gryO",0.9,"gryD"},
+			{"l",12,13.2,18.86,10.97,2.6,"gryO",0.9,"gryD"},
+			{"l",12,13.2,19.8,10.67,1.5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,14.65,16.85,5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,15.47,17.98,3.8,"gryO",0.9,"gryD"},
+			{"l",12,13.2,16.24,19.04,2.6,"gryO",0.9,"gryD"},
+			{"l",12,13.2,16.82,19.83,1.5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,9.35,16.85,5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,8.53,17.98,3.8,"gryO",0.9,"gryD"},
+			{"l",12,13.2,7.76,19.04,2.6,"gryO",0.9,"gryD"},
+			{"l",12,13.2,7.18,19.83,1.5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,7.71,11.81,5,"gryO",0.9,"gryD"},
+			{"l",12,13.2,6.38,11.38,3.8,"gryO",0.9,"gryD"},
+			{"l",12,13.2,5.14,10.97,2.6,"gryO",0.9,"gryD"},
+			{"l",12,13.2,4.2,10.67,1.5,"gryO",0.9,"gryD"},
+			{"c",12,13.2,8.4,"gryO",0.9,"gryD"},
+			{"l",9.6,8.6,10.8,6.8,0.7,"gryD",false,false},
+		},
+		["_todos"] = {
+			{"r",2.8,2.8,8.4,8.4,2.4,"blue",0.9,"blueO"},
+			{"r",12.8,2.8,8.4,8.4,2.4,"pink",0.9,"pinkO"},
+			{"r",2.8,12.8,8.4,8.4,2.4,"grn",0.9,"grnO"},
+			{"r",12.8,12.8,8.4,8.4,2.4,"yel",0.9,"yelO"},
+			{"l",4.2,4.4,4.2,6.6,0.8,"wh",false,false},
+			{"l",14.2,4.4,14.2,6.6,0.8,"wh",false,false},
+			{"l",4.2,14.4,4.2,16.6,0.8,"wh",false,false},
+			{"l",14.2,14.4,14.2,16.6,0.8,"wh",false,false},
+		},
+		["_clone"] = {
+			{"c",8.2,6.6,6.2,"gry",0.9,"gryO"},
+			{"r",3.6,12.4,9.2,8.6,3.6,"gry",0.9,"gryO"},
+			{"c",15.4,9.2,7.6,"skin","T0.9","skinO"},
+			{"a",15.4,8.8,3.6,180,350,2.2,"brnD","D",false},
+			{"r",9.6,16.6,11.8,6,3.4,"blue","T0.9","blueO"},
+			{"l",14,9.8,14,9.8,0.9,"dk","D",false},
+			{"l",17.2,9.8,17.2,9.8,0.9,"dk","D",false},
+		},
+		["_plus18"] = {
+			{"r",1.6,5.2,20.8,13.6,5.4,"red",0.9,"redO"},
+			{"a",12,12,8.2,205,250,0.9,"pink",false,false},
+			{"l",4.6,12,8.4,12,1.5,"wh",false,false},
+			{"l",6.5,10.1,6.5,13.9,1.5,"wh",false,false},
+			{"l",11.3,9,11.3,15,1.5,"wh",false,false},
+			{"l",9.8,10.2,11.3,9,1.2,"wh",false,false},
+			{"a",16.6,10.6,1.5,0,360,1.15,"wh",false,false},
+			{"a",16.6,13.5,1.9,0,360,1.15,"wh",false,false},
+		},
+		["_importar"] = {
+			{"l",3.8,14,3.8,19,2.6,"gry",0.9,"gryO"},
+			{"l",20.2,14,20.2,19,2.6,"gry",0.9,"gryO"},
+			{"l",3.8,19.2,20.2,19.2,2.8,"gry",0.9,"gryO"},
+			{"l",12,3.4,12,12.4,3.6,"cyan","T0.9","cyanO"},
+			{"l",12,15.2,7.4,10.4,3.2,"cyan","T0.9","cyanO"},
+			{"l",12,15.2,16.6,10.4,3.2,"cyan","T0.9","cyanO"},
+			{"l",12,12,12,12.6,3.4,"cyan","D",false},
+			{"l",10.8,4.6,10.8,10,0.8,"cyanL","D",false},
+		},
+		["_colar"] = {
+			{"r",4.4,4.2,15.2,17.6,2.8,"brn",0.9,"brnO"},
+			{"r",6.8,7.2,10.4,12.8,1.4,"gryL",0.9,"gryO"},
+			{"l",8.6,11,15.4,11,0.9,"gryD",false,false},
+			{"l",8.6,13.8,15.4,13.8,0.9,"gryD",false,false},
+			{"l",8.6,16.6,12.6,16.6,0.9,"gryD",false,false},
+			{"r",8.2,2.4,7.6,4.6,1.8,"gry","T0.9","gryO"},
+			{"c",12,4.7,1.4,"gryO","D",false},
+		},
+		["_play"] = {
+			{"l",8.2,6.6,8.2,17.4,3.4,"grn",0.9,"grnO"},
+			{"l",8.2,17.4,16.8,12,3.4,"grn",0.9,"grnO"},
+			{"l",16.8,12,8.2,6.6,3.4,"grn",0.9,"grnO"},
+			{"r",8.2,6.75,0.2,0.9,0,"grn",0,false},
+			{"r",8.2,7.55,1.57,0.9,0,"grn",0,false},
+			{"r",8.2,8.35,2.93,0.9,0,"grn",0,false},
+			{"r",8.2,9.15,4.3,0.9,0,"grn",0,false},
+			{"r",8.2,9.95,5.67,0.9,0,"grn",0,false},
+			{"r",8.2,10.75,7.03,0.9,0,"grn",0,false},
+			{"r",8.2,11.55,8.4,0.9,0,"grn",0,false},
+			{"r",8.2,12.35,7.03,0.9,0,"grn",0,false},
+			{"r",8.2,13.15,5.67,0.9,0,"grn",0,false},
+			{"r",8.2,13.95,4.3,0.9,0,"grn",0,false},
+			{"r",8.2,14.75,2.93,0.9,0,"grn",0,false},
+			{"r",8.2,15.55,1.57,0.9,0,"grn",0,false},
+			{"l",9.2,7.6,9.2,11.6,0.8,"wh","D",false},
+		},
+		["_stop"] = {
+			{"r",5.4,5.4,13.2,13.2,3,"red",0.9,"redO"},
+			{"l",7.4,7.6,7.4,11.2,0.8,"pink",false,false},
+		},
+		["_trocar"] = {
+			{"l",4,8,18.6,8,2.4,"cyan",0.9,"cyanO"},
+			{"l",19.2,8,15,4.2,2.4,"cyan",0.9,"cyanO"},
+			{"l",19.2,8,15,11.8,2.4,"cyan",0.9,"cyanO"},
+			{"l",20,16,5.4,16,2.4,"pur",0.9,"purO"},
+			{"l",4.8,16,9,12.2,2.4,"pur",0.9,"purO"},
+			{"l",4.8,16,9,19.8,2.4,"pur",0.9,"purO"},
+		},
+		["_check"] = {
+			{"l",5,12.8,9.8,17.6,3.6,"grn",0.9,"grnO"},
+			{"l",9.8,17.6,19.4,6.6,3.6,"grn",0.9,"grnO"},
+			{"l",6.2,12,9.8,15.6,0.8,"wh",false,false},
+		},
+		["_fechar"] = {
+			{"l",6.4,6.4,17.6,17.6,3.2,"gry",0.9,"gryO"},
+			{"l",17.6,6.4,6.4,17.6,3.2,"gry",0.9,"gryO"},
+		},
+		["_fechar_r"] = {
+			{"l",6.4,6.4,17.6,17.6,3.4,"red",0.9,"redO"},
+			{"l",17.6,6.4,6.4,17.6,3.4,"red",0.9,"redO"},
+			{"l",7.2,8,8.6,9.4,0.8,"pink",false,false},
+		},
+		["_min"] = {
+			{"l",5.6,12,18.4,12,3.6,"gry",0.9,"gryO"},
+			{"l",7,11,12,11,0.8,"gryL",false,false},
+		},
+		["_restaurar"] = {
+			{"r",4.4,4.4,15.2,15.2,3.6,"cyan",0.9,"cyanO"},
+			{"r",8.6,8.6,6.8,6.8,1.4,"hole",false,false},
+			{"l",6.2,7,6.2,11,0.8,"cyanL",false,false},
+		},
+		["_mais"] = {
+			{"l",12,4.8,12,19.2,4,"wh",0.9,"purO"},
+			{"l",4.8,12,19.2,12,4,"wh",0.9,"purO"},
+		},
+		["_pause"] = {
+			{"r",5.6,4.6,5,14.8,1.8,"yel",0.9,"yelO"},
+			{"r",13.4,4.6,5,14.8,1.8,"yel",0.9,"yelO"},
+			{"l",7,6.6,7,11,0.8,"yelL",false,false},
+			{"l",14.8,6.6,14.8,11,0.8,"yelL",false,false},
+		},
+		["_prev"] = {
+			{"l",13.04,6.6,13.04,17.4,3.4,"cyan",0.9,"cyanO"},
+			{"l",13.04,17.4,6.16,12,3.4,"cyan",0.9,"cyanO"},
+			{"l",6.16,12,13.04,6.6,3.4,"cyan",0.9,"cyanO"},
+			{"r",12.88,6.75,0.16,0.9,0,"cyan",0,false},
+			{"r",11.78,7.55,1.26,0.9,0,"cyan",0,false},
+			{"r",10.7,8.35,2.34,0.9,0,"cyan",0,false},
+			{"r",9.6,9.15,3.44,0.9,0,"cyan",0,false},
+			{"r",8.5,9.95,4.54,0.9,0,"cyan",0,false},
+			{"r",7.42,10.75,5.62,0.9,0,"cyan",0,false},
+			{"r",6.32,11.55,6.72,0.9,0,"cyan",0,false},
+			{"r",7.42,12.35,5.62,0.9,0,"cyan",0,false},
+			{"r",8.5,13.15,4.54,0.9,0,"cyan",0,false},
+			{"r",9.6,13.95,3.44,0.9,0,"cyan",0,false},
+			{"r",10.7,14.75,2.34,0.9,0,"cyan",0,false},
+			{"r",11.78,15.55,1.26,0.9,0,"cyan",0,false},
+			{"r",3.2,5.6,3,12.8,1.2,"cyan",0.9,"cyanO"},
+		},
+		["_next"] = {
+			{"l",5.36,6.6,5.36,17.4,3.4,"cyan",0.9,"cyanO"},
+			{"l",5.36,17.4,12.24,12,3.4,"cyan",0.9,"cyanO"},
+			{"l",12.24,12,5.36,6.6,3.4,"cyan",0.9,"cyanO"},
+			{"r",5.36,6.75,0.16,0.9,0,"cyan",0,false},
+			{"r",5.36,7.55,1.26,0.9,0,"cyan",0,false},
+			{"r",5.36,8.35,2.34,0.9,0,"cyan",0,false},
+			{"r",5.36,9.15,3.44,0.9,0,"cyan",0,false},
+			{"r",5.36,9.95,4.54,0.9,0,"cyan",0,false},
+			{"r",5.36,10.75,5.62,0.9,0,"cyan",0,false},
+			{"r",5.36,11.55,6.72,0.9,0,"cyan",0,false},
+			{"r",5.36,12.35,5.62,0.9,0,"cyan",0,false},
+			{"r",5.36,13.15,4.54,0.9,0,"cyan",0,false},
+			{"r",5.36,13.95,3.44,0.9,0,"cyan",0,false},
+			{"r",5.36,14.75,2.34,0.9,0,"cyan",0,false},
+			{"r",5.36,15.55,1.26,0.9,0,"cyan",0,false},
+			{"r",17.8,5.6,3,12.8,1.2,"cyan",0.9,"cyanO"},
+		},
+		["_copiar"] = {
+			{"r",3.6,3.4,11.4,14.6,2.4,"gry",0.9,"gryO"},
+			{"r",9.2,7.2,11.4,14.6,2.4,"gryL","T0.9","gryO"},
+			{"l",11.4,11.4,17.8,11.4,0.9,"gryD","D",false},
+			{"l",11.4,14.4,17.8,14.4,0.9,"gryD","D",false},
+			{"l",11.4,17.4,15.2,17.4,0.9,"gryD","D",false},
+		},
+		["_chev_down"] = {
+			{"l",6.4,9,12,15,3,"gryL",0.9,"gryO"},
+			{"l",17.6,9,12,15,3,"gryL",0.9,"gryO"},
+		},
+		["_chev_right"] = {
+			{"l",9,6.4,15,12,3,"gryL",0.9,"gryO"},
+			{"l",9,17.6,15,12,3,"gryL",0.9,"gryO"},
+		},
+		["_gear"] = {
+			{"q",20.2,12,4.2,4.6,90,0.9,"gry",0.9,"gryO"},
+			{"q",17.8,17.8,4.2,4.6,135,0.9,"gry",0.9,"gryO"},
+			{"q",12,20.2,4.2,4.6,180,0.9,"gry",0.9,"gryO"},
+			{"q",6.2,17.8,4.2,4.6,225,0.9,"gry",0.9,"gryO"},
+			{"q",3.8,12,4.2,4.6,270,0.9,"gry",0.9,"gryO"},
+			{"q",6.2,6.2,4.2,4.6,315,0.9,"gry",0.9,"gryO"},
+			{"q",12,3.8,4.2,4.6,360,0.9,"gry",0.9,"gryO"},
+			{"q",17.8,6.2,4.2,4.6,405,0.9,"gry",0.9,"gryO"},
+			{"c",12,12,14,"gry",0.9,"gryO"},
+			{"a",12,12,5.6,200,260,1,"gryL",false,false},
+			{"c",12,12,6.2,"hole",false,false},
+		},
+		["_menu"] = {
+			{"c",11.6,13,16.6,"yel",1,"yelO"},
+			{"a",11.6,13,7,25,85,1.1,"yelD",false,false},
+			{"a",11.6,13,7,205,250,1,"yelL",false,false},
+			{"r",7.85,10.8,1.7,2.8,0.85,"dk",false,false},
+			{"r",13.65,10.8,1.7,2.8,0.85,"dk",false,false},
+			{"c",8.7,11.6,0.7,"wh",false,false},
+			{"c",14.5,11.6,0.7,"wh",false,false},
+			{"a",11.6,12,4.8,38,142,1.3,"dk",false,false},
+			{"c",7.2,14.8,2.2,"blush",false,false},
+			{"c",16,14.8,2.2,"blush",false,false},
+			{"q",19.6,4.6,1.5,3.6,0,0.75,"wh",1,"purO"},
+			{"q",19.6,4.6,3.6,1.5,0,0.75,"wh",1,"purO"},
+			{"q",21,10,0.8,1.92,0,0.4,"yelL",false,false},
+			{"q",21,10,1.92,0.8,0,0.4,"yelL",false,false},
+		},
+		["_lock"] = {
+			{"a",12,10.6,4.2,180,360,2.2,"gry",0.9,"gryO"},
+			{"l",7.8,10.6,7.8,12,2.2,"gry",0.9,"gryO"},
+			{"l",16.2,10.6,16.2,12,2.2,"gry",0.9,"gryO"},
+			{"r",5.2,11,13.6,10.6,2.6,"gold",0.9,"goldO"},
+			{"c",12,15.2,2.8,"dk",false,false},
+			{"l",12,15.6,12,18.2,1.4,"dk",false,false},
+			{"l",7.2,12.6,7.2,19,0.7,"yelL",false,false},
+		},
+		["_nenhum"] = {
+			{"a",12,12,8.6,0,360,2.4,"red",0.9,"redO"},
+			{"l",6.6,17.4,17.4,6.6,2.4,"red",0.9,"redO"},
+		},
+		["_novo"] = {
+			{"q",11,12,3.6,8.64,0,1.8,"gold",0.9,"goldO"},
+			{"q",11,12,8.64,3.6,0,1.8,"gold",0.9,"goldO"},
+			{"q",19,5.2,1.6,3.84,0,0.8,"yelL",0.9,"goldO"},
+			{"q",19,5.2,3.84,1.6,0,0.8,"yelL",0.9,"goldO"},
+			{"q",18.4,18.6,1.2,2.88,0,0.6,"cyanL",0.9,"cyanO"},
+			{"q",18.4,18.6,2.88,1.2,0,0.6,"cyanL",0.9,"cyanO"},
+		},
+	}
+
+	local mrad, mcos, msin, msqrt, matan2, mdeg, mmax, mmin, mfloor, mabs =
+		math.rad, math.cos, math.sin, math.sqrt, math.atan2, math.deg, math.max, math.min, math.floor, math.abs
+	local MODELOS = {}
+	local PX_BASE = 36
+
+	local function expandirArco(p, out)
+		local cx, cy, r, a1, a2, th, col, o, oc = p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10]
+		local n = mmax(3, mfloor(mabs(a2 - a1) / 14) + 1)
+		for i = 0, n - 1 do
+			local s = a1 + (a2 - a1) * i / n
+			local e = a1 + (a2 - a1) * (i + 1) / n
+			out[#out + 1] = {
+				"l", cx + r * mcos(mrad(s)), cy + r * msin(mrad(s)),
+				cx + r * mcos(mrad(e)), cy + r * msin(mrad(e)), th, col, o, oc,
+			}
+		end
+	end
+
+	-- devolve cx, cy, w, h, rot, rad, cor, o, oc
+	local function normalizar(p)
+		local k = p[1]
+		if k == "r" then
+			return p[2] + p[4] / 2, p[3] + p[5] / 2, p[4], p[5], 0, p[6], p[7], p[8], p[9]
+		elseif k == "c" then
+			return p[2], p[3], p[4], p[4], 0, p[4] / 2, p[5], p[6], p[7]
+		elseif k == "l" then
+			local dx, dy = p[4] - p[2], p[5] - p[3]
+			local dist = msqrt(dx * dx + dy * dy)
+			return (p[2] + p[4]) / 2, (p[3] + p[5]) / 2, dist + p[6], p[6], mdeg(matan2(dy, dx)), p[6] / 2, p[7], p[8], p[9]
+		end
+		return p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10] -- q
+	end
+
+	local function peca(root, cx, cy, w, h, rot, rad, cor, z, minU)
+		if w < minU then w = minU end
+		if h < minU then h = minU end
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = cor
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(cx / 24, cy / 24)
+		f.Size = UDim2.fromScale(w / 24, h / 24)
+		f.Rotation = rot
+		f.ZIndex = z
+		local m = mmin(w, h)
+		if rad > 0 then
+			local u = Instance.new("UICorner")
+			u.CornerRadius = UDim.new(mmin(0.5, rad / m), 0)
+			u.Parent = f
+		end
+		f.Parent = root
+	end
+
+	local function montar(nome)
+		local dados = DADOS[nome] or DADOS._novo
+		local root = Instance.new("Frame")
+		root.Name = "Icone"
+		root.BackgroundTransparency = 1
+		root.BorderSizePixel = 0
+		root.Size = UDim2.fromOffset(PX_BASE, PX_BASE)
+		local minU = 1.1 / (PX_BASE / 24)
+		local lista = {}
+		for _, p in ipairs(dados) do
+			if p[1] == "a" then expandirArco(p, lista) else lista[#lista + 1] = p end
+		end
+		for _, p in ipairs(lista) do
+			local cx, cy, w, h, rot, rad, col, o, oc = normalizar(p)
+			local cor = PAL[col]
+			if o == false then
+				peca(root, cx, cy, w, h, rot, rad, cor, 4, minU) -- detalhe
+			elseif o == 0 then
+				peca(root, cx, cy, w, h, rot, rad, cor, 3, minU) -- preenchimento sem contorno
+			elseif o == -1 then
+				peca(root, cx, cy, w, h, rot, rad, cor, 1, minU) -- fundo
+			elseif type(o) == "string" then
+				if o:sub(1, 1) == "T" then -- por cima de tudo, com contorno
+					local ow = tonumber(o:sub(2)) or 0
+					if ow > 0 then
+						peca(root, cx, cy, w + 2 * ow, h + 2 * ow, rot, rad + ow, PAL[oc], 5, minU)
+					end
+					peca(root, cx, cy, w, h, rot, rad, cor, 6, minU)
+				else -- detalhe por cima de tudo
+					peca(root, cx, cy, w, h, rot, rad, cor, 7, minU)
+				end
+			else
+				peca(root, cx, cy, w + 2 * o, h + 2 * o, rot, rad + o, PAL[oc], 2, minU) -- contorno
+				peca(root, cx, cy, w, h, rot, rad, cor, 3, minU)
+			end
+		end
+		return root
+	end
+
+	-- Icones.criar(nome, pai, tamanhoEmPixels, { Position = ..., ZIndex = ..., Name = ... })
+	-- emotes que ficam só com texto (sem ícone)
+	local SEM_ICONE = { ["Chupada de Dedo"] = true }
+	function M.semIcone(nome) return SEM_ICONE[nome] == true end
+
+	function M.criar(nome, pai, px, props)
+		if SEM_ICONE[nome] then -- frame vazio invisível: quem chama não precisa tratar nada
+			local vazio = Instance.new("Frame")
+			vazio.BackgroundTransparency = 1
+			vazio.BorderSizePixel = 0
+			vazio.Size = UDim2.fromOffset(0, 0)
+			for k, v in pairs(props or {}) do if k ~= "Position" then vazio[k] = v end end
+			vazio.Parent = pai
+			return vazio
+		end
+		local modelo = MODELOS[nome]
+		if not modelo then
+			modelo = montar(nome)
+			MODELOS[nome] = modelo
+		end
+		local f = modelo:Clone()
+		f.Size = UDim2.fromOffset(px, px)
+		for k, v in pairs(props or {}) do f[k] = v end
+		f.Parent = pai
+		return f
+	end
+
+	-- ---- helpers: trocam o ícone de um botão (texto vira ícone) ----
+	local function limpar(pai)
+		local ant = pai:FindFirstChild("IcBtn")
+		if ant then ant:Destroy() end
+	end
+	function M.centro(pai, nome, px, z)
+		limpar(pai)
+		return M.criar(nome, pai, px, { Name = "IcBtn", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), ZIndex = z or 2 })
+	end
+	function M.lado(pai, nome, px, z, recuo)
+		limpar(pai)
+		return M.criar(nome, pai, px, { Name = "IcBtn", Position = UDim2.new(0, -recuo, 0.5, -math.floor(px / 2)), ZIndex = z or 2 })
+	end
+	function M.direita(pai, nome, px, z, folga)
+		limpar(pai)
+		return M.criar(nome, pai, px, { Name = "IcBtn", Position = UDim2.new(1, -(px + (folga or 0)), 0.5, -math.floor(px / 2)), ZIndex = z or 2 })
+	end
+	function M.limpar(pai) limpar(pai) end
+
+	function M.tem(nome) return DADOS[nome] ~= nil end
+
+	return M
+end)()
+
 local EMOTES = {
 	{ nome = "Tchau", icone = "👋", cat = "Cumprimentos" },
 	{ nome = "Paz", icone = "✌️", cat = "Cumprimentos" },
@@ -3543,6 +4440,7 @@ local EMOTES = {
 	{ nome = "Dormir", icone = "🛌", cat = "Gestos", toggle = true },
 	{ nome = "Dormir2", icone = "🛏️", cat = "Gestos", toggle = true },
 	{ nome = "Ragdoll", icone = "🤸", cat = "Gestos", toggle = true },
+	{ nome = "Pegar", icone = "🤲", cat = "Gestos", toggle = true },
 	{ nome = "Siririca", icone = "💦", cat = "+18", toggle = true },
 	{ nome = "Chupada de Dedo", icone = "👅", cat = "+18", toggle = true },
 	{ nome = "De Quatro", icone = "🐕", cat = "+18", toggle = true },
@@ -3576,6 +4474,7 @@ end
 local function emoteAtivo(nome)
 	if nome == "Apontar" then return apontarCamera end
 	if nome == "Ragdoll" then return Ragdoll.isOn() end
+	if nome == "Pegar" then return Pegar.ativo == true end
 	if EMOTES_TOGGLE[nome] then return currentEmote == nome and emoteTimer > 0 end
 	return currentEmote == nome and (emoteTimer > 0 or freezeEmote)
 end
@@ -3583,6 +4482,11 @@ end
 local function tocarEmote(nome)
 	local def = EMOTE_POR_NOME[nome]
 	if def and def.cat == "+18" and not liberado18() then return end
+	if nome == "Pegar" then -- pegar/soltar objeto agora é um emote do menu
+		if Pegar.ativo then Pegar.soltar() else Pegar.pegar() end
+		refreshAtivos()
+		return
+	end
 	if nome == "Ragdoll" then
 		local querLigar = not Ragdoll.isOn()
 		local emoteAntes = currentEmote
@@ -3674,15 +4578,17 @@ btn({
 txt({ Text = "Passe o mouse para ver o preview", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(300, 14), Parent = Menu })
 
 local closeMenuBtn = btn({
-	Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -38, 0, 10), Parent = Menu,
+	Text = "", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -38, 0, 10), Parent = Menu,
 }, { round(13) })
 hoverFX(closeMenuBtn, T.surface2, T.surface3)
+T.Icones.centro(closeMenuBtn, "_fechar", 14, 2)
 
 -- ===== configurações =====
 local configBtn = btn({
-	Text = "⚙", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -70, 0, 10), Parent = Menu,
+	Text = "", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -70, 0, 10), Parent = Menu,
 }, { round(13) })
 hoverFX(configBtn, T.surface2, T.surface3)
+T.Icones.criar("_gear", configBtn, 18, { Position = UDim2.fromOffset(4, 4) })
 
 local configOverlay = frame({
 	BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1),
@@ -3694,9 +4600,10 @@ local configCard = frame({
 }, { round(14), outline(T.stroke, 1, 0.2) })
 txt({ Text = "Configurações", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(16, 12), Size = UDim2.new(1, -60, 0, 18), ZIndex = 62, Parent = configCard })
 local configClose = btn({
-	Text = "X", TextSize = 12, TextColor3 = T.sub, Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -36, 0, 10), ZIndex = 62, Parent = configCard,
+	Text = "", TextSize = 12, TextColor3 = T.sub, Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -36, 0, 10), ZIndex = 62, Parent = configCard,
 }, { round(12) })
 hoverFX(configClose, T.surface2, T.surface3)
+T.Icones.centro(configClose, "_fechar", 12, 63)
 
 local cfgRow = frame({
 	BackgroundColor3 = T.surface2, Position = UDim2.fromOffset(12, 44), Size = UDim2.new(1, -24, 0, 56), ZIndex = 62, Parent = configCard,
@@ -3739,7 +4646,7 @@ local GridScroll = new("ScrollingFrame", {
 	padding(2, 2, 6, 6),
 })
 local semFavLabel = txt({
-	Text = "Nenhum favorito ainda.\nToque na ★ de um emote para fixar.", TextWrapped = true, TextSize = 12, TextColor3 = T.dim,
+	Text = "Nenhum favorito ainda.\nToque na estrela de um emote para fixar.", TextWrapped = true, TextSize = 12, TextColor3 = T.dim,
 	TextXAlignment = CENTER, Position = UDim2.fromOffset(16, 120), Size = UDim2.fromOffset(286, 40), Visible = false, Parent = Menu,
 })
 
@@ -3748,8 +4655,8 @@ local previewPane = frame({
 }, { round(14), outline(T.stroke, 1, 0.5) })
 local previewVP = novoViewport({ Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 136), BackgroundColor3 = T.bg, Parent = previewPane })
 local menuPreview = criarPreview(previewVP)
-local previewNome = txt({ Text = "—", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(12, 148), Size = UDim2.new(1, -24, 0, 18), Parent = previewPane })
-local previewCat = txt({ Text = "", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 166), Size = UDim2.new(1, -24, 0, 14), Parent = previewPane })
+local previewNome = txt({ Text = "—", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(40, 148), Size = UDim2.new(1, -50, 0, 18), Parent = previewPane })
+local previewCat = txt({ Text = "", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(40, 166), Size = UDim2.new(1, -50, 0, 14), Parent = previewPane })
 
 local clonePanel, atualizarClonePanel = (function()
 	local function CS() return _G.__ClonesHands end
@@ -3767,9 +4674,10 @@ local clonePanel, atualizarClonePanel = (function()
 	}, { round(8), padding(10, 0, 10, 0), outline(T.stroke, 1, 0.5) })
 
 	local criarBtn = btn({
-		Text = "＋ Criar", TextSize = 12, Font = F.GothamBold, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+		Text = "Criar", TextSize = 12, Font = F.GothamBold, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
 		Position = UDim2.new(1, -188, 0, 0), Size = UDim2.fromOffset(90, 30), Parent = painel,
-	}, { round(8) })
+	}, { round(8), padding(22, 0, 6, 0) })
+	T.Icones.lado(criarBtn, "_mais", 14, 2, 18)
 	hoverFX(criarBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
 	local removerTodosBtn = btn({
@@ -3826,11 +4734,13 @@ local clonePanel, atualizarClonePanel = (function()
 		for _, ch in ipairs(pickerLista:GetChildren()) do
 			if ch:IsA("GuiObject") then ch:Destroy() end
 		end
-		local function item(rotulo, nome, ordem)
+		local function item(rotulo, nome, ordem, ic)
 			local b = btn({
-				Text = rotulo, TextSize = 12, TextXAlignment = LEFT, BackgroundColor3 = T.surface2, LayoutOrder = ordem,
+				Text = "", BackgroundColor3 = T.surface2, LayoutOrder = ordem,
 				Size = UDim2.new(1, 0, 0, 26), ZIndex = 23, Parent = pickerLista,
-			}, { round(7), padding(10, 0, 6, 0) })
+			}, { round(7) })
+			T.Icones.criar(ic, b, 20, { Position = UDim2.fromOffset(6, 3), ZIndex = 24 })
+			txt({ Text = rotulo, Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -38, 1, 0), ZIndex = 24, Parent = b })
 			hoverFX(b, T.surface2, T.surface3)
 			b.MouseButton1Click:Connect(function()
 				local cs = CS()
@@ -3838,11 +4748,11 @@ local clonePanel, atualizarClonePanel = (function()
 				fecharPicker()
 			end)
 		end
-		item("🚫  Nenhum", nil, 0)
+		item("Nenhum", nil, 0, "_nenhum")
 		local cs = CS()
 		if cs then
 			for i, e in ipairs(cs.emotesDisponiveis()) do
-				item(e.icone .. "  " .. e.nome, e.nome, i)
+				item(e.nome, e.nome, i, e.nome)
 			end
 		end
 		pickerLista.CanvasPosition = Vector2.zero
@@ -3873,20 +4783,22 @@ local clonePanel, atualizarClonePanel = (function()
 
 			local emoteDef = c.emote and EMOTE_POR_NOME[c.emote]
 			local emoteBtn = btn({
-				Text = emoteDef and (emoteDef.icone .. " " .. c.emote) or "Emote: nenhum", TextSize = 11,
+				Text = emoteDef and c.emote or "Emote: nenhum", TextSize = 11,
 				TextColor3 = c.emote and T.text or T.sub, BackgroundColor3 = c.emote and T.accentSoft or T.surface2,
 				TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(120, 6), Size = UDim2.fromOffset(140, 28),
 				Parent = linha,
-			}, { round(8), padding(8, 0, 8, 0) })
+			}, { round(8), padding(emoteDef and 30 or 8, 0, 8, 0) })
 			hoverFX(emoteBtn, c.emote and T.accentSoft or T.surface2, T.surface3)
+			if emoteDef then T.Icones.criar(emoteDef.nome, emoteBtn, 18, { Position = UDim2.new(0, -24, 0.5, -9) }) end
 			emoteBtn.MouseButton1Click:Connect(function() abrirPicker(c.id) end)
 
 			local seguirBtn = btn({
-				Text = c.seguir and "⏹ Parar" or "▶ Seguir", TextSize = 11, Font = F.GothamBold,
+				Text = c.seguir and "Parar" or "Seguir", TextSize = 11, Font = F.GothamBold,
 				TextColor3 = c.seguir and Color3.new(1, 1, 1) or T.text,
 				BackgroundColor3 = c.seguir and T.accent or T.surface2,
 				Position = UDim2.fromOffset(266, 6), Size = UDim2.fromOffset(78, 28), Parent = linha,
-			}, { round(8) })
+			}, { round(8), padding(22, 0, 6, 0) })
+			T.Icones.criar(c.seguir and "_stop" or "_play", seguirBtn, 16, { Position = UDim2.new(0, -17, 0.5, -8), ZIndex = 3 })
 			hoverFX(seguirBtn, c.seguir and T.accent or T.surface2, c.seguir and Color3.fromRGB(148, 134, 255) or T.surface3)
 			seguirBtn.MouseButton1Click:Connect(function()
 				local cs2 = CS()
@@ -3947,7 +4859,10 @@ end)()
 
 local function mostrarPreview(e)
 	if not e then return end
-	previewNome.Text = e.icone .. "  " .. e.nome
+	previewNome.Text = e.nome
+	local antigo = previewPane:FindFirstChild("IconeAtual")
+	if antigo then antigo:Destroy() end
+	T.Icones.criar(e.nome, previewPane, 24, { Name = "IconeAtual", Position = UDim2.fromOffset(10, 152) })
 	previewCat.Text = e.cat .. (e.toggle and " • liga/desliga" or "")
 	menuPreview.setEmote(e.nome)
 end
@@ -3968,8 +4883,10 @@ local function atualizarCards()
 		r.stroke.Color = ativo and T.accent or T.stroke
 		r.stroke.Transparency = ativo and 0 or 0.5
 		r.dot.Visible = ativo
-		r.star.Text = favSet[nome] and "★" or "☆"
-		r.star.TextColor3 = favSet[nome] and T.warn or T.dim
+		local fav = favSet[nome] and true or false
+		local sOn, sOff = r.star:FindFirstChild("On"), r.star:FindFirstChild("Off")
+		if sOn then sOn.Visible = fav end
+		if sOff then sOff.Visible = not fav end
 	end
 end
 
@@ -3995,14 +4912,17 @@ local function construirCards()
 			local card = btn({ BackgroundColor3 = T.surface, LayoutOrder = i, Parent = GridScroll }, { round(14) })
 			local st = outline(T.stroke, 1, 0.5)
 			st.Parent = card
-			txt({ Text = e.icone, TextSize = 26, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 10), Size = UDim2.new(1, 0, 0, 34), Parent = card })
-			txt({ Text = e.nome, Font = F.GothamMedium, TextSize = 11, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 48), Size = UDim2.new(1, 0, 0, 16), Parent = card })
-			txt({ Text = e.cat, TextSize = 9, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 65), Size = UDim2.new(1, 0, 0, 14), Parent = card })
+			T.Icones.criar(e.nome, card, 36, { Position = UDim2.new(0.5, -18, 0, 9) })
+			local soTexto = T.Icones.semIcone(e.nome)
+			txt({ Text = e.nome, Font = F.GothamMedium, TextSize = soTexto and 13 or 11, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, soTexto and 26 or 48), Size = UDim2.new(1, 0, 0, 16), Parent = card })
+			txt({ Text = e.cat, TextSize = 9, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, soTexto and 44 or 65), Size = UDim2.new(1, 0, 0, 14), Parent = card })
 			local dot = frame({ BackgroundColor3 = T.ok, Size = UDim2.fromOffset(8, 8), Position = UDim2.fromOffset(10, 10), Visible = false, Parent = card }, { round(4) })
 			local star = btn({
-				BackgroundTransparency = 1, Text = "☆", TextSize = 16, Size = UDim2.fromOffset(26, 26),
+				BackgroundTransparency = 1, Text = "", TextSize = 16, Size = UDim2.fromOffset(26, 26),
 				Position = UDim2.new(1, -28, 0, 2), ZIndex = 3, Parent = card,
 			})
+			T.Icones.criar("_star_on", star, 18, { Name = "On", Position = UDim2.fromOffset(4, 4), ZIndex = 4, Visible = false })
+			T.Icones.criar("_star_off", star, 18, { Name = "Off", Position = UDim2.fromOffset(4, 4), ZIndex = 4 })
 			star.MouseButton1Click:Connect(function() toggleFav(e.nome) end)
 			card.MouseEnter:Connect(function()
 				if not emoteAtivo(e.nome) then tw(card, 0.12, { BackgroundColor3 = T.surface2 }) end
@@ -4036,7 +4956,8 @@ local senhaCard = frame({
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(260, 156),
 	BackgroundColor3 = T.surface, ZIndex = 51, Parent = senhaOverlay,
 }, { round(14), outline(T.stroke, 1, 0.3) })
-txt({ Text = "🔒  Categoria +18", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(20, 14), Size = UDim2.new(1, -40, 0, 18), ZIndex = 52, Parent = senhaCard })
+T.Icones.criar("_lock", senhaCard, 20, { Position = UDim2.fromOffset(20, 13), ZIndex = 52 })
+txt({ Text = "Categoria +18", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(46, 14), Size = UDim2.new(1, -66, 0, 18), ZIndex = 52, Parent = senhaCard })
 txt({ Text = "Digite a senha para liberar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(20, 34), Size = UDim2.new(1, -40, 0, 14), ZIndex = 52, Parent = senhaCard })
 local senhaBox = new("TextBox", {
 	BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 14, TextColor3 = T.text,
@@ -4085,7 +5006,9 @@ for i, nome in ipairs(CATEGORIAS) do
 	local chip = btn({
 		Text = nome, TextSize = 10, Font = F.GothamMedium, AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 1, 0), LayoutOrder = i, Parent = chipsBar,
-	}, { round(12), padding(10, 0, 10, 0) })
+	}, { round(12), padding(nome == "+18" and 10 or 28, 0, 10, 0) })
+	local icAba = ({ Todos = "_todos", Favoritos = "_star_on", Clone = "_clone" })[nome]
+	if icAba then T.Icones.criar(icAba, chip, 14, { Name = "IconeAba", Position = UDim2.new(0, -19, 0.5, -7), ZIndex = 3 }) end
 	chip.MouseButton1Click:Connect(function()
 		if nome == "+18" and not liberado18() then abrirSenha() return end
 		catAtual = nome
@@ -4097,7 +5020,20 @@ end
 atualizarChips()
 
 local function atualizarLockChip()
-	chipRefs["+18"].Text = liberado18() and "+18" or "🔒 +18"
+	local chip18 = chipRefs["+18"]
+	chip18.Text = "+18"
+	local trava = chip18:FindFirstChild("Trava")
+	local pad = chip18:FindFirstChildOfClass("UIPadding")
+	if liberado18() then
+		if trava then trava:Destroy() end
+		if pad then pad.PaddingLeft = UDim.new(0, 28) end
+		if not chip18:FindFirstChild("Mais18") then T.Icones.criar("_plus18", chip18, 16, { Name = "Mais18", Position = UDim2.new(0, -20, 0.5, -8), ZIndex = 3 }) end
+	else
+		local m18 = chip18:FindFirstChild("Mais18")
+		if m18 then m18:Destroy() end
+		if pad then pad.PaddingLeft = UDim.new(0, 28) end
+		if not trava then T.Icones.criar("_lock", chip18, 14, { Name = "Trava", Position = UDim2.new(0, -19, 0.5, -7) }) end
+	end
 end
 atualizarLockChip()
 table.insert(lockRefreshers, atualizarLockChip)
@@ -4132,42 +5068,47 @@ closeMenuBtn.MouseButton1Click:Connect(function() toggleMenu(false) end)
 end
 
 local EmoteButton = btn({
-	Text = "✦  Emotes", Font = F.GothamBold, TextSize = 13, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
-	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 64), Size = UDim2.fromOffset(112, 38), Parent = MainGui,
-}, { round(19) })
-hoverFX(EmoteButton, T.accent, Color3.fromRGB(148, 134, 255))
+	Text = "", BackgroundColor3 = Color3.new(1, 1, 1),
+	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 64), Size = UDim2.fromOffset(48, 48), Parent = MainGui,
+}, {
+	round(10), -- cantos do botão (troque por round(0) para quadrado puro)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(152, 136, 255), Color3.fromRGB(98, 80, 232)) }),
+	outline(Color3.fromRGB(196, 186, 255), 1.5, 0.3),
+	new("UIScale", { Name = "Escala" }),
+})
+T.Icones.criar("_menu", EmoteButton, 36, { Position = UDim2.fromOffset(6, 6) })
+do
+	local esc = EmoteButton.Escala
+	EmoteButton.MouseEnter:Connect(function() tw(esc, 0.12, { Scale = 1.07 }) end)
+	EmoteButton.MouseLeave:Connect(function() tw(esc, 0.12, { Scale = 1 }) end)
+	EmoteButton.MouseButton1Down:Connect(function() tw(esc, 0.08, { Scale = 0.92 }) end)
+	EmoteButton.MouseButton1Up:Connect(function() tw(esc, 0.1, { Scale = 1 }) end)
+end
 EmoteButton.MouseButton1Click:Connect(function() toggleMenu() end)
 
-Pegar.botao = btn({
-	Text = "Pegar", Font = F.GothamBold, TextSize = 13, BackgroundColor3 = T.ok, TextColor3 = Color3.new(1, 1, 1),
-	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 110), Size = UDim2.fromOffset(112, 38), Parent = MainGui,
-}, { round(19) })
+-- o "Pegar" agora é um emote dentro do menu (veja tocarEmote / EMOTES)
 
 do
-	local function corBotao()
-		return Pegar.ativo and T.danger or T.ok
-	end
+	-- aviso rápido (toast) no lugar do texto do antigo botão
+	local avisoCard = frame({
+		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -96), Size = UDim2.fromOffset(190, 34),
+		BackgroundColor3 = T.bg, BackgroundTransparency = 0.08, Visible = false, ZIndex = 40, Parent = MainGui,
+	}, { round(12), outline(T.stroke, 1, 0.2) })
+	local avisoTxt = txt({ Font = F.GothamBold, TextSize = 13, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 41, Parent = avisoCard })
 
 	function Pegar.atualizarBotao()
-		Pegar.botao.Text = Pegar.ativo and "Soltar" or "Pegar"
-		tw(Pegar.botao, 0.15, { BackgroundColor3 = corBotao() })
+		refreshAtivos() -- atualiza o card "Pegar" no menu
 	end
 
 	function Pegar.aviso(msg)
 		Pegar.avisoId = (Pegar.avisoId or 0) + 1
 		local id = Pegar.avisoId
-		Pegar.botao.Text = msg
+		avisoTxt.Text = msg
+		avisoCard.Visible = true
 		task.delay(1.3, function()
-			if Pegar.avisoId == id then Pegar.atualizarBotao() end
+			if Pegar.avisoId == id then avisoCard.Visible = false end
 		end)
 	end
-
-	Pegar.botao.MouseEnter:Connect(function()
-		tw(Pegar.botao, 0.12, { BackgroundColor3 = corBotao():Lerp(Color3.new(1, 1, 1), 0.18) })
-	end)
-	Pegar.botao.MouseLeave:Connect(function()
-		tw(Pegar.botao, 0.12, { BackgroundColor3 = corBotao() })
-	end)
 
 	local function distSuperficie(p, pos)
 		local o = p.CFrame:PointToObjectSpace(pos)
@@ -4493,9 +5434,6 @@ do
 		return P
 	end
 
-	Pegar.botao.MouseButton1Click:Connect(function()
-		if Pegar.ativo then Pegar.soltar() else Pegar.pegar() end
-	end)
 end
 
 local acumAtivo = 0
@@ -4528,10 +5466,12 @@ txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, Tex
 txt({ Text = "Editor de pose", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(64, 8), Size = UDim2.new(1, -196, 0, 20), Parent = devHead })
 local devTitle = txt({ Text = "—", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(64, 28), Size = UDim2.new(1, -196, 0, 16), Parent = devHead })
 
-local trocarBtn = btn({ Text = "⇄", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -114, 0, 11), Parent = devHead }, { round(15) })
-local closeDevBtn = btn({ Text = "X", Font = F.GothamBold, TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -42, 0, 11), Parent = devHead }, { round(15) })
+local trocarBtn = btn({ Text = "", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -114, 0, 11), Parent = devHead }, { round(15) })
+T.Icones.criar("_trocar", trocarBtn, 18, { Position = UDim2.fromOffset(6, 6), ZIndex = 3 })
+local closeDevBtn = btn({ Text = "", Font = F.GothamBold, TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -42, 0, 11), Parent = devHead }, { round(15) })
 hoverFX(trocarBtn, T.surface2, T.surface3)
 hoverFX(closeDevBtn, T.surface2, T.danger)
+T.Icones.centro(closeDevBtn, "_fechar", 14, 2)
 -- minimizar (- / □) com animação; o X continua fechando o editor inteiro
 janelaControles({
 	win = DevPanel, head = devHead, scale = devScale, w = DEV_W, h = DEV_H, headH = 52,
@@ -4753,15 +5693,16 @@ local function criarSecao(parent, key, titulo, cor, order, abertaPadrao)
 	local head = btn({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 36), LayoutOrder = 1, Parent = wrap })
 	frame({ BackgroundColor3 = cor or T.accent, Size = UDim2.fromOffset(3, 14), Position = UDim2.fromOffset(12, 11), Parent = head }, { round(2) })
 	txt({ Text = titulo, Font = F.GothamBold, TextSize = 11, Position = UDim2.fromOffset(24, 0), Size = UDim2.new(1, -50, 1, 0), Parent = head })
-	local chev = txt({ Text = secOpen[key] and "▾" or "▸", TextSize = 12, TextColor3 = T.dim, TextXAlignment = RIGHT, Size = UDim2.new(1, -12, 1, 0), Parent = head })
+	local chev = txt({ Text = "", TextSize = 12, TextColor3 = T.dim, TextXAlignment = RIGHT, Size = UDim2.new(1, -12, 1, 0), Parent = head })
 	local body = frame({
 		BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2,
 		Visible = secOpen[key], Parent = wrap,
 	}, { padding(12, 2, 12, 12), lista(6) })
+	T.Icones.direita(chev, secOpen[key] and "_chev_down" or "_chev_right", 12, 2, 4)
 	head.MouseButton1Click:Connect(function()
 		secOpen[key] = not secOpen[key]
 		body.Visible = secOpen[key]
-		chev.Text = secOpen[key] and "▾" or "▸"
+		T.Icones.direita(chev, secOpen[key] and "_chev_down" or "_chev_right", 12, 2, 4)
 	end)
 	return body
 end
@@ -5031,9 +5972,10 @@ local function montarItens()
 		rebuildTab()
 	end, 5)
 	local addBtn = btn({
-		Text = "＋ Adicionar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+		Text = "Adicionar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
 		Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 6, Parent = S1,
-	}, { round(9) })
+	}, { round(9), padding(24, 0, 8, 0) })
+	T.Icones.lado(addBtn, "_mais", 14, 2, 20)
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 	local aviso = txt({ Text = "", TextSize = 10, TextColor3 = T.danger, TextWrapped = true, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 7, Parent = S1 })
 	txt({
@@ -5171,7 +6113,8 @@ end)
 local function pintarEspelhar()
 	espelharBtn.BackgroundColor3 = espelhar and T.ok or T.surface2
 	espelharBtn.TextColor3 = espelhar and T.bg or T.sub
-	espelharBtn.Text = espelhar and "Espelhar ✓" or "Espelhar"
+	espelharBtn.Text = "Espelhar"
+	if espelhar then T.Icones.direita(espelharBtn, "_check", 12, 3, 6) else T.Icones.limpar(espelharBtn) end
 end
 pintarEspelhar()
 espelharBtn.MouseButton1Click:Connect(function()
@@ -5301,8 +6244,9 @@ txt({ Text = "PREVIEW", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, 
 prevNome = txt({ Text = "—", Font = F.GothamBold, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(16, 21), Size = UDim2.new(1, -146, 0, 16), Parent = prevHead })
 local prevReset = btn({ Text = "180°", Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -94, 0, 6), Parent = prevHead }, { round(14) })
 hoverFX(prevReset, T.surface2, T.surface3)
-local prevAnim = btn({ Text = "▶", TextSize = 13, TextColor3 = T.ok, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -124, 0, 6), Parent = prevHead }, { round(14) })
+local prevAnim = btn({ Text = "", TextSize = 13, TextColor3 = T.ok, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -124, 0, 6), Parent = prevHead }, { round(14) })
 hoverFX(prevAnim, T.surface2, T.surface3)
+T.Icones.centro(prevAnim, "_play", 14, 2)
 local devVP = novoViewport({ Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 1, -44 - 34), BackgroundColor3 = T.surface, Parent = DevPreviewWin })
 local devPreview = criarPreview(devVP)
 devPreview.setCustom(true)
@@ -5313,7 +6257,7 @@ do
 	prevAnim.MouseButton1Click:Connect(function()
 		animando = not animando
 		devPreview.setAnimar(animando)
-		prevAnim.Text = animando and "▶" or "⏸"
+		T.Icones.centro(prevAnim, animando and "_play" or "_pause", 14, 2)
 		prevAnim.TextColor3 = animando and T.ok or T.dim
 	end)
 end
@@ -5345,8 +6289,9 @@ makeDraggable(DevSelector, selHead)
 local selBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 5), ZIndex = 31, Parent = selHead }, { round(7) })
 txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 32, Parent = selBadge })
 txt({ Text = "Escolha o emote", Font = F.GothamBold, TextSize = 12, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 31, Parent = selHead })
-local closeSel = btn({ Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 2), ZIndex = 31, Parent = selHead }, { round(13) })
+local closeSel = btn({ Text = "", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 2), ZIndex = 31, Parent = selHead }, { round(13) })
 hoverFX(closeSel, T.surface2, T.danger)
+T.Icones.centro(closeSel, "_fechar", 14, 32)
 closeSel.MouseButton1Click:Connect(function() DevSelector.Visible = false end)
 
 local animNovo -- definido no bloco do ANIMADOR (zera a timeline e põe o nome do emote novo)
@@ -5359,9 +6304,10 @@ local criarNomeBox = new("TextBox", {
 	TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, -78, 0, 28), ZIndex = 31, Parent = DevSelector,
 }, { round(7), padding(8, 0, 8, 0) })
 local criarBtn = btn({
-	Text = "＋ Criar Emote", Font = F.GothamBold, TextSize = 10, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
+	Text = "Criar", Font = F.GothamBold, TextSize = 11, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
 	Position = UDim2.new(1, -72, 0, 34), Size = UDim2.fromOffset(72, 28), ZIndex = 31, Parent = DevSelector,
-}, { round(7) })
+}, { round(7), padding(20, 0, 4, 0) })
+T.Icones.lado(criarBtn, "_mais", 14, 32, 17)
 hoverFX(criarBtn, T.accent, Color3.fromRGB(148, 134, 255))
 local criarMsg = txt({
 	Text = "", TextSize = 10, TextColor3 = T.danger, Position = UDim2.fromOffset(0, 62), Size = UDim2.new(1, 0, 0, 12), ZIndex = 31, Parent = DevSelector,
@@ -5663,8 +6609,9 @@ do
 	local impBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 3), ZIndex = 42, Parent = impHead }, { round(7) })
 	txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 43, Parent = impBadge })
 	txt({ Text = "Importar animação", Font = F.GothamBold, TextSize = 13, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 42, Parent = impHead })
-	local impX = btn({ Text = "X", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 0), ZIndex = 42, Parent = impHead }, { round(13) })
+	local impX = btn({ Text = "", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 0), ZIndex = 42, Parent = impHead }, { round(13) })
 	hoverFX(impX, T.surface2, T.danger)
+	T.Icones.centro(impX, "_fechar", 14, 43)
 
 	txt({
 		Text = "Cole o código da animação (o texto do Exportar: [\"Nome\"] = { ... }). Ele vira um emote aqui no DEV pra você ver e editar. O texto colado não é executado.",
@@ -5678,8 +6625,9 @@ do
 		TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, 72), Size = UDim2.new(1, -84, 0, 28), ZIndex = 42, Parent = impCard,
 	}, { round(7), padding(8, 0, 8, 0) })
 	local impColar = btn({
-		Text = "📋 Colar", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -78, 0, 72), Size = UDim2.fromOffset(78, 28), ZIndex = 42, Parent = impCard,
-	}, { round(7), outline(T.stroke, 1, 0.3) })
+		Text = "Colar", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -78, 0, 72), Size = UDim2.fromOffset(78, 28), ZIndex = 42, Parent = impCard,
+	}, { round(7), outline(T.stroke, 1, 0.3), padding(20, 0, 4, 0) })
+	T.Icones.criar("_colar", impColar, 16, { Position = UDim2.new(0, -17, 0.5, -8), ZIndex = 43 })
 	hoverFX(impColar, T.surface2, T.surface3)
 
 	local impCodigo = new("TextBox", {
@@ -5768,9 +6716,10 @@ do
 
 	-- botão dentro do seletor de emotes do DEV
 	local importarBtn = btn({
-		Text = "📥 Importar animação (colar código)", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok,
+		Text = "Importar animação (colar código)", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok,
 		Position = UDim2.fromOffset(0, 76), Size = UDim2.new(1, 0, 0, 26), ZIndex = 31, Parent = DevSelector,
-	}, { round(7), outline(T.stroke, 1, 0.3) })
+	}, { round(7), outline(T.stroke, 1, 0.3), padding(24, 0, 6, 0) })
+	T.Icones.criar("_importar", importarBtn, 16, { Position = UDim2.new(0, -19, 0.5, -8), ZIndex = 32 })
 	hoverFX(importarBtn, T.surface2, T.surface3)
 	importarBtn.MouseButton1Click:Connect(function()
 		msg("")
@@ -5838,7 +6787,7 @@ do
 
 	local nomeBox = caixa({ Text = anim.nome, PlaceholderText = "nome", Position = UDim2.fromOffset(12, 40), Size = UDim2.fromOffset(150, 26) })
 	local durBox = caixa({ Text = "2.0s", Position = UDim2.fromOffset(170, 40), Size = UDim2.fromOffset(56, 26) })
-	local loopBtn = btn({ Text = "Loop ✓", TextSize = 11, Position = UDim2.fromOffset(232, 40), Size = UDim2.fromOffset(68, 26), Parent = TLWin }, { round(6) })
+	local loopBtn = btn({ Text = "Loop", TextSize = 11, Position = UDim2.fromOffset(232, 40), Size = UDim2.fromOffset(68, 26), Parent = TLWin }, { round(6) })
 	local suaveBtn = btn({ Text = "Suave", TextSize = 11, Position = UDim2.fromOffset(306, 40), Size = UDim2.fromOffset(62, 26), Parent = TLWin }, { round(6) })
 	hoverFX(loopBtn, T.surface2, T.surface3)
 	hoverFX(suaveBtn, T.surface2, T.surface3)
@@ -5855,20 +6804,27 @@ do
 	local timeBox = caixa({ Text = "0.00", Position = UDim2.fromOffset(56, 112), Size = UDim2.fromOffset(60, 26) })
 	local durLbl = txt({ Text = "/ 2.00s", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(124, 116), Size = UDim2.fromOffset(80, 18), Parent = TLWin })
 
-	local prevBtn = btn({ Text = "◀", TextSize = 13, Position = UDim2.fromOffset(12, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
-	local playBtn = btn({ Text = "▶", TextSize = 14, TextColor3 = T.ok, Position = UDim2.fromOffset(56, 146), Size = UDim2.fromOffset(46, 30), Parent = TLWin }, { round(8) })
-	local nextBtn = btn({ Text = "▶|", TextSize = 12, Position = UDim2.fromOffset(108, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
-	local addBtn = btn({ Text = "＋ Key", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Position = UDim2.fromOffset(154, 146), Size = UDim2.fromOffset(76, 30), Parent = TLWin }, { round(8) })
+	local prevBtn = btn({ Text = "", TextSize = 13, Position = UDim2.fromOffset(12, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
+	T.Icones.centro(prevBtn, "_prev", 16, 2)
+	local playBtn = btn({ Text = "", TextSize = 14, TextColor3 = T.ok, Position = UDim2.fromOffset(56, 146), Size = UDim2.fromOffset(46, 30), Parent = TLWin }, { round(8) })
+	T.Icones.centro(playBtn, "_play", 16, 2)
+	local nextBtn = btn({ Text = "", TextSize = 12, Position = UDim2.fromOffset(108, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
+	T.Icones.centro(nextBtn, "_next", 16, 2)
+	local addBtn = btn({ Text = "Key", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Position = UDim2.fromOffset(154, 146), Size = UDim2.fromOffset(76, 30), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	T.Icones.lado(addBtn, "_mais", 14, 2, 18)
 	local delBtn = btn({ Text = "Apagar", TextSize = 11, TextColor3 = T.danger, Position = UDim2.fromOffset(236, 146), Size = UDim2.fromOffset(54, 30), Parent = TLWin }, { round(8) })
 	local expBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok, Position = UDim2.fromOffset(296, 146), Size = UDim2.fromOffset(72, 30), Parent = TLWin }, { round(8) })
 	for _, b in ipairs({ prevBtn, playBtn, nextBtn, delBtn, expBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-	txt({ Text = "Faça a pose nos sliders → escolha o tempo → ＋ Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 218), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
+	txt({ Text = "Faça a pose nos sliders → escolha o tempo → Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 218), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
 
-	local moveBtn = btn({ Text = "⇆ Mover key", TextSize = 11, Position = UDim2.fromOffset(12, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
-	local copyBtn = btn({ Text = "⧉ Copiar", TextSize = 11, Position = UDim2.fromOffset(133, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
-	local pasteBtn = btn({ Text = "📋 Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(254, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8) })
+	local moveBtn = btn({ Text = "Mover key", TextSize = 11, Position = UDim2.fromOffset(12, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	T.Icones.lado(moveBtn, "_trocar", 16, 2, 19)
+	local copyBtn = btn({ Text = "Copiar", TextSize = 11, Position = UDim2.fromOffset(133, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	T.Icones.lado(copyBtn, "_copiar", 16, 2, 19)
+	local pasteBtn = btn({ Text = "Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(254, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(20, 0, 4, 0) })
+	T.Icones.criar("_colar", pasteBtn, 16, { Position = UDim2.new(0, -19, 0.5, -8), ZIndex = 3 })
 	for _, b in ipairs({ moveBtn, copyBtn, pasteBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	local clipPose = nil -- pose copiada (persiste entre emotes)
 
@@ -5931,7 +6887,7 @@ do
 	local irPara
 
 	local function atualizarPlay()
-		playBtn.Text = anim.tocando and "⏸" or "▶"
+		T.Icones.centro(playBtn, anim.tocando and "_pause" or "_play", 16, 2)
 	end
 
 	local function desenhar()
@@ -5988,7 +6944,8 @@ do
 	end)
 
 	local function atualizarToggles()
-		loopBtn.Text = anim.loop and "Loop ✓" or "Loop ✗"
+		loopBtn.Text = "Loop"
+		T.Icones.direita(loopBtn, anim.loop and "_check" or "_fechar_r", 12, 2, 8)
 		loopBtn.TextColor3 = anim.loop and T.ok or T.dim
 		suaveBtn.Text = anim.suave and "Suave" or "Linear"
 		suaveBtn.TextColor3 = anim.suave and T.ok or T.sub
@@ -6117,8 +7074,12 @@ do
 		if not fonte or not table.find(anim.keys, fonte) then fonte = keyNoTempo(anim.tempo) end
 		clipPose = copiaProfunda(fonte and fonte.pose or customPose)
 		pasteBtn.TextColor3 = T.ok
-		copyBtn.Text = "✓ Copiado"
-		task.delay(0.8, function() copyBtn.Text = "⧉ Copiar" end)
+		copyBtn.Text = "Copiado"
+		T.Icones.lado(copyBtn, "_check", 16, 2, 19)
+		task.delay(0.8, function()
+			copyBtn.Text = "Copiar"
+			T.Icones.lado(copyBtn, "_copiar", 16, 2, 19)
+		end)
 	end)
 
 	-- Colar: cria (ou sobrescreve) uma key no tempo atual com a pose copiada
@@ -6142,7 +7103,7 @@ do
 
 	-- ---------- exportar ----------
 	local function gerarAnimLua()
-		if #anim.keys == 0 then return "-- adicione pelo menos 1 keyframe (＋ Key)" end
+		if #anim.keys == 0 then return "-- adicione pelo menos 1 keyframe (Key)" end
 
 		local function v3(t) return string.format("{ x = %s, y = %s, z = %s }", fmt(t.x), fmt(t.y), fmt(t.z)) end
 		local function br(t) return string.format("{ x = %s, y = %s, z = %s, px = %s, py = %s, pz = %s }", fmt(t.x), fmt(t.y), fmt(t.z), fmt(t.px or 0), fmt(t.py or 0), fmt(t.pz or 0)) end
@@ -6314,7 +7275,7 @@ local ordemLinhaDev = 0
 function adicionarLinhaDev(nome, icone)
 	ordemLinhaDev = ordemLinhaDev + 1
 	local row = btn({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = ordemLinhaDev, ZIndex = 30, Parent = selList }, { round(8) })
-	txt({ Text = icone, TextSize = 15, TextXAlignment = CENTER, Position = UDim2.fromOffset(4, 0), Size = UDim2.fromOffset(26, 30), ZIndex = 31, Parent = row })
+	T.Icones.criar((not T.Icones.tem(nome) and icone == "📥") and "_importar" or nome, row, 24, { Position = UDim2.fromOffset(5, 3), ZIndex = 31 })
 	txt({ Text = nome, Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -44, 1, 0), ZIndex = 31, Parent = row })
 	hoverFX(row, T.surface, T.surface3)
 	row.MouseButton1Click:Connect(function() abrirDev(nome) end)
@@ -6406,6 +7367,966 @@ local function aplicarCorpoBow(character, humanoid, rootPart, comTravas, emote)
 	end
 end
 
+-- ===== KAME.criar(ctx): sistema completo do Kamehameha (sons, falas, VFX, feixe, fling, recuo) =====
+-- Usado pelo jogador (criarMaoDinamica) e por cada clone. ctx:
+--   character, rootPart, rightArm, leftArm, folder (onde o VFX nasce), partesMao (lista com braco/palma/pBase/pPonta),
+--   ehLocal (true = camera do jogador treme/puxa), filtro (opcional: funcao que devolve o que o feixe ignora)
+function KAME.criar(ctx)
+	local character, rootPart = ctx.character, ctx.rootPart
+	local rightArm, leftArm = ctx.rightArm, ctx.leftArm
+	local folder, partesMao, ehLocal = ctx.folder, ctx.partesMao, ctx.ehLocal == true
+	local kameSnds = {}
+
+	local function kameSomParar(imediato)
+		local agora = os.clock()
+		for i = #kameSnds, 1, -1 do
+			local e = kameSnds[i]
+			if imediato or not (e.inst and e.inst.Parent) then
+				pcall(function() e.inst:Stop() e.inst:Destroy() end)
+				table.remove(kameSnds, i)
+			elseif not e.morrendo then
+				e.morrendo = true
+				e.mInicio = agora
+				e.mVol = e.inst.Volume
+			end
+		end
+	end
+
+	-- fimClock: os.clock() em que a fase termina (o volume desce suave ate la)
+	local function kameSomTocar(id, fimClock)
+		kameSomParar()
+		if not (rootPart and rootPart.Parent) then return end
+		local s = Instance.new("Sound")
+		s.Name = "SomKamehameha"
+		s.SoundId = id
+		s.Volume = 0
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.MaxDistance = 120
+		s.Parent = rootPart
+		s:Play()
+		game:GetService("Debris"):AddItem(s, 10)
+		table.insert(kameSnds, { inst = s, inicio = os.clock(), fim = fimClock })
+	end
+
+	local function kameSomAtualizar()
+		local agora = os.clock()
+		for i = #kameSnds, 1, -1 do
+			local e = kameSnds[i]
+			local s = e.inst
+			if not (s and s.Parent) then
+				table.remove(kameSnds, i)
+			elseif e.morrendo then
+				local a = (agora - e.mInicio) / KAME.fadeParar
+				if a >= 1 then
+					pcall(function() s:Stop() s:Destroy() end)
+					table.remove(kameSnds, i)
+				else
+					s.Volume = e.mVol * (1 - a)
+				end
+			else
+				local v = clamp((agora - e.inicio) / KAME.fadeEntrada, 0, 1)
+				if e.fim then v = v * clamp((e.fim - agora) / KAME.fadeSaida, 0, 1) end
+				v = v * v * (3 - 2 * v)
+				s.Volume = KAME.volume * v
+			end
+		end
+	end
+
+	-- ===== Kamehameha: FALAS do Goku =====
+	-- Mesmo sistema de falas do SANDEVISTAN: 1 BillboardGui sobre a cabeca, 1 TextLabel por letra,
+	-- tamanho fixo em pixels, digitacao letra por letra, tremor/pulso por emocao.
+	-- Fase 1 = frase curta | Fase 2 = "KA... ME... HA... ME..." | Fase 3 = grito "HAAAAA!!!"
+	local kameFala = (function()
+		local TextService = game:GetService("TextService")
+
+		local ATIVO = true
+		local TAM_BASE = 16          -- tamanho da letra (pixels)
+		local LARGURA_MAX = 260      -- largura maxima antes de quebrar linha
+		local ALTURA_CABECA = 2.1    -- studs acima da cabeca
+
+		-- Emocoes: cor, velocidade de digitacao, tremor, pulso e extras
+		local EMOCOES = {
+			calmo = { cor = Color3.fromRGB(255, 190, 80),  vel = 0.035, tremor = 0,   pulso = 0.02 },
+			carga = { cor = Color3.fromRGB(110, 200, 255), vel = 0.022, tremor = 0.8, pulso = 0.06 },
+			grito = { cor = Color3.fromRGB(235, 250, 255), vel = 0.014, tremor = 2.0, pulso = 0.12, pulo = true },
+		}
+
+		-- Fase 1 (anda): frase curta aleatoria  {texto, emocao}
+		local FALAS_INICIO = {
+			{ "Preste atenção!", "calmo" },
+			{ "Olha só isso!", "calmo" },
+			{ "Vou te mostrar!", "calmo" },
+			{ "Hora do meu golpe!", "calmo" },
+		}
+
+		-- Fase 2 (carregando): silabas. t = segundos depois do inicio da fase 2 (dura 1.85s)
+		--  {t, texto, emocao, intensidade 1-3, tempo de leitura}
+		local SILABAS = {
+			{ 0.00, "KA...", "carga", 1, 0.35 },
+			{ 0.45, "ME...", "carga", 1, 0.35 },
+			{ 0.90, "HA...", "carga", 2, 0.35 },
+			{ 1.40, "ME...", "carga", 2, 0.35 },
+		}
+
+		-- Fase 3 (disparo): grito aleatorio
+		local FALAS_DISPARO = {
+			{ "HAAAAAAAAAAAA!!!", "grito", 3 },
+			{ "KAMEHAMEHAAAAA!!!", "grito", 3 },
+			{ "HAAAAAAAAAA!!!", "grito", 3 },
+		}
+
+		local S = { gui = nil, caixa = nil, token = 0, ciclo = 0, ultimo = nil }
+
+		local function garantirGui()
+			local head = character and character:FindFirstChild("Head")
+			if not head then return nil end
+			if S.gui and S.gui.Parent then
+				if S.gui.Adornee ~= head then S.gui.Adornee = head end
+				return S.gui
+			end
+			local gui = Instance.new("BillboardGui")
+			gui.Name = "GokuFalas"
+			gui.Adornee = head
+			gui.AlwaysOnTop = true
+			gui.LightInfluence = 0
+			gui.ResetOnSpawn = false
+			gui.Active = false
+			gui.Size = UDim2.fromOffset(40, 24) -- OFFSET = pixels, ignora zoom/distancia
+			gui.StudsOffsetWorldSpace = Vector3.new(0, ALTURA_CABECA, 0)
+			gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+			local caixa = Instance.new("Frame")
+			caixa.Name = "Fala"
+			caixa.AnchorPoint = Vector2.new(0.5, 0.5)
+			caixa.Position = UDim2.fromScale(0.5, 0.5)
+			caixa.Size = UDim2.fromOffset(40, 20)
+			caixa.BackgroundTransparency = 1
+			caixa.Visible = false
+			caixa.Parent = gui
+
+			S.gui, S.caixa = gui, caixa
+			return gui
+		end
+
+		local function parar()
+			S.token += 1
+			S.ciclo += 1 -- cancela silabas agendadas
+			if S.caixa then
+				S.caixa.Visible = false
+				S.caixa:ClearAllChildren()
+			end
+		end
+
+		local function mostrar(texto, emo, inten, ler)
+			if not ATIVO then return end
+			local gui = garantirGui()
+			if not gui then return end
+			local caixa = S.caixa
+			local e = EMOCOES[emo] or EMOCOES.calmo
+			inten = math.clamp(inten or 1, 1, 3)
+
+			S.token += 1
+			local meuToken = S.token
+			local tam = TAM_BASE + (inten - 1) * 4
+			local altLinha = tam + 4
+
+			caixa:ClearAllChildren()
+
+			-- 1) mede cada letra e quebra em linhas
+			local function larguraChar(ch)
+				if ch == " " then return tam * 0.32 end
+				local ok, v = pcall(function()
+					return TextService:GetTextSize(ch, tam, Enum.Font.GothamBold, Vector2.new(1000, 1000))
+				end)
+				return (ok and v) and v.X or tam * 0.6
+			end
+
+			local palavras = {}
+			for palavra in texto:gmatch("%S+") do
+				local chars, larg = {}, 0
+				for _, cp in utf8.codes(palavra) do
+					local ch = utf8.char(cp)
+					local lw = larguraChar(ch)
+					table.insert(chars, { ch = ch, w = lw })
+					larg += lw
+				end
+				table.insert(palavras, { chars = chars, w = larg })
+			end
+
+			local espaco = larguraChar(" ")
+			local linhas, atual, atualW = {}, {}, 0
+			for _, p in ipairs(palavras) do
+				local extra = (#atual > 0) and espaco or 0
+				if #atual > 0 and atualW + extra + p.w > LARGURA_MAX then
+					table.insert(linhas, { palavras = atual, w = atualW })
+					atual, atualW, extra = {}, 0, 0
+				end
+				table.insert(atual, p)
+				atualW += extra + p.w
+			end
+			if #atual > 0 then table.insert(linhas, { palavras = atual, w = atualW }) end
+
+			local larguraTotal = 0
+			for _, l in ipairs(linhas) do larguraTotal = math.max(larguraTotal, l.w) end
+			local alturaTotal = #linhas * altLinha
+
+			-- 2) 1 TextLabel por letra, centralizado por linha
+			local letras = {}
+			for li, l in ipairs(linhas) do
+				local x = (larguraTotal - l.w) / 2
+				local y = (li - 1) * altLinha
+				for pi, p in ipairs(l.palavras) do
+					for _, c in ipairs(p.chars) do
+						local lbl = Instance.new("TextLabel")
+						lbl.BackgroundTransparency = 1
+						lbl.Size = UDim2.fromOffset(c.w + 4, altLinha)
+						lbl.Position = UDim2.fromOffset(x - 2, y)
+						lbl.Font = Enum.Font.GothamBold
+						lbl.Text = c.ch
+						lbl.TextSize = tam
+						lbl.TextColor3 = e.cor
+						lbl.TextTransparency = 1
+						lbl.TextStrokeTransparency = 1
+						lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+						lbl.Parent = caixa
+						table.insert(letras, { lbl = lbl, ch = c.ch, bx = x - 2, by = y, dx = 0, dy = 0, fase = math.random() * 6.28 })
+						x += c.w
+					end
+					if pi < #l.palavras then x += espaco end
+				end
+			end
+
+			local margem = 20 + e.tremor * inten * 2
+			gui.Size = UDim2.fromOffset(larguraTotal + margem * 2, alturaTotal + margem * 2)
+			caixa.Size = UDim2.fromOffset(larguraTotal, alturaTotal)
+			caixa.Position = UDim2.fromScale(0.5, 0.5)
+			caixa.Visible = true
+
+			local total = #letras
+			local vel = e.vel / (0.75 + 0.25 * inten)
+			local tDigitar = total * vel
+			local tLer = ler or (1.1 + total * 0.045)
+			local tFade = 0.3
+			local tFim = tDigitar + tLer + tFade
+			local amp = e.tremor * inten * 0.8 -- tremor de CADA letra
+
+			task.spawn(function()
+				local t0 = os.clock()
+				local proxTremor = 0
+				while S.token == meuToken do
+					local t = os.clock() - t0
+					if t >= tFim then break end
+
+					local sorteia = t >= proxTremor
+					if sorteia then proxTremor = t + 0.04 end
+
+					local tFadeIni = tDigitar + tLer
+					local fadeK = (t > tFadeIni) and math.clamp((t - tFadeIni) / tFade, 0, 1) or 0
+
+					for i, L in ipairs(letras) do
+						local lbl = L.lbl
+						local tLetra = t - (i - 1) * vel
+						if tLetra < 0 then
+							lbl.TextTransparency = 1
+							lbl.TextStrokeTransparency = 1
+						else
+							if sorteia and amp > 0 then
+								L.dx = (math.random() * 2 - 1) * amp
+								L.dy = (math.random() * 2 - 1) * amp
+							end
+							local dx, dy = L.dx, L.dy
+
+							-- grito: onda pulando letra por letra
+							if e.pulo then dy -= math.abs(math.sin(t * 9 + i * 0.55)) * 2.2 * inten end
+
+							-- cada letra entra de baixo com um pulinho
+							local entra = math.clamp(tLetra / 0.1, 0, 1)
+							dy += (1 - entra) * 5
+
+							lbl.Position = UDim2.fromOffset(L.bx + dx, L.by + dy)
+
+							local pulso = e.pulso * inten * math.sin(t * 11 + L.fase)
+							lbl.TextSize = tam * (1 + pulso) * (0.8 + 0.2 * entra)
+
+							lbl.TextTransparency = fadeK + (1 - entra) * (1 - fadeK)
+							lbl.TextStrokeTransparency = 0.35 + 0.65 * lbl.TextTransparency
+						end
+					end
+
+					RunService.RenderStepped:Wait()
+				end
+				if S.token == meuToken then
+					caixa.Visible = false
+					caixa:ClearAllChildren()
+				end
+			end)
+		end
+
+		-- sorteia sem repetir a ultima
+		local function sortear(lista)
+			local f = lista[math.random(1, #lista)]
+			if f[1] == S.ultimo and #lista > 1 then
+				f = lista[(table.find(lista, f) % #lista) + 1]
+			end
+			S.ultimo = f[1]
+			return f
+		end
+
+		-- chamada quando a fase da Kamehameha muda (t = tempo atual dentro do ciclo)
+		local function entrar(fase, t)
+			if not ATIVO then return end
+			S.ciclo += 1
+			local meu = S.ciclo
+
+			if fase == 1 then
+				local f = sortear(FALAS_INICIO)
+				mostrar(f[1], f[2], 1, 0.4)
+
+			elseif fase == 2 then
+				for _, s in ipairs(SILABAS) do
+					task.spawn(function()
+						local espera = (KAME.tFase2 + s[1]) - t
+						if espera < -0.25 then return end -- silaba ja passou
+						if espera > 0 then task.wait(espera) end
+						if S.ciclo ~= meu then return end
+						mostrar(s[2], s[3], s[4], s[5])
+					end)
+				end
+
+			elseif fase == 3 then
+				local f = sortear(FALAS_DISPARO)
+				local ler = math.max(0.6, KAME.ciclo - t - 0.8) -- segura o grito ate o fim do disparo
+				mostrar(f[1], f[2], f[3], ler)
+			end
+		end
+
+		return {
+			entrar = entrar, parar = parar,
+			destruir = function()
+				parar()
+				if S.gui then S.gui:Destroy() S.gui = nil S.caixa = nil end
+			end,
+		}
+	end)()
+
+	-- ===== Kamehameha VFX =====
+	local kameFX = nil
+	local kameRay = RaycastParams.new()
+	kameRay.FilterType = Enum.RaycastFilterType.Exclude
+	kameRay.FilterDescendantsInstances = ctx.filtro and ctx.filtro() or { character, folder }
+
+	local function kameParte(nome, forma)
+		local p = Instance.new("Part")
+		p.Name = nome
+		p.Shape = forma or Enum.PartType.Ball
+		p.Material = Enum.Material.Neon
+		p.Color = KAME.cor
+		p.Size = Vector3.new(1, 1, 1)
+		p.Transparency = 1
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		return p
+	end
+
+	local function kameEmissor(pai, cfg)
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = cfg.tex or "rbxasset://textures/particles/sparkles_main.dds"
+		e.Color = ColorSequence.new(cfg.cor or KAME.cor)
+		e.LightEmission = cfg.luz or 1
+		e.Lifetime = cfg.vida
+		e.Speed = cfg.vel
+		e.Size = cfg.tam
+		e.Transparency = cfg.transp or NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(0.7, 0.3),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		e.Rate = 0
+		e.Rotation = NumberRange.new(0, 360)
+		e.Acceleration = cfg.acel or Vector3.new(0, 0, 0)
+		e.Drag = cfg.drag or 0
+		e.Shape = cfg.forma or Enum.ParticleEmitterShape.Box
+		e.ShapeInOut = cfg.dentro or Enum.ParticleEmitterShapeInOut.Outward
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		e.SpreadAngle = cfg.spread or Vector2.new(0, 0)
+		e.EmissionDirection = cfg.dir or Enum.NormalId.Top
+		e.Parent = pai
+		return e
+	end
+
+	local function kameVfxCriar()
+		local pasta = Instance.new("Folder")
+		pasta.Name = "KamehamehaFX"
+		pasta.Parent = folder
+
+		local fx = { pasta = pasta, g = 0, ondas = {}, raios = {}, disparou = false }
+		local function nova(nome, forma)
+			local p = kameParte(nome, forma)
+			p.Parent = pasta
+			return p
+		end
+
+		-- esfera de energia
+		fx.brilho = nova("Brilho")
+		fx.nucleo = nova("Nucleo")
+		fx.nucleo.Color = KAME.corNucleo
+		fx.luz = Instance.new("PointLight")
+		fx.luz.Color = KAME.cor
+		fx.luz.Range = 24
+		fx.luz.Brightness = 0
+		fx.luz.Shadows = false
+		fx.luz.Parent = fx.brilho
+
+		-- raios de luz saindo da esfera
+		for i = 1, 9 do
+			local p = nova("Raio", Enum.PartType.Block)
+			p.Color = (i % 2 == 0) and KAME.corNucleo or KAME.cor
+			fx.raios[i] = {
+				p = p,
+				d0 = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit,
+				vel = (math.random() * 2 - 1) * 2.4,
+				ph = math.random() * 6.28,
+				esp = 0.08 + math.random() * 0.1,
+			}
+		end
+
+		-- particulas convergindo pra esfera + explosao de faiscas
+		fx.conv = nova("Ancora")
+		-- mini trails semi transparentes sendo sugados pra esfera (no lugar das estrelinhas)
+		fx.sugados = {}
+		fx.sugAcc = 0
+		for i = 1, KAME.trailQtd do
+			local tp = nova("Sugado")
+			tp.Size = Vector3.new(0.2, 0.2, 0.2)
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.15, 0)
+			a0.Parent = tp
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.15, 0)
+			a1.Parent = tp
+			local tr = Instance.new("Trail")
+			tr.Texture = KAME.trailTex
+			tr.TextureMode = Enum.TextureMode.Stretch
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Lifetime = 0.25
+			tr.MinLength = 0.02
+			tr.FaceCamera = true
+			tr.LightEmission = 1
+			tr.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
+			tr.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, KAME.trailTransp),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			tr.WidthScale = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			tr.Enabled = false
+			tr.Parent = tp
+			fx.sugados[i] = { p = tp, tr = tr, vivo = false, t = 0, dur = 0.5, d = Vector3.new(0, 1, 0), r = 0, giro = 0 }
+		end
+		fx.conv.Size = Vector3.new(7, 7, 7)
+
+		-- feixe (3 camadas)
+		fx.feixeFora = nova("FeixeFora", Enum.PartType.Cylinder)
+		fx.feixeMeio = nova("FeixeMeio", Enum.PartType.Cylinder)
+		fx.feixeNucleo = nova("FeixeNucleo", Enum.PartType.Cylinder)
+		fx.feixeNucleo.Color = KAME.corNucleo
+		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
+
+		-- camadas com textura animada correndo pelo feixe
+		fx.feixeIni = nova("FeixeIni")
+		fx.feixeFim = nova("FeixeFim")
+		fx.beams = {}
+		local function criarBeam(k, vel, transp)
+			local a0 = Instance.new("Attachment")
+			a0.Parent = fx.feixeIni
+			local a1 = Instance.new("Attachment")
+			a1.Parent = fx.feixeFim
+			local b = Instance.new("Beam")
+			b.Attachment0 = a0
+			b.Attachment1 = a1
+			b.Texture = KAME.feixeTex
+			b.TextureMode = Enum.TextureMode.Wrap
+			b.TextureLength = KAME.feixeTexLen
+			b.TextureSpeed = vel
+			b.LightEmission = 1
+			b.LightInfluence = 0
+			b.FaceCamera = true
+			b.Segments = 1
+			b.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
+			b.Transparency = NumberSequence.new(transp)
+			b.Width0 = 0
+			b.Width1 = 0
+			b.Enabled = false
+			b.Parent = fx.feixeIni
+			table.insert(fx.beams, { b = b, k = k })
+		end
+		criarBeam(1.5, KAME.feixeTexVel, 0.25)
+		criarBeam(2.2, KAME.feixeTexVel * 0.6, 0.55)
+
+		-- vento cortado pelo feixe: casca de ar + riscos de vento correndo em volta
+		fx.ventoCasca = nova("VentoCasca", Enum.PartType.Cylinder)
+		fx.ventoCasca.Material = Enum.Material.ForceField
+		fx.ventoCasca.Color = Color3.fromRGB(215, 240, 255)
+		fx.ventoLigado = false
+		fx.vento = {}
+		for i = 1, KAME.ventoQtd do
+			local vp = nova("Vento")
+			vp.Size = Vector3.new(0.2, 0.2, 0.2)
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.12, 0)
+			a0.Parent = vp
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.12, 0)
+			a1.Parent = vp
+			local tr = Instance.new("Trail")
+			tr.Texture = KAME.trailTex
+			tr.TextureMode = Enum.TextureMode.Stretch
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Lifetime = 0.2
+			tr.MinLength = 0.02
+			tr.FaceCamera = true
+			tr.LightEmission = 0.5
+			tr.Color = ColorSequence.new(Color3.fromRGB(235, 248, 255), Color3.fromRGB(160, 215, 255))
+			tr.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.55),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			tr.WidthScale = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			tr.Enabled = false
+			tr.Parent = vp
+			fx.vento[i] = { p = vp, tr = tr, s = 0, ang = 0, rad = 1, vel = 80, giro = 0 }
+		end
+
+		-- impacto do feixe
+		fx.imp = nova("Impacto")
+		fx.impBola = nova("ImpactoBola")
+		fx.impLuz = Instance.new("PointLight")
+		fx.impLuz.Color = KAME.cor
+		fx.impLuz.Range = 28
+		fx.impLuz.Brightness = 0
+		fx.impLuz.Shadows = false
+		fx.impLuz.Parent = fx.imp
+		fx.impPoeiraE = kameEmissor(fx.imp, {
+			tex = "rbxasset://textures/particles/smoke_main.dds", luz = 0.5,
+			vida = NumberRange.new(0.8, 1.5), vel = NumberRange.new(10, 22), drag = 2,
+			spread = Vector2.new(80, 80),
+			tam = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3), NumberSequenceKeypoint.new(1, 9) }),
+			transp = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1) }),
+		})
+
+		kameFX = fx
+		return fx
+	end
+
+	-- ===== camera do disparo: FOV puxa pra direcao do feixe + mini shake =====
+	local kameCam = nil
+	local KAME_CAM_NOME = "KamehamehaCam"
+
+	local function kameCamParar()
+		local st = kameCam
+		if not st then return end
+		kameCam = nil
+		pcall(function() RunService:UnbindFromRenderStep(KAME_CAM_NOME) end)
+		local cam = workspace.CurrentCamera
+		if cam then cam.FieldOfView = st.baseFov end
+	end
+
+	local function kameCamPasso()
+		local st = kameCam
+		local cam = workspace.CurrentCamera
+		if not st or not cam then kameCamParar() return end
+		local agora = os.clock()
+		local a = (agora - st.t0) / KAME.camDur
+		if a >= 1 then kameCamParar() return end
+
+		-- sobe rapido (18% inicial) e volta suave
+		local env
+		if a < 0.18 then env = a / 0.18 else env = (1 - (a - 0.18) / 0.82) ^ 2 end
+		local amp = (1 - a) ^ 2
+
+		cam.FieldOfView = st.baseFov - KAME.fovPuxa * env
+		local off = Vector3.new(math.sin(agora * 71), math.sin(agora * 89 + 1.3), math.sin(agora * 53 + 2.1)) * (KAME.shakeForca * amp)
+		local rot = Vector3.new(math.sin(agora * 77 + 0.7), math.sin(agora * 61 + 2.4), math.sin(agora * 47)) * (KAME.shakeAng * amp)
+		cam.CFrame = CFrame.new(st.dir * (KAME.camPuxa * env)) * cam.CFrame * CFrame.new(off) * CFrame.Angles(rot.X, rot.Y, rot.Z)
+	end
+
+	local function kameCamIniciar(dir)
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		kameCamParar()
+		kameCam = { t0 = os.clock(), dir = dir, baseFov = cam.FieldOfView }
+		RunService:BindToRenderStep(KAME_CAM_NOME, Enum.RenderPriority.Camera.Value + 2, kameCamPasso)
+	end
+
+	local function kameVfxDestruir()
+		kameCamParar()
+		if kameFX then
+			pcall(function() kameFX.pasta:Destroy() end)
+			kameFX = nil
+		end
+	end
+
+	-- centro real da mao (palma + dedos), em vez da ponta do braco: a mao fica alem da ponta
+	local function kameMaoPonta(braco)
+		local soma, n, vistos = Vector3.new(0, 0, 0), 0, {}
+		for _, m in ipairs(partesMao) do
+			if m.braco == braco then
+				for _, p in ipairs({ m.palma, m.pBase, m.pPonta }) do
+					if p and p.Parent and not vistos[p] then
+						vistos[p] = true
+						soma = soma + p.Position
+						n = n + 1
+					end
+				end
+			end
+		end
+		if n == 0 then
+			return (braco.CFrame * CFrame.new(0, -1, 0)).Position
+		end
+		return soma / n
+	end
+
+	local function kameOnda(fx, pos, anel, s0, s1, dur, tr0, normal)
+		local p = kameParte(anel and "Anel" or "Onda", anel and Enum.PartType.Cylinder or Enum.PartType.Ball)
+		p.Material = Enum.Material.ForceField
+		p.Transparency = tr0
+		if anel and normal then
+			p.CFrame = CFrame.lookAt(pos, pos + normal) * CFrame.Angles(0, math.pi / 2, 0)
+		else
+			p.CFrame = anel and (CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)) or CFrame.new(pos)
+		end
+		p.Parent = fx.pasta
+		table.insert(fx.ondas, { p = p, t0 = os.clock(), dur = dur, s0 = s0, s1 = s1, tr0 = tr0, anel = anel })
+	end
+
+	local function kameVentoSortear(v, s0)
+		v.s = s0
+		v.ang = math.random() * math.pi * 2
+		v.rad = 0.9 + math.random() * 1.0 -- multiplicador da espessura do feixe
+		v.vel = 70 + math.random() * 50
+		v.giro = (math.random() * 2 - 1) * 2.5
+	end
+
+	local function kameVentoAtualizar(fx, origem, dir, len, esp, dt, ligado)
+		if not ligado then
+			fx.ventoCasca.Transparency = 1
+			if fx.ventoLigado then
+				fx.ventoLigado = false
+				for _, v in ipairs(fx.vento) do v.tr.Enabled = false end
+			end
+			return
+		end
+
+		local base = CFrame.lookAt(origem, origem + dir)
+		local dirDe, cimaDe = base.RightVector, base.UpVector
+
+		-- casca de ar translucida em volta do feixe
+		local mid = origem + dir * (len / 2)
+		local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
+		fx.ventoCasca.Size = Vector3.new(len, esp * 2.8, esp * 2.8)
+		fx.ventoCasca.CFrame = cf
+		fx.ventoCasca.Transparency = KAME.ventoCasca
+
+		-- riscos de vento correndo no sentido do feixe
+		local primeiro = not fx.ventoLigado
+		fx.ventoLigado = true
+		for _, v in ipairs(fx.vento) do
+			if primeiro then
+				kameVentoSortear(v, math.random() * len)
+				v.tr.Enabled = true
+				v.tr:Clear()
+			end
+			v.s = v.s + v.vel * dt
+			v.ang = v.ang + v.giro * dt
+			if v.s > len then
+				kameVentoSortear(v, 0)
+				v.tr.Enabled = false
+				v.tr.Enabled = true
+				v.tr:Clear()
+			end
+			local r = esp * v.rad
+			local pos = origem + dir * v.s + (dirDe * math.cos(v.ang) + cimaDe * math.sin(v.ang)) * r
+			v.p.CFrame = CFrame.lookAt(pos, pos + dir)
+		end
+	end
+
+	local function kameVfxAtualizar(fase, t, dt)
+		local ativo = (fase == 2 or fase == 3)
+		if ativo and not kameFX then kameVfxCriar() end
+		local fx = kameFX
+		if not fx then return end
+		if not fx.pasta.Parent then kameFX = nil return end
+
+		-- fade geral do efeito
+		local alvo = ativo and 1 or 0
+		local passo = dt / (ativo and KAME.fxEntrada or KAME.fxSaida)
+		fx.g = fx.g + clamp(alvo - fx.g, -passo, passo)
+		if not ativo and fx.g <= 0.001 then kameVfxDestruir() return end
+		local g = fx.g
+		local agora = os.clock()
+
+		local dir = rootPart.CFrame.LookVector
+		local origem = (kameMaoPonta(rightArm) + kameMaoPonta(leftArm)) / 2 + dir * KAME.bolaFrente
+
+		local prog = 0
+		local tr = 0
+		if fase == 2 then
+			prog = clamp((t - KAME.tFase2) / (KAME.tFase3 - KAME.tFase2), 0, 1)
+		elseif fase == 3 then
+			prog = 1
+			tr = t - KAME.tFase3
+		end
+		local fimFade = (fase == 3) and clamp((KAME.ciclo - t) / 0.5, 0, 1) or 1
+
+		-- esfera de energia
+		local pulso = 1 + 0.07 * math.sin(agora * 32)
+		local diam = KAME.bolaMax * (0.15 + 0.85 * prog ^ 1.4)
+		if fase == 3 then
+			diam = KAME.bolaMax * (1.1 - 0.25 * clamp(tr / 0.5, 0, 1))
+		end
+		diam = math.max(diam * g * fimFade * pulso, 0.05)
+		fx.brilho.Size = Vector3.new(diam, diam, diam)
+		fx.brilho.CFrame = CFrame.new(origem)
+		fx.brilho.Transparency = 0.45 + (1 - g) * 0.55
+		local corBola = KAME.cor:Lerp(KAME.bolaCorFim, prog ^ 1.2)
+		fx.brilho.Color = corBola
+		fx.luz.Color = corBola
+		fx.nucleo.Size = Vector3.new(diam * 0.62, diam * 0.62, diam * 0.62)
+		fx.nucleo.CFrame = CFrame.new(origem)
+		fx.nucleo.Transparency = (1 - g)
+		fx.luz.Brightness = (2 + 4 * prog) * g * fimFade
+
+		-- raios de luz
+		local raioAmt = (fase == 2) and prog or (fase == 3 and (1 - clamp(tr / 0.5, 0, 1)) or 0)
+		for _, r in ipairs(fx.raios) do
+			local d = CFrame.Angles(0, agora * r.vel, 0):VectorToWorldSpace(r.d0)
+			local flick = 0.55 + 0.45 * math.abs(math.sin(agora * 14 + r.ph))
+			local len = math.max((1.5 + 5.5 * raioAmt) * flick * g, 0.05)
+			local pos = origem + d * (diam * 0.4 + len / 2)
+			r.p.Size = Vector3.new(r.esp, r.esp, len)
+			r.p.CFrame = CFrame.lookAt(pos, pos + d)
+			r.p.Transparency = 1 - clamp(raioAmt * 1.6, 0, 0.85) * g
+		end
+
+		-- particulas
+		fx.conv.CFrame = CFrame.new(origem)
+		-- mini trails sendo sugados pra esfera
+		local taxaSug = (fase == 2) and (25 + 35 * prog) * g or 0
+		fx.sugAcc = fx.sugAcc + taxaSug * dt
+		for _, sg in ipairs(fx.sugados) do
+			if not sg.vivo and fx.sugAcc >= 1 then
+				fx.sugAcc = fx.sugAcc - 1
+				sg.vivo = true
+				sg.t = 0
+				sg.dur = 0.35 + math.random() * 0.25
+				sg.d = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit
+				sg.r = KAME.trailRaio * (0.7 + 0.5 * math.random())
+				sg.giro = (math.random() * 2 - 1) * 2.5
+				sg.p.CFrame = CFrame.new(origem + sg.d * sg.r)
+				sg.tr:Clear()
+				sg.tr.Enabled = true
+			end
+			if sg.vivo then
+				sg.t = sg.t + dt / sg.dur
+				if sg.t >= 1 then
+					sg.vivo = false
+					sg.tr.Enabled = false
+				else
+					local e = sg.t ^ 1.6
+					local dd = CFrame.Angles(0, sg.giro * sg.t, 0):VectorToWorldSpace(sg.d)
+					sg.p.CFrame = CFrame.new(origem + dd * (sg.r * (1 - e)))
+				end
+			end
+		end
+
+		-- disparo
+		if fase == 3 and not fx.disparou then
+			fx.disparou = true
+			if ehLocal then kameCamIniciar(dir) end -- camera so mexe pro jogador
+			local plano = Vector3.new(dir.X, 0, dir.Z)
+			if plano.Magnitude > 0.01 then
+				fx.recuoDir = -plano.Unit
+				fx.recuoT0 = agora
+			end
+		elseif fase ~= 3 then
+			fx.disparou = false
+		end
+
+		-- recuo: desliza pra tras ao soltar o feixe
+		if fx.recuoT0 then
+			local a = (agora - fx.recuoT0) / KAME.recuoDur
+			if a >= 1 then
+				fx.recuoT0 = nil
+			else
+				local v = KAME.recuoVel * (1 - a) ^ 2
+				local vy = rootPart.AssemblyLinearVelocity.Y
+				rootPart.AssemblyLinearVelocity = Vector3.new(fx.recuoDir.X * v, vy, fx.recuoDir.Z * v)
+			end
+		end
+
+		-- ondas de choque
+		for i = #fx.ondas, 1, -1 do
+			local o = fx.ondas[i]
+			local a = (agora - o.t0) / o.dur
+			if a >= 1 then
+				o.p:Destroy()
+				table.remove(fx.ondas, i)
+			else
+				local e = 1 - (1 - a) ^ 3
+				local s = o.s0 + (o.s1 - o.s0) * e
+				o.p.Size = o.anel and Vector3.new(0.4, s, s) or Vector3.new(s, s, s)
+				o.p.Transparency = o.tr0 + (1 - o.tr0) * a
+			end
+		end
+
+		-- feixe
+		local visivel = false
+		local ventoLen, ventoEsp = 0, 0
+		if fase == 3 then
+			if ctx.filtro then kameRay.FilterDescendantsInstances = ctx.filtro() end
+			local res = workspace:Raycast(origem, dir * KAME.alcance, kameRay)
+			local alc = res and (res.Position - origem).Magnitude or KAME.alcance
+			local cresce = 1 - (1 - clamp(tr / 0.3, 0, 1)) ^ 3
+			local len = math.max(alc * cresce, 0.1)
+			local esp = KAME.raio * (1 + 0.08 * math.sin(agora * 45)) * fimFade * clamp(tr / 0.12, 0, 1)
+			if esp > 0.05 then
+				visivel = true
+				ventoLen, ventoEsp = len, esp
+				local mid = origem + dir * (len / 2)
+				local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
+				fx.feixeNucleo.Size = Vector3.new(len, esp * 0.55, esp * 0.55)
+				fx.feixeMeio.Size = Vector3.new(len, esp * 0.9, esp * 0.9)
+				fx.feixeFora.Size = Vector3.new(len, esp * 1.6, esp * 1.6)
+				fx.feixeNucleo.CFrame = cf
+				fx.feixeMeio.CFrame = cf
+				fx.feixeFora.CFrame = cf
+				fx.feixeNucleo.Transparency = 0
+				fx.feixeMeio.Transparency = 0.2
+				fx.feixeFora.Transparency = 0.6
+
+				-- textura animada
+				fx.feixeIni.CFrame = CFrame.new(origem)
+				fx.feixeFim.CFrame = CFrame.new(origem + dir * len)
+				for _, bm in ipairs(fx.beams) do
+					bm.b.Enabled = true
+					bm.b.Width0 = esp * bm.k
+					bm.b.Width1 = esp * bm.k
+				end
+
+				-- fling: blocos, itens e pecas soltas (nao ancoradas) que encostam no feixe sao arremessados
+				local op = fx.flingParams
+				if not op then
+					op = OverlapParams.new()
+					op.FilterType = Enum.RaycastFilterType.Exclude
+					op.FilterDescendantsInstances = ctx.filtro and ctx.filtro() or { character, folder }
+					fx.flingParams = op
+					fx.flingTempo = setmetatable({}, { __mode = "k" })
+				end
+				local caixa = CFrame.lookAt(mid, mid + dir)
+				local partes = workspace:GetPartBoundsInBox(caixa, Vector3.new(esp * 1.6, esp * 1.6, len), op)
+				local feitos = {}
+				for _, part in ipairs(partes) do
+					-- ignora personagens / humanoides (jogadores e NPCs): so blocos, itens e pecas soltas
+					local modelo = part:FindFirstAncestorOfClass("Model")
+					if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
+					local raiz = part.AssemblyRootPart or part
+					if feitos[raiz] or raiz.Anchored then continue end
+					local dono = raiz:FindFirstAncestorOfClass("Model")
+					if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
+					feitos[raiz] = true
+
+					local ultimo = fx.flingTempo[raiz]
+					local novo = (not ultimo) or (agora - ultimo > 0.4)
+					fx.flingTempo[raiz] = agora
+
+					pcall(function()
+						raiz.AssemblyLinearVelocity = dir * KAME.flingForca + Vector3.new(0, KAME.flingCima, 0)
+						if novo then
+							-- impulso extra proporcional a massa: tira ate peca pesada do chao (atrito)
+							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * KAME.flingCima, 0))
+							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.flingGiro
+						end
+					end)
+				end
+			end
+
+			-- impacto
+			if res and visivel and cresce >= 0.98 then
+				local ip = res.Position + res.Normal * 0.6
+				local ib = esp * 2.4 * (1 + 0.1 * math.sin(agora * 38))
+				fx.imp.CFrame = CFrame.lookAt(ip, ip + res.Normal)
+				fx.impBola.Size = Vector3.new(ib, ib, ib)
+				fx.impBola.CFrame = CFrame.new(ip)
+				fx.impBola.Transparency = 0.35
+				fx.impLuz.Brightness = 5 * fimFade
+				fx.impPoeiraE.Rate = 18 * fimFade
+
+				-- repelicao: aneis de choque saindo do ponto atingido, na direcao da superficie
+				if agora - (fx.repelT or 0) > 0.16 then
+					fx.repelT = agora
+					kameOnda(fx, res.Position + res.Normal * 0.2, true, 2, 16, 0.5, 0.3, res.Normal)
+
+					-- repele blocos, itens e pecas soltas ao redor do ponto atingido
+					local repelidos = {}
+					local ao_redor = workspace:GetPartBoundsInRadius(res.Position, KAME.repelRaio, fx.flingParams)
+					for _, part in ipairs(ao_redor) do
+						local modelo = part:FindFirstAncestorOfClass("Model")
+						if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
+						local raiz = part.AssemblyRootPart or part
+						if repelidos[raiz] or raiz.Anchored then continue end
+						local dono = raiz:FindFirstAncestorOfClass("Model")
+						if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
+						repelidos[raiz] = true
+
+						local fora = raiz.Position - res.Position
+						if fora.Magnitude < 0.1 then fora = res.Normal end
+						local d = (fora.Unit + res.Normal * 0.6).Unit
+						pcall(function()
+							raiz.AssemblyLinearVelocity = d * KAME.repelForca
+							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * 20, 0))
+							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.repelGiro
+						end)
+					end
+				end
+			else
+				fx.impBola.Transparency = 1
+				fx.impLuz.Brightness = 0
+				fx.impPoeiraE.Rate = 0
+			end
+		end
+		if not visivel then
+			for _, bm in ipairs(fx.beams) do bm.b.Enabled = false end
+			fx.feixeNucleo.Transparency = 1
+			fx.feixeMeio.Transparency = 1
+			fx.feixeFora.Transparency = 1
+			fx.impBola.Transparency = 1
+			fx.impLuz.Brightness = 0
+			fx.impPoeiraE.Rate = 0
+		end
+		kameVentoAtualizar(fx, origem, dir, ventoLen, ventoEsp, dt, visivel)
+	end
+
+	return {
+		somParar = kameSomParar, somTocar = kameSomTocar, somAtualizar = kameSomAtualizar,
+		fala = kameFala, vfxAtualizar = kameVfxAtualizar, vfxDestruir = kameVfxDestruir,
+		destruir = function()
+			kameSomParar(true)
+			kameFala.destruir()
+			kameVfxDestruir()
+		end,
+	}
+end
+
 do
 	local antigo = _G.__ClonesHands
 	if antigo and antigo.destruir then pcall(antigo.destruir) end
@@ -6423,7 +8344,7 @@ _G.__ClonesHands = (function()
 	local DIST_PARAR = 7.3
 	local DIST_ANDAR = 8.6
 	local DIST_TELEPORTE = 110
-	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true }
+	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true, Pegar = true }
 
 	local NOMES_CLONE = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg" }
 	local NOMES_MEUS = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg", "Left Arm", "Right Arm" }
@@ -6539,6 +8460,7 @@ _G.__ClonesHands = (function()
 			table.insert(lista, {
 				palmaWeld = palmaWeld, baseWeld = baseWeld, pontaWeld = pontaWeld, juntaWeld = juntaWeld,
 				id = id, ehDireito = ehDireito, ab = 0, ap = 0,
+				braco = membro, palma = palma, pBase = dedoBase, pPonta = dedoPonta,
 			})
 		end
 	end
@@ -6614,6 +8536,7 @@ _G.__ClonesHands = (function()
 		local c = {
 			id = proxId, nome = "Clone " .. proxId, skin = skinUsada,
 			model = model, hum = hum, root = root, torso = torso, dedos = dedos,
+			bracoD = bracoD, bracoE = bracoE,
 			emote = nil, seguir = false, movendo = false,
 			fase = 0, amp = 0, corpoAplicado = false, travado = false,
 			cur = { R = CFrame.new(), L = CFrame.new(), N = CFrame.new(), B = CFrame.new(), PR = CFrame.new(), PL = CFrame.new() },
@@ -6632,9 +8555,21 @@ _G.__ClonesHands = (function()
 		return true, aviso
 	end
 
+	local function limparKame(c)
+		if c.kame then
+			pcall(c.kame.destruir)
+			c.kame = nil
+		end
+		if c.kameFolder then
+			pcall(function() c.kameFolder:Destroy() end)
+			c.kameFolder = nil
+		end
+	end
+
 	function api.remover(id)
 		for i, c in ipairs(clones) do
 			if c.id == id then
+				limparKame(c)
 				if c.model then c.model:Destroy() end
 				table.remove(clones, i)
 				break
@@ -6645,6 +8580,7 @@ _G.__ClonesHands = (function()
 
 	function api.removerTodos()
 		for _, c in ipairs(clones) do
+			limparKame(c)
 			if c.model then c.model:Destroy() end
 		end
 		table.clear(clones)
@@ -6715,6 +8651,59 @@ _G.__ClonesHands = (function()
 		end)
 	end
 
+	-- Kamehameha do clone: mesmas fases do jogador (KF1-3 anda, KF4-9 parado + recarga, KF10-11 parado + disparo),
+	-- mas com o relogio proprio de cada clone. Repete a cada KAME.ciclo ate o emote ser trocado.
+	local function kameClone(c, dt)
+		local emote = c.emote
+		local agora = os.clock()
+		local fase, t = nil, 0
+
+		if emote == "Kamehameha" then
+			if not c.kame then
+				local pf = Instance.new("Folder")
+				pf.Name = "KameFX" .. c.id
+				pf.Parent = pasta
+				c.kameFolder = pf
+				c.kame = KAME.criar({
+					character = c.model, rootPart = c.root, rightArm = c.bracoD, leftArm = c.bracoE,
+					folder = pf, partesMao = c.dedos, ehLocal = false,
+					filtro = function() return { c.model, pf, pasta, LocalPlayer.Character } end,
+				})
+			end
+			if c.kameUltimoEmote ~= "Kamehameha" then
+				c.kameInicio = agora
+				c.kameFase = nil
+			end
+			t = (agora - c.kameInicio) % KAME.ciclo
+			fase = (t < KAME.tFase2) and 1 or ((t < KAME.tFase3) and 2 or 3)
+			if fase ~= c.kameFase then
+				c.kameFase = fase
+				c.kame.fala.entrar(fase, t)
+				if fase == 2 then
+					c.kame.somTocar(KAME.somRecarga, agora + (KAME.tFase3 - t))
+				elseif fase == 3 then
+					c.kame.somTocar(KAME.somDisparo, agora + (KAME.ciclo - t))
+				else
+					c.kame.somParar()
+				end
+			end
+			c.kameFrame = KAME.amostrar(defaultEmotes["Kamehameha"], t)
+		else
+			if c.kameFase ~= nil and c.kame then
+				c.kame.somParar()
+				c.kame.fala.parar()
+			end
+			c.kameFase = nil
+			c.kameFrame = nil
+		end
+		c.kameUltimoEmote = emote
+
+		if c.kame then
+			c.kame.somAtualizar()
+			c.kame.vfxAtualizar(fase, t, dt) -- fase nil = fade out do VFX
+		end
+	end
+
 	local function ia(c, dt, agora)
 		local hum, root = c.hum, c.root
 		local meu = LocalPlayer.Character
@@ -6722,6 +8711,7 @@ _G.__ClonesHands = (function()
 		local meuHum = meu and meu:FindFirstChildOfClass("Humanoid")
 		local emote = c.emote
 		local parado = emote ~= nil and (EMOTES_IMOVEIS[emote] == true or EMOTES_CORPO[emote] == true)
+		if emote == "Kamehameha" then parado = (c.kameFase or 1) ~= 1 end -- fase 1 (KF1-3) ainda anda
 
 		if parado then
 			if not c.travado then
@@ -6857,7 +8847,8 @@ _G.__ClonesHands = (function()
 		c.fase = c.fase + dt * clamp(vel, 0, 40) * 0.55
 		local s = sin(c.fase) * c.amp
 
-		local P = emote and calcularPoseEmote(emote, t, false) or poseVazia()
+		local kf = (emote == "Kamehameha") and c.kameFrame or nil -- pose pelo relogio do proprio clone
+		local P = emote and calcularPoseEmote(emote, t, false, kf) or poseVazia()
 		local ident = CFrame.new()
 
 		local andarBraco = CFrame.Angles(0, 0, -rad(40) * s)
@@ -6881,7 +8872,7 @@ _G.__ClonesHands = (function()
 		if j.lh then j.lh.Transform = cur.PL end
 
 		local kd = clamp(dt * 15, 0, 1)
-		local defE = emote and defaultEmotes[emote]
+		local defE = kf or (emote and defaultEmotes[emote])
 		for _, art in ipairs(c.dedos) do
 			local alvoB, alvoP, ext = 0, 0, nil
 			local pp = defE and (art.ehDireito and defE.palmaDir or defE.palmaEsq)
@@ -6892,9 +8883,9 @@ _G.__ClonesHands = (function()
 			end
 
 			if emote then
-				local b, p = alvoDedosEmote(emote, art.id, art.ehDireito)
+				local b, p = alvoDedosEmote(emote, art.id, art.ehDireito, kf)
 				alvoB, alvoP = b or 0, p or 0
-				ext = extraDedoEmote(emote, art.id, art.ehDireito)
+				ext = extraDedoEmote(emote, art.id, art.ehDireito, kf)
 			elseif noAr then
 				alvoB, alvoP = -15, -10
 			elseif vel > 18 then
@@ -6932,10 +8923,13 @@ _G.__ClonesHands = (function()
 		for i = #clones, 1, -1 do
 			local c = clones[i]
 			if not (c.model and c.model.Parent and c.root.Parent) then
+				limparKame(c)
 				table.remove(clones, i)
 				avisar()
 			else
-				local ok, err = pcall(ia, c, dt, agora)
+				local ok, err = pcall(kameClone, c, dt)
+				if not ok then warn("[Clone] Kamehameha:", err) end
+				ok, err = pcall(ia, c, dt, agora)
 				if not ok then warn("[Clone] IA:", err) end
 				ok, err = pcall(animar, c, dt, t)
 				if not ok then warn("[Clone] animação:", err) end
@@ -6953,6 +8947,7 @@ _G.__ClonesHands = (function()
 	function api.destruir()
 		for _, cn in ipairs(conexoes) do cn:Disconnect() end
 		table.clear(conexoes)
+		for _, c in ipairs(clones) do limparKame(c) end
 		table.clear(clones)
 		if pasta then pasta:Destroy() end
 	end
@@ -7626,668 +9621,13 @@ local function criarMaoDinamica(character)
 	-- Kamehameha: estado, sons (com fade) e VFX
 	local kameFase, kameInicio, kameUltimoEmote = nil, 0, nil
 	local kameFxFase, kameFxT = nil, 0
-	local kameSnds = {}
-
-	local function kameSomParar(imediato)
-		local agora = os.clock()
-		for i = #kameSnds, 1, -1 do
-			local e = kameSnds[i]
-			if imediato or not (e.inst and e.inst.Parent) then
-				pcall(function() e.inst:Stop() e.inst:Destroy() end)
-				table.remove(kameSnds, i)
-			elseif not e.morrendo then
-				e.morrendo = true
-				e.mInicio = agora
-				e.mVol = e.inst.Volume
-			end
-		end
-	end
-
-	-- fimClock: os.clock() em que a fase termina (o volume desce suave ate la)
-	local function kameSomTocar(id, fimClock)
-		kameSomParar()
-		if not (rootPart and rootPart.Parent) then return end
-		local s = Instance.new("Sound")
-		s.Name = "SomKamehameha"
-		s.SoundId = id
-		s.Volume = 0
-		s.RollOffMode = Enum.RollOffMode.InverseTapered
-		s.MaxDistance = 120
-		s.Parent = rootPart
-		s:Play()
-		game:GetService("Debris"):AddItem(s, 10)
-		table.insert(kameSnds, { inst = s, inicio = os.clock(), fim = fimClock })
-	end
-
-	local function kameSomAtualizar()
-		local agora = os.clock()
-		for i = #kameSnds, 1, -1 do
-			local e = kameSnds[i]
-			local s = e.inst
-			if not (s and s.Parent) then
-				table.remove(kameSnds, i)
-			elseif e.morrendo then
-				local a = (agora - e.mInicio) / KAME.fadeParar
-				if a >= 1 then
-					pcall(function() s:Stop() s:Destroy() end)
-					table.remove(kameSnds, i)
-				else
-					s.Volume = e.mVol * (1 - a)
-				end
-			else
-				local v = clamp((agora - e.inicio) / KAME.fadeEntrada, 0, 1)
-				if e.fim then v = v * clamp((e.fim - agora) / KAME.fadeSaida, 0, 1) end
-				v = v * v * (3 - 2 * v)
-				s.Volume = KAME.volume * v
-			end
-		end
-	end
-
-	-- ===== Kamehameha VFX =====
-	local kameFX = nil
-	local kameRay = RaycastParams.new()
-	kameRay.FilterType = Enum.RaycastFilterType.Exclude
-	kameRay.FilterDescendantsInstances = { character, folder }
-
-	local function kameParte(nome, forma)
-		local p = Instance.new("Part")
-		p.Name = nome
-		p.Shape = forma or Enum.PartType.Ball
-		p.Material = Enum.Material.Neon
-		p.Color = KAME.cor
-		p.Size = Vector3.new(1, 1, 1)
-		p.Transparency = 1
-		p.Anchored = true
-		p.CanCollide = false
-		p.CanQuery = false
-		p.CanTouch = false
-		p.CastShadow = false
-		return p
-	end
-
-	local function kameEmissor(pai, cfg)
-		local e = Instance.new("ParticleEmitter")
-		e.Texture = cfg.tex or "rbxasset://textures/particles/sparkles_main.dds"
-		e.Color = ColorSequence.new(cfg.cor or KAME.cor)
-		e.LightEmission = cfg.luz or 1
-		e.Lifetime = cfg.vida
-		e.Speed = cfg.vel
-		e.Size = cfg.tam
-		e.Transparency = cfg.transp or NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.1),
-			NumberSequenceKeypoint.new(0.7, 0.3),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		e.Rate = 0
-		e.Rotation = NumberRange.new(0, 360)
-		e.Acceleration = cfg.acel or Vector3.new(0, 0, 0)
-		e.Drag = cfg.drag or 0
-		e.Shape = cfg.forma or Enum.ParticleEmitterShape.Box
-		e.ShapeInOut = cfg.dentro or Enum.ParticleEmitterShapeInOut.Outward
-		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
-		e.SpreadAngle = cfg.spread or Vector2.new(0, 0)
-		e.EmissionDirection = cfg.dir or Enum.NormalId.Top
-		e.Parent = pai
-		return e
-	end
-
-	local function kameVfxCriar()
-		local pasta = Instance.new("Folder")
-		pasta.Name = "KamehamehaFX"
-		pasta.Parent = folder
-
-		local fx = { pasta = pasta, g = 0, ondas = {}, raios = {}, disparou = false }
-		local function nova(nome, forma)
-			local p = kameParte(nome, forma)
-			p.Parent = pasta
-			return p
-		end
-
-		-- esfera de energia
-		fx.brilho = nova("Brilho")
-		fx.nucleo = nova("Nucleo")
-		fx.nucleo.Color = KAME.corNucleo
-		fx.luz = Instance.new("PointLight")
-		fx.luz.Color = KAME.cor
-		fx.luz.Range = 24
-		fx.luz.Brightness = 0
-		fx.luz.Shadows = false
-		fx.luz.Parent = fx.brilho
-
-		-- raios de luz saindo da esfera
-		for i = 1, 9 do
-			local p = nova("Raio", Enum.PartType.Block)
-			p.Color = (i % 2 == 0) and KAME.corNucleo or KAME.cor
-			fx.raios[i] = {
-				p = p,
-				d0 = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit,
-				vel = (math.random() * 2 - 1) * 2.4,
-				ph = math.random() * 6.28,
-				esp = 0.08 + math.random() * 0.1,
-			}
-		end
-
-		-- particulas convergindo pra esfera + explosao de faiscas
-		fx.conv = nova("Ancora")
-		-- mini trails semi transparentes sendo sugados pra esfera (no lugar das estrelinhas)
-		fx.sugados = {}
-		fx.sugAcc = 0
-		for i = 1, KAME.trailQtd do
-			local tp = nova("Sugado")
-			tp.Size = Vector3.new(0.2, 0.2, 0.2)
-			local a0 = Instance.new("Attachment")
-			a0.Position = Vector3.new(0, 0.15, 0)
-			a0.Parent = tp
-			local a1 = Instance.new("Attachment")
-			a1.Position = Vector3.new(0, -0.15, 0)
-			a1.Parent = tp
-			local tr = Instance.new("Trail")
-			tr.Texture = KAME.trailTex
-			tr.TextureMode = Enum.TextureMode.Stretch
-			tr.Attachment0 = a0
-			tr.Attachment1 = a1
-			tr.Lifetime = 0.25
-			tr.MinLength = 0.02
-			tr.FaceCamera = true
-			tr.LightEmission = 1
-			tr.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
-			tr.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, KAME.trailTransp),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			tr.WidthScale = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(1, 0),
-			})
-			tr.Enabled = false
-			tr.Parent = tp
-			fx.sugados[i] = { p = tp, tr = tr, vivo = false, t = 0, dur = 0.5, d = Vector3.new(0, 1, 0), r = 0, giro = 0 }
-		end
-		fx.conv.Size = Vector3.new(7, 7, 7)
-
-		-- feixe (3 camadas)
-		fx.feixeFora = nova("FeixeFora", Enum.PartType.Cylinder)
-		fx.feixeMeio = nova("FeixeMeio", Enum.PartType.Cylinder)
-		fx.feixeNucleo = nova("FeixeNucleo", Enum.PartType.Cylinder)
-		fx.feixeNucleo.Color = KAME.corNucleo
-		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
-
-		-- camadas com textura animada correndo pelo feixe
-		fx.feixeIni = nova("FeixeIni")
-		fx.feixeFim = nova("FeixeFim")
-		fx.beams = {}
-		local function criarBeam(k, vel, transp)
-			local a0 = Instance.new("Attachment")
-			a0.Parent = fx.feixeIni
-			local a1 = Instance.new("Attachment")
-			a1.Parent = fx.feixeFim
-			local b = Instance.new("Beam")
-			b.Attachment0 = a0
-			b.Attachment1 = a1
-			b.Texture = KAME.feixeTex
-			b.TextureMode = Enum.TextureMode.Wrap
-			b.TextureLength = KAME.feixeTexLen
-			b.TextureSpeed = vel
-			b.LightEmission = 1
-			b.LightInfluence = 0
-			b.FaceCamera = true
-			b.Segments = 1
-			b.Color = ColorSequence.new(KAME.cor, KAME.corNucleo)
-			b.Transparency = NumberSequence.new(transp)
-			b.Width0 = 0
-			b.Width1 = 0
-			b.Enabled = false
-			b.Parent = fx.feixeIni
-			table.insert(fx.beams, { b = b, k = k })
-		end
-		criarBeam(1.5, KAME.feixeTexVel, 0.25)
-		criarBeam(2.2, KAME.feixeTexVel * 0.6, 0.55)
-
-		-- vento cortado pelo feixe: casca de ar + riscos de vento correndo em volta
-		fx.ventoCasca = nova("VentoCasca", Enum.PartType.Cylinder)
-		fx.ventoCasca.Material = Enum.Material.ForceField
-		fx.ventoCasca.Color = Color3.fromRGB(215, 240, 255)
-		fx.ventoLigado = false
-		fx.vento = {}
-		for i = 1, KAME.ventoQtd do
-			local vp = nova("Vento")
-			vp.Size = Vector3.new(0.2, 0.2, 0.2)
-			local a0 = Instance.new("Attachment")
-			a0.Position = Vector3.new(0, 0.12, 0)
-			a0.Parent = vp
-			local a1 = Instance.new("Attachment")
-			a1.Position = Vector3.new(0, -0.12, 0)
-			a1.Parent = vp
-			local tr = Instance.new("Trail")
-			tr.Texture = KAME.trailTex
-			tr.TextureMode = Enum.TextureMode.Stretch
-			tr.Attachment0 = a0
-			tr.Attachment1 = a1
-			tr.Lifetime = 0.2
-			tr.MinLength = 0.02
-			tr.FaceCamera = true
-			tr.LightEmission = 0.5
-			tr.Color = ColorSequence.new(Color3.fromRGB(235, 248, 255), Color3.fromRGB(160, 215, 255))
-			tr.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0.55),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			tr.WidthScale = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(1, 0),
-			})
-			tr.Enabled = false
-			tr.Parent = vp
-			fx.vento[i] = { p = vp, tr = tr, s = 0, ang = 0, rad = 1, vel = 80, giro = 0 }
-		end
-
-		-- impacto do feixe
-		fx.imp = nova("Impacto")
-		fx.impBola = nova("ImpactoBola")
-		fx.impLuz = Instance.new("PointLight")
-		fx.impLuz.Color = KAME.cor
-		fx.impLuz.Range = 28
-		fx.impLuz.Brightness = 0
-		fx.impLuz.Shadows = false
-		fx.impLuz.Parent = fx.imp
-		fx.impPoeiraE = kameEmissor(fx.imp, {
-			tex = "rbxasset://textures/particles/smoke_main.dds", luz = 0.5,
-			vida = NumberRange.new(0.8, 1.5), vel = NumberRange.new(10, 22), drag = 2,
-			spread = Vector2.new(80, 80),
-			tam = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3), NumberSequenceKeypoint.new(1, 9) }),
-			transp = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1) }),
-		})
-
-		kameFX = fx
-		return fx
-	end
-
-	-- ===== camera do disparo: FOV puxa pra direcao do feixe + mini shake =====
-	local kameCam = nil
-	local KAME_CAM_NOME = "KamehamehaCam"
-
-	local function kameCamParar()
-		local st = kameCam
-		if not st then return end
-		kameCam = nil
-		pcall(function() RunService:UnbindFromRenderStep(KAME_CAM_NOME) end)
-		local cam = workspace.CurrentCamera
-		if cam then cam.FieldOfView = st.baseFov end
-	end
-
-	local function kameCamPasso()
-		local st = kameCam
-		local cam = workspace.CurrentCamera
-		if not st or not cam then kameCamParar() return end
-		local agora = os.clock()
-		local a = (agora - st.t0) / KAME.camDur
-		if a >= 1 then kameCamParar() return end
-
-		-- sobe rapido (18% inicial) e volta suave
-		local env
-		if a < 0.18 then env = a / 0.18 else env = (1 - (a - 0.18) / 0.82) ^ 2 end
-		local amp = (1 - a) ^ 2
-
-		cam.FieldOfView = st.baseFov - KAME.fovPuxa * env
-		local off = Vector3.new(math.sin(agora * 71), math.sin(agora * 89 + 1.3), math.sin(agora * 53 + 2.1)) * (KAME.shakeForca * amp)
-		local rot = Vector3.new(math.sin(agora * 77 + 0.7), math.sin(agora * 61 + 2.4), math.sin(agora * 47)) * (KAME.shakeAng * amp)
-		cam.CFrame = CFrame.new(st.dir * (KAME.camPuxa * env)) * cam.CFrame * CFrame.new(off) * CFrame.Angles(rot.X, rot.Y, rot.Z)
-	end
-
-	local function kameCamIniciar(dir)
-		local cam = workspace.CurrentCamera
-		if not cam then return end
-		kameCamParar()
-		kameCam = { t0 = os.clock(), dir = dir, baseFov = cam.FieldOfView }
-		RunService:BindToRenderStep(KAME_CAM_NOME, Enum.RenderPriority.Camera.Value + 2, kameCamPasso)
-	end
-
-	local function kameVfxDestruir()
-		kameCamParar()
-		if kameFX then
-			pcall(function() kameFX.pasta:Destroy() end)
-			kameFX = nil
-		end
-	end
-
-	-- centro real da mao (palma + dedos), em vez da ponta do braco: a mao fica alem da ponta
-	local function kameMaoPonta(braco)
-		local soma, n, vistos = Vector3.new(0, 0, 0), 0, {}
-		for _, m in ipairs(partesMao) do
-			if m.braco == braco then
-				for _, p in ipairs({ m.palma, m.pBase, m.pPonta }) do
-					if p and p.Parent and not vistos[p] then
-						vistos[p] = true
-						soma = soma + p.Position
-						n = n + 1
-					end
-				end
-			end
-		end
-		if n == 0 then
-			return (braco.CFrame * CFrame.new(0, -1, 0)).Position
-		end
-		return soma / n
-	end
-
-	local function kameOnda(fx, pos, anel, s0, s1, dur, tr0, normal)
-		local p = kameParte(anel and "Anel" or "Onda", anel and Enum.PartType.Cylinder or Enum.PartType.Ball)
-		p.Material = Enum.Material.ForceField
-		p.Transparency = tr0
-		if anel and normal then
-			p.CFrame = CFrame.lookAt(pos, pos + normal) * CFrame.Angles(0, math.pi / 2, 0)
-		else
-			p.CFrame = anel and (CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)) or CFrame.new(pos)
-		end
-		p.Parent = fx.pasta
-		table.insert(fx.ondas, { p = p, t0 = os.clock(), dur = dur, s0 = s0, s1 = s1, tr0 = tr0, anel = anel })
-	end
-
-	local function kameVentoSortear(v, s0)
-		v.s = s0
-		v.ang = math.random() * math.pi * 2
-		v.rad = 0.9 + math.random() * 1.0 -- multiplicador da espessura do feixe
-		v.vel = 70 + math.random() * 50
-		v.giro = (math.random() * 2 - 1) * 2.5
-	end
-
-	local function kameVentoAtualizar(fx, origem, dir, len, esp, dt, ligado)
-		if not ligado then
-			fx.ventoCasca.Transparency = 1
-			if fx.ventoLigado then
-				fx.ventoLigado = false
-				for _, v in ipairs(fx.vento) do v.tr.Enabled = false end
-			end
-			return
-		end
-
-		local base = CFrame.lookAt(origem, origem + dir)
-		local dirDe, cimaDe = base.RightVector, base.UpVector
-
-		-- casca de ar translucida em volta do feixe
-		local mid = origem + dir * (len / 2)
-		local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
-		fx.ventoCasca.Size = Vector3.new(len, esp * 2.8, esp * 2.8)
-		fx.ventoCasca.CFrame = cf
-		fx.ventoCasca.Transparency = KAME.ventoCasca
-
-		-- riscos de vento correndo no sentido do feixe
-		local primeiro = not fx.ventoLigado
-		fx.ventoLigado = true
-		for _, v in ipairs(fx.vento) do
-			if primeiro then
-				kameVentoSortear(v, math.random() * len)
-				v.tr.Enabled = true
-				v.tr:Clear()
-			end
-			v.s = v.s + v.vel * dt
-			v.ang = v.ang + v.giro * dt
-			if v.s > len then
-				kameVentoSortear(v, 0)
-				v.tr.Enabled = false
-				v.tr.Enabled = true
-				v.tr:Clear()
-			end
-			local r = esp * v.rad
-			local pos = origem + dir * v.s + (dirDe * math.cos(v.ang) + cimaDe * math.sin(v.ang)) * r
-			v.p.CFrame = CFrame.lookAt(pos, pos + dir)
-		end
-	end
-
-	local function kameVfxAtualizar(fase, t, dt)
-		local ativo = (fase == 2 or fase == 3)
-		if ativo and not kameFX then kameVfxCriar() end
-		local fx = kameFX
-		if not fx then return end
-		if not fx.pasta.Parent then kameFX = nil return end
-
-		-- fade geral do efeito
-		local alvo = ativo and 1 or 0
-		local passo = dt / (ativo and KAME.fxEntrada or KAME.fxSaida)
-		fx.g = fx.g + clamp(alvo - fx.g, -passo, passo)
-		if not ativo and fx.g <= 0.001 then kameVfxDestruir() return end
-		local g = fx.g
-		local agora = os.clock()
-
-		local dir = rootPart.CFrame.LookVector
-		local origem = (kameMaoPonta(rightArm) + kameMaoPonta(leftArm)) / 2 + dir * KAME.bolaFrente
-
-		local prog = 0
-		local tr = 0
-		if fase == 2 then
-			prog = clamp((t - KAME.tFase2) / (KAME.tFase3 - KAME.tFase2), 0, 1)
-		elseif fase == 3 then
-			prog = 1
-			tr = t - KAME.tFase3
-		end
-		local fimFade = (fase == 3) and clamp((KAME.ciclo - t) / 0.5, 0, 1) or 1
-
-		-- esfera de energia
-		local pulso = 1 + 0.07 * math.sin(agora * 32)
-		local diam = KAME.bolaMax * (0.15 + 0.85 * prog ^ 1.4)
-		if fase == 3 then
-			diam = KAME.bolaMax * (1.1 - 0.25 * clamp(tr / 0.5, 0, 1))
-		end
-		diam = math.max(diam * g * fimFade * pulso, 0.05)
-		fx.brilho.Size = Vector3.new(diam, diam, diam)
-		fx.brilho.CFrame = CFrame.new(origem)
-		fx.brilho.Transparency = 0.45 + (1 - g) * 0.55
-		local corBola = KAME.cor:Lerp(KAME.bolaCorFim, prog ^ 1.2)
-		fx.brilho.Color = corBola
-		fx.luz.Color = corBola
-		fx.nucleo.Size = Vector3.new(diam * 0.62, diam * 0.62, diam * 0.62)
-		fx.nucleo.CFrame = CFrame.new(origem)
-		fx.nucleo.Transparency = (1 - g)
-		fx.luz.Brightness = (2 + 4 * prog) * g * fimFade
-
-		-- raios de luz
-		local raioAmt = (fase == 2) and prog or (fase == 3 and (1 - clamp(tr / 0.5, 0, 1)) or 0)
-		for _, r in ipairs(fx.raios) do
-			local d = CFrame.Angles(0, agora * r.vel, 0):VectorToWorldSpace(r.d0)
-			local flick = 0.55 + 0.45 * math.abs(math.sin(agora * 14 + r.ph))
-			local len = math.max((1.5 + 5.5 * raioAmt) * flick * g, 0.05)
-			local pos = origem + d * (diam * 0.4 + len / 2)
-			r.p.Size = Vector3.new(r.esp, r.esp, len)
-			r.p.CFrame = CFrame.lookAt(pos, pos + d)
-			r.p.Transparency = 1 - clamp(raioAmt * 1.6, 0, 0.85) * g
-		end
-
-		-- particulas
-		fx.conv.CFrame = CFrame.new(origem)
-		-- mini trails sendo sugados pra esfera
-		local taxaSug = (fase == 2) and (25 + 35 * prog) * g or 0
-		fx.sugAcc = fx.sugAcc + taxaSug * dt
-		for _, sg in ipairs(fx.sugados) do
-			if not sg.vivo and fx.sugAcc >= 1 then
-				fx.sugAcc = fx.sugAcc - 1
-				sg.vivo = true
-				sg.t = 0
-				sg.dur = 0.35 + math.random() * 0.25
-				sg.d = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1).Unit
-				sg.r = KAME.trailRaio * (0.7 + 0.5 * math.random())
-				sg.giro = (math.random() * 2 - 1) * 2.5
-				sg.p.CFrame = CFrame.new(origem + sg.d * sg.r)
-				sg.tr:Clear()
-				sg.tr.Enabled = true
-			end
-			if sg.vivo then
-				sg.t = sg.t + dt / sg.dur
-				if sg.t >= 1 then
-					sg.vivo = false
-					sg.tr.Enabled = false
-				else
-					local e = sg.t ^ 1.6
-					local dd = CFrame.Angles(0, sg.giro * sg.t, 0):VectorToWorldSpace(sg.d)
-					sg.p.CFrame = CFrame.new(origem + dd * (sg.r * (1 - e)))
-				end
-			end
-		end
-
-		-- disparo
-		if fase == 3 and not fx.disparou then
-			fx.disparou = true
-			kameCamIniciar(dir)
-			local plano = Vector3.new(dir.X, 0, dir.Z)
-			if plano.Magnitude > 0.01 then
-				fx.recuoDir = -plano.Unit
-				fx.recuoT0 = agora
-			end
-		elseif fase ~= 3 then
-			fx.disparou = false
-		end
-
-		-- recuo: desliza pra tras ao soltar o feixe
-		if fx.recuoT0 then
-			local a = (agora - fx.recuoT0) / KAME.recuoDur
-			if a >= 1 then
-				fx.recuoT0 = nil
-			else
-				local v = KAME.recuoVel * (1 - a) ^ 2
-				local vy = rootPart.AssemblyLinearVelocity.Y
-				rootPart.AssemblyLinearVelocity = Vector3.new(fx.recuoDir.X * v, vy, fx.recuoDir.Z * v)
-			end
-		end
-
-		-- ondas de choque
-		for i = #fx.ondas, 1, -1 do
-			local o = fx.ondas[i]
-			local a = (agora - o.t0) / o.dur
-			if a >= 1 then
-				o.p:Destroy()
-				table.remove(fx.ondas, i)
-			else
-				local e = 1 - (1 - a) ^ 3
-				local s = o.s0 + (o.s1 - o.s0) * e
-				o.p.Size = o.anel and Vector3.new(0.4, s, s) or Vector3.new(s, s, s)
-				o.p.Transparency = o.tr0 + (1 - o.tr0) * a
-			end
-		end
-
-		-- feixe
-		local visivel = false
-		local ventoLen, ventoEsp = 0, 0
-		if fase == 3 then
-			local res = workspace:Raycast(origem, dir * KAME.alcance, kameRay)
-			local alc = res and (res.Position - origem).Magnitude or KAME.alcance
-			local cresce = 1 - (1 - clamp(tr / 0.3, 0, 1)) ^ 3
-			local len = math.max(alc * cresce, 0.1)
-			local esp = KAME.raio * (1 + 0.08 * math.sin(agora * 45)) * fimFade * clamp(tr / 0.12, 0, 1)
-			if esp > 0.05 then
-				visivel = true
-				ventoLen, ventoEsp = len, esp
-				local mid = origem + dir * (len / 2)
-				local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
-				fx.feixeNucleo.Size = Vector3.new(len, esp * 0.55, esp * 0.55)
-				fx.feixeMeio.Size = Vector3.new(len, esp * 0.9, esp * 0.9)
-				fx.feixeFora.Size = Vector3.new(len, esp * 1.6, esp * 1.6)
-				fx.feixeNucleo.CFrame = cf
-				fx.feixeMeio.CFrame = cf
-				fx.feixeFora.CFrame = cf
-				fx.feixeNucleo.Transparency = 0
-				fx.feixeMeio.Transparency = 0.2
-				fx.feixeFora.Transparency = 0.6
-
-				-- textura animada
-				fx.feixeIni.CFrame = CFrame.new(origem)
-				fx.feixeFim.CFrame = CFrame.new(origem + dir * len)
-				for _, bm in ipairs(fx.beams) do
-					bm.b.Enabled = true
-					bm.b.Width0 = esp * bm.k
-					bm.b.Width1 = esp * bm.k
-				end
-
-				-- fling: blocos, itens e pecas soltas (nao ancoradas) que encostam no feixe sao arremessados
-				local op = fx.flingParams
-				if not op then
-					op = OverlapParams.new()
-					op.FilterType = Enum.RaycastFilterType.Exclude
-					op.FilterDescendantsInstances = { character, folder }
-					fx.flingParams = op
-					fx.flingTempo = setmetatable({}, { __mode = "k" })
-				end
-				local caixa = CFrame.lookAt(mid, mid + dir)
-				local partes = workspace:GetPartBoundsInBox(caixa, Vector3.new(esp * 1.6, esp * 1.6, len), op)
-				local feitos = {}
-				for _, part in ipairs(partes) do
-					-- ignora personagens / humanoides (jogadores e NPCs): so blocos, itens e pecas soltas
-					local modelo = part:FindFirstAncestorOfClass("Model")
-					if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
-					local raiz = part.AssemblyRootPart or part
-					if feitos[raiz] or raiz.Anchored then continue end
-					local dono = raiz:FindFirstAncestorOfClass("Model")
-					if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
-					feitos[raiz] = true
-
-					local ultimo = fx.flingTempo[raiz]
-					local novo = (not ultimo) or (agora - ultimo > 0.4)
-					fx.flingTempo[raiz] = agora
-
-					pcall(function()
-						raiz.AssemblyLinearVelocity = dir * KAME.flingForca + Vector3.new(0, KAME.flingCima, 0)
-						if novo then
-							-- impulso extra proporcional a massa: tira ate peca pesada do chao (atrito)
-							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * KAME.flingCima, 0))
-							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.flingGiro
-						end
-					end)
-				end
-			end
-
-			-- impacto
-			if res and visivel and cresce >= 0.98 then
-				local ip = res.Position + res.Normal * 0.6
-				local ib = esp * 2.4 * (1 + 0.1 * math.sin(agora * 38))
-				fx.imp.CFrame = CFrame.lookAt(ip, ip + res.Normal)
-				fx.impBola.Size = Vector3.new(ib, ib, ib)
-				fx.impBola.CFrame = CFrame.new(ip)
-				fx.impBola.Transparency = 0.35
-				fx.impLuz.Brightness = 5 * fimFade
-				fx.impPoeiraE.Rate = 18 * fimFade
-
-				-- repelicao: aneis de choque saindo do ponto atingido, na direcao da superficie
-				if agora - (fx.repelT or 0) > 0.16 then
-					fx.repelT = agora
-					kameOnda(fx, res.Position + res.Normal * 0.2, true, 2, 16, 0.5, 0.3, res.Normal)
-
-					-- repele blocos, itens e pecas soltas ao redor do ponto atingido
-					local repelidos = {}
-					local ao_redor = workspace:GetPartBoundsInRadius(res.Position, KAME.repelRaio, fx.flingParams)
-					for _, part in ipairs(ao_redor) do
-						local modelo = part:FindFirstAncestorOfClass("Model")
-						if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
-						local raiz = part.AssemblyRootPart or part
-						if repelidos[raiz] or raiz.Anchored then continue end
-						local dono = raiz:FindFirstAncestorOfClass("Model")
-						if dono and dono:FindFirstChildOfClass("Humanoid") then continue end
-						repelidos[raiz] = true
-
-						local fora = raiz.Position - res.Position
-						if fora.Magnitude < 0.1 then fora = res.Normal end
-						local d = (fora.Unit + res.Normal * 0.6).Unit
-						pcall(function()
-							raiz.AssemblyLinearVelocity = d * KAME.repelForca
-							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * 20, 0))
-							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.repelGiro
-						end)
-					end
-				end
-			else
-				fx.impBola.Transparency = 1
-				fx.impLuz.Brightness = 0
-				fx.impPoeiraE.Rate = 0
-			end
-		end
-		if not visivel then
-			for _, bm in ipairs(fx.beams) do bm.b.Enabled = false end
-			fx.feixeNucleo.Transparency = 1
-			fx.feixeMeio.Transparency = 1
-			fx.feixeFora.Transparency = 1
-			fx.impBola.Transparency = 1
-			fx.impLuz.Brightness = 0
-			fx.impPoeiraE.Rate = 0
-		end
-		kameVentoAtualizar(fx, origem, dir, ventoLen, ventoEsp, dt, visivel)
-	end
+	local kame = KAME.criar({
+		character = character, rootPart = rootPart, rightArm = rightArm, leftArm = leftArm,
+		folder = folder, partesMao = partesMao, ehLocal = true,
+	})
+	local kameSomParar, kameSomTocar, kameSomAtualizar = kame.somParar, kame.somTocar, kame.somAtualizar
+	local kameFala = kame.fala
+	local kameVfxAtualizar, kameVfxDestruir = kame.vfxAtualizar, kame.vfxDestruir
 
 	loopConnectionRender = RunService.RenderStepped:Connect(function(dt)
 		if not character or not character.Parent or humanoid.Health <= 0 then
@@ -8297,6 +9637,7 @@ local function criarMaoDinamica(character)
 			siriricaSoundPlayed = false
 			travarImovel(false)
 			kameSomParar(true)
+			kameFala.parar()
 			kameVfxDestruir()
 			limparMaos(); return
 		end
@@ -8327,6 +9668,7 @@ local function criarMaoDinamica(character)
 			kameFxFase, kameFxT = fase, t
 			if fase ~= kameFase then
 				kameFase = fase
+				kameFala.entrar(fase, t)
 				if fase == 2 then
 					kameSomTocar(KAME.somRecarga, os.clock() + (KAME.tFase3 - t))
 				elseif fase == 3 then
@@ -8338,6 +9680,7 @@ local function criarMaoDinamica(character)
 		elseif kameFase ~= nil then
 			kameFase = nil
 			kameSomParar()
+			kameFala.parar()
 		end
 		kameUltimoEmote = currentEmote
 		kameSomAtualizar()

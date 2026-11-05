@@ -33,13 +33,13 @@ local animConfig = {
 }
 
 local EMOTES_TOGGLE = {
-	Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
+	["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
 	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true, Teleporte = true,
 }
 
 local EMOTES_IMOVEIS = {
-	Sentido = true, Dancinha = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
+	Sentido = true, ["Braços Cruzados"] = true, ["Deitado de Frente"] = true,
 	Sentar = true, Ajoelhar = true, Dormir = true, Dormir2 = true, Siririca = true,
 	["Chupada de Dedo"] = true, ["De Quatro"] = true, Socar = true, Kamehameha = true,
 }
@@ -158,6 +158,18 @@ local KAME = {
 	bolaFrente = 0,       -- desloca a bola para frente do ponto entre as maos (0 = exatamente no meio)
 	fxEntrada = 0.25,
 	fxSaida = 0.4,
+}
+
+-- Victoryy: no 3o keyframe toca o som e aparece a fala do Subaru em cima da cabeca
+-- (mesmo sistema de falas do Kamehameha). Fica dentro da tabela KAME pra nao criar mais uma local.
+KAME.victory = {
+	keyframe = 3,                              -- keyframe do emote Victoryy que dispara som + fala (tambem e onde o boneco para de andar)
+	somId = "rbxassetid://81440297692832",
+	volume = 1,
+	texto = "VICTORYY!",                       -- fala do Subaru
+	emocao = "victory",                        -- cor/tremor/pulo definidos em EMOCOES (dentro de kameFala)
+	intensidade = 3,                           -- 1-3 (tamanho da letra)
+	leitura = 1.2,                             -- segundos que a fala fica na tela depois de digitada
 }
 
 local Pegar = {
@@ -280,14 +292,6 @@ local defaultEmotes = {
 		esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
 		dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
 		cabeca = { x = 0, y = 0, z = 0 }, torso = { x = 0, y = 0, z = 0 },
-		pernaDir = { x = 0, y = 0, z = 0 }, pernaEsq = { x = 0, y = 0, z = 0 }
-	},
-	["Dancinha"] = {
-		dir = { x = -25, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
-		dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
-		esq = { x = -25, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
-		dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
-		cabeca = { x = 0, y = 0, z = -12 }, torso = { x = 0, y = 0, z = 16 },
 		pernaDir = { x = 0, y = 0, z = 0 }, pernaEsq = { x = 0, y = 0, z = 0 }
 	},
 	["Cala a Boca"] = {
@@ -520,6 +524,44 @@ local defaultEmotes = {
 				dedosEsq = { {10,33,0,-87,-57,0,0.05,-0.08}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
 				cabeca = { x = -10, y = 0, z = 15, px = 0, py = 0, pz = 0 }, torso = { x = 16, y = 0, z = -5, px = 0, py = 0, pz = 0 },
 				pernaDir = { x = 0, y = 1, z = -29, px = 0.01, py = -0.37, pz = 0.17 }, pernaEsq = { x = 4, y = 15, z = -28, px = -0.21, py = 0.11, pz = 0.35 } },
+		},
+	},
+	["Victoryy"] = {
+		animado = true, duracao = 2, loop = false, suave = true,
+		usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+		frames = {
+			{ t = 0,
+				usa = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false },
+				dir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.25,
+				usa = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false },
+				dir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaDir = { x = 0, y = 0, z = 0 },
+				dedosDir = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastDir = 0,
+				esq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {10,10}, {10,10}, {10,10}, {10,10}, {10,10} }, afastEsq = 0,
+				cabeca = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 }, pernaEsq = { x = 0, y = 0, z = 0, px = 0, py = 0, pz = 0 } },
+			{ t = 0.5,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = -166, y = 92, z = -17, px = -0.58, py = 0.49, pz = 0.44 }, palmaDir = { x = 0, y = 180, z = 0 },
+				dedosDir = { {54,55,0,-51,0,0,0,0}, {1,0}, {56,90}, {50,90}, {50,90} }, afastDir = 0,
+				esq = { x = -17, y = -8, z = 18, px = 0, py = -0.2, pz = 0.05 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {61,80,0,-89,0,0,0,0}, {60,80}, {60,80}, {60,80}, {60,80} }, afastEsq = 0,
+				cabeca = { x = 3, y = 10, z = 12, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = -8, z = -14, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -7, y = -32, z = 4, px = 0.09, py = 0.11, pz = 0.16 }, pernaEsq = { x = 3, y = -3, z = 1, px = 0, py = -0.17, pz = 0.12 } },
+			{ t = 2,
+				usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+				dir = { x = -166, y = 92, z = -17, px = -0.58, py = 0.49, pz = 0.44 }, palmaDir = { x = 0, y = 180, z = 0 },
+				dedosDir = { {54,55,0,-51,0,0,0,0}, {1,0}, {56,90}, {50,90}, {50,90} }, afastDir = 0,
+				esq = { x = -17, y = -8, z = 18, px = 0, py = -0.2, pz = 0.05 }, palmaEsq = { x = 0, y = 0, z = 0 },
+				dedosEsq = { {61,80,0,-89,0,0,0,0}, {60,80}, {60,80}, {60,80}, {60,80} }, afastEsq = 0,
+				cabeca = { x = 3, y = 10, z = 12, px = 0, py = 0, pz = 0 }, torso = { x = 0, y = -8, z = -14, px = 0, py = 0, pz = 0 },
+				pernaDir = { x = -7, y = -32, z = 4, px = 0.09, py = 0.11, pz = 0.16 }, pernaEsq = { x = 3, y = -3, z = 1, px = 0, py = -0.17, pz = 0.12 } },
 		},
 	},
 	["Teleporte"] = {
@@ -1454,8 +1496,6 @@ local function alvoDedosEmote(emote, id, ehDireito, frame)
 		return 90, 90
 	elseif emote == "Bow" then
 		return 30, 80
-	elseif emote == "Dancinha" then
-		return 10, 10
 	elseif emote == "Cala a Boca" then
 		if ehDireito then
 
@@ -1685,23 +1725,6 @@ local function calcularPoseEmote(emote, tempo, usar, frame)
 			P.wR = 1
 			P.R = CFrame.new(0.2, -0.58, -0.29) * CFrame.Angles(rad(-30), rad(6), rad(110))
 		end
-	elseif emote == "Dancinha" then
-		local s, c = sin(tempo * 5), cos(tempo * 5)
-		if dirOn then
-			P.wR = 1
-			P.R = CFrame.Angles(rad(-25 - 8 * s), 0, 0)
-		end
-		if esqOn then
-			P.wL = 1
-			P.L = CFrame.Angles(rad(-25 + 8 * s), 0, 0)
-		end
-		P.wN = 1
-		P.wB = 1
-		P.wP = 1
-		P.B = CFrame.Angles(0, rad(10 * s), rad(16 * c))
-		P.N = CFrame.Angles(0, rad(-6 * s), rad(-12 * c))
-		P.PR = CFrame.Angles(rad(7 * s), 0, 0)
-		P.PL = CFrame.Angles(rad(-7 * s), 0, 0)
 	elseif emote == "Cala a Boca" then
 
 		local d = defaultEmotes["Cala a Boca"]
@@ -1924,17 +1947,6 @@ local function calcularPoseCustomAnimada(emote, tempo)
 	elseif emote == "Sim" then
 		ligarCorpoDev(P, true, false, false)
 		P.N = cfRot(cp.cabeca) * CFrame.Angles(rad(22) * sin(tempo * 10), 0, 0)
-	elseif emote == "Dancinha" then
-
-		local s, c = sin(tempo * 5), cos(tempo * 5)
-		ligarCorpoDev(P, true, true, true)
-		if dirOn then P.R = cfBraco(cp.direita.braco) * CFrame.Angles(rad(-8 * s), 0, 0) end
-		if esqOn then P.L = cfBraco(cp.esquerda.braco) * CFrame.Angles(rad(8 * s), 0, 0) end
-		local t, h = cp.torso, cp.cabeca
-		P.B = CFrame.new(t.px or 0, t.py or 0, t.pz or 0) * CFrame.Angles(rad(t.x), rad(t.y + 10 * s), rad(t.z * c))
-		P.N = CFrame.new(h.px or 0, h.py or 0, h.pz or 0) * CFrame.Angles(rad(h.x), rad(h.y - 6 * s), rad(h.z * c))
-		P.PR = cfPerna(cp.pernaDir) * CFrame.Angles(rad(7 * s), 0, 0)
-		P.PL = cfPerna(cp.pernaEsq) * CFrame.Angles(rad(-7 * s), 0, 0)
 	elseif emote == "Cala a Boca" then
 		ligarCorpoDev(P, true, false, false)
 		P.N = cfRot(cp.cabeca) * CFrame.Angles(rad(3 * sin(tempo * 10)), 0, 0)
@@ -3871,28 +3883,6 @@ T.Icones = (function()
 			{"a",18,7.4,3.4,-70,70,1.1,"purL",false,false},
 			{"a",18,7.4,5.4,-60,60,1,"purL",false,false},
 		},
-		["Dancinha"] = {
-			{"r",1.4,1.4,21.2,21.2,6.4,"pinkD",0.9,"pinkO"},
-			{"r",1.4,1.4,21.2,18.4,6.4,"pink",0,false},
-			{"l",4.8,4.6,8.2,4.6,1.3,"pinkL",false,false},
-			{"c",10.6,4.6,1.3,"pinkL",false,false},
-			{"l",10.4,13.4,8,16,2.8,"pants","T0.8","pinkO"},
-			{"l",8,16,6.6,18.8,2.8,"pants","T0.8","pinkO"},
-			{"l",13,13.4,16,15.4,2.8,"pants","T0.8","pinkO"},
-			{"l",16,15.4,14.4,18.4,2.8,"pants","T0.8","pinkO"},
-			{"q",11.8,11,4.6,5.4,-6,1.5,"wh","T0.8","pinkO"},
-			{"l",9.8,9.6,6.6,11.2,2.4,"yel","T0.8","pinkO"},
-			{"l",6.6,11.2,5.2,14,2.4,"yel","T0.8","pinkO"},
-			{"l",14,9.6,16.8,6.4,2.4,"yel","T0.8","pinkO"},
-			{"l",16.8,6.4,18.4,3.8,2.4,"yel","T0.8","pinkO"},
-			{"q",11.6,5.6,5.4,5.4,-8,1.73,"yel","T0.8","pinkO"},
-			{"c",10.5,5.54,0.95,"dk","D",false},
-			{"c",12.64,5.24,0.95,"dk","D",false},
-			{"a",11.74,6.45,0.92,20,160,0.8,"dk","D",false},
-			{"c",4.4,6.4,2,"gold","D",false},
-			{"l",5.2,6.4,5.2,2.2,0.8,"gold","D",false},
-			{"l",5.2,2.2,7,3,0.8,"gold","D",false},
-		},
 		["Cala a Boca"] = {
 			{"r",1.4,1.4,21.2,21.2,6.4,"blueD",0.9,"cyanO"},
 			{"r",1.4,1.4,21.2,18.4,6.4,"cyanD",0,false},
@@ -4549,8 +4539,8 @@ local EMOTES = {
 	{ nome = "Citação", icone = "👌", cat = "+18" },
 	{ nome = "Sentido", icone = "🎖️", cat = "Gestos" },
 	{ nome = "Convidando", icone = "😈", cat = "+18" },
-	{ nome = "Dancinha", icone = "💃", cat = "Gestos", toggle = true },
 	{ nome = "Cala a Boca", icone = "🤫", cat = "Gestos" },
+	{ nome = "Victoryy", icone = "✌️", cat = "Gestos" },
 	{ nome = "Braços Cruzados", icone = "😒", cat = "Gestos", toggle = true },
 	{ nome = "Deitado de Frente", icone = "🐾", cat = "Gestos", toggle = true },
 	{ nome = "Sentar", icone = "🪑", cat = "Gestos", toggle = true },
@@ -7987,7 +7977,7 @@ end
 
 local emotesDev = {
 	"Tchau", "Paz", "Sim", "Maçaneta", "Bow", "Dedo", "Citação", "Sentido", "Convidando",
-	"Dancinha", "Cala a Boca", "Braços Cruzados", "Deitado de Frente", "Sentar", "Ajoelhar",
+	"Cala a Boca", "Victoryy", "Braços Cruzados", "Deitado de Frente", "Sentar", "Ajoelhar",
 	"Dormir", "Dormir2", "Siririca",
 	"Chupada de Dedo", "De Quatro", "Socar", "Kamehameha",
 }
@@ -8169,6 +8159,7 @@ function KAME.criar(ctx)
 			calmo = { cor = Color3.fromRGB(255, 190, 80),  vel = 0.035, tremor = 0,   pulso = 0.02 },
 			carga = { cor = Color3.fromRGB(110, 200, 255), vel = 0.022, tremor = 0.8, pulso = 0.06 },
 			grito = { cor = Color3.fromRGB(235, 250, 255), vel = 0.014, tremor = 2.0, pulso = 0.12, pulo = true },
+			victory = { cor = Color3.fromRGB(255, 215, 90), vel = 0.03, tremor = 1.2, pulso = 0.1, pulo = true },
 		}
 
 		-- Fase 1 (anda): frase curta aleatoria  {texto, emocao}
@@ -8422,6 +8413,7 @@ function KAME.criar(ctx)
 
 		return {
 			entrar = entrar, parar = parar,
+			dizer = mostrar, -- dizer(texto, emocao, intensidade, tempoLeitura): fala avulsa (usada pelo Victoryy)
 			destruir = function()
 				parar()
 				if S.gui then S.gui:Destroy() S.gui = nil S.caixa = nil end
@@ -10403,6 +10395,44 @@ local function criarMaoDinamica(character)
 			kameSomParar()
 			kameFala.parar()
 		end
+		-- Victoryy: anda normalmente ate o 3o keyframe; dai em diante velocidade 0
+		-- e, nesse mesmo keyframe, toca o som + a fala do Subaru em cima da cabeca (KAME.victory)
+		local victoryParado = false
+		if currentEmote == "Victoryy" and not freezeEmote and emoteTimer > 0 then
+			local dV = defaultEmotes["Victoryy"]
+			local VC = KAME.victory
+			-- comeco do emote (ou reinicio no meio dele: o timer volta a subir)
+			if kameUltimoEmote ~= "Victoryy" or emoteTimer > (dV.timerAnt or 0) + 0.05 then
+				dV.inicioReal = os.clock()
+				dV.disparou = false
+			end
+			dV.timerAnt = emoteTimer
+			local kfV = dV.frames and dV.frames[VC.keyframe]
+			victoryParado = (os.clock() - (dV.inicioReal or os.clock())) >= ((kfV and kfV.t) or 0.5)
+
+			if victoryParado and not dV.disparou then
+				dV.disparou = true
+				-- som
+				if dV.somInst then pcall(function() dV.somInst:Destroy() end) end
+				local snd = Instance.new("Sound")
+				snd.Name = "SomVictoryy"
+				snd.SoundId = VC.somId
+				snd.Volume = VC.volume
+				snd.RollOffMode = Enum.RollOffMode.InverseTapered
+				snd.MaxDistance = 120
+				snd.Parent = rootPart
+				snd:Play()
+				game:GetService("Debris"):AddItem(snd, 10)
+				dV.somInst = snd
+				-- fala em cima da cabeca
+				kameFala.dizer(VC.texto, VC.emocao, VC.intensidade, VC.leitura)
+			end
+		elseif kameUltimoEmote == "Victoryy" then
+			-- saiu do Victoryy (acabou ou trocou de emote): some a fala e rearma pro proximo
+			kameFala.parar()
+			defaultEmotes["Victoryy"].disparou = false
+			defaultEmotes["Victoryy"].timerAnt = nil
+		end
 		kameUltimoEmote = currentEmote
 		kameSomAtualizar()
 		kameVfxAtualizar(kameFxFase, kameFxT, dt)
@@ -10412,6 +10442,7 @@ local function criarMaoDinamica(character)
 		if currentEmote == "Kamehameha" and not freezeEmote then
 			travar = travar and kameParado
 		end
+		if victoryParado then travar = true end
 		travarImovel(travar)
 
 		local tempo = tick()

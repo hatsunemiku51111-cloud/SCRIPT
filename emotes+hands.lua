@@ -529,6 +529,11 @@ local defaultEmotes = {
 	["Victoryy"] = {
 		animado = true, duracao = 2, loop = false, suave = true,
 		usa = { bracoDir = true, bracoEsq = true, cabeca = true, torso = true, pernas = true },
+		itens = {
+			{ tipo = "acessorio", id = "137385629059642", parte = "Torso", pos = { x = 0, y = 0, z = 0 }, rot = { x = 0, y = 0, z = 0 }, size = { x = 1, y = 1, z = 1 } },
+			{ tipo = "acessorio", id = "93005124669278", parte = "Right Arm", pos = { x = 0, y = 0, z = 0 }, rot = { x = 0, y = 0, z = 0 }, size = { x = 1, y = 1, z = 1 } },
+			{ tipo = "acessorio", id = "121377346113736", parte = "Left Arm", pos = { x = 0, y = 0, z = 0 }, rot = { x = 0, y = 0, z = 0 }, size = { x = 1, y = 1, z = 1 } },
+		},
 		frames = {
 			{ t = 0,
 				usa = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false },
@@ -4375,6 +4380,19 @@ T.Icones = (function()
 			{"a",12,12,8.6,0,360,2.4,"red",0.9,"redO"},
 			{"l",6.6,17.4,17.4,6.6,2.4,"red",0.9,"redO"},
 		},
+		["Victoryy"] = {
+			{"r",1.4,1.4,21.2,21.2,6.4,"yelD",0.9,"yelO"},
+			{"r",1.4,1.4,21.2,18.4,6.4,"yel",0,false},
+			{"l",4.8,4.6,7.4,4.6,1.3,"yelL",false,false},
+			{"c",9.4,4.6,1.3,"yelL",false,false},
+			{"l",8.2,5.6,6.8,4.2,1.2,"yelL",false,false},
+			{"l",18.2,5.6,19.6,4.2,1.2,"yelL",false,false},
+			{"l",8,19.2,16,19.2,2.6,"wh","T0.8","yelO"},
+			{"q",12,14.2,8.4,7,0,2.8,"skin","T0.8","yelO"},
+			{"l",13.2,11.4,13.2,4.2,2.3,"skin","T0.8","yelO"},
+			{"l",9.2,13.7,13.6,15.4,2.4,"skin","T0.8","yelO"},
+			{"l",8.6,12.6,10.8,12.6,0.7,"skinD","D",false},
+		},
 		["_novo"] = {
 			{"q",11,12,3.6,8.64,0,1.8,"gold",0.9,"goldO"},
 			{"q",11,12,8.64,3.6,0,1.8,"gold",0.9,"goldO"},
@@ -4677,7 +4695,7 @@ end
 
 local toggleMenu
 local abrirPainelDev -- definido junto do painel dev
-local configPreviewDev = false -- config: preview do Painel Dev (desativado por padrão)
+local configPreviewDev = false -- config: preview do PainelDeAnimação (desativado por padrão)
 local aoMudarPreviewDev -- definido junto do painel dev (mostra/esconde o preview na hora)
 do
 local MENU_W, MENU_H = 480, 320
@@ -4693,7 +4711,7 @@ local Menu = new("CanvasGroup", {
 local menuScale = new("UIScale", { Parent = Menu })
 ajustarEscala(menuScale, MENU_W, MENU_H)
 
--- título "Emotes" = botão disfarçado que abre o Painel Dev (parece só um texto)
+-- título "Emotes" = botão disfarçado que abre o PainelDeAnimação (parece só um texto)
 btn({
 	Text = "Emotes", Font = F.GothamBold, TextSize = 17, TextColor3 = T.text, TextXAlignment = LEFT,
 	BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(80, 22), Parent = Menu,
@@ -4731,7 +4749,7 @@ T.Icones.centro(configClose, "_fechar", 12, 63)
 local cfgRow = frame({
 	BackgroundColor3 = T.surface2, Position = UDim2.fromOffset(12, 44), Size = UDim2.new(1, -24, 0, 56), ZIndex = 62, Parent = configCard,
 }, { round(10) })
-txt({ Text = "Preview do Painel Dev", Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(12, 9), Size = UDim2.new(1, -76, 0, 16), ZIndex = 63, Parent = cfgRow })
+txt({ Text = "Preview do PainelDeAnimação", Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(12, 9), Size = UDim2.new(1, -76, 0, 16), ZIndex = 63, Parent = cfgRow })
 txt({ Text = "mostra o boneco ao editar emotes", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 28), Size = UDim2.new(1, -76, 0, 14), ZIndex = 63, Parent = cfgRow })
 local cfgSwitch = btn({
 	BackgroundColor3 = T.surface3, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(40, 22), ZIndex = 63, Parent = cfgRow,
@@ -6061,8 +6079,8 @@ ajustarEscala(devScale, DEV_W + 24, DEV_H + 24)
 local devHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52), Parent = DevPanel })
 makeDraggable(DevPanel, devHead)
 local badge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(40, 22), Position = UDim2.fromOffset(14, 15), Parent = devHead }, { round(7) })
-txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = badge })
-txt({ Text = "Editor de pose", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(64, 8), Size = UDim2.new(1, -196, 0, 20), Parent = devHead })
+txt({ Text = "ANIM", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = badge })
+txt({ Text = "PainelDeAnimação", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(64, 8), Size = UDim2.new(1, -196, 0, 20), Parent = devHead })
 local devTitle = txt({ Text = "—", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(64, 28), Size = UDim2.new(1, -196, 0, 16), Parent = devHead })
 
 local trocarBtn = btn({ Text = "", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -114, 0, 11), Parent = devHead }, { round(15) })
@@ -6077,10 +6095,15 @@ janelaControles({
 	posMin = UDim2.new(1, -78, 0, 11), size = 30, radius = 15, btnX = closeDevBtn, semChip = true,
 })
 
-local statusCard = frame({ Position = UDim2.fromOffset(12, 56), Size = UDim2.new(1, -24, 0, 186), Parent = DevPanel }, { round(12), outline(T.stroke, 1, 0.5) })
-txt({ Text = "STATUS", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 8), Size = UDim2.fromOffset(80, 14), Parent = statusCard })
-local liveDot = frame({ BackgroundColor3 = T.ok, Size = UDim2.fromOffset(6, 6), Position = UDim2.new(1, -62, 0, 12), Parent = statusCard }, { round(3) })
-txt({ Text = "ao vivo", TextSize = 10, TextColor3 = T.dim, Position = UDim2.new(1, -52, 0, 8), Size = UDim2.fromOffset(44, 14), Parent = statusCard })
+-- status: comeca recolhido (so um resumo D E C T P); toque na barra pra expandir os detalhes
+local STATUS_H_FECHADO, STATUS_H_ABERTO = 34, 186
+local statusAberto = false
+local statusCard = frame({ ClipsDescendants = true, Position = UDim2.fromOffset(12, 56), Size = UDim2.new(1, -24, 0, STATUS_H_FECHADO), Parent = DevPanel }, { round(12), outline(T.stroke, 1, 0.5) })
+local statusHead = btn({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, STATUS_H_FECHADO), Parent = statusCard })
+txt({ Text = "STATUS", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 0), Size = UDim2.fromOffset(48, STATUS_H_FECHADO), Parent = statusHead })
+local statusResumo = txt({ Font = F.GothamBold, TextSize = 11, RichText = true, Position = UDim2.fromOffset(64, 0), Size = UDim2.new(1, -96, 0, STATUS_H_FECHADO), Parent = statusHead })
+local statusChev = txt({ Text = "", TextSize = 12, TextColor3 = T.dim, TextXAlignment = RIGHT, Size = UDim2.new(1, -12, 0, STATUS_H_FECHADO), Parent = statusHead })
+T.Icones.direita(statusChev, "_chev_right", 12, 2, 4)
 
 local function criarColunaStatus(titulo, x, ehDireito)
 	local col = frame({ BackgroundColor3 = T.surface2, Position = UDim2.new(x, x == 0 and 8 or 3, 0, 28), Size = UDim2.new(0.5, -11, 0, 100), Parent = statusCard }, { round(9) })
@@ -6097,14 +6120,15 @@ local function criarColunaStatus(titulo, x, ehDireito)
 		local bg = frame({ BackgroundColor3 = T.surface3, Size = UDim2.new(0.2, -3, 1, 0), LayoutOrder = i, Parent = bars }, { round(3) })
 		fills[i] = frame({ BackgroundColor3 = T.accent, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.fromScale(1, 0), Parent = bg }, { round(3) })
 	end
-	return { dot = dot, lines = lines, afs = afs, fills = fills, ehDireito = ehDireito }
+	return { col = col, dot = dot, lines = lines, afs = afs, fills = fills, ehDireito = ehDireito }
 end
 
 local colDir = criarColunaStatus("DIREITA", 0, true)
 local colEsq = criarColunaStatus("ESQUERDA", 0.5, false)
+colDir.col.Visible, colEsq.col.Visible = false, false
 local statusFoot = txt({
 	Font = F.Code, TextSize = 10, TextColor3 = T.sub, RichText = true,
-	Position = UDim2.new(0, 12, 1, -56), Size = UDim2.new(1, -24, 0, 52), Parent = statusCard,
+	Position = UDim2.new(0, 12, 1, -56), Size = UDim2.new(1, -24, 0, 52), Visible = false, Parent = statusCard,
 })
 
 local function hex(c) return c:ToHex() end
@@ -6147,12 +6171,22 @@ local function parteFootPerna(nome, t, ligado)
 	return string.format('<font color="#%s">%s %.0f,%.0f,%.0f | %.2f,%.2f,%.2f</font>', cor, nome, t.x, t.y, t.z, t.px or 0, t.py or 0, t.pz or 0)
 end
 
+local function resumoStatus()
+	local function p(letra, on)
+		return string.format('<font color="#%s">%s</font>', hex(on and T.ok or T.dim), letra)
+	end
+	return p("D", animConfig.direita) .. "   " .. p("E", animConfig.esquerda) .. "   " .. p("C", animConfig.cabeca)
+		.. "   " .. p("T", animConfig.torso) .. "   " .. p("P", animConfig.pernas)
+end
+
 local acumStatus = 0
 RunService.RenderStepped:Connect(function(dt)
 	if not DevPanel.Visible then return end
 	acumStatus += dt
 	if acumStatus < 0.08 then return end
 	acumStatus = 0
+	statusResumo.Text = resumoStatus()
+	if not statusAberto then return end
 	pintarColuna(colDir, customPose.direita, animConfig.direita)
 	pintarColuna(colEsq, customPose.esquerda, animConfig.esquerda)
 	statusFoot.Text = parteFootPerna("TOR", customPose.torso, animConfig.torso) .. "\n"
@@ -6185,6 +6219,28 @@ local Content = new("ScrollingFrame", {
 	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3, ScrollBarImageColor3 = T.stroke,
 	Parent = DevPanel,
 }, { lista(8), padding(0, 0, 6, 4) })
+
+-- ferramentas da aba (saem do rodape): Espelhar e Trocar lados
+local toolBar = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -24, 0, 28), Parent = DevPanel }, { lista(6, Enum.FillDirection.Horizontal) })
+
+local function layoutPainel()
+	local h = statusAberto and STATUS_H_ABERTO or STATUS_H_FECHADO
+	statusCard.Size = UDim2.new(1, -24, 0, h)
+	colDir.col.Visible, colEsq.col.Visible, statusFoot.Visible = statusAberto, statusAberto, statusAberto
+	T.Icones.direita(statusChev, statusAberto and "_chev_down" or "_chev_right", 12, 2, 4)
+	local yTabs = 56 + h + 8
+	local yTool = yTabs + 34 + 6
+	local yCont = yTool + 28 + 8
+	tabBar.Position = UDim2.fromOffset(12, yTabs)
+	toolBar.Position = UDim2.fromOffset(12, yTool)
+	Content.Position = UDim2.fromOffset(12, yCont)
+	Content.Size = UDim2.new(1, -24, 1, -yCont - 62)
+end
+statusHead.MouseButton1Click:Connect(function()
+	statusAberto = not statusAberto
+	layoutPainel()
+end)
+layoutPainel()
 
 local activeSlider = nil
 UserInputService.InputChanged:Connect(function(input)
@@ -6695,15 +6751,15 @@ function rebuildTab()
 end
 
 local devFoot = frame({ BackgroundTransparency = 1, Position = UDim2.new(0, 12, 1, -54), Size = UDim2.new(1, -24, 0, 42), Parent = DevPanel }, { lista(8, Enum.FillDirection.Horizontal) })
-local resetBtn = btn({ Text = "Resetar pose", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.19, -6, 1, 0), LayoutOrder = 1, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
-local exportBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Size = UDim2.new(0.2, -6, 1, 0), LayoutOrder = 5, Parent = devFoot }, { round(11) })
+local resetBtn = btn({ Text = "Resetar", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.26, -6, 1, 0), LayoutOrder = 2, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local exportBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Size = UDim2.new(0.48, -4, 1, 0), LayoutOrder = 3, Parent = devFoot }, { round(11) })
 hoverFX(resetBtn, T.surface2, T.surface3)
-local desfazerBtn = btn({ Text = "Desfazer", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.17, -6, 1, 0), LayoutOrder = 2, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local desfazerBtn = btn({ Text = "Desfazer", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.26, -6, 1, 0), LayoutOrder = 1, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
 hoverFX(desfazerBtn, T.surface2, T.surface3)
 hoverFX(exportBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-local espelharBtn = btn({ Text = "Espelhar", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.2, -6, 1, 0), LayoutOrder = 3, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
-local espelharV2Btn = btn({ Text = "Espelhar V2", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.24, -8, 1, 0), LayoutOrder = 4, Parent = devFoot }, { round(11), outline(T.stroke, 1, 0.3) })
+local espelharBtn = btn({ Text = "Espelhar", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.5, -3, 1, 0), LayoutOrder = 1, Parent = toolBar }, { round(11), outline(T.stroke, 1, 0.3) })
+local espelharV2Btn = btn({ Text = "Trocar lados", Font = F.GothamBold, TextSize = 11, Size = UDim2.new(0.5, -3, 1, 0), LayoutOrder = 2, Parent = toolBar }, { round(11), outline(T.stroke, 1, 0.3) })
 hoverFX(espelharV2Btn, T.surface2, T.surface3)
 espelharV2Btn.MouseButton1Click:Connect(function()
 	trocarLados()
@@ -6822,7 +6878,7 @@ desfazerBtn.MouseButton1Click:Connect(function()
 end)
 
 local PREV_W, PREV_H = 230, 250
-local ANIM_H_REF = 268 -- altura do animador (TL_H): o preview fica logo acima dele
+local ANIM_H_REF = 270 -- altura do animador (TL_H): o preview fica logo acima dele
 local DevPreviewWin = frame({
 	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -(12 + ANIM_H_REF + 8)), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
@@ -6886,7 +6942,7 @@ local selList = new("ScrollingFrame", {
 }, { lista(4), padding(0, 0, 6, 2) })
 makeDraggable(DevSelector, selHead)
 local selBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 5), ZIndex = 31, Parent = selHead }, { round(7) })
-txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 32, Parent = selBadge })
+txt({ Text = "ANIM", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 32, Parent = selBadge })
 txt({ Text = "Escolha o emote", Font = F.GothamBold, TextSize = 12, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 31, Parent = selHead })
 local closeSel = btn({ Text = "", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 2), ZIndex = 31, Parent = selHead }, { round(13) })
 hoverFX(closeSel, T.surface2, T.danger)
@@ -7210,7 +7266,7 @@ do
 	local impHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), ZIndex = 41, Parent = impCard })
 	makeDraggable(impCard, impHead)
 	local impBadge = frame({ BackgroundColor3 = Color3.fromRGB(64, 48, 14), Size = UDim2.fromOffset(36, 20), Position = UDim2.fromOffset(0, 3), ZIndex = 42, Parent = impHead }, { round(7) })
-	txt({ Text = "DEV", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 43, Parent = impBadge })
+	txt({ Text = "ANIM", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 43, Parent = impBadge })
 	txt({ Text = "Importar animação", Font = F.GothamBold, TextSize = 13, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -80, 1, 0), ZIndex = 42, Parent = impHead })
 	local impX = btn({ Text = "", TextSize = 13, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -26, 0, 0), ZIndex = 42, Parent = impHead }, { round(13) })
 	hoverFX(impX, T.surface2, T.danger)
@@ -7355,9 +7411,9 @@ end
 closeDevBtn.MouseButton1Click:Connect(fecharDev)
 trocarBtn.MouseButton1Click:Connect(function() DevSelector.Visible = true end)
 
--- ===================== ANIMADOR (linha do tempo no modo dev) =====================
+-- ===================== ANIMADOR (linha do tempo no PainelDeAnimação) =====================
 do
-	local TL_W, TL_H = 380, 268
+	local TL_W, TL_H = 380, 270
 	local anim = {
 		nome = "MinhaAnimacao",
 		duracao = 2,
@@ -7379,7 +7435,7 @@ do
 	local tlHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Parent = TLWin })
 	makeDraggable(TLWin, tlHead)
 	txt({ Text = "ANIMADOR", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
-	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -176, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
+	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -246, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
 
 	local function caixa(props)
 		return new("TextBox", merge({
@@ -7395,28 +7451,30 @@ do
 	hoverFX(loopBtn, T.surface2, T.surface3)
 	hoverFX(suaveBtn, T.surface2, T.surface3)
 
-	local track = frame({ BackgroundColor3 = T.surface3, Position = UDim2.fromOffset(18, 86), Size = UDim2.new(1, -36, 0, 6), Parent = TLWin }, { round(3) })
+	-- bloco da timeline: trilha + transporte + tempo juntos num card
+	frame({ BackgroundColor3 = T.surface, Position = UDim2.fromOffset(8, 72), Size = UDim2.new(1, -16, 0, 84), Parent = TLWin }, { round(10), outline(T.stroke, 1, 0.55) })
+	local track = frame({ BackgroundColor3 = T.surface3, Position = UDim2.fromOffset(22, 92), Size = UDim2.new(1, -44, 0, 6), Parent = TLWin }, { round(3) })
 	local cursor = frame({
 		BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(4, 22),
 		Position = UDim2.fromScale(0, 0.5), ZIndex = 3, Parent = track,
 	}, { round(2) })
-	local hit = btn({ BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 74), Size = UDim2.new(1, -16, 0, 30), ZIndex = 2, Parent = TLWin })
+	local hit = btn({ BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 82), Size = UDim2.new(1, -24, 0, 26), ZIndex = 2, Parent = TLWin })
 	local marcas = frame({ BackgroundTransparency = 1, Position = track.Position, Size = track.Size, ZIndex = 4, Parent = TLWin })
 
-	txt({ Text = "Tempo", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(14, 116), Size = UDim2.fromOffset(40, 18), Parent = TLWin })
-	local timeBox = caixa({ Text = "0.00", Position = UDim2.fromOffset(56, 112), Size = UDim2.fromOffset(60, 26) })
-	local durLbl = txt({ Text = "/ 2.00s", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(124, 116), Size = UDim2.fromOffset(80, 18), Parent = TLWin })
+	txt({ Text = "Tempo", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(186, 123), Size = UDim2.fromOffset(40, 18), Parent = TLWin })
+	local timeBox = caixa({ Text = "0.00", Position = UDim2.fromOffset(228, 118), Size = UDim2.fromOffset(62, 28) })
+	local durLbl = txt({ Text = "/ 2.00s", TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(296, 123), Size = UDim2.fromOffset(70, 18), Parent = TLWin })
 
-	local prevBtn = btn({ Text = "", TextSize = 13, Position = UDim2.fromOffset(12, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
+	local prevBtn = btn({ Text = "", TextSize = 13, Position = UDim2.fromOffset(16, 118), Size = UDim2.fromOffset(36, 28), Parent = TLWin }, { round(8) })
 	T.Icones.centro(prevBtn, "_prev", 16, 2)
-	local playBtn = btn({ Text = "", TextSize = 14, TextColor3 = T.ok, Position = UDim2.fromOffset(56, 146), Size = UDim2.fromOffset(46, 30), Parent = TLWin }, { round(8) })
+	local playBtn = btn({ Text = "", TextSize = 14, TextColor3 = T.ok, Position = UDim2.fromOffset(56, 118), Size = UDim2.fromOffset(46, 28), Parent = TLWin }, { round(8) })
 	T.Icones.centro(playBtn, "_play", 16, 2)
-	local nextBtn = btn({ Text = "", TextSize = 12, Position = UDim2.fromOffset(108, 146), Size = UDim2.fromOffset(38, 30), Parent = TLWin }, { round(8) })
+	local nextBtn = btn({ Text = "", TextSize = 12, Position = UDim2.fromOffset(106, 118), Size = UDim2.fromOffset(36, 28), Parent = TLWin }, { round(8) })
 	T.Icones.centro(nextBtn, "_next", 16, 2)
-	local addBtn = btn({ Text = "Key", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Position = UDim2.fromOffset(154, 146), Size = UDim2.fromOffset(76, 30), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	local addBtn = btn({ Text = "Key", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1), Position = UDim2.fromOffset(12, 164), Size = UDim2.fromOffset(80, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
 	T.Icones.lado(addBtn, "_mais", 14, 2, 18)
-	local delBtn = btn({ Text = "Apagar", TextSize = 11, TextColor3 = T.danger, Position = UDim2.fromOffset(236, 146), Size = UDim2.fromOffset(54, 30), Parent = TLWin }, { round(8) })
-	local expBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok, Position = UDim2.fromOffset(296, 146), Size = UDim2.fromOffset(72, 30), Parent = TLWin }, { round(8) })
+	local delBtn = btn({ Text = "Apagar", TextSize = 11, TextColor3 = T.danger, Position = UDim2.fromOffset(306, 164), Size = UDim2.fromOffset(62, 28), Parent = TLWin }, { round(8) })
+	local expBtn = btn({ Text = "Exportar", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok, Position = UDim2.new(1, -136, 0, 6), Size = UDim2.fromOffset(62, 22), Parent = TLWin }, { round(7) })
 	for _, b in ipairs({ prevBtn, playBtn, nextBtn, delBtn, expBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
@@ -7432,6 +7490,7 @@ do
 		end
 	end
 	do
+		txt({ Text = "PARTES ANIMADAS", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(14, 199), Size = UDim2.fromOffset(160, 14), Parent = TLWin })
 		local PARTES = { { "direita", "Braço D" }, { "esquerda", "Braço E" }, { "cabeca", "Cabeça" }, { "torso", "Torso" }, { "pernas", "Pernas" } }
 		for i, pr in ipairs(PARTES) do
 			local b = btn({
@@ -7459,11 +7518,11 @@ do
 
 	txt({ Text = "Faça a pose nos sliders → escolha o tempo → Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 248), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
 
-	local moveBtn = btn({ Text = "Mover key", TextSize = 11, Position = UDim2.fromOffset(12, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	local moveBtn = btn({ Text = "Mover", TextSize = 11, Position = UDim2.fromOffset(96, 164), Size = UDim2.fromOffset(70, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
 	T.Icones.lado(moveBtn, "_trocar", 16, 2, 19)
-	local copyBtn = btn({ Text = "Copiar", TextSize = 11, Position = UDim2.fromOffset(133, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
+	local copyBtn = btn({ Text = "Copiar", TextSize = 11, Position = UDim2.fromOffset(170, 164), Size = UDim2.fromOffset(66, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
 	T.Icones.lado(copyBtn, "_copiar", 16, 2, 19)
-	local pasteBtn = btn({ Text = "Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(254, 182), Size = UDim2.fromOffset(114, 28), Parent = TLWin }, { round(8), padding(20, 0, 4, 0) })
+	local pasteBtn = btn({ Text = "Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(240, 164), Size = UDim2.fromOffset(62, 28), Parent = TLWin }, { round(8), padding(20, 0, 4, 0) })
 	T.Icones.criar("_colar", pasteBtn, 16, { Position = UDim2.new(0, -19, 0.5, -8), ZIndex = 3 })
 	for _, b in ipairs({ moveBtn, copyBtn, pasteBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	local clipPose = nil -- pose copiada (persiste entre emotes)

@@ -4254,6 +4254,22 @@ T.Icones = (function()
 			{"l",4.8,16,9,12.2,2.4,"pur",0.9,"purO"},
 			{"l",4.8,16,9,19.8,2.4,"pur",0.9,"purO"},
 		},
+		["_partes"] = {
+			{"l",9.6,10.6,5,14.4,2.4,"cyan",0.9,"cyanO"},
+			{"l",14.4,10.6,19,14.4,2.4,"cyan",0.9,"cyanO"},
+			{"l",10.6,16,9.4,20.6,2.6,"cyan",0.9,"cyanO"},
+			{"l",13.4,16,14.6,20.6,2.6,"cyan",0.9,"cyanO"},
+			{"r",8.8,9,6.4,8,2.4,"pur",0.9,"purO"},
+			{"c",12,5,5.2,"purL",0.9,"purO"},
+			{"c",4.8,14.6,2.6,"yel",0.9,"yelO"},
+			{"c",19.2,14.6,2.6,"yel",0.9,"yelO"},
+			{"c",9.4,20.8,2.6,"yel",0.9,"yelO"},
+			{"c",14.6,20.8,2.6,"yel",0.9,"yelO"},
+			{"l",10.4,11,10.4,14.2,0.8,"purL",false,false},
+			{"a",12,5,3,200,250,0.8,"wh",false,false},
+			{"c",10.9,4.6,0.9,"dk",false,false},
+			{"c",13.1,4.6,0.9,"dk",false,false},
+		},
 		["_check"] = {
 			{"l",5,12.8,9.8,17.6,3.6,"grn",0.9,"grnO"},
 			{"l",9.8,17.6,19.4,6.6,3.6,"grn",0.9,"grnO"},
@@ -6878,7 +6894,7 @@ desfazerBtn.MouseButton1Click:Connect(function()
 end)
 
 local PREV_W, PREV_H = 230, 250
-local ANIM_H_REF = 270 -- altura do animador (TL_H): o preview fica logo acima dele
+local ANIM_H_REF = 202 -- altura do animador (TL_H): o preview fica logo acima dele
 local DevPreviewWin = frame({
 	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -(12 + ANIM_H_REF + 8)), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
@@ -7413,7 +7429,7 @@ trocarBtn.MouseButton1Click:Connect(function() DevSelector.Visible = true end)
 
 -- ===================== ANIMADOR (linha do tempo no PainelDeAnimação) =====================
 do
-	local TL_W, TL_H = 380, 270
+	local TL_W, TL_H = 380, 202
 	local anim = {
 		nome = "MinhaAnimacao",
 		duracao = 2,
@@ -7435,7 +7451,7 @@ do
 	local tlHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Parent = TLWin })
 	makeDraggable(TLWin, tlHead)
 	txt({ Text = "ANIMADOR", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
-	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -246, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
+	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -322, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
 
 	local function caixa(props)
 		return new("TextBox", merge({
@@ -7479,24 +7495,65 @@ do
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
 	-- partes que a animacao controla (ligado = anima; desligado = fica livre, anda/mexe normal). Vai no Exportar como "usa".
+	-- Ficam dentro do submenu "Rig" (botao ao lado do Exportar) pra deixar a janela do animador limpa.
 	local usaChips = {}
 	local usaPintar
 	local sincronizarUsaAnim -- definido mais abaixo (salva os chips no keyframe do cursor)
+	local PARTES = { { "direita", "Braço D" }, { "esquerda", "Braço E" }, { "cabeca", "Cabeça" }, { "torso", "Torso" }, { "pernas", "Pernas" } }
+
+	local rigBtn = btn({
+		Text = "Rig", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -216, 0, 6), Size = UDim2.fromOffset(74, 22), Parent = TLWin,
+	}, { round(7), padding(20, 0, 4, 0) })
+	T.Icones.lado(rigBtn, "_partes", 16, 2, 18)
+	hoverFX(rigBtn, T.surface2, T.surface3)
+
+	local rigCatcher = btn({ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 29, Visible = false, Parent = TLWin })
+	local RIG_Y = 32
+	local rigMenu = frame({
+		Name = "RigMenu", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -142, 0, RIG_Y), Size = UDim2.fromOffset(170, 166),
+		BackgroundColor3 = T.surface, Active = true, Visible = false, ZIndex = 30, Parent = TLWin,
+	}, { round(12), outline(T.stroke, 1, 0.1) })
+	T.Icones.criar("_partes", rigMenu, 16, { Position = UDim2.fromOffset(10, 8), ZIndex = 31 })
+	txt({ Text = "PARTES ANIMADAS", Font = F.GothamBold, TextSize = 9, TextColor3 = T.dim, Position = UDim2.fromOffset(32, 8), Size = UDim2.fromOffset(100, 16), ZIndex = 31, Parent = rigMenu })
+	local rigCont = txt({ Text = "0/5", Font = F.GothamBold, TextSize = 10, TextColor3 = T.ok, TextXAlignment = RIGHT, Position = UDim2.new(1, -42, 0, 8), Size = UDim2.fromOffset(32, 16), ZIndex = 31, Parent = rigMenu })
+
+	local function rigFechar()
+		rigMenu.Visible = false
+		rigCatcher.Visible = false
+	end
+	local function rigAbrir()
+		rigCatcher.Visible = true
+		rigMenu.Position = UDim2.new(1, -142, 0, RIG_Y - 6)
+		rigMenu.Visible = true
+		tw(rigMenu, 0.14, { Position = UDim2.new(1, -142, 0, RIG_Y) }, Enum.EasingStyle.Quint)
+	end
+	rigBtn.MouseButton1Click:Connect(function() if rigMenu.Visible then rigFechar() else rigAbrir() end end)
+	rigCatcher.MouseButton1Click:Connect(rigFechar)
+	TLWin:GetPropertyChangedSignal("Visible"):Connect(function() if not TLWin.Visible then rigFechar() end end)
+
 	usaPintar = function()
+		local n = 0
 		for _, c in ipairs(usaChips) do
 			local on = animConfig[c.chave] == true
-			c.b.BackgroundColor3 = on and T.accentSoft or T.surface2
-			c.b.TextColor3 = on and T.ok or T.dim
+			if on then n += 1 end
+			if c.on ~= on then
+				c.on = on
+				c.b.BackgroundColor3 = on and T.accentSoft or T.surface2
+				c.b.TextColor3 = on and T.ok or T.dim
+				if on then T.Icones.direita(c.b, "_check", 12, 33, 8) else T.Icones.limpar(c.b) end
+			end
 		end
+		local rotulo = "Rig " .. n .. "/" .. #PARTES
+		if rigBtn.Text ~= rotulo then rigBtn.Text = rotulo end
+		local cont = n .. "/" .. #PARTES
+		if rigCont.Text ~= cont then rigCont.Text = cont end
 	end
 	do
-		txt({ Text = "PARTES ANIMADAS", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(14, 199), Size = UDim2.fromOffset(160, 14), Parent = TLWin })
-		local PARTES = { { "direita", "Braço D" }, { "esquerda", "Braço E" }, { "cabeca", "Cabeça" }, { "torso", "Torso" }, { "pernas", "Pernas" } }
 		for i, pr in ipairs(PARTES) do
 			local b = btn({
-				Text = pr[2], Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim,
-				Position = UDim2.fromOffset(12 + (i - 1) * 72, 216), Size = UDim2.fromOffset(68, 24), Parent = TLWin,
-			}, { round(7) })
+				Text = pr[2], Font = F.GothamBold, TextSize = 11, TextColor3 = T.dim, TextXAlignment = LEFT,
+				Position = UDim2.fromOffset(8, 32 + (i - 1) * 26), Size = UDim2.new(1, -16, 0, 24), ZIndex = 31, Parent = rigMenu,
+			}, { round(8), padding(12, 0, 0, 0) })
 			table.insert(usaChips, { b = b, chave = pr[1] })
 			b.MouseButton1Click:Connect(function()
 				animConfig[pr[1]] = not animConfig[pr[1]]
@@ -7516,7 +7573,6 @@ do
 		usaPintar()
 	end
 
-	txt({ Text = "Faça a pose nos sliders → escolha o tempo → Key", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 248), Size = UDim2.new(1, 0, 0, 14), Parent = TLWin })
 
 	local moveBtn = btn({ Text = "Mover", TextSize = 11, Position = UDim2.fromOffset(96, 164), Size = UDim2.fromOffset(70, 28), Parent = TLWin }, { round(8), padding(22, 0, 4, 0) })
 	T.Icones.lado(moveBtn, "_trocar", 16, 2, 19)

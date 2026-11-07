@@ -6603,8 +6603,14 @@ local function montarPernas()
 	slidersPosPerna(S5, function() return customPose.pernaEsq end, function() espelharPose(nil, "pernaEsq") end)
 end
 
--- ===== aba ITENS: acessórios / roupas / mesh pelo ID (posição, rotação e tamanho) =====
-local ITU = { tipo = "acessorio", parte = "Head", id = "", tex = "", aberto = 1, refs = setmetatable({}, { __mode = "k" }) }
+-- ===== aba ITENS (TOOLBOX): acessórios / roupas / mesh pelo ID =====
+-- Cada item vira um card com abas Posição / Rotação / Tamanho, passo ajustável, botões −/+ (segura pra repetir),
+-- campo numérico, atalhos (zerar, inverter, +90°, ×2, 1:1), escala proporcional, duplicar e resetar.
+local ITU = {
+	tipo = "acessorio", parte = "Head", id = "", tex = "", aberto = 1, foco = nil,
+	refs = setmetatable({}, { __mode = "k" }),
+	est = setmetatable({}, { __mode = "k" }),
+}
 
 ItensEmote.status = function(it)
 	local l = ITU.refs[it]
@@ -6618,8 +6624,8 @@ local function itemBox(parent, placeholder, texto, order, aoMudar)
 	local b = new("TextBox", {
 		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
 		PlaceholderText = placeholder, PlaceholderColor3 = T.dim, Text = texto, ClearTextOnFocus = false,
-		TextXAlignment = Enum.TextXAlignment.Left, Size = UDim2.new(1, 0, 0, 28), LayoutOrder = order, Parent = parent,
-	}, { round(7), padding(8, 0, 8, 0) })
+		TextXAlignment = Enum.TextXAlignment.Left, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = order, Parent = parent,
+	}, { round(8), padding(10, 0, 8, 0), outline(T.stroke, 1, 0.5) })
 	b:GetPropertyChangedSignal("Text"):Connect(function() aoMudar(b.Text) end)
 	return b
 end
@@ -6642,10 +6648,387 @@ local function nomeDe(opcoes, id)
 	return id
 end
 
+ITU.MODOS = {
+	{ id = "pos", nome = "Posição", cor = T.ax[3] },
+	{ id = "rot", nome = "Rotação", cor = T.ax[1] },
+	{ id = "size", nome = "Tamanho", cor = T.ax[2] },
+}
+ITU.CFG = {
+	pos = { campo = "pos", min = -5, max = 5, hmin = -50, hmax = 50, dec = 2, marca = 0, passos = { 0.01, 0.1, 0.5 }, sufixo = "", labels = { "Lado", "Cima / baixo", "Frente / trás" } },
+	rot = { campo = "rot", min = -360, max = 360, hmin = -720, hmax = 720, dec = 0, marca = 0, passos = { 1, 5, 15, 45 }, sufixo = "°", labels = ROT_LABELS },
+	size = { campo = "size", min = 0.05, max = 6, hmin = 0.01, hmax = 50, dec = 2, marca = 1, passos = { 0.01, 0.05, 0.25, 1 }, sufixo = "", labels = { "Largura", "Altura", "Profundidade" } },
+}
+ITU.COR_TIPO = { acessorio = T.warn, roupa = T.ok, mesh = T.accent }
+
+function ITU.estado(it)
+	local e = ITU.est[it]
+	if not e then
+		e = { modo = "pos", passo = { pos = 0.1, rot = 5, size = 0.05 }, prop = true }
+		ITU.est[it] = e
+	end
+	return e
+end
+
+-- uma linha de controle: [X] rótulo  [-] [valor] [+]  + slider com marca central (0 ou 1)
+function ITU.eixo(parent, o)
+	local mult = 10 ^ o.dec
+	local fmtS = "%." .. o.dec .. "f"
+	local cor = T.ax[o.axis]
+	local rng = o.max - o.min
+	local function arred(v) return math.floor(v * mult + 0.5) / mult end
+
+	local c = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48), LayoutOrder = o.order or 0, Parent = parent })
+	local chip = frame({ BackgroundColor3 = cor, BackgroundTransparency = 0.78, Size = UDim2.fromOffset(18, 18), Parent = c }, { round(5) })
+	txt({ Text = ({ "X", "Y", "Z" })[o.axis], Font = F.GothamBold, TextSize = 10, TextColor3 = cor, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = chip })
+	txt({ Text = o.label, TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(24, 0), Size = UDim2.new(1, -120, 0, 18), TextTruncate = Enum.TextTruncate.AtEnd, Parent = c })
+
+	local function mini(t, x)
+		local b = btn({
+			Text = t, Font = F.GothamBold, TextSize = 14, TextColor3 = T.sub, BackgroundColor3 = T.surface3,
+			Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, x, 0, -1), Parent = c,
+		}, { round(6) })
+		hoverFX(b, T.surface3, T.accentSoft)
+		return b
+	end
+	local minus, plus = mini("-", -92), mini("+", -20)
+	local box = new("TextBox", {
+		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
+		ClearTextOnFocus = false, TextXAlignment = CENTER, Size = UDim2.fromOffset(48, 20), Position = UDim2.new(1, -70, 0, -1), Parent = c,
+	}, { round(6) })
+
+	local track = frame({ BackgroundColor3 = T.surface3, Size = UDim2.new(1, 0, 0, 6), Position = UDim2.fromOffset(0, 34), Parent = c }, { round(3) })
+	local r0 = clamp((o.marca - o.min) / rng, 0, 1)
+	local fill = frame({ BackgroundColor3 = cor, Size = UDim2.fromScale(0, 1), Parent = track }, { round(3) })
+	if o.marca > o.min and o.marca < o.max then
+		frame({ BackgroundColor3 = T.text, BackgroundTransparency = 0.55, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2, 12), Position = UDim2.fromScale(r0, 0.5), Parent = track })
+	end
+	local knob = frame({ BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), Position = UDim2.fromScale(0, 0.5), Parent = track }, { round(7), outline(cor, 2, 0.2) })
+
+	local function visual(v)
+		local r = clamp((v - o.min) / rng, 0, 1)
+		local a, b = math.min(r0, r), math.max(r0, r)
+		fill.Position = UDim2.fromScale(a, 0)
+		fill.Size = UDim2.fromScale(b - a, 1)
+		knob.Position = UDim2.fromScale(r, 0.5)
+		box.Text = string.format(fmtS, v)
+	end
+	local function aplicar(v)
+		v = arred(clamp(v, o.hmin, o.hmax))
+		visual(v)
+		o.set(v)
+	end
+	visual(o.get())
+
+	local function porX(x)
+		local r = clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+		aplicar(o.min + r * rng)
+	end
+	local hit = btn({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 25), Parent = c })
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			salvarSnapshotPose()
+			activeSlider = porX
+			porX(input.Position.X)
+		end
+	end)
+
+	-- segurar o botão repete (atualiza até soltar; o InputEnded global zera activeSlider)
+	local function segurar(b, dir)
+		b.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+			salvarSnapshotPose()
+			aplicar(o.get() + dir * o.passo())
+			local marcador = function() end
+			activeSlider = marcador
+			task.spawn(function()
+				task.wait(0.4)
+				while activeSlider == marcador and c.Parent do
+					aplicar(o.get() + dir * o.passo())
+					task.wait(0.06)
+				end
+			end)
+		end)
+	end
+	segurar(minus, -1)
+	segurar(plus, 1)
+
+	box.FocusLost:Connect(function()
+		local n = tonumber(box.Text)
+		if n then
+			salvarSnapshotPose()
+			aplicar(n)
+		else
+			visual(o.get())
+		end
+	end)
+	return { visual = visual, frame = c }
+end
+
+-- abas Posição / Rotação / Tamanho (troca só a visibilidade, sem reconstruir nem perder o scroll)
+function ITU.abas(parent, order, atual, aoEscolher)
+	local seg = frame({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 32), LayoutOrder = order, Parent = parent }, { round(10), padding(3), lista(3, Enum.FillDirection.Horizontal) })
+	local bts = {}
+	local function pintar(id)
+		for _, m in ipairs(ITU.MODOS) do
+			local sel = (m.id == id)
+			tw(bts[m.id], 0.12, {
+				BackgroundTransparency = sel and 0 or 1, BackgroundColor3 = sel and m.cor or T.surface,
+				TextColor3 = sel and T.bg or T.sub,
+			})
+		end
+	end
+	for i, m in ipairs(ITU.MODOS) do
+		local sel = (m.id == atual)
+		bts[m.id] = btn({
+			Text = m.nome, Font = F.GothamBold, TextSize = 11, BackgroundColor3 = sel and m.cor or T.surface,
+			BackgroundTransparency = sel and 0 or 1, TextColor3 = sel and T.bg or T.sub,
+			Size = UDim2.new(1 / #ITU.MODOS, -2, 1, 0), LayoutOrder = i, Parent = seg,
+		}, { round(8) })
+		bts[m.id].MouseButton1Click:Connect(function()
+			pintar(m.id)
+			aoEscolher(m.id)
+		end)
+	end
+	return seg
+end
+
+-- linha de botões pequenos de atalho
+function ITU.atalhos(parent, order, defs)
+	local n = #defs
+	local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = order, Parent = parent }, { lista(4, Enum.FillDirection.Horizontal) })
+	for i, d in ipairs(defs) do
+		local b = btn({
+			Text = d[1], Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
+			Size = UDim2.new(1 / n, -math.ceil(4 * (n - 1) / n), 1, 0), LayoutOrder = i, Parent = row,
+		}, { round(8), outline(T.stroke, 1, 0.35) })
+		hoverFX(b, T.surface2, T.surface3)
+		b.MouseButton1Click:Connect(d[2])
+	end
+	return row
+end
+
+-- card completo de um item
+function ITU.card(B, it, i, refazer)
+	local e = ITU.estado(it)
+	local EIXOS = { "x", "y", "z" }
+
+	ITU.refs[it] = txt({
+		Text = it.status or "", TextSize = 10, TextColor3 = T.dim, TextWrapped = true,
+		Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = B,
+	})
+
+	local function rodape(ordem)
+		local linha = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = ordem, Parent = B }, { lista(4, Enum.FillDirection.Horizontal) })
+		return linha
+	end
+
+	if it.kind == "roupa" then
+		local linha = rodape(20)
+		local remover = btn({
+			Text = "Remover", Font = F.GothamBold, TextSize = 10, TextColor3 = T.danger, BackgroundColor3 = T.surface2,
+			Size = UDim2.new(1, 0, 1, 0), Parent = linha,
+		}, { round(9), outline(T.stroke, 1, 0.3) })
+		hoverFX(remover, T.surface2, T.surface3)
+		remover.MouseButton1Click:Connect(function()
+			salvarSnapshotPose()
+			table.remove(customPose.itens, i)
+			ITU.refs[it] = nil
+			refazer()
+		end)
+		return
+	end
+
+	seletorParte(B, it.parte, function(id)
+		salvarSnapshotPose()
+		it.parte = id
+		refazer()
+	end, 2)
+
+	-- leitura rápida dos 3 valores
+	local resumoBox = frame({
+		BackgroundColor3 = T.surface2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 3, Parent = B,
+	}, { round(9), padding(10, 6, 10, 6), outline(T.stroke, 1, 0.5) })
+	local resumoLbl = txt({
+		Font = F.Code, TextSize = 10, RichText = true, TextColor3 = T.sub, Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, Parent = resumoBox,
+	})
+	local function resumo()
+		local p, r, s = it.pos, it.rot, it.size
+		local function lin(m, valores)
+			return string.format('<font color="#%s">%s</font>  %s', ITU.MODOS[m].cor:ToHex(), ({ "POS", "ROT", "TAM" })[m], valores)
+		end
+		resumoLbl.Text = lin(1, string.format("%.2f  %.2f  %.2f", p.x, p.y, p.z)) .. "\n"
+			.. lin(2, string.format("%.0f°  %.0f°  %.0f°", r.x, r.y, r.z)) .. "\n"
+			.. lin(3, string.format("%.2f  %.2f  %.2f", s.x, s.y, s.z))
+	end
+	resumo()
+
+	local paineis = {}
+	ITU.abas(B, 4, e.modo, function(id)
+		e.modo = id
+		for mid, p in pairs(paineis) do p.Visible = (mid == id) end
+	end)
+
+	local function criarPainel(m)
+		local cfg = ITU.CFG[m.id]
+		local function tab() return it[cfg.campo] end
+		local P = frame({
+			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = 5, Visible = (m.id == e.modo), Parent = B,
+		}, { lista(4) })
+		paineis[m.id] = P
+
+		-- passo
+		local linha = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = 1, Parent = P }, { lista(4, Enum.FillDirection.Horizontal) })
+		txt({ Text = "Passo", TextSize = 10, TextColor3 = T.dim, Size = UDim2.fromOffset(40, 24), LayoutOrder = 0, Parent = linha })
+		local chips = {}
+		local function pintarPassos()
+			for v, b in pairs(chips) do
+				local sel = (v == e.passo[m.id])
+				b.BackgroundColor3 = sel and T.accentSoft or T.surface2
+				b.TextColor3 = sel and T.text or T.sub
+			end
+		end
+		for k, v in ipairs(cfg.passos) do
+			local b = btn({
+				Text = tostring(v) .. cfg.sufixo, Font = F.Code, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
+				Size = UDim2.fromOffset(46, 24), LayoutOrder = k, Parent = linha,
+			}, { round(7), outline(T.stroke, 1, 0.5) })
+			chips[v] = b
+			b.MouseButton1Click:Connect(function()
+				e.passo[m.id] = v
+				pintarPassos()
+			end)
+		end
+		pintarPassos()
+
+		-- eixos
+		local ctr = {}
+		local function sync()
+			for k, eixo in ipairs(EIXOS) do ctr[k].visual(tab()[eixo]) end
+			resumo()
+		end
+		for k, eixo in ipairs(EIXOS) do
+			ctr[k] = ITU.eixo(P, {
+				axis = k, label = cfg.labels[k], min = cfg.min, max = cfg.max, hmin = cfg.hmin, hmax = cfg.hmax,
+				dec = cfg.dec, marca = cfg.marca, order = 1 + k,
+				get = function() return tab()[eixo] end,
+				passo = function() return e.passo[m.id] end,
+				set = function(v)
+					local t = tab()
+					local antes = t[eixo]
+					t[eixo] = v
+					if m.id == "size" and e.prop and antes and antes > 0 then
+						local f = v / antes
+						for j, eixo2 in ipairs(EIXOS) do
+							if j ~= k then
+								local nv = clamp(math.floor(t[eixo2] * f * 100 + 0.5) / 100, cfg.hmin, cfg.hmax)
+								t[eixo2] = nv
+								ctr[j].visual(nv)
+							end
+						end
+					end
+					resumo()
+				end,
+			})
+		end
+
+		-- atalhos
+		local function acao(fn)
+			return function()
+				salvarSnapshotPose()
+				fn(tab())
+				sync()
+			end
+		end
+		if m.id == "pos" then
+			ITU.atalhos(P, 5, {
+				{ "Zerar", acao(function(t) t.x, t.y, t.z = 0, 0, 0 end) },
+				{ "Inverter X", acao(function(t) t.x = 0 - t.x end) },
+				{ "Inverter Y", acao(function(t) t.y = 0 - t.y end) },
+				{ "Inverter Z", acao(function(t) t.z = 0 - t.z end) },
+			})
+		elseif m.id == "rot" then
+			local function mais90(eixo)
+				return acao(function(t)
+					local v = t[eixo] + 90
+					if v > 360 then v = v - 720 end
+					t[eixo] = v
+				end)
+			end
+			ITU.atalhos(P, 5, {
+				{ "Zerar", acao(function(t) t.x, t.y, t.z = 0, 0, 0 end) },
+				{ "+90° X", mais90("x") },
+				{ "+90° Y", mais90("y") },
+				{ "+90° Z", mais90("z") },
+			})
+		else
+			criarToggle(P, "Proporcional (os 3 eixos juntos)", function() return e.prop end, function(v) e.prop = v end, 5)
+			local function mult(f)
+				return acao(function(t)
+					for _, eixo in ipairs(EIXOS) do t[eixo] = clamp(math.floor(t[eixo] * f * 100 + 0.5) / 100, cfg.hmin, cfg.hmax) end
+				end)
+			end
+			ITU.atalhos(P, 6, {
+				{ "1 : 1", acao(function(t) t.x, t.y, t.z = 1, 1, 1 end) },
+				{ "× 2", mult(2) },
+				{ "÷ 2", mult(0.5) },
+				{ "Igualar X", acao(function(t) t.y, t.z = t.x, t.x end) },
+			})
+		end
+	end
+	for _, m in ipairs(ITU.MODOS) do criarPainel(m) end
+
+	-- rodapé: duplicar / resetar / remover
+	local linha = rodape(20)
+	local function botaoRodape(texto, cor, ordem)
+		local b = btn({
+			Text = texto, Font = F.GothamBold, TextSize = 10, TextColor3 = cor, BackgroundColor3 = T.surface2,
+			Size = UDim2.new(1 / 3, -3, 1, 0), LayoutOrder = ordem, Parent = linha,
+		}, { round(9), outline(T.stroke, 1, 0.3) })
+		hoverFX(b, T.surface2, T.surface3)
+		return b
+	end
+	botaoRodape("Duplicar", T.sub, 1).MouseButton1Click:Connect(function()
+		if #customPose.itens >= ItensEmote.MAX then return end
+		salvarSnapshotPose()
+		local copia = ItensEmote.copiar({ it })[1]
+		if not copia then return end
+		table.insert(customPose.itens, i + 1, copia)
+		ITU.aberto = i + 1
+		refazer(i + 1)
+	end)
+	botaoRodape("Resetar", T.sub, 2).MouseButton1Click:Connect(function()
+		salvarSnapshotPose()
+		it.pos.x, it.pos.y, it.pos.z = 0, 0, 0
+		it.rot.x, it.rot.y, it.rot.z = 0, 0, 0
+		it.size.x, it.size.y, it.size.z = 1, 1, 1
+		refazer()
+	end)
+	botaoRodape("Remover", T.danger, 3).MouseButton1Click:Connect(function()
+		salvarSnapshotPose()
+		table.remove(customPose.itens, i)
+		ITU.refs[it] = nil
+		refazer()
+	end)
+end
+
 local function montarItens()
 	botaoResetParte("itens", "itens")
 
-	local S1 = criarSecao(Content, "it_add", "ADICIONAR ITEM (POR ID)", T.ok, 1)
+	-- refaz a aba; sem foco mantém o scroll, com foco rola até o item
+	local function refazer(foco)
+		if foco then
+			ITU.foco = foco
+			rebuildTab()
+		else
+			local cp = Content.CanvasPosition
+			rebuildTab()
+			task.delay(0.04, function() Content.CanvasPosition = cp end)
+		end
+	end
+
+	local S1 = criarSecao(Content, "it_add", string.format("ADICIONAR ITEM  •  %d/%d", #customPose.itens, ItensEmote.MAX), T.ok, 1)
 	criarSegmentado(S1, ItensEmote.TIPOS, ITU.tipo, function(id)
 		ITU.tipo = id
 		rebuildTab()
@@ -6654,18 +7037,18 @@ local function montarItens()
 	if ITU.tipo == "mesh" then
 		itemBox(S1, "TextureId (opcional)", ITU.tex, 3, function(s) ITU.tex = s end)
 	end
-	txt({ Text = "Parte do corpo", TextSize = 11, TextColor3 = T.sub, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4, Parent = S1 })
+	txt({ Text = "Parte do corpo", Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4, Parent = S1 })
 	seletorParte(S1, ITU.parte, function(id)
 		ITU.parte = id
 		rebuildTab()
 	end, 5)
 	local addBtn = btn({
 		Text = "Adicionar", Font = F.GothamBold, TextSize = 12, BackgroundColor3 = T.accent, TextColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 6, Parent = S1,
-	}, { round(9), padding(24, 0, 8, 0) })
+		Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 6, Parent = S1,
+	}, { round(10), padding(24, 0, 8, 0) })
 	T.Icones.lado(addBtn, "_mais", 14, 2, 20)
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
-	local aviso = txt({ Text = "", TextSize = 10, TextColor3 = T.danger, TextWrapped = true, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 7, Parent = S1 })
+	local aviso = txt({ Text = "", TextSize = 10, TextColor3 = T.danger, TextWrapped = true, Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 7, Parent = S1 })
 	txt({
 		Text = "Acessório e Roupa: ID do catálogo (precisa de executor com GetObjects). Mesh: MeshId, e TextureId se quiser textura. Os Exportar já levam os itens.",
 		TextSize = 10, TextColor3 = T.dim, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
@@ -6689,80 +7072,36 @@ local function montarItens()
 		})
 		ITU.id, ITU.tex = "", ""
 		ITU.aberto = #customPose.itens
-		rebuildTab()
+		refazer(#customPose.itens)
 	end)
 
 	if #customPose.itens == 0 then
-		txt({ Text = "Nenhum item neste emote ainda.", TextSize = 11, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 2, Parent = Content })
+		local vazio = frame({
+			BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 54), LayoutOrder = 2, Parent = Content,
+		}, { round(12), outline(T.stroke, 1, 0.55) })
+		txt({
+			Text = "Nenhum item neste emote ainda.\nAdicione um acima para abrir a toolbox.", TextSize = 11, TextColor3 = T.dim,
+			TextXAlignment = CENTER, TextWrapped = true, Size = UDim2.fromScale(1, 1), Parent = vazio,
+		})
 	end
 
+	local focoSec = nil
 	for i, it in ipairs(customPose.itens) do
-		local titulo = string.format("#%d  %s  •  %s  →  %s", i, nomeDe(ItensEmote.TIPOS, it.tipo), it.id, nomeDe(ItensEmote.PARTES, it.parte))
-		local B = criarSecao(Content, "it_item" .. i, titulo, T.warn, 10 + i, i == ITU.aberto)
-		ITU.refs[it] = txt({
-			Text = it.status or "", TextSize = 10, TextColor3 = T.dim, TextWrapped = true,
-			Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, Parent = B,
-		})
+		local key = "it_item" .. i
+		if i == ITU.foco then secOpen[key] = true end
+		local titulo = string.format("#%d  %s  ·  %s  →  %s", i, nomeDe(ItensEmote.TIPOS, it.tipo), it.id, nomeDe(ItensEmote.PARTES, it.parte))
+		local B = criarSecao(Content, key, titulo, ITU.COR_TIPO[it.tipo] or T.warn, 10 + i, i == ITU.aberto)
+		if i == ITU.foco then focoSec = B.Parent end
+		ITU.card(B, it, i, refazer)
+	end
 
-		if it.kind ~= "roupa" then
-			seletorParte(B, it.parte, function(id)
-				salvarSnapshotPose()
-				it.parte = id
-				rebuildTab()
-			end, 2)
-
-			local function cabecalho(texto, ordem)
-				txt({ Text = texto, Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = ordem, Parent = B })
+	if focoSec then
+		ITU.foco = nil
+		task.delay(0.06, function()
+			if focoSec.Parent then
+				local y = (focoSec.AbsolutePosition.Y - Content.AbsolutePosition.Y) / devScale.Scale + Content.CanvasPosition.Y - 4
+				Content.CanvasPosition = Vector2.new(0, math.max(0, y))
 			end
-			local EIXOS = { "x", "y", "z" }
-			cabecalho("POSIÇÃO", 3)
-			for k, eixo in ipairs(EIXOS) do
-				criarSlider(B, {
-					label = ({ "Lado", "Cima / baixo", "Frente / trás" })[k], axis = k, min = -5, max = 5, dec = 2, order = 3 + k,
-					value = it.pos[eixo], onChange = function(v) it.pos[eixo] = v end,
-				})
-			end
-			cabecalho("ROTAÇÃO", 7)
-			for k, eixo in ipairs(EIXOS) do
-				criarSlider(B, {
-					label = ROT_LABELS[k], axis = k, min = -360, max = 360, dec = 0, order = 7 + k,
-					value = it.rot[eixo], onChange = function(v) it.rot[eixo] = v end,
-				})
-			end
-			cabecalho("TAMANHO", 11)
-			for k, eixo in ipairs(EIXOS) do
-				criarSlider(B, {
-					label = ({ "Largura (X)", "Altura (Y)", "Profundidade (Z)" })[k], axis = k, min = 0.05, max = 6, dec = 2, order = 11 + k,
-					value = it.size[eixo], onChange = function(v) it.size[eixo] = v end,
-				})
-			end
-		end
-
-		local linha = frame({
-			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 20, Parent = B,
-		}, { lista(6, Enum.FillDirection.Horizontal) })
-		if it.kind ~= "roupa" then
-			local igualar = btn({
-				Text = "Igualar tamanho (X)", Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
-				Size = UDim2.new(0.5, -3, 1, 0), LayoutOrder = 1, Parent = linha,
-			}, { round(9), outline(T.stroke, 1, 0.3) })
-			hoverFX(igualar, T.surface2, T.surface3)
-			igualar.MouseButton1Click:Connect(function()
-				salvarSnapshotPose()
-				it.size.y, it.size.z = it.size.x, it.size.x
-				rebuildTab()
-			end)
-		end
-		local remover = btn({
-			Text = "Remover", Font = F.GothamBold, TextSize = 10, TextColor3 = T.danger, BackgroundColor3 = T.surface2,
-			Size = it.kind ~= "roupa" and UDim2.new(0.5, -3, 1, 0) or UDim2.new(1, 0, 1, 0), LayoutOrder = 2, Parent = linha,
-		}, { round(9), outline(T.stroke, 1, 0.3) })
-		hoverFX(remover, T.surface2, T.surface3)
-		remover.MouseButton1Click:Connect(function()
-			salvarSnapshotPose()
-			table.remove(customPose.itens, i)
-			ITU.refs[it] = nil
-			rebuildTab()
 		end)
 	end
 end

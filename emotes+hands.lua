@@ -7760,7 +7760,10 @@ do
 		local function gravarNaKey()
 			if anim.tocando then return end
 			local k = keyExata(anim.tempo)
-			if k then k.vel = VEL.v end
+			if k then
+				k.vel = VEL.v
+				if VEL.redesenhar then VEL.redesenhar() end
+			end
 		end
 
 		for i, pr in ipairs(PRESETS) do
@@ -7817,6 +7820,14 @@ do
 				BackgroundColor3 = (k == anim.sel) and T.warn or T.accent, AnchorPoint = Vector2.new(0.5, 0.5), Rotation = 45,
 				Position = UDim2.new(clamp(k.t / anim.duracao, 0, 1), 0, 0.5, 0), Size = UDim2.fromOffset(13, 13), ZIndex = 5, Parent = marcas,
 			}, { round(2) })
+			if k.vel ~= nil then -- marca: key com WalkSpeed definido mostra o numero embaixo
+				txt({
+					Text = (k.vel == math.floor(k.vel)) and string.format("%d", k.vel) or string.format("%.1f", k.vel),
+					Font = F.GothamBold, TextSize = 9, TextColor3 = (k == anim.sel) and T.warn or T.ok, TextXAlignment = CENTER,
+					AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(clamp(k.t / anim.duracao, 0, 1), 0, 0.5, 10),
+					Size = UDim2.fromOffset(30, 11), ZIndex = 5, Parent = marcas,
+				})
+			end
 			m.MouseButton1Click:Connect(function()
 				anim.tocando = false
 				atualizarPlay()
@@ -7829,6 +7840,8 @@ do
 		durLbl.Text = string.format("/ %.2fs", anim.duracao)
 		durBox.Text = string.format("%.1fs", anim.duracao)
 	end
+
+	VEL.redesenhar = desenhar
 
 	function irPara(tempo, reconstruir)
 		sincronizarUsa() -- salva no key atual o que foi mexido nos chips antes de sair dele

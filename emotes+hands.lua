@@ -6501,51 +6501,356 @@ local function botaoResetParte(parte, rotulo)
 	return b
 end
 
+-- ===== TOOLBOX: componentes reutilizáveis (Braços, Mãos, Torso, Cabeça, Pernas e Itens) =====
+local TB = { est = {} }
+
+-- uma linha de controle: [X] rótulo  [-] [valor] [+]  + slider com marca central (0 ou 1)
+-- sem o.axis vira um slider simples (cor do modo, sem chip)
+function TB.eixo(parent, o)
+	local mult = 10 ^ o.dec
+	local fmtS = "%." .. o.dec .. "f"
+	local cor = o.axis and T.ax[o.axis] or o.cor or T.accent
+	local rng = o.max - o.min
+	local x0 = o.axis and 24 or 0
+	local function arred(v) return math.floor(v * mult + 0.5) / mult end
+
+	local c = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48), LayoutOrder = o.order or 0, Parent = parent })
+	if o.axis then
+		local chip = frame({ BackgroundColor3 = cor, BackgroundTransparency = 0.78, Size = UDim2.fromOffset(18, 18), Parent = c }, { round(5) })
+		txt({ Text = ({ "X", "Y", "Z" })[o.axis], Font = F.GothamBold, TextSize = 10, TextColor3 = cor, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = chip })
+	end
+	txt({ Text = o.label, TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(x0, 0), Size = UDim2.new(1, -(x0 + 96), 0, 18), TextTruncate = Enum.TextTruncate.AtEnd, Parent = c })
+
+	local function mini(t, x)
+		local b = btn({
+			Text = t, Font = F.GothamBold, TextSize = 14, TextColor3 = T.sub, BackgroundColor3 = T.surface3,
+			Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, x, 0, -1), Parent = c,
+		}, { round(6) })
+		hoverFX(b, T.surface3, T.accentSoft)
+		return b
+	end
+	local minus, plus = mini("-", -92), mini("+", -20)
+	local box = new("TextBox", {
+		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
+		ClearTextOnFocus = false, TextXAlignment = CENTER, Size = UDim2.fromOffset(48, 20), Position = UDim2.new(1, -70, 0, -1), Parent = c,
+	}, { round(6) })
+
+	local track = frame({ BackgroundColor3 = T.surface3, Size = UDim2.new(1, 0, 0, 6), Position = UDim2.fromOffset(0, 34), Parent = c }, { round(3) })
+	local marca = o.marca or o.min
+	local r0 = clamp((marca - o.min) / rng, 0, 1)
+	local fill = frame({ BackgroundColor3 = cor, Size = UDim2.fromScale(0, 1), Parent = track }, { round(3) })
+	if marca > o.min and marca < o.max then
+		frame({ BackgroundColor3 = T.text, BackgroundTransparency = 0.55, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2, 12), Position = UDim2.fromScale(r0, 0.5), Parent = track })
+	end
+	local knob = frame({ BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), Position = UDim2.fromScale(0, 0.5), Parent = track }, { round(7), outline(cor, 2, 0.2) })
+
+	local function visual(v)
+		local r = clamp((v - o.min) / rng, 0, 1)
+		local a, b = math.min(r0, r), math.max(r0, r)
+		fill.Position = UDim2.fromScale(a, 0)
+		fill.Size = UDim2.fromScale(b - a, 1)
+		knob.Position = UDim2.fromScale(r, 0.5)
+		box.Text = string.format(fmtS, v)
+	end
+	local function aplicar(v)
+		v = arred(clamp(v, o.hmin, o.hmax))
+		visual(v)
+		o.set(v)
+	end
+	visual(o.get())
+
+	local function porX(x)
+		local r = clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+		aplicar(o.min + r * rng)
+	end
+	local hit = btn({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 25), Parent = c })
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			salvarSnapshotPose()
+			activeSlider = porX
+			porX(input.Position.X)
+		end
+	end)
+
+	-- segurar o botão repete (atualiza até soltar; o InputEnded global zera activeSlider)
+	local function segurar(b, dir)
+		b.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+			salvarSnapshotPose()
+			aplicar(o.get() + dir * o.passo())
+			local marcador = function() end
+			activeSlider = marcador
+			task.spawn(function()
+				task.wait(0.4)
+				while activeSlider == marcador and c.Parent do
+					aplicar(o.get() + dir * o.passo())
+					task.wait(0.06)
+				end
+			end)
+		end)
+	end
+	segurar(minus, -1)
+	segurar(plus, 1)
+
+	box.FocusLost:Connect(function()
+		local n = tonumber(box.Text)
+		if n then
+			salvarSnapshotPose()
+			aplicar(n)
+		else
+			visual(o.get())
+		end
+	end)
+	return { visual = visual, frame = c }
+end
+
+-- abas (troca só a visibilidade, sem reconstruir nem perder o scroll)
+function TB.abas(parent, order, modos, atual, aoEscolher)
+	local seg = frame({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 32), LayoutOrder = order, Parent = parent }, { round(10), padding(3), lista(3, Enum.FillDirection.Horizontal) })
+	local bts = {}
+	local function pintar(id)
+		for _, m in ipairs(modos) do
+			local sel = (m.id == id)
+			tw(bts[m.id], 0.12, {
+				BackgroundTransparency = sel and 0 or 1, BackgroundColor3 = sel and m.cor or T.surface,
+				TextColor3 = sel and T.bg or T.sub,
+			})
+		end
+	end
+	for i, m in ipairs(modos) do
+		local sel = (m.id == atual)
+		bts[m.id] = btn({
+			Text = m.nome, Font = F.GothamBold, TextSize = 11, BackgroundColor3 = sel and m.cor or T.surface,
+			BackgroundTransparency = sel and 0 or 1, TextColor3 = sel and T.bg or T.sub,
+			Size = UDim2.new(1 / #modos, -2, 1, 0), LayoutOrder = i, Parent = seg,
+		}, { round(8) })
+		bts[m.id].MouseButton1Click:Connect(function()
+			pintar(m.id)
+			aoEscolher(m.id)
+		end)
+	end
+	return seg
+end
+
+-- linha de botões pequenos de atalho
+function TB.atalhos(parent, order, defs)
+	local n = #defs
+	local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = order, Parent = parent }, { lista(4, Enum.FillDirection.Horizontal) })
+	for i, d in ipairs(defs) do
+		local b = btn({
+			Text = d[1], Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
+			Size = UDim2.new(1 / n, -math.ceil(4 * (n - 1) / n), 1, 0), LayoutOrder = i, Parent = row,
+		}, { round(8), outline(T.stroke, 1, 0.35) })
+		hoverFX(b, T.surface2, T.surface3)
+		b.MouseButton1Click:Connect(d[2])
+	end
+	return row
+end
+
+-- estado (aba escolhida + passo de cada aba) guardado por chave, sobrevive ao rebuildTab
+function TB.estado(key, modos)
+	local e = TB.est[key]
+	if not e then
+		e = { modo = modos[1].id, passo = {} }
+		for _, m in ipairs(modos) do e.passo[m.id] = m.passo or m.passos[1] end
+		TB.est[key] = e
+	end
+	return e
+end
+
+-- atalhos por tipo de aba: rot (+90°), pos (inverter), faixa (mín / meio / máx)
+function TB.presets(m, acao)
+	local C = m.campos
+	local base = m.marca or 0
+	local zerar = { "Zerar", acao(function(t) for _, c in ipairs(C) do t[c] = base end end) }
+	if m.tipo == "rot" and #C == 3 then
+		local function mais90(c)
+			return acao(function(t)
+				local v = (t[c] or 0) + 90
+				if v > m.hmax then v = v - (m.hmax - m.hmin) end
+				t[c] = v
+			end)
+		end
+		return { zerar, { "+90° X", mais90(C[1]) }, { "+90° Y", mais90(C[2]) }, { "+90° Z", mais90(C[3]) } }
+	elseif m.tipo == "pos" and #C == 3 then
+		local function inv(c) return acao(function(t) t[c] = 0 - (t[c] or 0) end) end
+		return { zerar, { "Inverter X", inv(C[1]) }, { "Inverter Y", inv(C[2]) }, { "Inverter Z", inv(C[3]) } }
+	elseif m.tipo == "faixa" then
+		local function todos(v) return acao(function(t) for _, c in ipairs(C) do t[c] = v end end) end
+		return { { "Mín.", todos(m.min) }, { "Meio", todos((m.min + m.max) / 2) }, { "Máx.", todos(m.max) } }
+	end
+	return { zerar }
+end
+
+-- atalhos pra montar abas comuns
+function TB.modoRot(get, labels, campos)
+	return {
+		id = "rot", nome = "Rotação", sigla = "ROT", cor = T.ax[1], tipo = "rot", campos = campos or { "x", "y", "z" }, eixos = { 1, 2, 3 },
+		labels = labels or ROT_LABELS, min = -360, max = 360, hmin = -360, hmax = 360, dec = 0, marca = 0,
+		passos = { 1, 5, 15, 45 }, passo = 5, sufixo = "°", get = get,
+	}
+end
+function TB.modoPos(get, labels, campos)
+	return {
+		id = "pos", nome = "Posição", sigla = "POS", cor = T.ax[3], tipo = "pos", campos = campos or { "px", "py", "pz" }, eixos = { 1, 2, 3 },
+		labels = labels, min = -2, max = 2, hmin = -4, hmax = 4, dec = 2, marca = 0,
+		passos = { 0.01, 0.05, 0.1, 0.5 }, passo = 0.05, sufixo = "", get = get,
+	}
+end
+
+-- bloco completo: seção + resumo + abas + (passo, eixos, atalhos) de cada aba
+-- o: key, titulo, cor, order, aberta, ao (chamado a cada mudança), resumo (false desliga), modos = { ... }
+function TB.bloco(parent, o)
+	local body = criarSecao(parent, o.key, o.titulo, o.cor, o.order, o.aberta)
+	local e = TB.estado(o.key, o.modos)
+
+	local resumoLbl
+	if o.resumo ~= false then
+		local box = frame({
+			BackgroundColor3 = T.surface2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = body,
+		}, { round(9), padding(10, 6, 10, 6), outline(T.stroke, 1, 0.5) })
+		resumoLbl = txt({
+			Font = F.Code, TextSize = 10, RichText = true, TextColor3 = T.sub, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y, Parent = box,
+		})
+	end
+	local function resumo()
+		if not resumoLbl then return end
+		local linhas = {}
+		for _, m in ipairs(o.modos) do
+			local t, vs = m.get(), {}
+			for k, c in ipairs(m.campos) do vs[k] = string.format("%." .. m.dec .. "f", t[c] or 0) .. (m.sufixo or "") end
+			linhas[#linhas + 1] = string.format('<font color="#%s">%s</font>  %s', m.cor:ToHex(), m.sigla, table.concat(vs, "  "))
+		end
+		resumoLbl.Text = table.concat(linhas, "\n")
+	end
+
+	local paineis = {}
+	if #o.modos > 1 then
+		TB.abas(body, 2, o.modos, e.modo, function(id)
+			e.modo = id
+			for mid, p in pairs(paineis) do p.Visible = (mid == id) end
+		end)
+	end
+
+	for _, m in ipairs(o.modos) do
+		local ao = m.ao or o.ao
+		local P = frame({
+			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = 3, Visible = (m.id == e.modo), Parent = body,
+		}, { lista(4) })
+		paineis[m.id] = P
+
+		-- passo
+		local linha = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = 1, Parent = P }, { lista(4, Enum.FillDirection.Horizontal) })
+		txt({ Text = "Passo", TextSize = 10, TextColor3 = T.dim, Size = UDim2.fromOffset(40, 24), LayoutOrder = 0, Parent = linha })
+		local chips = {}
+		local function pintarPassos()
+			for v, b in pairs(chips) do
+				local sel = (v == e.passo[m.id])
+				b.BackgroundColor3 = sel and T.accentSoft or T.surface2
+				b.TextColor3 = sel and T.text or T.sub
+			end
+		end
+		for k, v in ipairs(m.passos) do
+			local b = btn({
+				Text = tostring(v) .. (m.sufixo or ""), Font = F.Code, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
+				Size = UDim2.fromOffset(46, 24), LayoutOrder = k, Parent = linha,
+			}, { round(7), outline(T.stroke, 1, 0.5) })
+			chips[v] = b
+			b.MouseButton1Click:Connect(function()
+				e.passo[m.id] = v
+				pintarPassos()
+			end)
+		end
+		pintarPassos()
+
+		-- eixos
+		local ctr = {}
+		for k, campo in ipairs(m.campos) do
+			ctr[k] = TB.eixo(P, {
+				axis = m.eixos and m.eixos[k] or nil, cor = m.cor, label = m.labels[k],
+				min = m.min, max = m.max, hmin = m.hmin or m.min, hmax = m.hmax or m.max, dec = m.dec, marca = m.marca or 0, order = 1 + k,
+				get = function() return m.get()[campo] or 0 end,
+				passo = function() return e.passo[m.id] end,
+				set = function(v)
+					m.get()[campo] = v
+					resumo()
+					if ao then ao() end
+				end,
+			})
+		end
+
+		-- atalhos
+		local function acao(fn)
+			return function()
+				salvarSnapshotPose()
+				fn(m.get())
+				for k, campo in ipairs(m.campos) do ctr[k].visual(m.get()[campo] or 0) end
+				resumo()
+				if ao then ao() end
+			end
+		end
+		TB.atalhos(P, 9, TB.presets(m, acao))
+	end
+	resumo()
+	return body
+end
+
 local function montarBracos()
 	botaoResetParte("bracos", "braços")
 	local S1 = criarSecao(Content, "br_ativ", "ATIVAÇÃO", T.ok, 1)
 	criarToggle(S1, "Animar braço direito", function() return animConfig.direita end, function(v) animConfig.direita = v end, 1)
 	criarToggle(S1, "Animar braço esquerdo", function() return animConfig.esquerda end, function(v) animConfig.esquerda = v end, 2)
 	seletorMao(Content, 2)
-	local pose = customPose[currentHand]
-	local S2 = criarSecao(Content, "br_rot", "ROTAÇÃO DO BRAÇO", T.ax[1], 3)
-	slidersRot(S2, function() return pose.braco end, 0, -360, 360, ROT_LABELS, nil, ecoMao)
-	local S3 = criarSecao(Content, "br_pos", "POSIÇÃO DO BRAÇO", T.ax[3], 4)
-	for i, k in ipairs({ "px", "py", "pz" }) do
-		criarSlider(S3, {
-			label = ({ "Lado", "Cima / baixo", "Frente / trás" })[i], axis = i, min = -2, max = 2, dec = 2, order = i,
-			value = pose.braco[k], onChange = function(v) pose.braco[k] = v; ecoMao() end,
-		})
-	end
+	local mao = currentHand
+	local function braco() return customPose[mao].braco end
+	TB.bloco(Content, {
+		key = "br_" .. mao, titulo = (mao == "direita") and "BRAÇO DIREITO" or "BRAÇO ESQUERDO", cor = T.accent, order = 3, ao = ecoMao,
+		modos = { TB.modoRot(braco), TB.modoPos(braco, { "Lado", "Cima / baixo", "Frente / trás" }) },
+	})
 end
 
 local function montarMaos()
 	botaoResetParte("maos", "mãos e dedos")
 	seletorMao(Content, 1)
-	local pose = customPose[currentHand]
-	local S1 = criarSecao(Content, "mao_palma", "PALMA", T.ax[2], 2)
-	slidersRot(S1, function() return pose.palma end, 0, -360, 360, ROT_LABELS, nil, ecoMao)
-	local S2 = criarSecao(Content, "mao_afast", "ABERTURA DOS DEDOS", T.warn, 3)
-	criarSlider(S2, { label = "Afastamento total", min = 0, max = 90, dec = 0, value = pose.afastamento, onChange = function(v) pose.afastamento = v; ecoMao() end })
-	for i = 1, 5 do
-		local S = criarSecao(Content, "dedo" .. i, "DEDO " .. i .. " — " .. string.upper(NOMES_DEDOS[i]), T.accent, 3 + i, false)
-		criarSlider(S, { label = "Base", min = 0, max = 90, order = 1, value = pose.dedos[i][1], onChange = function(v) pose.dedos[i][1] = v; ecoMao() end })
-		criarSlider(S, { label = "Ponta", min = 0, max = 90, order = 2, value = pose.dedos[i][2], onChange = function(v) pose.dedos[i][2] = v; ecoMao() end })
+	local mao = currentHand
+	local function pose() return customPose[mao] end
 
-		local ROT_DEDO = { "Rot X — abrir / fechar lado", "Rot Y — girar no eixo", "Rot Z — dobrar extra" }
-		local POS_DEDO = { "Pos X — dentro / fora", "Pos Y — punho / ponta", "Pos Z — entre dedos" }
-		for k = 1, 3 do
-			criarSlider(S, {
-				label = ROT_DEDO[k], axis = k, min = -360, max = 360, dec = 0, order = 2 + k,
-				value = pose.dedos[i][2 + k] or 0, onChange = function(v) pose.dedos[i][2 + k] = v; ecoMao() end,
-			})
-		end
-		for k = 1, 3 do
-			criarSlider(S, {
-				label = POS_DEDO[k], axis = k, min = -0.5, max = 0.5, dec = 2, order = 5 + k,
-				value = pose.dedos[i][5 + k] or 0, onChange = function(v) pose.dedos[i][5 + k] = v; ecoMao() end,
-			})
-		end
+	TB.bloco(Content, {
+		key = "mao_palma", titulo = "PALMA", cor = T.ax[2], order = 2, ao = ecoMao,
+		modos = { TB.modoRot(function() return pose().palma end) },
+	})
+	TB.bloco(Content, {
+		key = "mao_afast", titulo = "ABERTURA DOS DEDOS", cor = T.warn, order = 3, ao = ecoMao, resumo = false,
+		modos = { {
+			id = "abre", nome = "Abertura", sigla = "ABERT.", cor = T.warn, tipo = "faixa", campos = { "afastamento" }, labels = { "Afastamento total" },
+			min = 0, max = 90, hmin = 0, hmax = 90, dec = 0, marca = 0, passos = { 1, 5, 15 }, passo = 5, sufixo = "°",
+			get = pose,
+		} },
+	})
+
+	local ROT_DEDO = { "Abrir / fechar lado", "Girar no eixo", "Dobrar extra" }
+	local POS_DEDO = { "Dentro / fora", "Punho / ponta", "Entre dedos" }
+	for i = 1, 5 do
+		local function dedo() return pose().dedos[i] end
+		TB.bloco(Content, {
+			key = "dedo" .. i .. "_" .. mao, titulo = "DEDO " .. i .. " — " .. string.upper(NOMES_DEDOS[i]), cor = T.accent, order = 3 + i, aberta = false, ao = ecoMao,
+			modos = {
+				{
+					id = "dobra", nome = "Dobra", sigla = "DOBRA", cor = T.warn, tipo = "faixa", campos = { 1, 2 }, labels = { "Base", "Ponta" },
+					min = 0, max = 90, hmin = 0, hmax = 90, dec = 0, marca = 0, passos = { 1, 5, 15 }, passo = 5, sufixo = "°", get = dedo,
+				},
+				{
+					id = "rot", nome = "Rotação", sigla = "ROT", cor = T.ax[1], tipo = "rot", campos = { 3, 4, 5 }, eixos = { 1, 2, 3 }, labels = ROT_DEDO,
+					min = -360, max = 360, hmin = -360, hmax = 360, dec = 0, marca = 0, passos = { 1, 5, 15, 45 }, passo = 5, sufixo = "°", get = dedo,
+				},
+				{
+					id = "pos", nome = "Posição", sigla = "POS", cor = T.ax[3], tipo = "pos", campos = { 6, 7, 8 }, eixos = { 1, 2, 3 }, labels = POS_DEDO,
+					min = -0.5, max = 0.5, hmin = -1, hmax = 1, dec = 2, marca = 0, passos = { 0.01, 0.05, 0.1 }, passo = 0.01, sufixo = "", get = dedo,
+				},
+			},
+		})
 	end
 end
 
@@ -6553,54 +6858,40 @@ local function montarTorso()
 	botaoResetParte("torso", "torso")
 	local S1 = criarSecao(Content, "to_ativ", "ATIVAÇÃO", T.ok, 1)
 	criarToggle(S1, "Controlar torso", function() return animConfig.torso end, function(v) animConfig.torso = v end, 1)
-	local S2 = criarSecao(Content, "to_rot", "ROTAÇÃO DO TORSO", T.ax[1], 2)
-	slidersRot(S2, function() return customPose.torso end, 0, -360, 360, ROT_LABELS)
-	local S3 = criarSecao(Content, "to_pos", "POSIÇÃO DO TORSO", T.ax[3], 3)
-	for i, k in ipairs({ "px", "py", "pz" }) do
-		criarSlider(S3, {
-			label = ({ "Lado", "Frente / trás", "Cima / baixo" })[i], axis = i, min = -2, max = 2, dec = 2, order = i,
-			value = customPose.torso[k] or 0, onChange = function(v) customPose.torso[k] = v end,
-		})
-	end
+	local function torso() return customPose.torso end
+	TB.bloco(Content, {
+		key = "to_bloco", titulo = "TORSO", cor = T.accent, order = 2,
+		modos = { TB.modoRot(torso), TB.modoPos(torso, { "Lado", "Frente / trás", "Cima / baixo" }) },
+	})
 end
 
 local function montarCabeca()
 	botaoResetParte("cabeca", "cabeça")
 	local S1 = criarSecao(Content, "ca_ativ", "ATIVAÇÃO", T.ok, 1)
 	criarToggle(S1, "Controlar cabeça", function() return animConfig.cabeca end, function(v) animConfig.cabeca = v end, 1)
-	local S2 = criarSecao(Content, "ca_rot", "ROTAÇÃO DA CABEÇA", T.ax[1], 2)
-	slidersRot(S2, function() return customPose.cabeca end, 0, -360, 360, { "Pitch — olhar cima / baixo", "Yaw — virar", "Roll — inclinar" })
-	local S3 = criarSecao(Content, "ca_pos", "POSIÇÃO DA CABEÇA", T.ax[3], 3)
-	for i, k in ipairs({ "px", "py", "pz" }) do
-		criarSlider(S3, {
-			label = ({ "Lado", "Frente / trás", "Cima / baixo" })[i], axis = i, min = -2, max = 2, dec = 2, order = i,
-			value = customPose.cabeca[k] or 0, onChange = function(v) customPose.cabeca[k] = v end,
-		})
-	end
-end
-
-local function slidersPosPerna(parent, getTabela, aoMudar)
-	local t = getTabela()
-	for i, k in ipairs({ "px", "py", "pz" }) do
-		criarSlider(parent, {
-			label = ({ "Frente / trás", "Cima / baixo", "Lado" })[i], axis = i, min = -2, max = 2, dec = 2, order = 3 + i,
-			value = t[k] or 0, onChange = function(v) getTabela()[k] = v; if aoMudar then aoMudar() end end,
-		})
-	end
+	local function cabeca() return customPose.cabeca end
+	TB.bloco(Content, {
+		key = "ca_bloco", titulo = "CABEÇA", cor = T.accent, order = 2,
+		modos = {
+			TB.modoRot(cabeca, { "Pitch — olhar cima / baixo", "Yaw — virar", "Roll — inclinar" }),
+			TB.modoPos(cabeca, { "Lado", "Frente / trás", "Cima / baixo" }),
+		},
+	})
 end
 
 local function montarPernas()
 	botaoResetParte("pernas", "pernas")
 	local S1 = criarSecao(Content, "pe_ativ", "ATIVAÇÃO", T.ok, 1)
 	criarToggle(S1, "Controlar pernas", function() return animConfig.pernas end, function(v) animConfig.pernas = v end, 1)
-	local S2 = criarSecao(Content, "pe_dir", "ROTAÇÃO — PERNA DIREITA", T.ax[1], 2)
-	slidersRot(S2, function() return customPose.pernaDir end, 0, -360, 360, ROT_LABELS, nil, function() espelharPose(nil, "pernaDir") end)
-	local S3 = criarSecao(Content, "pe_esq", "ROTAÇÃO — PERNA ESQUERDA", T.ax[3], 3)
-	slidersRot(S3, function() return customPose.pernaEsq end, 0, -360, 360, ROT_LABELS, nil, function() espelharPose(nil, "pernaEsq") end)
-	local S4 = criarSecao(Content, "pe_dir_pos", "POSIÇÃO — PERNA DIREITA", T.ax[1], 4)
-	slidersPosPerna(S4, function() return customPose.pernaDir end, function() espelharPose(nil, "pernaDir") end)
-	local S5 = criarSecao(Content, "pe_esq_pos", "POSIÇÃO — PERNA ESQUERDA", T.ax[3], 5)
-	slidersPosPerna(S5, function() return customPose.pernaEsq end, function() espelharPose(nil, "pernaEsq") end)
+	local function perna(chave, titulo, ordem)
+		local function get() return customPose[chave] end
+		TB.bloco(Content, {
+			key = "pe_" .. chave, titulo = titulo, cor = T.accent, order = ordem, ao = function() espelharPose(nil, chave) end,
+			modos = { TB.modoRot(get), TB.modoPos(get, { "Frente / trás", "Cima / baixo", "Lado" }) },
+		})
+	end
+	perna("pernaDir", "PERNA DIREITA", 2)
+	perna("pernaEsq", "PERNA ESQUERDA", 3)
 end
 
 -- ===== aba ITENS (TOOLBOX): acessórios / roupas / mesh pelo ID =====
@@ -6669,144 +6960,6 @@ function ITU.estado(it)
 	return e
 end
 
--- uma linha de controle: [X] rótulo  [-] [valor] [+]  + slider com marca central (0 ou 1)
-function ITU.eixo(parent, o)
-	local mult = 10 ^ o.dec
-	local fmtS = "%." .. o.dec .. "f"
-	local cor = T.ax[o.axis]
-	local rng = o.max - o.min
-	local function arred(v) return math.floor(v * mult + 0.5) / mult end
-
-	local c = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48), LayoutOrder = o.order or 0, Parent = parent })
-	local chip = frame({ BackgroundColor3 = cor, BackgroundTransparency = 0.78, Size = UDim2.fromOffset(18, 18), Parent = c }, { round(5) })
-	txt({ Text = ({ "X", "Y", "Z" })[o.axis], Font = F.GothamBold, TextSize = 10, TextColor3 = cor, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), Parent = chip })
-	txt({ Text = o.label, TextSize = 11, TextColor3 = T.sub, Position = UDim2.fromOffset(24, 0), Size = UDim2.new(1, -120, 0, 18), TextTruncate = Enum.TextTruncate.AtEnd, Parent = c })
-
-	local function mini(t, x)
-		local b = btn({
-			Text = t, Font = F.GothamBold, TextSize = 14, TextColor3 = T.sub, BackgroundColor3 = T.surface3,
-			Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, x, 0, -1), Parent = c,
-		}, { round(6) })
-		hoverFX(b, T.surface3, T.accentSoft)
-		return b
-	end
-	local minus, plus = mini("-", -92), mini("+", -20)
-	local box = new("TextBox", {
-		BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
-		ClearTextOnFocus = false, TextXAlignment = CENTER, Size = UDim2.fromOffset(48, 20), Position = UDim2.new(1, -70, 0, -1), Parent = c,
-	}, { round(6) })
-
-	local track = frame({ BackgroundColor3 = T.surface3, Size = UDim2.new(1, 0, 0, 6), Position = UDim2.fromOffset(0, 34), Parent = c }, { round(3) })
-	local r0 = clamp((o.marca - o.min) / rng, 0, 1)
-	local fill = frame({ BackgroundColor3 = cor, Size = UDim2.fromScale(0, 1), Parent = track }, { round(3) })
-	if o.marca > o.min and o.marca < o.max then
-		frame({ BackgroundColor3 = T.text, BackgroundTransparency = 0.55, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2, 12), Position = UDim2.fromScale(r0, 0.5), Parent = track })
-	end
-	local knob = frame({ BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), Position = UDim2.fromScale(0, 0.5), Parent = track }, { round(7), outline(cor, 2, 0.2) })
-
-	local function visual(v)
-		local r = clamp((v - o.min) / rng, 0, 1)
-		local a, b = math.min(r0, r), math.max(r0, r)
-		fill.Position = UDim2.fromScale(a, 0)
-		fill.Size = UDim2.fromScale(b - a, 1)
-		knob.Position = UDim2.fromScale(r, 0.5)
-		box.Text = string.format(fmtS, v)
-	end
-	local function aplicar(v)
-		v = arred(clamp(v, o.hmin, o.hmax))
-		visual(v)
-		o.set(v)
-	end
-	visual(o.get())
-
-	local function porX(x)
-		local r = clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-		aplicar(o.min + r * rng)
-	end
-	local hit = btn({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 25), Parent = c })
-	hit.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			salvarSnapshotPose()
-			activeSlider = porX
-			porX(input.Position.X)
-		end
-	end)
-
-	-- segurar o botão repete (atualiza até soltar; o InputEnded global zera activeSlider)
-	local function segurar(b, dir)
-		b.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-			salvarSnapshotPose()
-			aplicar(o.get() + dir * o.passo())
-			local marcador = function() end
-			activeSlider = marcador
-			task.spawn(function()
-				task.wait(0.4)
-				while activeSlider == marcador and c.Parent do
-					aplicar(o.get() + dir * o.passo())
-					task.wait(0.06)
-				end
-			end)
-		end)
-	end
-	segurar(minus, -1)
-	segurar(plus, 1)
-
-	box.FocusLost:Connect(function()
-		local n = tonumber(box.Text)
-		if n then
-			salvarSnapshotPose()
-			aplicar(n)
-		else
-			visual(o.get())
-		end
-	end)
-	return { visual = visual, frame = c }
-end
-
--- abas Posição / Rotação / Tamanho (troca só a visibilidade, sem reconstruir nem perder o scroll)
-function ITU.abas(parent, order, atual, aoEscolher)
-	local seg = frame({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 32), LayoutOrder = order, Parent = parent }, { round(10), padding(3), lista(3, Enum.FillDirection.Horizontal) })
-	local bts = {}
-	local function pintar(id)
-		for _, m in ipairs(ITU.MODOS) do
-			local sel = (m.id == id)
-			tw(bts[m.id], 0.12, {
-				BackgroundTransparency = sel and 0 or 1, BackgroundColor3 = sel and m.cor or T.surface,
-				TextColor3 = sel and T.bg or T.sub,
-			})
-		end
-	end
-	for i, m in ipairs(ITU.MODOS) do
-		local sel = (m.id == atual)
-		bts[m.id] = btn({
-			Text = m.nome, Font = F.GothamBold, TextSize = 11, BackgroundColor3 = sel and m.cor or T.surface,
-			BackgroundTransparency = sel and 0 or 1, TextColor3 = sel and T.bg or T.sub,
-			Size = UDim2.new(1 / #ITU.MODOS, -2, 1, 0), LayoutOrder = i, Parent = seg,
-		}, { round(8) })
-		bts[m.id].MouseButton1Click:Connect(function()
-			pintar(m.id)
-			aoEscolher(m.id)
-		end)
-	end
-	return seg
-end
-
--- linha de botões pequenos de atalho
-function ITU.atalhos(parent, order, defs)
-	local n = #defs
-	local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = order, Parent = parent }, { lista(4, Enum.FillDirection.Horizontal) })
-	for i, d in ipairs(defs) do
-		local b = btn({
-			Text = d[1], Font = F.GothamBold, TextSize = 10, TextColor3 = T.sub, BackgroundColor3 = T.surface2,
-			Size = UDim2.new(1 / n, -math.ceil(4 * (n - 1) / n), 1, 0), LayoutOrder = i, Parent = row,
-		}, { round(8), outline(T.stroke, 1, 0.35) })
-		hoverFX(b, T.surface2, T.surface3)
-		b.MouseButton1Click:Connect(d[2])
-	end
-	return row
-end
-
 -- card completo de um item
 function ITU.card(B, it, i, refazer)
 	local e = ITU.estado(it)
@@ -6864,7 +7017,7 @@ function ITU.card(B, it, i, refazer)
 	resumo()
 
 	local paineis = {}
-	ITU.abas(B, 4, e.modo, function(id)
+	TB.abas(B, 4, ITU.MODOS, e.modo, function(id)
 		e.modo = id
 		for mid, p in pairs(paineis) do p.Visible = (mid == id) end
 	end)
@@ -6909,7 +7062,7 @@ function ITU.card(B, it, i, refazer)
 			resumo()
 		end
 		for k, eixo in ipairs(EIXOS) do
-			ctr[k] = ITU.eixo(P, {
+			ctr[k] = TB.eixo(P, {
 				axis = k, label = cfg.labels[k], min = cfg.min, max = cfg.max, hmin = cfg.hmin, hmax = cfg.hmax,
 				dec = cfg.dec, marca = cfg.marca, order = 1 + k,
 				get = function() return tab()[eixo] end,
@@ -6942,7 +7095,7 @@ function ITU.card(B, it, i, refazer)
 			end
 		end
 		if m.id == "pos" then
-			ITU.atalhos(P, 5, {
+			TB.atalhos(P, 5, {
 				{ "Zerar", acao(function(t) t.x, t.y, t.z = 0, 0, 0 end) },
 				{ "Inverter X", acao(function(t) t.x = 0 - t.x end) },
 				{ "Inverter Y", acao(function(t) t.y = 0 - t.y end) },
@@ -6956,7 +7109,7 @@ function ITU.card(B, it, i, refazer)
 					t[eixo] = v
 				end)
 			end
-			ITU.atalhos(P, 5, {
+			TB.atalhos(P, 5, {
 				{ "Zerar", acao(function(t) t.x, t.y, t.z = 0, 0, 0 end) },
 				{ "+90° X", mais90("x") },
 				{ "+90° Y", mais90("y") },
@@ -6969,7 +7122,7 @@ function ITU.card(B, it, i, refazer)
 					for _, eixo in ipairs(EIXOS) do t[eixo] = clamp(math.floor(t[eixo] * f * 100 + 0.5) / 100, cfg.hmin, cfg.hmax) end
 				end)
 			end
-			ITU.atalhos(P, 6, {
+			TB.atalhos(P, 6, {
 				{ "1 : 1", acao(function(t) t.x, t.y, t.z = 1, 1, 1 end) },
 				{ "× 2", mult(2) },
 				{ "÷ 2", mult(0.5) },

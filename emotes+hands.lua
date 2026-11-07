@@ -1207,7 +1207,7 @@ local function lerpAnim(a, b, t)
 	if type(a) ~= "table" then return a end
 	local r = {}
 	for k, v in pairs(a) do
-		if k == "usa" then r[k] = v -- vale o do keyframe de origem, nao interpola
+		if k == "usa" or k == "vel" then r[k] = v -- vale o do keyframe de origem, nao interpola
 		elseif b[k] ~= nil then r[k] = lerpAnim(v, b[k], t) else r[k] = v end
 	end
 	return r
@@ -1224,6 +1224,7 @@ local function prepararEmoteAnimado(d)
 		f.pernaDir, f.pernaEsq = n6(f.pernaDir), n6(f.pernaEsq)
 		f.afastDir, f.afastEsq = f.afastDir or 0, f.afastEsq or 0
 		f.usa = USA.norm(f.usa) -- nil = usa o "usa" geral do emote
+		f.vel = (type(f.vel) == "number") and clamp(f.vel, 0, 500) or nil -- WalkSpeed do keyframe (nil = normal)
 		f.dedosDir, f.dedosEsq = f.dedosDir or {}, f.dedosEsq or {}
 		for i = 1, 5 do
 			f.dedosDir[i] = copiaDedo(f.dedosDir[i])
@@ -1298,6 +1299,7 @@ local function atualizarEmotesAnimados()
 			end
 			local f = amostrarFrame(d, tempo)
 			d.usaAtual = f.usa
+			d.velAtual = f.vel
 			d.dir, d.esq = f.dir, f.esq
 			d.palmaDir, d.palmaEsq = f.palmaDir, f.palmaEsq
 			d.dedosDir, d.dedosEsq = f.dedosDir, f.dedosEsq
@@ -1313,6 +1315,7 @@ for _, d in pairs(defaultEmotes) do
 		prepararEmoteAnimado(d)
 		local f = d.frames[1]
 		d.usaAtual = f.usa
+		d.velAtual = f.vel
 		d.dir, d.esq = f.dir, f.esq
 		d.palmaDir, d.palmaEsq = f.palmaDir, f.palmaEsq
 		d.dedosDir, d.dedosEsq = f.dedosDir, f.dedosEsq
@@ -1380,6 +1383,7 @@ do
 			for _, f in ipairs(d.frames) do
 				l[#l + 1] = string.format("\t\t{ t = %s,", f2(f.t))
 				l[#l + 1] = "\t\t\t" .. USA.texto(f.usa or d.usa) .. ","
+				if f.vel ~= nil then l[#l + 1] = "\t\t\tvel = " .. f2(f.vel) .. "," end
 				l[#l + 1] = linhasPose(f, "\t\t\t") .. " },"
 			end
 			l[#l + 1] = "\t},"
@@ -4269,6 +4273,19 @@ T.Icones = (function()
 			{"a",12,5,3,200,250,0.8,"wh",false,false},
 			{"c",10.9,4.6,0.9,"dk",false,false},
 			{"c",13.1,4.6,0.9,"dk",false,false},
+		},
+		["_vel"] = {
+			{"a",12,13.6,8.2,150,330,2.6,"cyan",0.9,"cyanO"},
+			{"a",12,13.6,8.2,330,390,2.6,"red",0.9,"redO"},
+			{"l",5.6,13.6,7.2,13.6,0.9,"cyanL",false,false},
+			{"l",7.2,8.7,8.4,9.8,0.9,"cyanL",false,false},
+			{"l",12,6.6,12,8.2,0.9,"cyanL",false,false},
+			{"l",16.8,8.7,15.6,9.8,0.9,"yelL",false,false},
+			{"l",12,13.6,16.4,9.2,2.2,"yel",0.9,"yelO"},
+			{"c",12,13.6,4.2,"gryL",0.9,"gryO"},
+			{"c",12,13.6,1.6,"dk",false,false},
+			{"l",4.4,20.4,9.6,20.4,1.6,"cyan",0.9,"cyanO"},
+			{"l",14.4,20.4,19.6,20.4,1.6,"cyan",0.9,"cyanO"},
 		},
 		["_check"] = {
 			{"l",5,12.8,9.8,17.6,3.6,"grn",0.9,"grnO"},
@@ -7170,6 +7187,7 @@ do
 			esq = b6(s.esq), palmaEsq = b3(s.palmaEsq), dedosEsq = mao(s.dedosEsq), afastEsq = num(s.afastEsq),
 			cabeca = b6(s.cabeca), torso = b6(s.torso), pernaDir = b6(s.pernaDir), pernaEsq = b6(s.pernaEsq),
 			usa = USA.norm(s.usa),
+			vel = (type(s.vel) == "number") and clamp(s.vel, 0, 500) or nil,
 		}
 	end
 
@@ -7451,7 +7469,7 @@ do
 	local tlHead = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Parent = TLWin })
 	makeDraggable(TLWin, tlHead)
 	txt({ Text = "ANIMADOR", Font = F.GothamBold, TextSize = 11, TextColor3 = T.warn, Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
-	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = RIGHT, Position = UDim2.new(1, -322, 0, 10), Size = UDim2.fromOffset(100, 14), Parent = tlHead })
+	local info = txt({ Text = "0 keys", TextSize = 10, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(144, 125), Size = UDim2.fromOffset(40, 14), ZIndex = 3, Parent = TLWin })
 
 	local function caixa(props)
 		return new("TextBox", merge({
@@ -7517,8 +7535,10 @@ do
 	txt({ Text = "PARTES ANIMADAS", Font = F.GothamBold, TextSize = 9, TextColor3 = T.dim, Position = UDim2.fromOffset(32, 8), Size = UDim2.fromOffset(100, 16), ZIndex = 31, Parent = rigMenu })
 	local rigCont = txt({ Text = "0/5", Font = F.GothamBold, TextSize = 10, TextColor3 = T.ok, TextXAlignment = RIGHT, Position = UDim2.new(1, -42, 0, 8), Size = UDim2.fromOffset(32, 16), ZIndex = 31, Parent = rigMenu })
 
+	local VEL = { v = nil } -- WalkSpeed do keyframe do cursor (nil = normal); o submenu "Vel" fica mais abaixo
 	local function rigFechar()
 		rigMenu.Visible = false
+		if VEL.menu then VEL.menu.Visible = false end
 		rigCatcher.Visible = false
 	end
 	local function rigAbrir()
@@ -7689,6 +7709,100 @@ do
 
 	sincronizarUsaAnim = sincronizarUsa
 
+	-- ---------- WalkSpeed por keyframe (submenu "Vel") ----------
+	-- cada key guarda k.vel (nil = velocidade normal do jogador). Vale da key ate a proxima (nao interpola).
+	do
+		local velBtn = btn({
+			Text = "Vel", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -288, 0, 6), Size = UDim2.fromOffset(66, 22), Parent = TLWin,
+		}, { round(7), padding(20, 0, 4, 0) })
+		T.Icones.lado(velBtn, "_vel", 16, 2, 18)
+		hoverFX(velBtn, T.surface2, T.surface3)
+
+		local velMenu = frame({
+			Name = "VelMenu", Position = UDim2.new(1, -288, 0, RIG_Y), Size = UDim2.fromOffset(170, 166),
+			BackgroundColor3 = T.surface, Active = true, Visible = false, ZIndex = 30, Parent = TLWin,
+		}, { round(12), outline(T.stroke, 1, 0.1) })
+		VEL.menu = velMenu
+		T.Icones.criar("_vel", velMenu, 16, { Position = UDim2.fromOffset(10, 8), ZIndex = 31 })
+		txt({ Text = "VELOCIDADE", Font = F.GothamBold, TextSize = 9, TextColor3 = T.dim, Position = UDim2.fromOffset(32, 8), Size = UDim2.fromOffset(70, 16), ZIndex = 31, Parent = velMenu })
+		local velVal = txt({ Text = "normal", Font = F.GothamBold, TextSize = 10, TextColor3 = T.ok, TextXAlignment = RIGHT, Position = UDim2.new(1, -72, 0, 8), Size = UDim2.fromOffset(62, 16), ZIndex = 31, Parent = velMenu })
+		local velBox = caixa({ Text = "", PlaceholderText = "número, ex: 24", Position = UDim2.fromOffset(10, 30), Size = UDim2.new(1, -20, 0, 26), ZIndex = 31, Parent = velMenu })
+
+		local function fmtVel(v)
+			if v == math.floor(v) then return string.format("%d", v) end
+			return string.format("%.1f", v)
+		end
+
+		local PRESETS = {
+			{ "Normal", nil }, { "Parado", 0 }, { "Lento", 8 }, { "Andar", 16 }, { "Correr", 32 }, { "Rápido", 60 },
+		}
+		local velChips = {}
+		local function velPintar()
+			for _, c in ipairs(velChips) do
+				local on = (c.v == VEL.v)
+				if c.on ~= on then
+					c.on = on
+					c.b.BackgroundColor3 = on and T.accentSoft or T.surface2
+					c.b.TextColor3 = on and T.ok or T.dim
+				end
+			end
+			local rotulo = VEL.v and ("Vel " .. fmtVel(VEL.v)) or "Vel"
+			if velBtn.Text ~= rotulo then velBtn.Text = rotulo end
+			local val = VEL.v and fmtVel(VEL.v) or "normal"
+			if velVal.Text ~= val then velVal.Text = val end
+			if not velBox:IsFocused() then
+				local caixaTxt = VEL.v and fmtVel(VEL.v) or ""
+				if velBox.Text ~= caixaTxt then velBox.Text = caixaTxt end
+			end
+		end
+
+		-- se o cursor esta numa key, o que foi escolhido aqui fica salvo nela
+		local function gravarNaKey()
+			if anim.tocando then return end
+			local k = keyExata(anim.tempo)
+			if k then k.vel = VEL.v end
+		end
+
+		for i, pr in ipairs(PRESETS) do
+			local col, lin = (i - 1) % 2, math.floor((i - 1) / 2)
+			local b = btn({
+				Text = pr[1] .. (pr[2] and (" " .. pr[2]) or ""), Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim,
+				Position = UDim2.fromOffset(10 + col * 77, 62 + lin * 28), Size = UDim2.fromOffset(73, 24), ZIndex = 31, Parent = velMenu,
+			}, { round(8) })
+			table.insert(velChips, { b = b, v = pr[2] })
+			b.MouseButton1Click:Connect(function()
+				VEL.v = pr[2]
+				gravarNaKey()
+				velPintar()
+			end)
+		end
+		txt({ Text = "vale desta key até a próxima", TextSize = 9, TextColor3 = T.dim, TextXAlignment = CENTER, Position = UDim2.fromOffset(0, 148), Size = UDim2.new(1, 0, 0, 14), ZIndex = 31, Parent = velMenu })
+
+		velBox.FocusLost:Connect(function()
+			local n = tonumber((velBox.Text:gsub("[^%d%.]", "")))
+			if n then n = math.floor(clamp(n, 0, 500) * 10 + 0.5) / 10 end
+			VEL.v = n
+			gravarNaKey()
+			velPintar()
+		end)
+
+		velBtn.MouseButton1Click:Connect(function()
+			if velMenu.Visible then rigFechar() return end
+			rigFechar()
+			rigCatcher.Visible = true
+			velMenu.Position = UDim2.new(1, -288, 0, RIG_Y - 6)
+			velMenu.Visible = true
+			tw(velMenu, 0.14, { Position = UDim2.new(1, -288, 0, RIG_Y) }, Enum.EasingStyle.Quint)
+		end)
+
+		-- usado pelo irPara (cursor chegou numa key) e ao carregar uma animacao
+		VEL.aplicar = function(v)
+			VEL.v = v
+			velPintar()
+		end
+		velPintar()
+	end
+
 	-- ---------- UI ----------
 	local irPara
 
@@ -7723,9 +7837,10 @@ do
 		local ke = keyExata(anim.tempo)
 		if ke then
 			aplicarUsaNosChips(ke.usa)
+			VEL.aplicar(ke.vel)
 		elseif anim.tocando then
 			local kb = keyBase(anim.tempo)
-			if kb then aplicarUsaNosChips(kb.usa) end
+			if kb then aplicarUsaNosChips(kb.usa) VEL.aplicar(kb.vel) end
 		end
 		cursor.Position = UDim2.fromScale(clamp(anim.tempo / anim.duracao, 0, 1), 0.5)
 		timeBox.Text = string.format("%.2f", anim.tempo)
@@ -7834,9 +7949,10 @@ do
 		if existente then
 			existente.pose = copiaProfunda(customPose)
 			existente.usa = usaDosChips()
+			existente.vel = VEL.v
 			anim.sel = existente
 		else
-			local k = { t = t, pose = copiaProfunda(customPose), usa = usaDosChips() }
+			local k = { t = t, pose = copiaProfunda(customPose), usa = usaDosChips(), vel = VEL.v }
 			table.insert(anim.keys, k)
 			ordenar()
 			anim.sel = k
@@ -7907,8 +8023,9 @@ do
 		if k then
 			k.pose = copiaProfunda(clipPose)
 			k.usa = usaDosChips()
+			k.vel = VEL.v
 		else
-			k = { t = t, pose = copiaProfunda(clipPose), usa = usaDosChips() }
+			k = { t = t, pose = copiaProfunda(clipPose), usa = usaDosChips(), vel = VEL.v }
 			table.insert(anim.keys, k)
 			ordenar()
 		end
@@ -7950,6 +8067,7 @@ do
 			local D, E = P.direita, P.esquerda
 			linhas[#linhas + 1] = string.format("\t\t{ t = %s,", fmt(k.t))
 			linhas[#linhas + 1] = "\t\t\t" .. USA.texto(k.usa or usaDosChips()) .. ","
+			if k.vel ~= nil then linhas[#linhas + 1] = "\t\t\tvel = " .. fmt(k.vel) .. "," end
 			linhas[#linhas + 1] = string.format("\t\t\tdir = %s, palmaDir = %s,", br(D.braco), v3(D.palma))
 			linhas[#linhas + 1] = string.format("\t\t\tdedosDir = %s, afastDir = %s,", dedos(D), fmt(D.afastamento))
 			linhas[#linhas + 1] = string.format("\t\t\tesq = %s, palmaEsq = %s,", br(E.braco), v3(E.palma))
@@ -8052,6 +8170,7 @@ do
 					pernaEsq = copiaProfunda(f.pernaEsq),
 				},
 				usa = USA.norm(f.usa) or USA.norm(d.usa) or USA.norm({}),
+				vel = (type(f.vel) == "number") and f.vel or nil,
 			})
 		end
 		ordenar()
@@ -8064,6 +8183,7 @@ do
 		animConfig.pernas = u.pernas == true
 		anim.tempo = 0
 		aplicarUsaNosChips(anim.keys[1].usa) -- os chips mostram o que esta liberado no 1o keyframe
+		VEL.aplicar(anim.keys[1].vel)
 		if usaPintar then usaPintar() end
 
 		anim.sel = anim.keys[1]
@@ -10446,6 +10566,19 @@ local function criarMaoDinamica(character)
 		end
 	end
 
+	-- WalkSpeed por keyframe: so mexe enquanto o emote animado pede; ao acabar devolve a velocidade original
+	local velCtl = { orig = nil, aplic = nil }
+	velCtl.aplicar = function(v)
+		if v ~= nil then
+			if velCtl.orig == nil then velCtl.orig = humanoid.WalkSpeed end
+			velCtl.aplic = v
+			humanoid.WalkSpeed = v
+		elseif velCtl.orig ~= nil then
+			if math.abs(humanoid.WalkSpeed - (velCtl.aplic or 0)) < 0.01 then humanoid.WalkSpeed = velCtl.orig end
+			velCtl.orig, velCtl.aplic = nil, nil
+		end
+	end
+
 	-- Kamehameha: estado, sons (com fade) e VFX
 	local kameFase, kameInicio, kameUltimoEmote = nil, 0, nil
 	local kameFxFase, kameFxT = nil, 0
@@ -10558,7 +10691,12 @@ local function criarMaoDinamica(character)
 			travar = travar and kameParado
 		end
 		if victoryParado then travar = true end
-		travarImovel(travar)
+		do
+			local dVel = (not travar and currentEmote ~= nil and not freezeEmote and emoteTimer > 0) and defaultEmotes[currentEmote] or nil
+			if travar then velCtl.aplicar(nil) end -- devolve a velocidade antes de travar
+			travarImovel(travar)
+			if not travar then velCtl.aplicar(dVel and dVel.animado and dVel.velAtual or nil) end
+		end
 
 		local tempo = tick()
 

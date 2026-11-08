@@ -103,73 +103,59 @@ local GOZAR = {
 local siriricaTempo = 0
 local siriricaSoundPlayed = false
 
--- Kamehameha: fases por keyframe (tempos em segundos, iguais aos "t" dos frames do emote)
---  fase 1 = KF1 ao KF3  (t 0 ate antes de 0.85): anda normalmente
---  fase 2 = KF4 ao KF9  (t 0.85 ate antes de 2.7): parado + som de recarga
---  fase 3 = KF10 ao KF11 (t 2.7 ate 5): parado + som de disparo
 local KAME = {
-	ciclo = 5,            -- mesma duracao do emote
-	tFase2 = 0.85,        -- tempo do KF4
-	tFase3 = 2.7,         -- tempo do KF10
+	ciclo = 5,           
+	tFase2 = 0.85,       
+	tFase3 = 2.7,        
 	somRecarga = "rbxassetid://1370232812",
 	somDisparo = "rbxassetid://79853512837585",
 	volume = 1,
 
-	-- fade dos sons (segundos)
-	fadeEntrada = 0.18,   -- sobe o volume no inicio de cada som
-	fadeSaida = 0.45,     -- desce o volume antes do fim da fase (nao corta mais seco)
-	fadeParar = 0.3,      -- fade ao interromper (emote cancelado / troca de fase)
+	fadeEntrada = 0.18,  
+	fadeSaida = 0.45,    
+	fadeParar = 0.3,     
 
-	-- VFX
 	cor = Color3.fromRGB(70, 180, 255),
 	corNucleo = Color3.fromRGB(235, 250, 255),
-	alcance = 80,         -- tamanho maximo do feixe (studs)
-	raio = 3.2,           -- espessura do feixe (studs)
-	bolaMax = 3.4,        -- tamanho da esfera de energia carregada
-	trailTex = "rbxassetid://6561033515", -- imagem dos mini trails sugados pra bola
-	trailQtd = 28,        -- quantidade de mini trails ao mesmo tempo
-	trailRaio = 5,        -- distancia de onde os trails comecam (studs)
-	trailTransp = 0.35,   -- transparencia inicial do trail (0 = opaco)
-	-- camera ao disparar
-	camDur = 0.55,        -- duracao do efeito de camera (s)
-	fovPuxa = 14,         -- quanto o FOV fecha no disparo (graus), da o efeito de puxar a camera
-	camPuxa = 1.2,        -- quanto a camera avanca na direcao do disparo (studs)
-	shakeForca = 0.18,    -- tremor da camera (studs)
-	shakeAng = 0.012,     -- tremor de rotacao (radianos)
-	ventoQtd = 22,        -- riscos de vento em volta do feixe
-	ventoCasca = 0.82,    -- transparencia da casca de ar (ForceField) em volta do feixe (1 = some)
-	-- fling em quem passar pelo feixe
-	flingForca = 250,     -- velocidade empurrando na direcao do feixe (studs/s)
-	flingCima = 60,       -- velocidade pra cima (studs/s)
-	flingGiro = 30,       -- giro aleatorio (rad/s)
-	-- bola mudando de cor (azul -> quase branca ao carregar)
+	alcance = 80,        
+	raio = 3.2,          
+	bolaMax = 3.4,       
+	trailTex = "rbxassetid://6561033515",
+	trailQtd = 28,       
+	trailRaio = 5,       
+	trailTransp = 0.35,  
+	camDur = 0.55,       
+	fovPuxa = 14,        
+	camPuxa = 1.2,       
+	shakeForca = 0.18,   
+	shakeAng = 0.012,    
+	ventoQtd = 22,       
+	ventoCasca = 0.82,   
+	flingForca = 250,    
+	flingCima = 60,      
+	flingGiro = 30,      
 	bolaCorFim = Color3.fromRGB(240, 252, 255),
-	-- recuo ao disparar
-	recuoVel = 32,        -- velocidade inicial do recuo (studs/s), ~3.4 studs de deslize
-	recuoDur = 0.32,      -- duracao do recuo (s)
-	-- feixe com textura animada
-	feixeTex = "rbxassetid://6561033515", -- troque pelo id da textura de energia que preferir
-	feixeTexLen = 6,      -- comprimento (studs) de cada repeticao da textura
-	feixeTexVel = 10,     -- velocidade da textura correndo pelo feixe
-	-- repulsao das pecas soltas no ponto atingido
-	repelRaio = 14,       -- alcance da repulsao (studs)
-	repelForca = 90,      -- velocidade de afastamento (studs/s)
-	repelGiro = 15,       -- giro aleatorio (rad/s)
-	bolaFrente = 0,       -- desloca a bola para frente do ponto entre as maos (0 = exatamente no meio)
+	recuoVel = 32,       
+	recuoDur = 0.32,     
+	feixeTex = "rbxassetid://6561033515",
+	feixeTexLen = 6,     
+	feixeTexVel = 10,    
+	repelRaio = 14,      
+	repelForca = 90,     
+	repelGiro = 15,      
+	bolaFrente = 0,      
 	fxEntrada = 0.25,
 	fxSaida = 0.4,
 }
 
--- Victoryy: no 3o keyframe toca o som e aparece a fala do Subaru em cima da cabeca
--- (mesmo sistema de falas do Kamehameha). Fica dentro da tabela KAME pra nao criar mais uma local.
 KAME.victory = {
-	keyframe = 3,                              -- keyframe do emote Victoryy que dispara som + fala (tambem e onde o boneco para de andar)
+	keyframe = 3,                             
 	somId = "rbxassetid://81440297692832",
 	volume = 1,
-	texto = "VICTORYY!",                       -- fala do Subaru
-	emocao = "victory",                        -- cor/tremor/pulo definidos em EMOCOES (dentro de kameFala)
-	intensidade = 3,                           -- 1-3 (tamanho da letra)
-	leitura = 1.2,                             -- segundos que a fala fica na tela depois de digitada
+	texto = "VICTORYY!",                      
+	emocao = "victory",                       
+	intensidade = 3,                          
+	leitura = 1.2,                            
 }
 
 local Pegar = {
@@ -191,17 +177,15 @@ local Pegar = {
 }
 
 local TELE = {
-	cooldown = 3, -- habilidade Teleporte (botao na tela, veja o bloco 'Botao de habilidade: Teleporte')
+	cooldown = 3,
 
-	-- VFX do teletransporte instantaneo (estilo Goku). So visual, so pra voce (local).
 	vfx = true,
-	camDeslizar = true,    -- camera desliza rapido da origem ate o destino em vez de cortar seco
-	camDur = 0.3,          -- duracao (s) da camera deslizando
-	-- so o corpo piscando (saida: pisca devagar e some | chegada: pisca bem rapido)
-	preparo = 0.55,        -- tempo (s) entre o clique e o corpo sumir de fato
-	piscaSaida = { 0.05, 0.14, 0.25, 0.37, 0.5 },   -- saida: piscadas mais lentas, o corpo carrega e some (numero IMPAR = termina invisivel)
-	piscaChegada = { 0.01, 0.025, 0.04, 0.055, 0.07, 0.085, 0.1 }, -- chegada: piscadas MUITO mais rapidas (numero IMPAR = termina visivel)
-	sons = { "rbxassetid://130812445847353", "rbxassetid://124934430745275" }, -- variantes do som ao teleportar: toca uma sorteada a cada teleporte (lista vazia = sem som)
+	camDeslizar = true,   
+	camDur = 0.3,         
+	preparo = 0.55,       
+	piscaSaida = { 0.05, 0.14, 0.25, 0.37, 0.5 },  
+	piscaChegada = { 0.01, 0.025, 0.04, 0.055, 0.07, 0.085, 0.1 },
+	sons = { "rbxassetid://130812445847353", "rbxassetid://124934430745275" },
 	volume = 1,
 }
 
@@ -761,13 +745,6 @@ local function dedoTemExtra(t)
 	return false
 end
 
--- ===================== ITENS DO EMOTE (acessórios / roupas / mesh pelo ID) =====================
--- Cada emote pode ter:  itens = { { tipo = "acessorio" | "roupa" | "mesh", id = "123", parte = "Head",
---                                   pos = { x, y, z }, rot = { x, y, z }, size = { x, y, z }, tex = "456" }, ... }
--- parte = Head, Torso, Right Arm, Left Arm, Right Leg ou Left Leg (nomes do R6; no R15 usa a parte equivalente).
--- Acessório: ID do catálogo (usa o Handle; se tiver attachment já encaixa na parte). Roupa 2D (camisa/calça/camiseta):
--- troca a textura enquanto o emote toca. Mesh: MeshId (+ tex = TextureId opcional) vira uma peça com SpecialMesh.
--- Acessório e roupa precisam do game:GetObjects (executor). Tudo é só local (só você vê).
 local ItensEmote = { MAX = 12, orig = {} }
 ItensEmote.TIPOS = {
 	{ id = "acessorio", nome = "Acessório" },
@@ -783,8 +760,8 @@ ItensEmote.ESPELHO = {
 	["Right Arm"] = "Left Arm", ["Left Arm"] = "Right Arm",
 	["Right Leg"] = "Left Leg", ["Left Leg"] = "Right Leg",
 }
-function ItensEmote.status(it) end -- a aba Itens do DEV troca isso pra atualizar o texto de status
-ItensEmote.aoKind = nil -- idem: a aba Itens redesenha quando descobre que o item é roupa
+function ItensEmote.status(it) end
+ItensEmote.aoKind = nil
 
 do
 	local TIPO_OK, PARTE_OK = {}, {}
@@ -806,7 +783,6 @@ do
 		return { x = n(t.x), y = n(t.y), z = n(t.z) }
 	end
 
-	-- copia + valida uma lista de itens (usada ao carregar emote, importar código e desfazer)
 	function ItensEmote.copiar(lista)
 		local r = {}
 		if type(lista) ~= "table" then return r end
@@ -831,7 +807,6 @@ do
 		return r
 	end
 
-	-- texto do "itens = { ... }" pros Exportar (nil quando o emote não tem itens)
 	function ItensEmote.texto(lista, ind)
 		if type(lista) ~= "table" or #lista == 0 then return nil end
 		local function f(n)
@@ -854,7 +829,6 @@ do
 		return char:FindFirstChild(nome) or char:FindFirstChild(R15[nome] or "")
 	end
 
-	-- ---------- carregar o asset pelo ID (com cache) ----------
 	local cache = {}
 
 	local function classificar(obj)
@@ -918,7 +892,6 @@ do
 		return o
 	end
 
-	-- cb(obj, kind): obj = { peca, base, atts, meshes } (peça nova) ou { roupa = Shirt/Pants/ShirtGraphic }; nil se falhou
 	function ItensEmote.criar(it, cb)
 		if it.tipo == "mesh" then
 			local p = Instance.new("Part")
@@ -971,7 +944,6 @@ do
 		for _, mm in ipairs(obj.meshes) do mm.m.Scale = mm.base * v end
 	end
 
-	-- troca a textura da camisa/calça/camiseta e devolve a função que desfaz
 	local function aplicarRoupa(raiz, modelo, real)
 		local classe = modelo.ClassName
 		local prop = (classe == "Shirt" and "ShirtTemplate") or (classe == "Pants" and "PantsTemplate") or "Graphic"
@@ -1001,7 +973,6 @@ do
 		end
 	end
 
-	-- modo "weld": peças coladas (Weld) no personagem de verdade | outro modo: peças ancoradas no boneco do preview
 	function ItensEmote.novo(modo, resolver)
 		local A = { vivos = {}, assin = "", raiz = nil, ger = 0, undo = {}, pasta = nil, lista = nil }
 		local real = (modo == "weld")
@@ -1125,20 +1096,14 @@ do
 		return ItensEmote.novo("preview", function(m, n) return m:FindFirstChild(n) end)
 	end
 
-	-- lista que o preview deve mostrar: a do editor (DEV) ou a do emote escolhido no menu
 	function ItensEmote.listaPreview(custom, emote)
 		if custom then return customPose.itens end
 		local d = (type(emote) == "string") and defaultEmotes[emote] or nil
 		return d and d.itens or nil
 	end
 end
--- ==============================================================================================
 
--- ===================== "USA" POR KEYFRAME (partes liberadas em cada keyframe) =====================
-local USA = {} -- (tabela unica pra nao gastar variaveis locais do script)
--- Cada keyframe guarda quais partes a animacao controla ali (usa = { bracoDir, bracoEsq, cabeca, torso, pernas }).
--- O keyframe vale a partir do seu tempo ate o proximo keyframe. Frames sem "usa" (animacoes antigas)
--- usam o "usa" geral do emote.
+local USA = {}
 function USA.norm(u)
 	if type(u) ~= "table" then return nil end
 	return {
@@ -1147,7 +1112,6 @@ function USA.norm(u)
 	}
 end
 
--- uniao de todos os keyframes (vira o "usa" geral do emote, pra compatibilidade)
 function USA.uniao(frames, base)
 	local r = { bracoDir = false, bracoEsq = false, cabeca = false, torso = false, pernas = false }
 	local fallback = USA.norm(base) or USA.norm({})
@@ -1166,18 +1130,13 @@ function USA.texto(u)
 		tostring(u.bracoDir), tostring(u.bracoEsq), tostring(u.cabeca), tostring(u.torso), tostring(u.pernas))
 end
 
--- usa valido agora: do frame amostrado > do keyframe atual do emote > geral do emote
 function USA.atual(d0, frame)
 	return (frame and frame.usa) or d0.usaAtual or d0.usa
 end
 
--- ===================== EMOTES ANIMADOS (keyframes do EMOTE CRIADOR) =====================
--- Cada emote com animado = true tem seus campos dir/esq/dedos/corpo atualizados a cada frame
--- com a pose interpolada dos keyframes. Assim o resto do script lê defaultEmotes[nome] normalmente.
--- De Quatro fica parado no 1o keyframe ate alguem entrar atras (tp). inicio = nil -> parado.
 local deQuatroSync = { inicio = nil, pendente = false, fase = 0, ultimo = 0, emote = "Socar" }
-local SYNC_ACELERA_APOS = 10   -- segundos ate acelerar
-local SYNC_VELOCIDADE = 1.25   -- multiplicador depois disso
+local SYNC_ACELERA_APOS = 10  
+local SYNC_VELOCIDADE = 1.25  
 
 local emoteAnimado
 do
@@ -1207,7 +1166,7 @@ local function lerpAnim(a, b, t)
 	if type(a) ~= "table" then return a end
 	local r = {}
 	for k, v in pairs(a) do
-		if k == "usa" or k == "vel" then r[k] = v -- vale o do keyframe de origem, nao interpola
+		if k == "usa" or k == "vel" then r[k] = v
 		elseif b[k] ~= nil then r[k] = lerpAnim(v, b[k], t) else r[k] = v end
 	end
 	return r
@@ -1223,8 +1182,8 @@ local function prepararEmoteAnimado(d)
 		f.cabeca, f.torso = n6(f.cabeca), n6(f.torso)
 		f.pernaDir, f.pernaEsq = n6(f.pernaDir), n6(f.pernaEsq)
 		f.afastDir, f.afastEsq = f.afastDir or 0, f.afastEsq or 0
-		f.usa = USA.norm(f.usa) -- nil = usa o "usa" geral do emote
-		f.vel = (type(f.vel) == "number") and clamp(f.vel, 0, 500) or nil -- WalkSpeed do keyframe (nil = normal)
+		f.usa = USA.norm(f.usa)
+		f.vel = (type(f.vel) == "number") and clamp(f.vel, 0, 500) or nil
 		f.dedosDir, f.dedosEsq = f.dedosDir or {}, f.dedosEsq or {}
 		for i = 1, 5 do
 			f.dedosDir[i] = copiaDedo(f.dedosDir[i])
@@ -1260,7 +1219,7 @@ local function amostrarFrame(d, tempo)
 	return ultimo
 end
 
-KAME.amostrar = amostrarFrame -- usado pelos clones (cada clone tem o proprio relogio)
+KAME.amostrar = amostrarFrame
 
 local function atualizarEmotesAnimados()
 	local agora = os.clock()
@@ -1269,7 +1228,7 @@ local function atualizarEmotesAnimados()
 		emoteAnimInicio = agora
 	end
 	if deQuatroSync.pendente and currentEmote == deQuatroSync.emote then
-		deQuatroSync.inicio = emoteAnimInicio -- mesmo instante em que o Socar comeca
+		deQuatroSync.inicio = emoteAnimInicio
 		deQuatroSync.fase = 0
 		deQuatroSync.ultimo = agora
 		deQuatroSync.pendente = false
@@ -1289,7 +1248,7 @@ local function atualizarEmotesAnimados()
 				if deQuatroSync.inicio then
 					tempo = deQuatroSync.fase
 				elseif currentEmote ~= "Socar" then
-					tempo = 0 -- Socar no clone fica parado no 1o keyframe ate o tp
+					tempo = 0
 				end
 			end
 			if d.loop and d.duracao > 0 then
@@ -1328,11 +1287,7 @@ end
 pcall(function() RunService:UnbindFromRenderStep("EmotesAnimados") end)
 RunService:BindToRenderStep("EmotesAnimados", Enum.RenderPriority.First.Value, atualizarEmotesAnimados)
 end
--- =========================================================================================
 
--- ===================== PONTE EMOTEZ+HANDS -> EMOTE CRIADOR =====================
--- Deixa o EMOTE CRIADOR listar e puxar qualquer emote daqui (parado ou animado),
--- sem copiar/colar. Funciona quando os dois scripts rodam na mesma sessão do executor.
 do
 	local function f2(n)
 		n = math.floor((tonumber(n) or 0) * 100 + 0.5) / 100 + 0
@@ -1417,9 +1372,7 @@ do
 		end,
 	}
 end
--- ===============================================================================
 
--- true quando o emote animado deixa esse braco livre (usa.bracoDir / usa.bracoEsq = false)
 local function bracoLivre(emote, ehDireito, frame)
 	local d = emote and defaultEmotes[emote]
 	if not (d and d.animado and d.usa) then return false end
@@ -2267,7 +2220,7 @@ local function hoverFX(b, normal, over)
 	b.MouseLeave:Connect(function() tw(b, 0.12, { BackgroundColor3 = normal }) end)
 end
 
-local function makeDraggable(root, handle)
+local function makeDraggable(root, handle, aoSoltar)
 	local dragging, dragStart, startPos = false, nil, nil
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -2275,7 +2228,10 @@ local function makeDraggable(root, handle)
 			dragStart = input.Position
 			startPos = root.Position
 			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+					if aoSoltar then aoSoltar() end
+				end
 			end)
 		end
 	end)
@@ -2306,9 +2262,51 @@ local function ajustarEscala(uiScale, w, h)
 	aplicar()
 end
 
--- ===== minimizar / fechar / reabrir (com animação) =====
--- cfg: win, head, scale, w, h, headH, posMin, posX, size, radius, ativo(), btnX (opcional),
---      semChip (opcional), onHide, onShow, onMin(min)
+KAME.SAVE = (function()
+	local S = { dados = {}, restaurando = false, disponivel = false }
+
+	function S.ler(nome) return nil end
+	function S.salvar(nome, provedor) end
+
+	S.dados.favoritos = nil
+	S.dados.config = nil
+	S.dados.ranoveradeer = nil
+	S.dados.posicoes = {}
+
+	function S.salvarConfig()
+		if S.provedorConfig then S.salvar("config", S.provedorConfig) end
+	end
+
+	function S.salvarPosicao(chave, obj)
+		local p = obj.Position
+		S.dados.posicoes[chave] = { p.X.Scale, p.X.Offset, p.Y.Scale, p.Y.Offset }
+		S.salvar("posicoes", function() return S.dados.posicoes end)
+	end
+
+	function S.aplicarPosicao(chave, obj, modo)
+		local p = S.dados.posicoes[chave]
+		if type(p) ~= "table" then return end
+		local xs, xo, ys, yo = p[1], p[2], p[3], p[4]
+		if type(xs) ~= "number" or type(xo) ~= "number" or type(ys) ~= "number" or type(yo) ~= "number" then return end
+		local vp = MainGui.AbsoluteSize
+		if vp.X > 0 and vp.Y > 0 then
+			local px, py = xs * vp.X + xo, ys * vp.Y + yo
+			if px ~= px or py ~= py then return end
+			if modo == "botao" then
+				px, py = clamp(px, 40, vp.X), clamp(py, 0, vp.Y - 40)
+				obj.Position = UDim2.new(px / vp.X, 0, py / vp.Y, 0)
+			else
+				px, py = clamp(px, 0, vp.X - 80), clamp(py, 0, vp.Y - 60)
+				obj.Position = UDim2.fromOffset(px, py)
+			end
+		else
+			obj.Position = UDim2.new(xs, xo, ys, yo)
+		end
+	end
+
+	return S
+end)()
+
 local function janelaControles(cfg)
 	local win, head, scale = cfg.win, cfg.head, cfg.scale
 	local fullW, fullH, headH = cfg.w, cfg.h, cfg.headH or 34
@@ -2328,7 +2326,6 @@ local function janelaControles(cfg)
 		T.Icones.centro(btnX, "_fechar_r", 14, 2)
 	end
 
-	-- quadradinho para reabrir (aparece quando a janela é fechada no X)
 	local chip
 	if not cfg.semChip then
 		chip = btn({
@@ -2341,6 +2338,7 @@ local function janelaControles(cfg)
 	local function atualizarChip()
 		if chip then chip.Visible = fechada and ((not cfg.ativo) or cfg.ativo()) end
 	end
+	if cfg.expor then cfg.expor.atualizarChip = atualizarChip end
 
 	local function minimizar(min)
 		if animando or fechada then return end
@@ -2407,7 +2405,6 @@ local function janelaControles(cfg)
 
 	btnMin.MouseButton1Click:Connect(function() minimizar(not minimizado) end)
 
-	-- começa minimizada (sem animação)
 	if cfg.iniciarMin then
 		minimizado = true
 		T.Icones.centro(btnMin, "_restaurar", 14, 2)
@@ -2428,7 +2425,6 @@ local function janelaControles(cfg)
 	if not cfg.btnX then btnX.MouseButton1Click:Connect(fechar) end
 	if chip then chip.MouseButton1Click:Connect(abrir) end
 
-	-- se algo reabrir a janela por fora (ex.: abrir outro emote), limpa o estado de "fechada"
 	win:GetPropertyChangedSignal("Visible"):Connect(function()
 		if win.Visible and fechada and not animando then fechada = false end
 		atualizarChip()
@@ -2742,7 +2738,6 @@ local function criarPreview(viewport)
 			dist = clamp(dist - input.Position.Z * 0.8, 5, 16)
 		end
 	end)
-	-- celular: pinça com dois dedos em cima do preview = zoom
 	UserInputService.TouchPinch:Connect(function(pos, escala, _, estado)
 		if estado == Enum.UserInputState.Begin then
 			pinchBase = nil
@@ -2750,7 +2745,6 @@ local function criarPreview(viewport)
 			if p and pos[2] then p = (pos[1] + pos[2]) / 2 end
 			if p and active and viewport.Visible then
 				local a, sz = viewport.AbsolutePosition, viewport.AbsoluteSize
-				-- folga de 60px por causa da diferença de offset da barra superior entre toque e GUI
 				if p.X >= a.X - 20 and p.X <= a.X + sz.X + 20 and p.Y >= a.Y - 60 and p.Y <= a.Y + sz.Y + 60 then
 					pinchBase = dist
 				end
@@ -3655,9 +3649,6 @@ api.busy = function() return gettingUp end
 return api
 end)()
 
--- ===== ÍCONES DESENHADOS (sem emoji, sem imagem): tudo feito com Frames + UICorner =====
--- Cada ícone é uma lista de formas numa grade 24x24: r = retângulo, c = círculo, l = linha (ponta redonda),
--- a = arco, q = retângulo girado. Usa só Scale, então o ícone escala para qualquer tamanho sem falhas.
 T.Icones = (function()
 	local M = {}
 	local c3 = Color3.fromRGB
@@ -4384,6 +4375,14 @@ T.Icones = (function()
 			{"a",12,12,5.6,200,260,1,"gryL",false,false},
 			{"c",12,12,6.2,"hole",false,false},
 		},
+		["Ranoveradeer"] = {
+			{"c",12,12,22.6,"pink",0.9,"pinkO"},
+			{"a",12,12,9.6,20,95,1.7,"pinkD",false,false},
+			{"a",12,12,9.6,205,250,1.2,"pinkL",false,false},
+			{"q",12,13.4,5.4,5.4,45,0.6,"wh","T0.8","pinkO"},
+			{"c",10.1,11.5,5.4,"wh","T0.8","pinkO"},
+			{"c",13.9,11.5,5.4,"wh","T0.8","pinkO"},
+		},
 		["_menu"] = {
 			{"c",11.6,13,16.6,"yel",1,"yelO"},
 			{"a",11.6,13,7,25,85,1.1,"yelD",false,false},
@@ -4454,7 +4453,6 @@ T.Icones = (function()
 		end
 	end
 
-	-- devolve cx, cy, w, h, rot, rad, cor, o, oc
 	local function normalizar(p)
 		local k = p[1]
 		if k == "r" then
@@ -4466,7 +4464,7 @@ T.Icones = (function()
 			local dist = msqrt(dx * dx + dy * dy)
 			return (p[2] + p[4]) / 2, (p[3] + p[5]) / 2, dist + p[6], p[6], mdeg(matan2(dy, dx)), p[6] / 2, p[7], p[8], p[9]
 		end
-		return p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10] -- q
+		return p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10]
 	end
 
 	local function peca(root, cx, cy, w, h, rot, rad, cor, z, minU)
@@ -4505,36 +4503,34 @@ T.Icones = (function()
 			local cx, cy, w, h, rot, rad, col, o, oc = normalizar(p)
 			local cor = PAL[col]
 			if o == false then
-				peca(root, cx, cy, w, h, rot, rad, cor, 4, minU) -- detalhe
+				peca(root, cx, cy, w, h, rot, rad, cor, 4, minU)
 			elseif o == 0 then
-				peca(root, cx, cy, w, h, rot, rad, cor, 3, minU) -- preenchimento sem contorno
+				peca(root, cx, cy, w, h, rot, rad, cor, 3, minU)
 			elseif o == -1 then
-				peca(root, cx, cy, w, h, rot, rad, cor, 1, minU) -- fundo
+				peca(root, cx, cy, w, h, rot, rad, cor, 1, minU)
 			elseif type(o) == "string" then
-				if o:sub(1, 1) == "T" then -- por cima de tudo, com contorno
+				if o:sub(1, 1) == "T" then
 					local ow = tonumber(o:sub(2)) or 0
 					if ow > 0 then
 						peca(root, cx, cy, w + 2 * ow, h + 2 * ow, rot, rad + ow, PAL[oc], 5, minU)
 					end
 					peca(root, cx, cy, w, h, rot, rad, cor, 6, minU)
-				else -- detalhe por cima de tudo
+				else
 					peca(root, cx, cy, w, h, rot, rad, cor, 7, minU)
 				end
 			else
-				peca(root, cx, cy, w + 2 * o, h + 2 * o, rot, rad + o, PAL[oc], 2, minU) -- contorno
+				peca(root, cx, cy, w + 2 * o, h + 2 * o, rot, rad + o, PAL[oc], 2, minU)
 				peca(root, cx, cy, w, h, rot, rad, cor, 3, minU)
 			end
 		end
 		return root
 	end
 
-	-- Icones.criar(nome, pai, tamanhoEmPixels, { Position = ..., ZIndex = ..., Name = ... })
-	-- emotes que ficam só com texto (sem ícone)
 	local SEM_ICONE = { ["Chupada de Dedo"] = true }
 	function M.semIcone(nome) return SEM_ICONE[nome] == true end
 
 	function M.criar(nome, pai, px, props)
-		if SEM_ICONE[nome] then -- frame vazio invisível: quem chama não precisa tratar nada
+		if SEM_ICONE[nome] then
 			local vazio = Instance.new("Frame")
 			vazio.BackgroundTransparency = 1
 			vazio.BorderSizePixel = 0
@@ -4555,7 +4551,6 @@ T.Icones = (function()
 		return f
 	end
 
-	-- ---- helpers: trocam o ícone de um botão (texto vira ícone) ----
 	local function limpar(pai)
 		local ant = pai:FindFirstChild("IcBtn")
 		if ant then ant:Destroy() end
@@ -4611,6 +4606,12 @@ local EMOTE_POR_NOME = {}
 for _, e in ipairs(EMOTES) do EMOTE_POR_NOME[e.nome] = e end
 
 local favList = { "Tchau", "Bow", "Paz" }
+if KAME.SAVE.dados.favoritos and type(KAME.SAVE.dados.favoritos.favoritos) == "table" then
+	favList = {}
+	for _, n in ipairs(KAME.SAVE.dados.favoritos.favoritos) do
+		if type(n) == "string" and EMOTE_POR_NOME[n] and not table.find(favList, n) then table.insert(favList, n) end
+	end
+end
 local favSet = {}
 for _, n in ipairs(favList) do favSet[n] = true end
 
@@ -4637,6 +4638,7 @@ local function emoteAtivo(nome)
 	if nome == "Pegar" then return Pegar.ativo == true end
 	if nome == "Kamehameha" then return KAME.habilidade ~= nil and KAME.habilidade.ativo == true end
 	if nome == "Teleporte" then return TELE.habilidade ~= nil and TELE.habilidade.ativo == true end
+	if nome == "Ranoveradeer" then return KAME.RV ~= nil and KAME.RV.ativo == true end
 	if EMOTES_TOGGLE[nome] then return currentEmote == nome and emoteTimer > 0 end
 	return currentEmote == nome and (emoteTimer > 0 or freezeEmote)
 end
@@ -4644,19 +4646,25 @@ end
 local function tocarEmote(nome, direto)
 	local def = EMOTE_POR_NOME[nome]
 	if def and def.cat == "+18" and not liberado18() then return end
-	if nome == "Kamehameha" and not direto then -- pelo menu: liga/desliga o botao de habilidade na tela
+	if nome == "Kamehameha" and not direto then
 		local h = KAME.habilidade
 		if h and h.alternar then h.alternar() end
 		refreshAtivos()
 		return
 	end
-	if nome == "Teleporte" and not direto then -- pelo menu: liga/desliga o botao de habilidade na tela
+	if nome == "Teleporte" and not direto then
 		local h = TELE.habilidade
 		if h and h.alternar then h.alternar() end
 		refreshAtivos()
 		return
 	end
-	if nome == "Pegar" then -- pegar/soltar objeto agora é um emote do menu
+	if nome == "Ranoveradeer" then
+		local r = KAME.RV
+		if r and r.alternar then task.spawn(r.alternar) end
+		refreshAtivos()
+		return
+	end
+	if nome == "Pegar" then
 		if Pegar.ativo then Pegar.soltar() else Pegar.pegar() end
 		refreshAtivos()
 		return
@@ -4701,10 +4709,10 @@ local function tocarEmote(nome, direto)
 			if nome == "Siririca" then siriricaTempo = 0 end
 		end
 	else
-		if nome == "Kamehameha" and currentEmote == nome and emoteTimer > 0 then return end -- nao reinicia no meio do ciclo
+		if nome == "Kamehameha" and currentEmote == nome and emoteTimer > 0 then return end
 		if nome ~= "Siririca" then siriricaTempo = 0 end
 		currentEmote = nome
-		emoteTimer = (nome == "Kamehameha") and KAME.ciclo or emoteDuration -- toca o ciclo inteiro uma vez
+		emoteTimer = (nome == "Kamehameha") and KAME.ciclo or emoteDuration
 		if nome == "Siririca" then siriricaTempo = 0 end
 	end
 	refreshAtivos()
@@ -4723,13 +4731,22 @@ local function toggleFav(nome)
 		favSet[nome] = true
 		table.insert(favList, nome)
 	end
+	KAME.SAVE.salvar("favoritos", function() return { favoritos = favList } end)
 	for _, f in ipairs(favRefreshers) do f() end
 end
 
 local toggleMenu
-local abrirPainelDev -- definido junto do painel dev
-local configPreviewDev = false -- config: preview do PainelDeAnimação (desativado por padrão)
-local aoMudarPreviewDev -- definido junto do painel dev (mostra/esconde o preview na hora)
+local abrirPainelDev
+local configPreviewDev = false
+if KAME.SAVE.dados.config and KAME.SAVE.dados.config.previewDev == true then configPreviewDev = true end
+KAME.SAVE.provedorConfig = function()
+	return {
+		previewDev = configPreviewDev,
+		kamehameha = KAME.habilidade ~= nil and KAME.habilidade.ativo == true,
+		teleporte = TELE.habilidade ~= nil and TELE.habilidade.ativo == true,
+	}
+end
+local aoMudarPreviewDev
 do
 local MENU_W, MENU_H = 480, 320
 local menuAberto = false
@@ -4744,7 +4761,6 @@ local Menu = new("CanvasGroup", {
 local menuScale = new("UIScale", { Parent = Menu })
 ajustarEscala(menuScale, MENU_W, MENU_H)
 
--- título "Emotes" = botão disfarçado que abre o PainelDeAnimação (parece só um texto)
 btn({
 	Text = "Emotes", Font = F.GothamBold, TextSize = 17, TextColor3 = T.text, TextXAlignment = LEFT,
 	BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(80, 22), Parent = Menu,
@@ -4757,7 +4773,6 @@ local closeMenuBtn = btn({
 hoverFX(closeMenuBtn, T.surface2, T.surface3)
 T.Icones.centro(closeMenuBtn, "_fechar", 14, 2)
 
--- ===== configurações =====
 local configBtn = btn({
 	Text = "", TextSize = 15, TextColor3 = T.sub, Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -70, 0, 10), Parent = Menu,
 }, { round(13) })
@@ -4800,10 +4815,39 @@ pintarSwitch()
 
 cfgSwitch.MouseButton1Click:Connect(function()
 	configPreviewDev = not configPreviewDev
+	KAME.SAVE.salvarConfig()
 	pintarSwitch()
 	if aoMudarPreviewDev then aoMudarPreviewDev(configPreviewDev) end
 end)
-configBtn.MouseButton1Click:Connect(function() configOverlay.Visible = not configOverlay.Visible end)
+local CARD_H_BASE, CARD_H_18 = 132, 196
+local cfgRow18 = frame({
+	BackgroundColor3 = T.surface2, Position = UDim2.fromOffset(12, 108), Size = UDim2.new(1, -24, 0, 56),
+	Visible = false, ZIndex = 62, Parent = configCard,
+}, { round(10) })
+txt({ Text = "Corpo (Ranoveradeer)", Font = F.GothamMedium, TextSize = 12, Position = UDim2.fromOffset(12, 9), Size = UDim2.new(1, -100, 0, 16), ZIndex = 63, Parent = cfgRow18 })
+txt({ Text = "+18 • só no seu personagem", TextSize = 10, TextColor3 = T.dim, Position = UDim2.fromOffset(12, 28), Size = UDim2.new(1, -100, 0, 14), ZIndex = 63, Parent = cfgRow18 })
+local cfgBtn18 = btn({
+	Text = "Ativar", Font = F.GothamBold, TextSize = 11, TextColor3 = Color3.new(1, 1, 1), BackgroundColor3 = T.accent,
+	AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(74, 28), ZIndex = 63, Parent = cfgRow18,
+}, { round(8) })
+local function atualizarLinha18()
+	local lib = liberado18()
+	cfgRow18.Visible = lib
+	configCard.Size = UDim2.fromOffset(300, lib and CARD_H_18 or CARD_H_BASE)
+	local on = KAME.RV ~= nil and KAME.RV.ativo == true
+	cfgBtn18.Text = on and "Desativar" or "Ativar"
+	cfgBtn18.BackgroundColor3 = on and T.surface3 or T.accent
+end
+cfgBtn18.MouseButton1Click:Connect(function()
+	if not liberado18() then return end
+	local r = KAME.RV
+	if r and r.alternar then task.spawn(r.alternar) end
+end)
+table.insert(lockRefreshers, atualizarLinha18)
+table.insert(ativoRefreshers, atualizarLinha18)
+atualizarLinha18()
+
+configBtn.MouseButton1Click:Connect(function() atualizarLinha18() configOverlay.Visible = not configOverlay.Visible end)
 configClose.MouseButton1Click:Connect(function() configOverlay.Visible = false end)
 
 local chipsBar = frame({ BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 54), Size = UDim2.new(1, -32, 0, 24), Parent = Menu }, {
@@ -5245,7 +5289,7 @@ local EmoteButton = btn({
 	Text = "", BackgroundColor3 = Color3.new(1, 1, 1),
 	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 64), Size = UDim2.fromOffset(48, 48), Parent = MainGui,
 }, {
-	round(10), -- cantos do botão (troque por round(0) para quadrado puro)
+	round(10),
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(152, 136, 255), Color3.fromRGB(98, 80, 232)) }),
 	outline(Color3.fromRGB(196, 186, 255), 1.5, 0.3),
 	new("UIScale", { Name = "Escala" }),
@@ -5258,17 +5302,16 @@ do
 	EmoteButton.MouseButton1Down:Connect(function() tw(esc, 0.08, { Scale = 0.92 }) end)
 	EmoteButton.MouseButton1Up:Connect(function() tw(esc, 0.1, { Scale = 1 }) end)
 end
--- Segurar 1.5s = modo arrastar (contorno branco/grosso; solte para fixar). Clique rapido chama aoClique.
--- Serve para botoes quadrados (tam x tam) com AnchorPoint (1, 0).
-function T.arrastavel(botao, tam, aoClique)
-	local HOLD = 1.5        -- segundos segurando para poder arrastar
-	local TOLERANCIA = 14   -- se mexer mais que isso (px) antes do tempo, cancela
+function T.arrastavel(botao, tam, aoClique, chave)
+	if chave then KAME.SAVE.aplicarPosicao(chave, botao, "botao") end
+	local HOLD = 1.5       
+	local TOLERANCIA = 14  
 	local MouseB1, Touch, MouseMov = Enum.UserInputType.MouseButton1, Enum.UserInputType.Touch, Enum.UserInputType.MouseMovement
 
 	local stroke = botao:FindFirstChildOfClass("UIStroke")
 	local strokeNormal = stroke and { stroke.Color, stroke.Thickness, stroke.Transparency } or nil
-	local estado = nil      -- { input, inicio, abs, armado }
-	local bloqueia = false  -- true = ignora o clique que vem ao soltar depois de arrastar
+	local estado = nil     
+	local bloqueia = false 
 
 	local function marcar(on)
 		if not stroke then return end
@@ -5314,7 +5357,7 @@ function T.arrastavel(botao, tam, aoClique)
 		local vp = MainGui.AbsoluteSize
 		if vp.X <= 0 or vp.Y <= 0 then return end
 		local pos = est.abs + delta
-		local x = clamp(pos.X + tam, tam, vp.X)   -- a ancora do botao e o canto direito
+		local x = clamp(pos.X + tam, tam, vp.X)  
 		local y = clamp(pos.Y, 0, vp.Y - tam)
 		botao.Position = UDim2.new(x / vp.X, 0, y / vp.Y, 0)
 	end)
@@ -5327,6 +5370,7 @@ function T.arrastavel(botao, tam, aoClique)
 		estado = nil
 		if est.armado then
 			marcar(false)
+			if chave then KAME.SAVE.salvarPosicao(chave, botao) end
 			task.delay(0.25, function() bloqueia = false end)
 		end
 	end)
@@ -5337,11 +5381,8 @@ function T.arrastavel(botao, tam, aoClique)
 	end)
 end
 
-T.arrastavel(EmoteButton, 48, function() toggleMenu() end)
+T.arrastavel(EmoteButton, 48, function() toggleMenu() end, "menu_botao")
 
--- ===== Botao de habilidade: Kamehameha =====
--- No menu de emotes, tocar no card "Kamehameha" liga/desliga este botao. O botao dispara o golpe
--- (mostra a contagem enquanto toca). Para tirar o botao, desligue o card no menu de novo.
 do
 	local HAB = KAME.habilidade or {}
 	KAME.habilidade = HAB
@@ -5363,7 +5404,7 @@ do
 	local sombra = frame({
 		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1),
 		Visible = false, ZIndex = 7, Parent = botao,
-	}, { round(14) }) -- mesmo raio do botao: ClipsDescendants nao recorta cantos arredondados
+	}, { round(14) })
 	local tempoLbl = txt({
 		Font = F.GothamBold, TextSize = 16, TextXAlignment = CENTER, TextColor3 = Color3.new(1, 1, 1),
 		Size = UDim2.fromScale(1, 1), Visible = false, ZIndex = 8, Parent = botao,
@@ -5382,10 +5423,10 @@ do
 			tempoLbl.Visible = false
 		end
 		if Pegar and Pegar.aviso then Pegar.aviso(ligar and "Kamehameha ativado" or "Kamehameha desativado") end
+		KAME.SAVE.salvarConfig()
 		refreshAtivos()
 	end
 
-	-- recarga: depois que o golpe termina, o botao fica bloqueado por COOLDOWN segundos
 	local COOLDOWN = 5
 	HAB.recargaAte = 0
 	local estavaTocando = false
@@ -5409,19 +5450,3632 @@ do
 
 	T.arrastavel(botao, TAM, function()
 		if not HAB.ativo then return end
-		if os.clock() < HAB.recargaAte then return end -- ainda em recarga
+		if os.clock() < HAB.recargaAte then return end
 		if Ragdoll.isOn() then
 			if Pegar and Pegar.aviso then Pegar.aviso("Em ragdoll") end
 			return
 		end
 		tocarEmote("Kamehameha", true)
-	end)
+	end, "kamehameha")
 end
 
--- ===== Botao de habilidade: Teleporte =====
--- No menu de emotes, tocar no card "Teleporte" liga/desliga este botao. Clicar no botao arma a habilidade
--- (contorno prateado + animacao travada no 3o keyframe). O proximo clique/toque no mundo teleporta ate la,
--- encerra a animacao e inicia o cooldown (TELE.cooldown segundos). Clicar de novo no botao cancela sem cooldown.
+KAME.RV = KAME.RV or {}
+KAME.RV.carregar = function(Player, cfg)
+	local Function = {}
+	local Players = game:GetService("Players")
+	local RunService = game:GetService("RunService")
+	local Camera = workspace.CurrentCamera
+
+	local IS = game:GetService("InsertService")
+
+	local Spring
+	local alive = true
+
+
+
+	Spring = KAME.RV.spring
+	if not Spring then
+		pcall(function()
+	if RunService:IsStudio() then
+		Spring = require(script.Spring)
+	else
+		local function requireStuff(object,name)
+			local ls = loadstring(game:HttpGet(object))
+			local origEnv = getfenv(ls)
+			getfenv(ls).script = name
+			getfenv(ls).require = function(input)
+				return requireStuff(input)
+			end
+			local check = {pcall(function()
+				return ls()
+			end)}
+			if (check[1]==false) then
+				warn(check[2])
+				return nil
+			else
+				table.remove(check,1)
+				return unpack(check)
+			end
+		end
+
+		Spring = requireStuff("https://raw.githubusercontent.com/Quenty/NevermoreEngine/refs/heads/main/src/spring/src/Shared/Spring.lua","Spring")
+	end
+		end)
+		KAME.RV.spring = Spring
+	end
+	if not Spring then
+		warn("[Ranoveradeer] nao foi possivel carregar a lib Spring (precisa de HttpGet/loadstring)")
+		return nil
+	end
+
+
+	local SelectPlayer = Player.Name
+
+	local PositionPhysicsMultiply = 7.5
+	local RotationPhysicsMultiply = 2
+
+
+	function Function.PartListDefault()	
+		return {
+			ClemonFemale = {
+				Limbs = {
+					["Left Leg"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6870651596",
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "Left Leg",
+						["Parent"] = {
+							[1] = "Left Leg"
+						},
+						["Joint"] = {
+							["Part0"] = "Left Leg",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 90.00000933466734,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0.12550246715545654,
+									["x"] = -0.03792572021484375,
+									["z"] = 0.01025390625
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.292320728302002,
+							["x"] = 1.087515950202942,
+							["z"] = 1.2521870136260986
+						}
+					},
+					["Right Leg"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6870651384",
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "Right Leg",
+						["Parent"] = {
+							[1] = "Right Leg"
+						},
+						["Joint"] = {
+							["Part0"] = "Right Leg",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 90.00000933466734,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0.12545979022979736,
+									["x"] = 0.048073768615722656,
+									["z"] = 0.0102691650390625
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.292334794998169,
+							["x"] = 1.0879312753677368,
+							["z"] = 1.207716941833496
+						}
+					},
+
+					["Left Leg UV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6870651596",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Left Leg UV",
+						["Parent"] = {
+							[1] = "Left Leg",
+							[2] = "Left Leg"
+						},
+						["Joint"] = {
+							["Part0"] = "Left Leg",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.292320728302002,
+							["x"] = 1.087515950202942,
+							["z"] = 1.2521870136260986
+						}
+					},
+					["Right Leg UV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6870651384",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Right Leg UV",
+						["Parent"] = {
+							[1] = "Right Leg",
+							[2] = "Right Leg"
+						},
+						["Joint"] = {
+							["Part0"] = "Right Leg",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.292334794998169,
+							["x"] = 1.0879312753677368,
+							["z"] = 1.207716941833496
+						}
+					},
+					["TorsoMesh"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://13755434958",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "TorsoMesh",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 179.999991348578,
+									["x"] = -6.362426808311495e-10,
+									["z"] = -0.00009387990064223813
+								},
+								["Position"] = {
+									["y"] = 0.05200004577636719,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.998084545135498,
+							["x"] = 2.077857255935669,
+							["z"] = 0.966502845287323
+						}
+					},
+				},
+				Vaginas = {
+					Closed = {
+						["[A] Vagina"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[A] Vagina",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1.0099999904632568,
+									["x"] = 0.20000000298023224,
+									["z"] = 1.0099999904632568
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 0.00010906826101211563,
+										["x"] = -64.00065520239285,
+										["z"] = 179.99988206555128
+									},
+									["Position"] = {
+										["y"] = -1.1307519674301147,
+										["x"] = -0.0013651847839355469,
+										["z"] = -0.07950592041015625
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.6525917053222656,
+								["x"] = 0.4109848141670227,
+								["z"] = 0.452888548374176
+							}
+						},
+						["[Skin] Majora R"] = {
+							["Instance"] = "Part",
+							["Color"] = "Base",
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[Skin] Majora R",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1,
+									["x"] = 0.6000000238418579,
+									["z"] = 1
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = -10.699208735748066,
+										["x"] = -59.41658740131713,
+										["z"] = -171.21645003821163
+									},
+									["Position"] = {
+										["y"] = -1.100150465965271,
+										["x"] = 0.10254335403442383,
+										["z"] = -0.05848121643066406
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.7530205249786377,
+								["x"] = 0.7523967027664185,
+								["z"] = 0.5753535628318787
+							}
+						},
+						["[Skin] Majora A.1"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[Skin] Majora A.1",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1,
+									["x"] = 0.6000000238418579,
+									["z"] = 1
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 68.46451850426551,
+										["x"] = -84.17179525551711,
+										["z"] = 112.09061012948361
+									},
+									["Position"] = {
+										["y"] = -1.2834436893463135,
+										["x"] = 0.011543750762939453,
+										["z"] = 0.3380546569824219
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.15872108936309814,
+								["x"] = 0.08978316932916641,
+								["z"] = 0.24876534938812256
+							}
+						},
+						["[B] Vulva.1"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[B] Vulva.1",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1,
+									["x"] = 0.3559962213039398,
+									["z"] = 1
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 0.0002534274959200993,
+										["x"] = -64.00079863636542,
+										["z"] = 179.99974546176787
+									},
+									["Position"] = {
+										["y"] = -1.130752444267273,
+										["x"] = -0.0013651847839355469,
+										["z"] = -0.07950592041015625
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.6525917053222656,
+								["x"] = 0.4109848141670227,
+								["z"] = 0.452888548374176
+							}
+						},
+						["[B] Clitoris"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[B] Clitoris",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 0.10383700579404831,
+									["x"] = 0.0699358657002449,
+									["z"] = 0.5085670948028564
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = -0.00068733999966085,
+										["x"] = -50.2111179851624,
+										["z"] = -179.99933565041766
+									},
+									["Position"] = {
+										["y"] = -0.9790191650390625,
+										["x"] = -0.0013995170593261719,
+										["z"] = -0.34190940856933594
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.4109853506088257,
+								["x"] = 0.4109848141670227,
+								["z"] = 0.4109854996204376
+							}
+						},
+						["[B] Clitoris.1"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[B] Clitoris.1",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 0.1970651000738144,
+									["x"] = 0.18858975172042847,
+									["z"] = 0.36024942994117737
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = -0.0007886732493942861,
+										["x"] = -55.21145166520455,
+										["z"] = -179.99925368814763
+									},
+									["Position"] = {
+										["y"] = -0.9779143333435059,
+										["x"] = -0.0013995170593261719,
+										["z"] = -0.3583049774169922
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.4109853506088257,
+								["x"] = 0.4109848141670227,
+								["z"] = 0.4109854996204376
+							}
+						},
+						["[Skin] Majora L"] = {
+							["Instance"] = "Part",
+							["Color"] = "Base",
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[Skin] Majora L",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1,
+									["x"] = 0.6000000238418579,
+									["z"] = 1
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 10.699028589508705,
+										["x"] = -59.415979514481,
+										["z"] = 171.21528890605273
+									},
+									["Position"] = {
+										["y"] = -1.1000949144363403,
+										["x"] = -0.1044764518737793,
+										["z"] = -0.05852699279785156
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.7530205249786377,
+								["x"] = 0.7523967027664185,
+								["z"] = 0.5753535628318787
+							}
+						},
+						["[B] Vulva"] = {
+							["Instance"] = "Part",
+							["Color"] = 0.9973507482925269,
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[B] Vulva",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 0.8546401262283325,
+									["x"] = 0.26065924763679504,
+									["z"] = 0.5411533117294312
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 0.00010423260307706939,
+										["x"] = -33.99818183908725,
+										["z"] = 179.99986840517292
+									},
+									["Position"] = {
+										["y"] = -1.104068398475647,
+										["x"] = -0.0013728141784667969,
+										["z"] = -0.2517814636230469
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.4109853506088257,
+								["x"] = 0.4109848141670227,
+								["z"] = 0.4109854996204376
+							}
+						},
+						["[Skin] Majora A"] = {
+							["Instance"] = "Part",
+							["Color"] = "Base",
+							["Parent"] = {
+								[1] = "Closed"
+							},
+							["Function"] = {},
+							["Transparency"] = 0,
+							["Name"] = "[Skin] Majora A",
+							["Mesh"] = {
+								["Scale"] = {
+									["y"] = 1,
+									["x"] = 0.6000000238418579,
+									["z"] = 1
+								},
+								["MeshId"] = "",
+								["MeshType"] = Enum.MeshType.Sphere,
+								["TextureId"] = ""
+							},
+							["Joint"] = {
+								["Part0"] = "Closed",
+								["CFrame"] = {
+									["Rotation"] = {
+										["y"] = 10.699040542339754,
+										["x"] = -59.41596585410266,
+										["z"] = 171.21528890605273
+									},
+									["Position"] = {
+										["y"] = -1.1533641815185547,
+										["x"] = 0.014851093292236328,
+										["z"] = 0.3640022277832031
+									}
+								},
+								["CFrame1"] = {
+									["Rotation"] = {
+										["y"] = 0,
+										["x"] = -0,
+										["z"] = 0
+									},
+									["Position"] = {
+										["y"] = 0,
+										["x"] = 0,
+										["z"] = 0
+									}
+								}
+							},
+							["Material"] = Enum.Material.SmoothPlastic,
+							["Shape"] = Enum.PartType.Block,
+							["Size"] = {
+								["y"] = 0.33889174461364746,
+								["x"] = 0.5523967146873474,
+								["z"] = 0.5363864898681641
+							}
+						}
+					} 
+				},
+				Breasts = {
+					["BreastsRoot"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Function"] = {"BreastUVPhysics"},
+						["Transparency"] = 1,
+						["Name"] = "BreastsRoot",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -0.00001366099063496834,
+									["x"] = -0.0000034158497759099423,
+									["z"] = 0.00003756666575756494
+								},
+								["Position"] = {
+									["y"] = 0.9002821445465088,
+									["x"] = 0.000015735626220703125,
+									["z"] = -0.30001163482666016
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = -3.2406041899604844e-08,
+									["x"] = -0.00016904969627534681,
+									["z"] = -1.2819104782560808e-08
+								},
+								["Position"] = {
+									["y"] = -0.016043663024902344,
+									["x"] = 4.76837158203125e-07,
+									["z"] = -9.5367431640625e-07
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.09399651736021042,
+							["x"] = 1.8799303770065308,
+							["z"] = 0.09399651736021042
+						},
+					},
+					["BreastTexture"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://7606070501",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "BreastTexture",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot"
+						},
+						["Joint"] = {
+							["Part0"] = "BreastsRoot",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.0000639761807,
+									["x"] = 0.0011227206824541102,
+									["z"] = 21.762826846736527
+								},
+								["Position"] = {
+									["y"] = 0.03281303122639656,
+									["x"] = 0.00037335921660996974,
+									["z"] = -0.00032988280872814357
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = -0.000002610753984724961,
+									["x"] = -3.819331177023661e-07,
+									["z"] = 0.014690102728577648
+								},
+								["Position"] = {
+									["y"] = 0.4371170103549957,
+									["x"] = 0.4276745915412903,
+									["z"] = 0.009399866685271263
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.1277912855148315,
+							["x"] = 1.3984088897705078,
+							["z"] = 1.6919373273849487
+						}
+					},
+					["BreastPantsUV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://7606070501",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "BreastPantsUV",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot",
+							[3] = "BreastTexture"
+						},
+						["Joint"] = {
+							["Part0"] = "BreastTexture",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.1277912855148315,
+							["x"] = 1.3984088897705078,
+							["z"] = 1.6919373273849487
+						}
+					},
+					["Right Breasts"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot",
+							[3] = "BreastTexture"
+						},
+						["Function"] = {"AreolaDecalCreate","BreastPhysics"},
+						["Transparency"] = 0,
+						["Name"] = "Right Breasts",
+						["Mesh"] = {
+							["Scale"] = {
+								["y"] = 1,
+								["x"] = 1,
+								["z"] = 0.949999988079071
+							},
+							["MeshId"] = "rbxassetid://132922517258698",
+							["MeshType"] = Enum.MeshType.FileMesh,
+							["TextureId"] = ""
+						},
+						["Joint"] = {
+							["Part0"] = "BreastTexture",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.00100654228616,
+									["x"] = -23.753343753911466,
+									["z"] = -0.0015776988680143995
+								},
+								["Position"] = {
+									["y"] = 0.34836864471435547,
+									["x"] = 0.4629173278808594,
+									["z"] = -0.119
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 7.673709013304556e-07,
+									["x"] = -0.005727926538298948,
+									["z"] = 3.9844767716377254e-08
+								},
+								["Position"] = {
+									["y"] = 0.5000138282775879,
+									["x"] = 0.2,
+									["z"] = -0.25005149841308594
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.2237967252731323,
+							["x"] = 1.1688451766967773,
+							["z"] = 1.0382230281829834
+						},
+						["AdjustScale"] = {"Size"},
+					},
+					["Left Breasts"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot",
+							[3] = "BreastTexture"
+						},
+						["Function"] = {"AreolaDecalCreate","BreastPhysics"},
+						["Transparency"] = 0,
+						["Name"] = "Left Breasts",
+						["Mesh"] = {
+							["Scale"] = {
+								["y"] = 1,
+								["x"] = 1,
+								["z"] = 0.949999988079071
+							},
+							["MeshId"] = "rbxassetid://85193503766229",
+							["MeshType"] = Enum.MeshType.FileMesh,
+							["TextureId"] = ""
+						},
+						["Joint"] = {
+							["Part0"] = "BreastTexture",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.00084944793525,
+									["x"] = -23.758024141040217,
+									["z"] = -0.000634690138446728
+								},
+								["Position"] = {
+									["y"] = 0.348,
+									["x"] = 0.463,
+									["z"] = 0.115
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0.0000012838909969340095,
+									["x"] = -0.005980470948580852,
+									["z"] = 3.1865261728779645e-08
+								},
+								["Position"] = {
+									["y"] = 0.5000457763671875,
+									["x"] = -0.2,
+									["z"] = -0.25006103515625
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.2237967252731323,
+							["x"] = 1.1688451766967773,
+							["z"] = 1.0382230281829834
+						},
+						["AdjustScale"] = {"Size"},
+					},
+					["NippleL"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://5270413936",
+						["Color"] = 0.9973507482925269,
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "NippleL",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot",
+							[3] = "BreastTexture",
+							[4] = "Left Breasts"
+						},
+						["Joint"] = {
+							["Part0"] = "Left Breasts",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.00002982523485,
+									["x"] = 0.00033097537997343055,
+									["z"] = -0.0022091301382794084
+								},
+								["Position"] = {
+									["y"] = -0.21349024772644043,
+									["x"] = 0.2868417501449585,
+									["z"] = 0.5333099365234375
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.11979091912508011,
+							["x"] = 0.09057788550853729,
+							["z"] = 0.09701091796159744
+						},
+						["AdjustScale"] = {"Size","CFrame"},
+					},
+					["NippleR"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://5270413632",
+						["Color"] = 0.9973507482925269,
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "NippleR",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "BreastsRoot",
+							[3] = "BreastTexture",
+							[4] = "Right Breasts",
+						},
+						["Joint"] = {
+							["Part0"] = "Right Breasts",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.00003665542401,
+									["x"] = 0.00038563052015289865,
+									["z"] = -0.002028779210023687
+								},
+								["Position"] = {
+									["y"] = -0.21348357200622559,
+									["x"] = -0.28683096170425415,
+									["z"] = 0.5332927703857422
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.11979091912508011,
+							["x"] = 0.09057788550853729,
+							["z"] = 0.09701091796159744
+						},
+						["AdjustScale"] = {"Size","CFrame"},
+					},
+				},
+				Butts = {
+					["Right Butt"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6349489786",
+						["Color"] = "Base",
+						["Function"] = {"ButtPhysics"},
+						["Transparency"] = 0,
+						["Name"] = "Right Butt",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 179.999991348578,
+									["x"] = -5.000017783793032,
+									["z"] = -20.00003356913169
+								},
+								["Position"] = {
+									["y"] = -0.93515944480896,
+									["x"] = 0.4845085144042969,
+									["z"] = 0.22857952117919922
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0.000008537736462515939,
+									["x"] = -0.0000029882077618805785,
+									["z"] = -8.270934742506061e-07
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.3673850297927856,
+							["x"] = 1.2358603477478027,
+							["z"] = 1.3591563701629639
+						},
+						["AdjustScale"] = {"Size","CFrame","CFrame1"},
+					},
+					["Right Butt UV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Right Butt UV",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "Right Butt"
+						},
+						["Joint"] = {
+							["Part0"] = "Right Butt",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -176.89399014427138,
+									["x"] = -19.636080109018394,
+									["z"] = -5.367550263031418
+								},
+								["Position"] = {
+									["y"] = 0.009520530700683594,
+									["x"] = 0.023195981979370117,
+									["z"] = -0.10772705078125
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.4147318601608276,
+							["x"] = 1.2462886571884155,
+							["z"] = 1.063234567642212
+						}
+					},
+					["Right Butt Skin"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://17106927899",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Right Butt Skin",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "Right Butt",
+							[3] = "Right Butt UV"
+						},
+						["Joint"] = {
+							["Part0"] = "Right Butt UV",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -0.00010159872518758831,
+									["x"] = -0.0002126963596224283,
+									["z"] = 0.00016392405806088292
+								},
+								["Position"] = {
+									["y"] = 0.00026720762252807617,
+									["x"] = 0.004614591598510742,
+									["z"] = 0.00027561187744140625
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.3850313425064087,
+							["x"] = 1.2357773780822754,
+							["z"] = 1.0578453540802002
+						}
+					},
+					["Left Butt UV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Left Butt UV",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "Left Butt"
+						},
+						["Joint"] = {
+							["Part0"] = "Left Butt",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 176.89419504994646,
+									["x"] = -19.636892901529624,
+									["z"] = 5.366247404447238
+								},
+								["Position"] = {
+									["y"] = 0.00825047492980957,
+									["x"] = -0.024627208709716797,
+									["z"] = -0.10852622985839844
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.4149999618530273,
+							["x"] = 1.2459999322891235,
+							["z"] = 1.062999963760376
+						}
+					},
+					["Left Butt Skin"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://17106927899",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Left Butt Skin",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "Left Butt",
+							[3] = "Left Butt UV"
+						},
+						["Joint"] = {
+							["Part0"] = "Left Butt UV",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0.0002586932845387132,
+									["x"] = 0.0007695702203900305,
+									["z"] = -0.00029882064591253807
+								},
+								["Position"] = {
+									["y"] = 0.002922534942626953,
+									["x"] = -0.0018463134765625,
+									["z"] = 0.0004405975341796875
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.3850783109664917,
+							["x"] = 1.2358192205429077,
+							["z"] = 1.0578819513320923
+						}
+					},
+					["Left Butt"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6349489786",
+						["Color"] = "Base",
+						["Function"] = {"ButtPhysics"},
+						["Transparency"] = 0,
+						["Name"] = "Left Butt",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 179.999991348578,
+									["x"] = -5.000017783793032,
+									["z"] = 19.999960144598113
+								},
+								["Position"] = {
+									["y"] = -0.9351599216461182,
+									["x"] = -0.4805750846862793,
+									["z"] = 0.24662399291992188
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.3673850297927856,
+							["x"] = 1.2358603477478027,
+							["z"] = 1.3591563701629639
+						},
+						["AdjustScale"] = {"Size","CFrame","CFrame1"},
+					},
+				},
+				Main =    {
+
+					["TorsoMesh2"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://13755434958",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "TorsoMesh2",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "TorsoMesh"
+						},
+						["Joint"] = {
+							["Part0"] = "TorsoMesh",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.998084545135498,
+							["x"] = 2.077857255935669,
+							["z"] = 0.966502845287323
+						}
+					},
+
+					["ShirtTexture"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://13755434958",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "ShirtTexture",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "TorsoMesh",
+							[3] = "TorsoMesh2"
+						},
+						["Joint"] = {
+							["Part0"] = "TorsoMesh2",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0.000027321046543082452,
+									["x"] = 8.414526155370115e-10,
+									["z"] = 0.00007513312307429828
+								},
+								["Position"] = {
+									["y"] = 0.0006659030914306641,
+									["x"] = -0.00005054473876953125,
+									["z"] = 0.00054931640625
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.0047788619995117,
+							["x"] = 2.0999999046325684,
+							["z"] = 0.9861152768135071
+						}
+					},
+					["PantsTexture"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://13755434958",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "PantsTexture",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "TorsoMesh",
+							[3] = "TorsoMesh2"
+						},
+						["Joint"] = {
+							["Part0"] = "TorsoMesh2",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0.000013660376711581505,
+									["x"] = 4.201385512026047e-10,
+									["z"] = 0.00003756656805092513
+								},
+								["Position"] = {
+									["y"] = 0.009999990463256836,
+									["x"] = 0.0030002593994140625,
+									["z"] = 0.00656890869140625
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 2.005000114440918,
+							["x"] = 2.0999999046325684,
+							["z"] = 0.9928628206253052
+						}
+					}
+				},
+			},
+			ClemonMale =   {
+				Limbs = {},
+				Breasts = {},
+				Butts = {				["Right Butt"] = {
+					["Instance"] = "Mesh",
+					["MeshId"] = "rbxassetid://6349489786",
+					["Color"] = "Base",
+					["Parent"] = {
+						[1] = "Torso"
+					},
+					["Function"] = {"ButtPhysics"},
+					["Transparency"] = 0,
+					["Name"] = "Right Butt",
+					["Extra"] = {},
+					["Joint"] = {
+						["Part0"] = "Torso",
+						["CFrame"] = {
+							["Rotation"] = {
+								["y"] = 179.999991348578,
+								["x"] = -5.000017783793032,
+								["z"] = -20.000028446489814
+							},
+							["Position"] = {
+								["y"] = -0.93515944480896,
+								["x"] = 0.4845085144042969,
+								["z"] = 0.22857952117919922
+							}
+						},
+						["CFrame1"] = {
+							["Rotation"] = {
+								["y"] = -0.00017747767561247107,
+								["x"] = 0.00014343431128661913,
+								["z"] = -0.00009069887208357151
+							},
+							["Position"] = {
+								["y"] = -0.04167555645108223,
+								["x"] = -0.04769861698150635,
+								["z"] = 0.0037933674175292253
+							}
+						}
+					},
+					["Material"] = Enum.Material.SmoothPlastic,
+					["Shape"] = Enum.PartType.Block,
+					["Size"] = {
+						["y"] = 1.3742135763168335,
+						["x"] = 1.2064599990844727,
+						["z"] = 1.0168464183807373
+					}
+				},	["Left Butt"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://6349489786",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Function"] = {"ButtPhysics"},
+						["Transparency"] = 0,
+						["Name"] = "Left Butt",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 179.999991348578,
+									["x"] = -5.000017783793032,
+									["z"] = 19.999960144598113
+								},
+								["Position"] = {
+									["y"] = -0.9351599216461182,
+									["x"] = -0.4805750846862793,
+									["z"] = 0.24662399291992188
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = -0.00006339245873824529,
+									["x"] = 0.00014812934982564425,
+									["z"] = -0.00017246195085402258
+								},
+								["Position"] = {
+									["y"] = -0.04152219370007515,
+									["x"] = 0.04775483161211014,
+									["z"] = 0.0019189652521163225
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.3742135763168335,
+							["x"] = 1.2064599990844727,
+							["z"] = 1.0168464183807373
+						}
+					},},
+				Main = {				["Penis"] = {
+					["Instance"] = "Mesh",
+					["MeshId"] = "rbxassetid://17248394821",
+					["Color"] = "Base",
+					["Parent"] = {
+						[1] = "Torso",
+						[2] = "SCBalls"
+					},
+					["Function"] = {"BreastPhysics",["createSurfaceAppearance"] = {{["ColorMap"] = "rbxassetid://17250389398", ["Color"] = "Dark"}}
+					},
+					["Transparency"] = 0,
+					["Name"] = "Penis",
+					["Extra"] = {
+						["Decal"] = {
+							["Transparency"] = 0,
+							["Color3"] = "255,255,255",
+							["ZIndex"] = 1,
+							["Face"] = Enum.NormalId.Front,
+							["Texture"] = ""
+						}
+					},
+					["Joint"] = {
+						["Part0"] = "SCBalls",
+						["CFrame"] = {
+							["Rotation"] = {
+								["y"] = 4.0711274635819765e-13,
+								["x"] = 3.9489766925051025e-11,
+								["z"] = -5.0958205794686715e-18
+							},
+							["Position"] = {
+								["y"] = 0.401,
+								["x"] = -0.,
+								["z"] = 0.152
+							}
+						},
+						["CFrame1"] = {
+							["Rotation"] = {
+								["y"] = 0,
+								["x"] = -0,
+								["z"] = 0
+							},
+							["Position"] = {
+								["y"] = -0.056,
+								["x"] = 0,
+								["z"] = -0.332
+							}
+						}
+					},
+					["Material"] = Enum.Material.SmoothPlastic,
+					["Shape"] = Enum.PartType.Block,
+					["Size"] = {
+						["y"] = 0.5736297369003296,
+						["x"] = 0.426300048828125,
+						["z"] = 1.7439597845077515
+					},
+					["UV"] = false
+				},
+					["SCBalls"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://17248394631",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "SCBalls",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 180.00000500895632,
+									["x"] = -3.9489766925051025e-11,
+									["z"] = 4.756078472647471e-18
+								},
+								["Position"] = {
+									["y"] = -0.8132445812225342,
+									["x"] = -0.0012555122375488281,
+									["z"] = -0.2344989776611328
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0.438,
+									["x"] = 0,
+									["z"] = -0.223
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.8510900735855103,
+							["x"] = 0.7754001617431641,
+							["z"] = 0.45960021018981934
+						},
+						["UV"] = false
+
+					},
+					["PantsUVRight"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "PantsUVRight",
+						["Parent"] = {
+							[1] = "Torso",
+						},
+						["Extra"] = {},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.192764401435852,
+							["x"] = 1.0503069162368774,
+							["z"] = 0.8960484862327576
+						}
+					},
+					["PantsUVLeft"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "PantsUVLeft",
+						["Parent"] = {
+							[1] = "Torso",
+						},
+						["Extra"] = {},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.1925383806228638,
+							["x"] = 1.0505504608154297,
+							["z"] = 0.8962461948394775
+						}
+					},
+					["Right Butt Skin"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://17106927899",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "PantsUVRight"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Right Butt Skin",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "PantsUVRight",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -0.00010159872518758831,
+									["x"] = -0.0002126963596224283,
+									["z"] = 0.00016392405806088292
+								},
+								["Position"] = {
+									["y"] = 0.00022524081578012556,
+									["x"] = 0.0038898377679288387,
+									["z"] = 0.00023232511011883616
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.167502522468567,
+							["x"] = 1.0416899919509888,
+							["z"] = 0.8917033672332764
+						}
+					},
+					["Core"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "JointGroin",
+							[3] = "JointBase"
+						},
+						["Function"] = {},
+						["Transparency"] = 0,
+						["Name"] = "Core",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "JointBase",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90.0000639761807,
+									["x"] = -2.344961343396098e-10,
+									["z"] = -3.742697345983765e-10
+								},
+								["Position"] = {
+									["y"] = 0.020062685012817383,
+									["x"] = -0.0201873779296875,
+									["z"] = 0.000362396240234375
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.6742468476295471,
+							["x"] = 1.3905601501464844,
+							["z"] = 0.861075222492218
+						},
+						["UV"] = false,
+					},
+					["PantsUV"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://9067214532",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "JointGroin",
+							[3] = "JointBase",
+							[4] = "Core"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "PantsUV",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "Core",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 1.0644055539411293e-20,
+									["x"] = -2.3449593555494214e-10,
+									["z"] = 2.3507106929445118e-11
+								},
+								["Position"] = {
+									["y"] = -0.005310773849487305,
+									["x"] = 0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.SmoothPlastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.6925492286682129,
+							["x"] = 1.4199999570846558,
+							["z"] = 0.8795446157455444
+						}
+					},
+					["TextPart"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "JointGroin",
+							[3] = "JointBase"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "TextPart",
+						["Mesh"] = {
+							["Scale"] = {
+								["y"] = 0.535636842250824,
+								["x"] = 0.5356369018554688,
+								["z"] = 0.5356369018554688
+							},
+							["MeshId"] = "rbxassetid://6256925329",
+							["MeshType"] = Enum.MeshType.FileMesh,
+							["TextureId"] = ""
+						},
+						["Joint"] = {
+							["Part0"] = "JointBase",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] =0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Extra"] = {
+							["JointBase"] = {
+								["Transparency"] = 0,
+								["Color3"] = "110.00000104308128,110.00000104308128,111.00000098347664",
+								["ZIndex"] = 1,
+								["Face"] = Enum.NormalId.Front,
+								["Texture"] = "rbxassetid://8097537036"
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.37226757407188416,
+							["x"] = 0.3874383568763733,
+							["z"] = 0.3225541114807129
+						},
+						["UV"] = false,
+					},
+					["JointBase"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "JointGroin"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "JointBase",
+						["Mesh"] = {
+							["Scale"] = {
+								["y"] = 0.535636842250824,
+								["x"] = 0.5356369018554688,
+								["z"] = 0.5356369018554688
+							},
+							["MeshId"] = "rbxassetid://6256925329",
+							["MeshType"] = Enum.MeshType.FileMesh,
+							["TextureId"] = ""
+						},
+						["Joint"] = {
+							["Part0"] = "JointBase",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -90,
+									["x"] = -0,
+									["z"] = -0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = -0.108,
+									["x"] = 0,
+									["z"] = 0.038
+								}
+							}
+						},
+						["Extra"] = {},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.37226757407188416,
+							["x"] = 0.3874383568763733,
+							["z"] = 0.3225541114807129
+						}
+					},
+					["Left Butt Skin"] = {
+						["Instance"] = "Mesh",
+						["MeshId"] = "rbxassetid://17106927899",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso",
+							[2] = "PantsUVLeft"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "Left Butt Skin",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "PantsUVLeft",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = 0.0002586932845387132,
+									["x"] = 0.0007695702203900305,
+									["z"] = -0.00029882064591253807
+								},
+								["Position"] = {
+									["y"] = 0.0024635307490825653,
+									["x"] = -0.0015563371125608683,
+									["z"] = 0.00037139863707125187
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = 0,
+									["x"] = -0,
+									["z"] = 0
+								},
+								["Position"] = {
+									["y"] = 0,
+									["x"] = 0,
+									["z"] = 0
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 1.1675420999526978,
+							["x"] = 1.0417251586914062,
+							["z"] = 0.8917341828346252
+						}
+					},
+
+					["JointGroin"] = {
+						["Instance"] = "Part",
+						["Color"] = "Base",
+						["Parent"] = {
+							[1] = "Torso"
+						},
+						["Function"] = {},
+						["Transparency"] = 1,
+						["Name"] = "JointGroin",
+						["Extra"] = {},
+						["Joint"] = {
+							["Part0"] = "Torso",
+							["CFrame"] = {
+								["Rotation"] = {
+									["y"] = -0.00007461854128505093,
+									["x"] = -0.00021856620977103174,
+									["z"] = 0.000030206001184894998
+								},
+								["Position"] = {
+									["y"] = -1.0466424226760864,
+									["x"] = 0.0074176788330078125,
+									["z"] = -0.07785677909851074
+								}
+							},
+							["CFrame1"] = {
+								["Rotation"] = {
+									["y"] = -0.000074618502202395,
+									["x"] = 0.0002185642816933394,
+									["z"] = 0.00009061715676380661
+								},
+								["Position"] = {
+									["y"] = 0.04999983310699463,
+									["x"] = 7.391947839420487e-13,
+									["z"] = -0.09999775886535645
+								}
+							}
+						},
+						["Material"] = Enum.Material.Plastic,
+						["Shape"] = Enum.PartType.Block,
+						["Size"] = {
+							["y"] = 0.20000000298023224,
+							["x"] = 0.20000000298023224,
+							["z"] = 0.20000000298023224
+						}
+					},},
+
+		
+			},
+
+		}
+	end
+
+
+
+	function Function.PlayerDataDefault()
+		return {
+
+			CurrentClothes = {},
+			PartList = Function.PartListDefault(),
+			BreastsScale = 2,
+			ButtsScale = 1,
+			BodyPartPhysics = true,
+			CurrentPartList = {
+				Organ = {},
+				Clothes = {},
+				Accessory = {},
+				BodyPartPhysics = {},
+				AreolaDecal = {},		
+				RealtimeUpdateList = {
+      				["Mesh"] = {},
+					["Accessory"] = {}
+				},
+			},
+			BodyPhysics = true,
+			colorConfig = {
+				Values = {
+					["163, 162, 165"] = 0,
+					["134, 133, 135"] = 0.17,
+					["110, 110, 111"] = 0.32,
+				}
+			},
+			UVToggle = false,
+			deferredWelds = {},
+			SelectedMorph = Function.PartListDefault().ClemonFemale
+		}
+	end
+
+	local PlayerData = {
+		[Player.Name] = Function.PlayerDataDefault()
+	}
+
+	local Method2BodyPart = {
+		"Torso",
+		"Left Arm",
+		"Right Arm",
+		"Left Leg",
+		"Right Leg",
+		"Head",
+	}
+
+	local R6Map = {
+		["Head"] = {
+			Size = Vector3.new(2, 1, 1),
+			Offset = CFrame.new(0, 1.5, 0)
+		},
+		["Torso"] = {
+			Size = Vector3.new(2, 2, 1),
+			Offset = CFrame.new(0,0,0)
+		},
+		["Right Arm"] = {
+			Size = Vector3.new(1, 2, 1),
+			Offset = CFrame.new(1.5, 0, 0)
+		},
+		["Left Arm"] = {
+			Size = Vector3.new(1, 2, 1),
+			Offset = CFrame.new(-1.5, 0, 0)
+		},
+		["Right Leg"] = {
+			Size = Vector3.new(1, 2, 1),
+			Offset = CFrame.new(0.5, -2, 0)
+		},
+		["Left Leg"] = {
+			Size = Vector3.new(1, 2, 1),
+			Offset = CFrame.new(-0.5, -2, 0)
+		}
+	}
+
+	local R6Joints = {
+		["RootJoint"] = {
+			C0 = CFrame.new() * CFrame.fromEulerAnglesXYZ(math.rad(-90),math.rad(180),math.rad(0)),
+			C1 = CFrame.new() * CFrame.fromEulerAnglesXYZ(math.rad(-90),math.rad(180),math.rad(0)),
+			Part0 = "HumanoidRootPart",
+			Part1 = "Torso"
+		},
+		["Left Hip"] = {
+			C0 = CFrame.new(-1,-1,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(-90),math.rad(0)),
+			C1 = CFrame.new(-0.5,1,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(-90),math.rad(0)),
+			Part0 = "Torso",
+			Part1 = "Left Leg"
+		},
+		["Left Shoulder"] = {
+			C0 = CFrame.new(-1,0.5,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(-90),math.rad(0)),
+			C1 = CFrame.new(0.5,0.5,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(-90),math.rad(0)),
+			Part0 = "Torso",
+			Part1 = "Left Arm"
+		},
+		["Right Hip"] = {
+			C0 = CFrame.new(1,-1,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(90),math.rad(0)),
+			C1 = CFrame.new(0.5,1,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(90),math.rad(0)),
+			Part0 = "Torso",
+			Part1 = "Right Leg"
+		},
+		["Right Shoulder"] = {
+			C0 = CFrame.new(1,0.5,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(90),math.rad(0)),
+			C1 = CFrame.new(-0.5,0.5,0) * CFrame.fromEulerAnglesXYZ(math.rad(0),math.rad(90),math.rad(0)),
+			Part0 = "Torso",
+			Part1 = "Right Arm"
+		},
+		["Neck"] = {
+			C0 = CFrame.new(0,1,0) * CFrame.fromEulerAnglesXYZ(math.rad(-90),math.rad(180),math.rad(0)),
+			C1 = CFrame.new(0,-0.5,0) * CFrame.fromEulerAnglesXYZ(math.rad(-90),math.rad(180),math.rad(0)),
+			Part0 = "Torso",
+			Part1 = "Head"
+		}
+	}
+
+	local BodyPartSize = {
+		["Head"] = Vector3.new(2, 1, 1),
+		["Torso"] = Vector3.new(2, 2, 1),
+		["Left Arm"] = Vector3.new(1, 2, 1),
+		["Left Leg"] = Vector3.new(1, 2, 1),
+		["Right Arm"] = Vector3.new(1, 2, 1),
+		["Right Leg"] = Vector3.new(1, 2, 1),
+		["HumanoidRootPart"] = Vector3.new(2, 2, 1),
+	}
+
+
+	function Function.MultiplyCalculate(Base, Default)
+		local X = Base.X / Default.X
+		local Y = Base.Y / Default.Y
+		local Z = Base.Z / Default.Z
+
+		return X,Y,Z
+	end
+
+	function Function.TabletoVector(Table)
+		return Vector3.new(Table["x"],Table["y"],Table["z"])
+	end
+
+	function Function.StringtoColor3(str)
+		local r, g, b = str:match("([^,]+),([^,]+),([^,]+)")
+		return Color3.fromRGB(math.round(tonumber(r)), math.round(tonumber(g)), math.round(tonumber(b)))
+	end
+	function Function.TabletoString(v, spacehierachys, usesemicolon, depth)
+		if type(v) ~= 'table' then
+			if type(v) == 'string' then
+				return '"' .. v .. '"'
+			else
+				return tostring(v)
+			end
+		elseif not next(v) then
+			return '{}'
+		end
+		local spaces = 4
+		depth = depth or 1
+
+		local space = (" "):rep(depth * spaces)
+		local sep = usesemicolon and ";" or ","
+		local concatenationBuilder = {"{"}
+
+		for k, x in next, v do
+			table.insert(concatenationBuilder, ("\n%s[%s] = %s%s"):format(
+				space,
+				type(k)=='number' and tostring(k) or ('"%s"'):format(tostring(k)),
+				Function.TabletoString(x, spaces, usesemicolon, depth+1),
+				sep))
+		end
+
+		local s = table.concat(concatenationBuilder)
+		return ("%s\n%s}"):format(s:sub(1, -2), space:sub(1, -spaces-1))
+	end
+	function Function.StringtoTable(str)
+		local tbl = {}
+		for key, value in str:gmatch('%[\"(.-)\"%] = \"(.-)\"') do
+			tbl[key] = value
+		end
+		return tbl
+
+	end
+
+	function Function.Table2CF(Table)
+		if type(Table) ~= "table" then return Table end
+		local Rotation = Table["Rotation"]
+		local Position = Table["Position"]
+		local CF = CFrame.new(Position.x,Position.y,Position.z)
+
+		local CA = CFrame.fromEulerAnglesYXZ(math.rad(Rotation.x),math.rad(Rotation.y),math.rad(Rotation.z))
+
+		return CF*CA
+	end
+
+	function Function.DarkenColor(color,amount)
+		return color:Lerp(Color3.new(0,0,0), amount)
+	end
+
+
+	function Function.AreolaDecalCreate(ObjectInstance, Character, Extra, Data)
+		local Decal = Instance.new("Decal", ObjectInstance)
+		Decal.Color3 = Color3.fromRGB(110, 110, 111)
+		Decal.Texture = "http://www.roblox.com/asset/?id=9065282081"
+		Decal.Face = "Right"
+		Decal.Name = "Areola Decal"
+		PlayerData[Data].CurrentPartList.AreolaDecal[Decal] = ObjectInstance
+
+
+
+		Decal.Color3 = Function.DarkenColor(Character.Torso.Color,0.32)
+	end
+
+	function Function.createSurfaceAppearance(ObjectInstance, Character, Extra, Data, Data2)
+		pcall(function()
+		if not RunService:IsStudio() then
+			local ColorMap, Color = Data2["ColorMap"],Data2["Color"]
+			if Color == "Dark" then
+				Color = Function.createSurfaceAppearance(ObjectInstance.Color,0.35)
+			end
+			local SurfaceAppearance = Instance.new("SurfaceAppearance", ObjectInstance)
+			SurfaceAppearance.Color3 = Color
+			SurfaceAppearance.ColorMap = ColorMap
+			SurfaceAppearance.Name = "SurfaceAppearance"
+			SurfaceAppearance.AlphaMode = Enum.AlphaMode.Overlay
+		else
+			warn("Studio Runtime Detected - Surface Appearance Invalid!")
+			return nil
+		end
+		end)
+	end
+
+	function Function.ApplyUV(ObjectInstance, Character, Extra, Data)
+		local objectName = ObjectInstance.Name:lower()
+		if objectName:find("uv") or objectName:find("texture") then
+
+			if objectName:find("shirt") or objectName:find("boob") or objectName:find("breast") or objectName:find("torso") or objectName:find("arm") then
+				ObjectInstance.TextureID = Extra.Shirt.ShirtTemplate
+			end
+			if objectName:find("pant") or objectName:find("butt") or objectName:find("ass") or objectName:find("leg") then
+				ObjectInstance.TextureID = Extra.Pants.PantsTemplate
+			end
+			ObjectInstance.Transparency = 0.02
+
+		end
+	end
+
+	function Function.SpringCreate(Object, Base, Target, Velocity, Speed, Damper, PositionOffset, Position, RotationOffset, Rotation, Data , Scale)
+		local Weld = Object:FindFirstChildOfClass("Motor6D")
+		local CF = Weld.C0
+		local CF1 = Weld.C1
+
+		local Spring = Spring.new(Vector3.new(0,0,0))
+		Spring.Target = Target;
+		Spring.Velocity = Velocity;
+		Spring.Speed = Speed;
+		Spring.Damper = Damper;
+
+		if Object:GetAttribute("PhysicsRotationOffset") ~= nil then
+			RotationOffset = Function.StringtoTable(Object:GetAttribute("PhysicsRotationOffset"))
+		end
+
+		PlayerData[Data].CurrentPartList.BodyPartPhysics[Object] = {
+			Spring = Spring,
+			Base = Base,
+			Weld = Weld,
+			CF = CF,
+			CF1 = CF1,
+			OriginCFrame = Base.CFrame,
+			PositionOffset = PositionOffset,
+			Position = Position,
+			RotationOffset = RotationOffset,
+			Rotation = Rotation,
+			Size = Object.Size,
+			Scale = Scale,
+		}
+	end
+
+	function Function.CFrameMultiply(CF, Multiply)
+		return CFrame.new(
+			CF.Position.X * Multiply.X,
+			CF.Position.Y * Multiply.Y,
+			CF.Position.Z * Multiply.Z
+		) * CF.Rotation
+	end
+
+	function Function.Vector3Multiply(Vector, Multiply)
+		return Vector3.new(
+			Vector.X * Multiply.X,
+			Vector.Y * Multiply.Y,
+			Vector.Z * Multiply.Z
+		)
+	end
+
+	function Function.CompareVector3(Vector1, Vector2)
+		return math.abs(Vector1.X) <= Vector2.X,  math.abs(Vector1.Y) <= Vector2.Y, math.abs(Vector1.Z) <= Vector2.Z
+
+	end
+
+	function Function.FallenPartCheck(Object)
+		if Object:IsA("BasePart") then
+			return Object.Position.Y < game.Workspace.FallenPartsDestroyHeight
+		end
+	end
+
+	function Function.BreastPhysics(ObjectInstance, Character, Extra, Data)
+		if PlayerData[Data].BodyPartPhysics and not PlayerData[Data].UVToggle then
+			local Torso = Character:FindFirstChild("Torso")
+
+			if Torso then
+				local Rotation = {
+					X = 2.5,
+					Y = -5,
+					Z = -2
+				}
+				local Position = {
+					X = 0,
+					Y = 2,
+					Z = 0
+				}	
+				Function.SpringCreate(
+					ObjectInstance, 
+					Torso, 
+					Vector3.new(1,1,1) * 5, 
+					Vector3.new(0,0,0), 
+					10, 
+					0.2, 
+					{
+						X = "Y",
+						Y = "Z",
+						Z = "X",
+					},
+					{
+						X = 0,
+						Y = 0,
+						Z = 0
+					},
+					{
+						X = "Y",
+						Y = "Z",
+						Z = "X",
+					},
+					{
+						X = 5,
+						Y = -5,
+						Z = 5
+					},
+					Data
+				)
+
+			end
+		end
+	end
+
+	function Function.BreastUVPhysics(ObjectInstance, Character, Extra, Data)
+		if PlayerData[Data].BodyPartPhysics and PlayerData[Data].UVToggle then
+			local Torso = Character:FindFirstChild("Torso")
+
+			if Torso then
+				local Rotation = {
+					X = 2.5,
+					Y = -5,
+					Z = 0
+				}
+				local Position = {
+					X = 0,
+					Y = 0,
+					Z = 0
+				}	
+
+				Function.SpringCreate(
+					ObjectInstance, 
+					Torso, 
+					Vector3.new(1,1,1) * 3.2, 
+					Vector3.new(0,0,0), 
+					7.5, 
+					0.35, 
+					{
+						X = "Y",
+						Y = "Z",
+						Z = "X",
+					},
+					{
+						X = 0,
+						Y = 0,
+						Z = 0
+					},
+					{
+						X = "Y",
+						Y = "Z",
+						Z = "Z",
+					},
+					{
+						X = 5,
+						Y = -5,
+						Z = 5
+					},
+					Data
+				)
+
+			end
+		end
+	end
+
+
+	function Function.ButtPhysics(ObjectInstance, Character, Extra, Data)
+		if PlayerData[Data].BodyPartPhysics then
+			local Torso = Character:FindFirstChild("Torso")
+
+			if Torso then
+				local Rotation = {
+					X = 2.5,
+					Y = -5,
+					Z = -2
+				}
+				local Position = {
+					X = 0.5/100,
+					Y = 0.5/95,
+					Z = 0.5/100
+				}	
+
+				Function.SpringCreate(
+					ObjectInstance, 
+					Torso, 
+					Vector3.new(1,1,1) * 5, 
+					Vector3.new(0,0,0), 
+					15, 
+					0.065, 
+					{
+						X = "X",
+						Y = "Y",
+						Z = "Z",
+					},
+					Position,
+					{
+						X = "Z",
+						Y = "Y",
+						Z = "X",
+					},
+					Rotation,
+					Data,
+					true
+				)
+
+			end
+		end
+	end
+
+
+	function Function.CreateR6(CF)
+		local R6 = Instance.new("Model")
+		local R6Humanoid = Instance.new("Humanoid", R6)
+
+		local RootPart = Instance.new("Part", R6)
+		RootPart.Name = "HumanoidRootPart"
+		RootPart.Size = Vector3.new(2,2,1)
+		RootPart.Anchored = true
+		RootPart.Transparency = 1
+
+		R6.PrimaryPart = RootPart
+
+		for Name, Property in pairs(R6Map) do
+			local Part = Instance.new("Part", R6)
+			Part.Size = Property.Size
+			Part.CFrame = RootPart.CFrame * Property.Offset
+			Part.Anchored = true
+			Part.Name = Name
+
+			if Name == "Head" then
+				local SpecialMesh = Instance.new("SpecialMesh", Part)
+				SpecialMesh.MeshType = Enum.MeshType.Head
+				SpecialMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
+			end
+		end
+
+		for Name, Property in pairs(R6Joints) do
+			local Joint = Instance.new("Motor6D",R6[Property["Part0"]])
+			Joint.Name = Name
+			Joint.C0 = Property["C0"]
+			Joint.C1 = Property["C1"]
+			Joint.Part0 = Property["Part0"]
+			Joint.Part1 = Property["Part1"]
+		end
+
+
+		return R6
+	end
+
+	function Function.PlayerDataAdd(Name)
+		if not PlayerData[Name] then
+			PlayerData[Name] = Function.PlayerDataDefault()
+		end
+	end
+
+	function Function.Weld(PartConfig, Character,Extra,Data)
+		task.spawn(function()
+			local INSTANCE = PartConfig["Instance"]
+			local NAME = PartConfig["Name"]
+			local CFRAME = PartConfig["Joint"]["CFrame"]
+			local CFRAME1 = PartConfig["Joint"]["CFrame1"]
+
+			local TRANSPARENCY = PartConfig["Transparency"]
+			local MATERIAL = PartConfig["Material"]
+			local COLOR = PartConfig["Color"]
+
+			local PARENT = PartConfig["Parent"]
+			local FUNCTION = PartConfig["Function"]
+
+			local SCALE = PartConfig["Scale"]
+			local SIZE = PartConfig["Size"]
+			local ADJUSTSCALE = PartConfig["AdjustScale"]
+
+			local MESHID = PartConfig["MeshId"]
+			local TEXTUREID = PartConfig["TextureId"]
+
+			local SHAPE = PartConfig["Shape"]
+
+			local PHYSICS = PartConfig["Physics"]
+			local EXTRA = PartConfig["Extra"]
+
+			if PARENT[1] == nil then
+				PARENT[1] = "Torso"
+			end
+			local BodyPart = Character.Morph:FindFirstChild(PARENT[1])
+			if BodyPartSize[BodyPart] == nil then
+				BodyPart = Character.Torso
+			end
+			if BodyPart then
+				local XMultiply, YMultiply, ZMultiply = Function.MultiplyCalculate(BodyPart.Size, BodyPartSize[BodyPart.Name])
+				local ObjectInstance
+				local Parent = Character.Morph
+				local Scale = 1
+
+				for Index = 1, #PARENT do
+					if Parent == nil then break end
+					Parent = Parent:FindFirstChild(PARENT[Index])
+				end
+
+				if Parent == nil then warn("Parent of "..NAME.." is missing!... Missing Parent: "..PARENT[#PARENT]..".. Deferring Weld.") 
+					if not PlayerData[Data].deferredWelds[PARENT[#PARENT]] then
+						PlayerData[Data].deferredWelds[PARENT[#PARENT]] = {PartConfig}
+					else
+						table.insert(PlayerData[Data].deferredWelds[PARENT[#PARENT]], PartConfig)
+					end
+					return end
+
+				if SCALE  then
+
+					local scale = Function.TabletoVector(SIZE)
+					if PlayerData[Data][SCALE] >= 1 then
+						Scale = 1 + ((PlayerData[Data][SCALE] - 1) / 5)
+					else
+						Scale = 1 + ((PlayerData[Data][SCALE] - 1) / 10)
+					end
+					if PlayerData[Data][SCALE] == 1 then Scale = 1 end
+
+					if ADJUSTSCALE == nil or ADJUSTSCALE ~= nil and table.find(ADJUSTSCALE, "Size") ~= nil  then
+						SIZE = Function.Vector3Multiply(scale, {X= Scale, Y = Scale, Z = Scale})
+					end
+					if ADJUSTSCALE == nil or ADJUSTSCALE ~= nil and table.find(ADJUSTSCALE, "CFrame1") ~= nil  then
+
+						CFRAME1 = Function.CFrameMultiply(Function.Table2CF(CFRAME1), {X= Scale, Y = Scale, Z = Scale})
+					end
+					if  ADJUSTSCALE ~= nil and table.find(ADJUSTSCALE, "CFrame") ~= nil  then
+						CFRAME = Function.CFrameMultiply(Function.Table2CF(CFRAME), {X= Scale, Y = Scale, Z = Scale})
+					end
+				end
+
+				if INSTANCE == "Mesh" then
+					ObjectInstance = IS:CreateMeshPartAsync(MESHID, Enum.CollisionFidelity.Box, Enum.RenderFidelity.Performance)
+					if TEXTUREID ~= nil then
+						ObjectInstance.TextureID = TEXTUREID
+					end
+				end
+
+				if INSTANCE == "Part" then
+					local MeshConfig = PartConfig["Mesh"]
+
+					ObjectInstance = Instance.new("Part")
+					ObjectInstance.Shape = SHAPE
+
+					if MeshConfig ~= nil then
+						local Mesh = Instance.new("SpecialMesh",ObjectInstance)
+						Mesh.Name = NAME..".Mesh"
+
+						local scale = Function.TabletoVector(MeshConfig["Scale"])
+						Mesh.Scale = scale
+						Mesh.MeshId = MeshConfig["MeshId"]
+						Mesh.MeshType = MeshConfig["MeshType"]
+						Mesh.TextureId = MeshConfig["TextureId"]
+						if MeshConfig["MeshType"] == Enum.MeshType.FileMesh then
+							Mesh.Scale = Function.Vector3Multiply(scale, {X = XMultiply, Y = YMultiply, Z = ZMultiply})
+							if SCALE then
+								warn("SET SCALE")
+								warn(Scale)
+								Mesh.Scale = Function.Vector3Multiply(Mesh.Scale, {X= Scale, Y = Scale, Z = Scale})
+							end
+						end
+					end
+				end
+
+				if EXTRA ~= nil then
+					for Name, Property in pairs(EXTRA) do
+
+						local Instance = Instance.new("Decal",ObjectInstance)
+						Instance.Name = Name
+						Instance.Transparency = Property["Transparency"]
+						Instance.ZIndex = Property["ZIndex"]
+						Instance.Face = Property["Face"]
+						Instance.Texture = Property["Texture"]
+						Instance.Color3 = Function.DarkenColor(Character.Torso.Color,0.32)
+					end
+				end
+
+
+				ObjectInstance.CanCollide = false
+				ObjectInstance.CanQuery = false
+				ObjectInstance.CanTouch = false
+				ObjectInstance.Massless = true
+
+				ObjectInstance.Name = NAME
+				ObjectInstance.Transparency = TRANSPARENCY
+				ObjectInstance.Material = MATERIAL
+
+
+				local WeldInstance = Instance.new("Motor6D", ObjectInstance)
+				WeldInstance.Name = NAME.." Weld"
+
+				local scale = Function.TabletoVector(SIZE)
+
+				ObjectInstance.Parent = Parent
+
+				ObjectInstance.Size = Function.Vector3Multiply(scale, {X = XMultiply, Y = YMultiply, Z = ZMultiply})
+
+				WeldInstance.C0 = Function.CFrameMultiply(Function.Table2CF(CFRAME), {X = XMultiply, Y = YMultiply, Z = ZMultiply})
+				WeldInstance.C1 = Function.CFrameMultiply(Function.Table2CF(CFRAME1), {X = XMultiply, Y = YMultiply, Z = ZMultiply})
+
+				WeldInstance.Part0 = Parent
+				WeldInstance.Part1 = ObjectInstance
+				if PHYSICS and PHYSICS["PhysicsRotationOffset"] then
+					ObjectInstance:SetAttribute("PhysicsRotationOffset",Function.TabletoString(PartConfig["Physics"]["PhysicsRotationOffset"]))
+				end
+
+				if COLOR ~= nil and COLOR ~= "Base" then
+					ObjectInstance.Color = Function.DarkenColor(Character.Torso.Color,PlayerData[Data].colorConfig.Values["110, 110, 111"])
+
+				else
+					ObjectInstance.Color = Character.Torso.Color
+				end
+
+
+				if FUNCTION ~= "" then
+					if typeof(FUNCTION) == "string" then
+						Function[FUNCTION](ObjectInstance, Character, Extra, Data)
+					elseif typeof(FUNCTION) == "table" then
+						for i, v in pairs(FUNCTION) do
+							if typeof(i) == "number" then
+							Function[v](ObjectInstance, Character, Extra, Data)
+							else
+								Function[i](ObjectInstance, Character, Extra, Data,v)
+							end
+						end
+					end
+				end
+
+				if Extra.UVToggle then
+					if NAME:lower():find("nipple") 
+						or NAME:lower():find("butt")  then
+						ObjectInstance.Transparency = 1
+					end
+					if NAME:lower():find("skin") then
+						ObjectInstance.Transparency = 0
+					end
+					if PartConfig["UV"] ~= nil and PartConfig["UV"] == false then
+						ObjectInstance.Transparency = 1
+					end
+					for i,v in pairs(PlayerData[Data].CurrentPartList.AreolaDecal) do
+						if v:FindFirstChildOfClass("Decal") then
+							v:FindFirstChildOfClass("Decal"):Destroy()
+						end
+					end
+					if Character.Morph:FindFirstChild("Closed") then
+						Character.Morph.Closed:Destroy()
+					end
+					Function.ApplyUV(ObjectInstance, Character, Extra, Data)
+				end
+
+				PlayerData[Data].CurrentPartList.Organ[ObjectInstance.Name] = ObjectInstance
+				PlayerData[Data].CurrentPartList.RealtimeUpdateList.Mesh[ObjectInstance] = {Size = SIZE, CFrame = WeldInstance.C0, CFrame1 = WeldInstance.C1, Base = BodyPart, Weld = WeldInstance}
+
+
+				if PlayerData[Data].deferredWelds[NAME] then
+
+					for index,object in pairs(PlayerData[Data].deferredWelds[NAME]) do
+						warn("Picked up a deferee")
+						Function.Weld(object,Character,Extra,Data)
+						PlayerData[Data].deferredWelds[NAME][index] = nil
+					end
+
+				end
+
+				return ObjectInstance
+			end
+		end)
+	end
+
+	function Function.ParseCharacter(Character, Data)
+
+		local R6_2_R15= {
+			["Torso"] = {
+				C0 = CFrame.new(0,-0.2,0) * CFrame.fromEulerAnglesXYZ(0,0,0),
+				C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0),
+				Part0 = "UpperTorso",
+				Part1 = "Torso"
+			},
+			["Left Leg"] = {
+				C0 = CFrame.new(0, 0.201, -0) * CFrame.Angles(0,0,0),
+				C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0),
+				Part0 = "LeftLowerLeg",
+				Part1 = "Left Leg"
+			},
+			["Left Arm"] = {
+				C0 = CFrame.new(0, 0.224, -0) * CFrame.Angles(0,0,0),
+				C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0),
+				Part0 = "LeftLowerArm",
+				Part1 = "Left Arm"
+			},
+			["Right Leg"] = {
+				C0 = CFrame.new(0,0.201,0) * CFrame.Angles(0,0,0),
+				C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0),
+				Part0 = "RightLowerLeg",
+				Part1 = "Right Leg"
+			},
+			["Right Arm"] = {
+				C0 = CFrame.new(0,0.224,0) * CFrame.Angles(0,0,0),
+				C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0),
+				Part0 = "RightLowerArm",
+				Part1 = "Right Arm"
+			},
+		}
+
+		if Character then
+			for i,v in pairs(Character:GetChildren()) do
+				if not v:IsA("BasePart") then continue end
+				if v.Name == "Head" then continue end
+				v.Transparency = 1
+			end
+
+			for Name,BodyPart in pairs(R6Map) do
+				if Character:FindFirstChild(Name) then continue end
+				local Part = Instance.new("Part", Character)
+				Part.Size = BodyPart["Size"]
+				Part.Name = Name
+				Part.Transparency = 0
+				Part.CanCollide = false
+				Part.CanQuery = false
+				Part.CanTouch = false
+				Part.Massless = true
+				Part.Color = Character.Head.Color
+				local Mesh = Instance.new("SpecialMesh",Part)
+				Mesh.MeshId = "rbxassetid://12221758"
+
+				if Name ~= "Torso" then
+					Mesh.Scale = Vector3.new(0.5,1,1)
+				end
+				table.insert(PlayerData[Data].CurrentPartList.Organ,Part)
+			end
+			for Name, Property in pairs(R6_2_R15) do
+				local Joint = Instance.new("Motor6D",Character[Property["Part0"]])
+				Joint.Name = Name
+				Joint.C0 = Property["C0"]
+				Joint.C1 = Property["C1"]
+				Joint.Part0 = Character[Property["Part0"]]
+				Joint.Part1 = Character[Property["Part1"]]
+				table.insert(PlayerData[Data].CurrentPartList.Organ, Joint)
+			end
+		end
+	end
+
+	function Function.CharacterReset(Character, Data)
+
+		if Character == nil then return end
+	 
+		local PartList = PlayerData[Data].CurrentPartList
+
+		for i,v in pairs(PartList.Organ) do
+			v:Destroy()
+		end
+
+		for i,v in pairs(PartList.Accessory) do
+			v:Destroy()
+		end
+
+		for i,v in pairs(PartList.Clothes) do
+			v:Destroy()
+		end
+
+		PlayerData[Data].CurrentPartList = Function.PlayerDataDefault().CurrentPartList
+
+		for i,v:BasePart in pairs(Character:GetChildren()) do
+			local Limbs = {"Torso","Head","Right Arm","Right Leg","Left Arm","Left Leg"}
+			if v:IsA("BasePart") and table.find(Limbs,v.Name) ~= nil then
+				v.Transparency = 0
+			end
+			if v.Name == "Morph" then
+				v:Destroy()
+			end
+		end
+		for i,v in pairs(Character.PrimaryPart:GetChildren()) do
+			if v:IsA("Clothing") then
+				v.Parent = Character
+			end
+		end
+	end
+
+	function Function.CharacterExecute(Character, Data)
+		task.spawn(function()
+			if Character and alive and Character == Player.Character then
+				Function.PlayerDataAdd(Data)
+				Function.CharacterReset(Character,Data)
+
+				local DataConfig = PlayerData[Data]
+
+				local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+				
+
+				local Extra = {
+					Shirt = Character:FindFirstChildOfClass("Shirt"),
+					Pants = Character:FindFirstChildOfClass("Pants"),
+					TShirt = Character:FindFirstChildOfClass("ShirtGraphic"),
+					UVToggle = DataConfig.UVToggle
+				}
+				
+				local SelectedMorph = DataConfig.SelectedMorph
+				
+				if SelectedMorph.NoUV == true then
+					Extra["UVToggle"] = false
+				end
+		
+				if not Extra.UVToggle then
+					for i,v in pairs(Extra) do
+						if typeof(v) == "Instance" and v:IsA("Clothing") then
+							v.Parent = Character.PrimaryPart
+						end
+					end
+				end
+
+				if Humanoid.RigType == Enum.HumanoidRigType.R15 then
+					Function.ParseCharacter(Character,Data)
+				end
+
+				local PartListData = DataConfig.PartList
+
+				local Morph
+
+				local function createContainer(Name)
+					local Container = Instance.new("Part",Morph)
+					Container.Name = Name
+					Container.Size = Vector3.new(2, 2, 1)
+					Container.Transparency = 1
+					Container.CanCollide = false
+					Container.Massless = true
+					return Container
+				end
+				local function createWeld(Part)
+					local Weld = nil
+					Weld = Instance.new("Weld")
+					Weld.Parent = Part
+					Weld.Name = Part.Name.."_Weld"
+					return Weld
+				end
+
+				local function createLimbs()
+
+					Morph = Instance.new("Model",Character)
+					Morph.Name = "Morph"
+
+					local M_Torso = createContainer("Torso")
+
+					M_Torso.Size = Vector3.new(2, 2, 1)
+					local M_RL = createContainer("Right Leg")
+					M_RL.Size = Vector3.new(1, 2, 1)
+
+					local M_LL = createContainer("Left Leg")
+					M_LL.Size = Vector3.new(1, 2, 1)
+
+					local M_RA = createContainer("Right Arm")
+					M_RL.Size = Vector3.new(1, 2, 1)
+
+					local M_LA = createContainer("Left Arm")
+					M_LL.Size = Vector3.new(1, 2, 1)
+
+
+					table.insert(DataConfig.CurrentPartList.Organ,Morph)
+					for _, i in pairs(Morph:GetChildren()) do
+						i.CanCollide = false
+						i.Massless = true
+						local Weld = createWeld(i)
+						Weld.Part0 = Character[i.Name]
+						Weld.Part1 = i
+						i.Color = Character[i.Name].Color
+						Character[i.Name].Transparency = 0
+					end
+					
+		
+					
+					for _, object in pairs(SelectedMorph.Limbs) do
+						Function.Weld(object, Character,Extra, Data)
+						task.spawn(function()
+							if Morph:FindFirstChild(object["Parent"][1]) then
+								Character[object["Parent"][1]].Transparency = 1
+							end
+						end)
+					end
+
+
+				end
+
+				createLimbs()
+
+				pcall(function()
+					for name, object in pairs(SelectedMorph.Main) do
+						Function.Weld(object, Character,Extra, Data)
+					end	
+				end)
+
+				pcall(function()
+					for name, object in pairs(SelectedMorph.Vaginas) do
+						local VModel = createContainer("Closed")
+						VModel.Color = Character.Torso.Color
+						local Weld = createWeld(VModel)
+						Weld.Part0 = Morph.Torso
+						Weld.Part1 = VModel
+
+
+						for _, OBJECT in pairs(object) do
+							Function.Weld(OBJECT, Character,Extra, Data)
+						end
+					end
+				end)
+
+				pcall(function()
+					for name, object in pairs(SelectedMorph.Breasts) do
+						object["Scale"] = "BreastsScale"
+						Function.Weld(object, Character,Extra, Data)
+					end
+				end)
+
+				pcall(function()
+					if cfg and cfg.bundaAtiva == false then return end
+					for name, object in pairs(SelectedMorph.Butts) do
+						object["Scale"] = "ButtsScale"
+						Function.Weld(object, Character,Extra, Data)
+					end
+				end)
+
+			end
+		end)
+	end
+
+	cfg = cfg or {}
+	cfg.morph = cfg.morph or "ClemonFemale"
+	cfg.uv = cfg.uv == true
+	cfg.peito = cfg.peito or 2
+	cfg.bunda = cfg.bunda or 1
+	if cfg.bundaAtiva == nil then cfg.bundaAtiva = true end
+	if cfg.fisica == nil then cfg.fisica = true end
+	cfg.posForca = cfg.posForca or 7.5
+	cfg.rotForca = cfg.rotForca or 2
+	if cfg.renascer == nil then cfg.renascer = true end
+
+	local function aplicarCfg()
+		local d = PlayerData[Player.Name]
+		if not d then return end
+		local morphs = Function.PartListDefault()
+		d.SelectedMorph = morphs[cfg.morph] or morphs.ClemonFemale
+		d.UVToggle = cfg.uv
+		d.BreastsScale = cfg.peito
+		d.ButtsScale = cfg.bunda
+		d.BodyPartPhysics = cfg.fisica
+		PositionPhysicsMultiply = cfg.posForca
+		RotationPhysicsMultiply = cfg.rotForca
+	end
+	aplicarCfg()
+
+	local ExecutePlayer = Players:FindFirstChild(SelectPlayer)
+	if ExecutePlayer then
+		local ExecuteCharacter = ExecutePlayer.Character
+		if ExecuteCharacter then
+			Function.CharacterExecute(ExecuteCharacter, Player.Name)
+
+		end
+	end
+
+	local RenderConnect = RunService.RenderStepped:Connect(function()
+		for PlayerName, DataList in pairs(PlayerData) do
+			for Part, Property in pairs(DataList.CurrentPartList.RealtimeUpdateList.Mesh) do
+
+				task.spawn(function()
+					local Base = Property.Base
+					local CFRAME = Property.CFrame
+					local CFRAME1 = Property.CFrame1
+					local SIZE = Property.Size
+					local Weld = Property.Weld
+
+					local XMultiply, YMultiply, ZMultiply = Function.MultiplyCalculate(Base.Size, BodyPartSize[Base.Name])
+					local CCFRAME = CFrame.new(CFRAME.Position.x * XMultiply, CFRAME.Position.y * YMultiply, CFRAME.Position.z * ZMultiply) * CFRAME.Rotation
+					local CCFRAME1 = CFrame.new(CFRAME1.Position.x * XMultiply, CFRAME1.Position.y * YMultiply, CFRAME1.Position.z * ZMultiply) * CFRAME1.Rotation
+
+					if PlayerData[PlayerName].CurrentPartList.BodyPartPhysics[Part] == nil then
+						Part.Size = Vector3.new(SIZE.x * XMultiply, SIZE.y * YMultiply, SIZE.z * ZMultiply)
+						Weld.C0 = CCFRAME
+						Weld.C1 = CCFRAME1
+
+					else
+						PlayerData[PlayerName].CurrentPartList.BodyPartPhysics[Part].CF = CCFRAME
+						PlayerData[PlayerName].CurrentPartList.BodyPartPhysics[Part].CF1 = CCFRAME1
+					end
+				end)
+			end
+		end
+	end)
+
+	local PhysicsConnect = RunService.Stepped:Connect(function(t,d)
+		for PlayerName, DataList in pairs(PlayerData) do
+			for Part, Property in pairs(DataList.CurrentPartList.BodyPartPhysics) do
+				task.spawn(function()
+					if Function.FallenPartCheck(Part) then
+						DataList.CurrentPartList.BodyPartPhysics[Part] = nil
+						return
+					end
+
+					local Character = Player.Character
+
+					if Character then
+						local Base = Property.Base
+						local Camera = game.Workspace.CurrentCamera
+
+						local CurrentCFrame = Base.CFrame
+						local _, withinScreenBounds = Camera:WorldToScreenPoint(Base.Position)
+						if (Camera.CFrame.Position - Base.Position).Magnitude < 300 and withinScreenBounds then
+							local Weld = Property.Weld
+							local CF = Property.CF
+							local CF1 = Property.CF1
+							local Spring = Property.Spring
+							local OriginCFrame = Property.OriginCFrame
+							local PositionOffset = Property.PositionOffset
+							local RotationOffset = Property.RotationOffset
+							local Position = Property.Position
+							local Rotation = Property.Rotation
+
+							local OriginPosition = OriginCFrame.Position
+							local CurrentPosition = CurrentCFrame.Position
+							local PositionDistance = (OriginPosition - CurrentPosition)
+
+							local OriginLookVector = OriginCFrame.LookVector
+							local CurrentLookVector = CurrentCFrame.LookVector
+							local LookVectorDistance = (OriginLookVector - CurrentLookVector)
+							local LookVectorAxis = Vector3.new(LookVectorDistance.X, LookVectorDistance.Y, 0)
+
+							Spring:TimeSkip(d)
+							Spring:Impulse(PositionDistance + LookVectorAxis, 0, 0)
+
+							local NoiseBuffer = Vector3.new(0.0015,0.0015,0.0015)
+
+							local NoiseCheckX,NoiseCheckY,NoiseCheckZ = Function.CompareVector3(Spring.Velocity,NoiseBuffer)
+
+							if NoiseCheckX == true and NoiseCheckY == true and NoiseCheckZ == true then
+								return
+							end
+
+
+
+							local PositionList = {
+								X = 0,
+								Y = 0,
+								Z = 0
+							}
+
+							local RotationList = {
+								X = 0,
+								Y = 0,
+								Z = 0
+
+							}
+							for From, To in pairs(PositionOffset) do
+								PositionList[From] = (Position[To] * Spring.Velocity[To]) * PositionPhysicsMultiply
+							end
+
+							for From, To in pairs(RotationOffset) do
+								RotationList[From] = (math.rad(Rotation[To] * (Random.new():NextNumber(1, 1.01)* Spring.Velocity[To]))) * RotationPhysicsMultiply 
+							end
+
+							local scaleVector = Vector3.new(
+								1,
+								1,
+								1
+							)
+
+							if Property.Scale ~= nil and Property.Scale then
+								scaleVector = Vector3.new(
+									math.clamp(1+ RotationList.X/4,0.8,1.1),
+									math.clamp(1+ RotationList.Y/4,0.8,1.1),
+									math.clamp(1+ RotationList.Z/4,0.8,1.1)
+								)
+
+								task.spawn(function()		
+									Part.Size = Property.Size * scaleVector
+									local mesh = Part:FindFirstChildOfClass("SpecialMesh")
+									if mesh then
+										mesh.Scale = Property.Size * scaleVector
+									end
+								end)
+							end
+
+
+							Weld.C0 = CF *
+								Function.CFrameMultiply(
+									CFrame.new(
+										PositionList.X,
+										PositionList.Y,
+										PositionList.Z
+									),
+									{ X = scaleVector.X, Y = scaleVector.Y, Z = scaleVector.Z }
+								) *
+								CFrame.Angles(
+									RotationList.X,
+									RotationList.Y,
+									-RotationList.Z
+								)
+
+
+						end
+
+						PlayerData[PlayerName].CurrentPartList.BodyPartPhysics[Part].OriginCFrame = CurrentCFrame 
+					end
+				end)
+			end
+		end
+
+	end)
+
+
+
+
+
+	local api = { cfg = cfg }
+	local conns = {}
+	local pend = 0
+	local MORPHS = { "ClemonFemale", "ClemonMale" }
+
+	local function reaplicar()
+		if not alive then return end
+		local ch = Player.Character
+		if ch and ch.Parent and ch:FindFirstChildOfClass("Humanoid") then
+			Function.CharacterExecute(ch, Player.Name)
+		end
+	end
+
+	function api.aplicar(precisaRefazer)
+		aplicarCfg()
+		if precisaRefazer then
+			pend += 1
+			local id = pend
+			task.delay(0.25, function()
+				if alive and id == pend then reaplicar() end
+			end)
+		end
+	end
+
+	function api.reaplicar()
+		aplicarCfg()
+		reaplicar()
+	end
+
+	local UIS = game:GetService("UserInputService")
+	conns[#conns + 1] = UIS.InputBegan:Connect(function(input, gpe)
+		if gpe then return end
+		local k = input.KeyCode
+		if k == Enum.KeyCode.C then
+			cfg.uv = not cfg.uv
+		elseif k == Enum.KeyCode.RightBracket or k == Enum.KeyCode.LeftBracket then
+			local passo = (k == Enum.KeyCode.RightBracket) and 0.2 or -0.2
+			cfg.peito = math.clamp(math.floor((cfg.peito + passo) * 10 + 0.5) / 10, 0, 10)
+			cfg.bunda = math.clamp(math.floor((cfg.bunda + passo) * 10 + 0.5) / 10, 0, 10)
+		elseif k == Enum.KeyCode.P then
+			local i = table.find(MORPHS, cfg.morph) or 1
+			cfg.morph = MORPHS[i % #MORPHS + 1]
+		else
+			return
+		end
+		api.aplicar(true)
+		if api.onChange then api.onChange() end
+	end)
+
+	conns[#conns + 1] = Player.CharacterAdded:Connect(function(ch)
+		if not alive then return end
+		if not cfg.renascer then
+			pcall(Function.CharacterReset, ch, Player.Name)
+			return
+		end
+		if not ch:WaitForChild("Humanoid", 10) then return end
+		ch:WaitForChild("HumanoidRootPart", 10)
+		task.wait(1)
+		if alive and Player.Character == ch then
+			aplicarCfg()
+			Function.CharacterExecute(ch, Player.Name)
+		end
+	end)
+
+	function api.parar()
+		alive = false
+		for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+		pcall(function() RenderConnect:Disconnect() end)
+		pcall(function() PhysicsConnect:Disconnect() end)
+		local ch = Player.Character
+		pcall(Function.CharacterReset, ch, Player.Name)
+		pcall(function()
+			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+			if hum and hum.RigType == Enum.HumanoidRigType.R15 then
+				for _, v in ipairs(ch:GetChildren()) do
+					if v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" then v.Transparency = 0 end
+				end
+			end
+		end)
+	end
+
+	return api
+end
+
+KAME.RV.ativo = false
+KAME.RV.padroes = { morph = "ClemonFemale", uv = false, peito = 2, bunda = 1, bundaAtiva = true, fisica = true, posForca = 7.5, rotForca = 2, renascer = true }
+KAME.RV.cfg = {}
+for k, v in pairs(KAME.RV.padroes) do KAME.RV.cfg[k] = v end
+if type(KAME.SAVE.dados.ranoveradeer) == "table" then
+	for k, v in pairs(KAME.RV.padroes) do
+		local s = KAME.SAVE.dados.ranoveradeer[k]
+		if type(s) == type(v) and s == s then KAME.RV.cfg[k] = s end
+	end
+	if not table.find({ "ClemonFemale", "ClemonMale" }, KAME.RV.cfg.morph) then KAME.RV.cfg.morph = KAME.RV.padroes.morph end
+	KAME.RV.cfg.peito = clamp(KAME.RV.cfg.peito, 0, 10)
+	KAME.RV.cfg.bunda = clamp(KAME.RV.cfg.bunda, 0, 10)
+	KAME.RV.cfg.posForca = clamp(KAME.RV.cfg.posForca, 0, 30)
+	KAME.RV.cfg.rotForca = clamp(KAME.RV.cfg.rotForca, 0, 10)
+end
+
+KAME.RV.montarUI = function()
+	local RV = KAME.RV
+	local W, H, HEAD_H = 292, 420, 46
+	local refrescos = {}
+	local function sincronizar() for _, f in ipairs(refrescos) do f() end end
+	local function aviso(t) if Pegar and Pegar.aviso then Pegar.aviso(t) end end
+
+	local win = frame({
+		Name = "RanoveradeerPainel", Position = UDim2.new(0, 12, 0, 70), Size = UDim2.fromOffset(W, H),
+		BackgroundColor3 = T.bg, Visible = false, ZIndex = 20, Parent = MainGui,
+	}, { round(16), outline(T.stroke, 1, 0.1) })
+	local winScale = new("UIScale", { Parent = win })
+	ajustarEscala(winScale, W, H + 70)
+
+	local head = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, HEAD_H), ZIndex = 21, Parent = win })
+	KAME.SAVE.aplicarPosicao("ranoveradeer_janela", win, "janela")
+	makeDraggable(win, head, function() KAME.SAVE.salvarPosicao("ranoveradeer_janela", win) end)
+	txt({ Text = "+18 • SÓ NO SEU PERSONAGEM", Font = F.GothamBold, TextSize = 9, TextColor3 = T.dim, Position = UDim2.fromOffset(16, 8), Size = UDim2.new(1, -90, 0, 12), ZIndex = 22, Parent = head })
+	txt({ Text = "Ranoveradeer", Font = F.GothamBold, TextSize = 14, Position = UDim2.fromOffset(16, 22), Size = UDim2.new(1, -90, 0, 18), ZIndex = 22, Parent = head })
+
+	local body = new("ScrollingFrame", {
+		BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, HEAD_H), Size = UDim2.new(1, 0, 1, -HEAD_H),
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
+		ScrollBarImageColor3 = T.stroke, ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 21, Parent = win,
+	}, { lista(8), padding(12, 2, 14, 12) })
+
+	local exp = {}
+	janelaControles({
+		expor = exp, win = win, head = head, scale = winScale, w = W, h = H, headH = HEAD_H,
+		posMin = UDim2.new(1, -64, 0, 10), posX = UDim2.new(1, -34, 0, 10), size = 26,
+		fixaBase = true, ativo = function() return RV.ativo end,
+	})
+
+	local function secao(titulo, ordem)
+		local card = frame({
+			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = ordem, ZIndex = 22, Parent = body,
+		}, { round(12), outline(T.stroke, 1, 0.55), padding(12, 10, 12, 12), lista(8) })
+		txt({ Text = titulo, Font = F.GothamBold, TextSize = 10, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 0, ZIndex = 23, Parent = card })
+		return card
+	end
+
+	local function mudar(chave, valor, refaz)
+		RV.cfg[chave] = valor
+		KAME.SAVE.salvar("ranoveradeer", function() return RV.cfg end)
+		if RV.api then RV.api.aplicar(refaz) end
+	end
+
+	local function linhaToggle(pai, texto, chave, refaz, ordem)
+		local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = ordem, ZIndex = 23, Parent = pai })
+		txt({ Text = texto, TextSize = 12, Size = UDim2.new(1, -50, 1, 0), ZIndex = 24, Parent = row })
+		local sw = btn({ BackgroundColor3 = T.surface3, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(38, 20), ZIndex = 24, Parent = row }, { round(10) })
+		local knob = frame({ BackgroundColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(14, 14), ZIndex = 25, Parent = sw }, { round(7) })
+		local function pintar(anim)
+			local on = RV.cfg[chave] == true
+			local cor, pos = on and T.ok or T.surface3, UDim2.new(0, on and 21 or 3, 0.5, 0)
+			if anim then tw(sw, 0.12, { BackgroundColor3 = cor }) tw(knob, 0.12, { Position = pos })
+			else sw.BackgroundColor3 = cor knob.Position = pos end
+		end
+		pintar(false)
+		sw.MouseButton1Click:Connect(function()
+			mudar(chave, not RV.cfg[chave], refaz)
+			pintar(true)
+		end)
+		refrescos[#refrescos + 1] = function() pintar(false) end
+	end
+
+	local function linhaStepper(pai, texto, chave, passo, minimo, maximo, dec, refaz, ordem)
+		local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = ordem, ZIndex = 23, Parent = pai })
+		txt({ Text = texto, TextSize = 12, Size = UDim2.new(1, -120, 1, 0), ZIndex = 24, Parent = row })
+		local function mk(t, x)
+			return btn({ Text = t, Font = F.GothamBold, TextSize = 14, TextColor3 = T.sub, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, x, 0, 0), Size = UDim2.fromOffset(26, 26), ZIndex = 24, Parent = row }, { round(8) })
+		end
+		local mais, menos = mk("+", 0), mk("-", -86)
+		hoverFX(mais, T.surface2, T.surface3)
+		hoverFX(menos, T.surface2, T.surface3)
+		local box = new("TextBox", {
+			BackgroundColor3 = T.surface2, BorderSizePixel = 0, Font = F.GothamMedium, TextSize = 11, TextColor3 = T.text,
+			ClearTextOnFocus = false, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -30, 0, 0),
+			Size = UDim2.fromOffset(52, 26), ZIndex = 24, Parent = row,
+		}, { round(8) })
+		local fmt = "%." .. dec .. "f"
+		local casas = 10 ^ dec
+		local function pintar() box.Text = string.format(fmt, RV.cfg[chave]) end
+		local function aplicar(v)
+			v = clamp(v, minimo, maximo)
+			v = math.floor(v * casas + 0.5) / casas
+			mudar(chave, v, refaz)
+			pintar()
+		end
+		pintar()
+		mais.MouseButton1Click:Connect(function() aplicar(RV.cfg[chave] + passo) end)
+		menos.MouseButton1Click:Connect(function() aplicar(RV.cfg[chave] - passo) end)
+		box.FocusLost:Connect(function()
+			local n = tonumber(box.Text)
+			if n then aplicar(n) else pintar() end
+		end)
+		refrescos[#refrescos + 1] = pintar
+	end
+
+	local function segmentado(pai, opcoes, chave, refaz, ordem)
+		local seg = frame({ BackgroundColor3 = T.surface2, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = ordem, ZIndex = 23, Parent = pai }, { round(9), padding(3), lista(3, Enum.FillDirection.Horizontal) })
+		local bots = {}
+		local function pintar()
+			for id, b in pairs(bots) do
+				local sel = (RV.cfg[chave] == id)
+				b.BackgroundColor3 = sel and T.accent or T.surface2
+				b.TextColor3 = sel and Color3.new(1, 1, 1) or T.sub
+			end
+		end
+		for i, op in ipairs(opcoes) do
+			local b = btn({ Text = op.nome, Font = F.GothamBold, TextSize = 10, Size = UDim2.new(1 / #opcoes, -2, 1, 0), LayoutOrder = i, ZIndex = 24, Parent = seg }, { round(7) })
+			bots[op.id] = b
+			b.MouseButton1Click:Connect(function()
+				mudar(chave, op.id, refaz)
+				pintar()
+			end)
+		end
+		pintar()
+		refrescos[#refrescos + 1] = pintar
+	end
+
+	local s1 = secao("CORPO", 1)
+	segmentado(s1, { { id = "ClemonFemale", nome = "Clemon F" }, { id = "ClemonMale", nome = "Clemon M" } }, "morph", true, 1)
+
+	local krulCarregando, krulAtivo = false, false
+	local krulBtn = btn({
+		Text = "ATIVAR KURLroclothes", Font = F.GothamBold, TextSize = 11, TextColor3 = Color3.new(1, 1, 1), BackgroundColor3 = T.accent,
+		Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 2, ZIndex = 24, Parent = s1,
+	}, { round(9) })
+	krulBtn.MouseButton1Click:Connect(function()
+		if krulCarregando or krulAtivo then return end
+		krulCarregando = true
+		krulBtn.Text = "Carregando..."
+		local estavaAtivo = RV.ativo == true
+		if estavaAtivo then RV.alternar(false) end
+		task.spawn(function()
+			local ok, err = pcall(function()
+				loadstring(game:HttpGet("https://krulhub.dev/s/kruldevelopment"))()
+			end)
+			krulCarregando = false
+			if ok then
+				krulAtivo = true
+				krulBtn.Text = "KURLroclothes ATIVO"
+				krulBtn.BackgroundColor3 = T.surface3
+				aviso("KURLroclothes ativado")
+			else
+				warn("[KURLroclothes] falha ao carregar:", err)
+				if estavaAtivo then task.spawn(RV.alternar, true) end
+				krulBtn.Text = "ATIVAR KURLroclothes"
+				aviso("KURLroclothes: falha ao carregar")
+			end
+		end)
+	end)
+
+	linhaToggle(s1, "Modo UV (roupa do avatar)", "uv", true, 3)
+	linhaStepper(s1, "Tamanho do peito", "peito", 0.2, 0, 10, 1, true, 4)
+	linhaToggle(s1, "Bunda", "bundaAtiva", true, 5)
+	linhaStepper(s1, "Tamanho da bunda", "bunda", 0.2, 0, 10, 1, true, 6)
+
+	local s2 = secao("FÍSICA", 2)
+	linhaToggle(s2, "Física do corpo", "fisica", true, 1)
+	linhaStepper(s2, "Força de movimento", "posForca", 0.5, 0, 30, 1, false, 2)
+	linhaStepper(s2, "Força de rotação", "rotForca", 0.25, 0, 10, 2, false, 3)
+
+	local s3 = secao("GERAL", 3)
+	linhaToggle(s3, "Reaplicar ao renascer", "renascer", false, 1)
+	local acoes = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 2, ZIndex = 23, Parent = s3 }, { lista(6, Enum.FillDirection.Horizontal) })
+	local function botaoAcao(texto, ordem, aoClicar)
+		local b = btn({ Text = texto, Font = F.GothamBold, TextSize = 11, TextColor3 = T.text, Size = UDim2.new(0.5, -3, 1, 0), LayoutOrder = ordem, ZIndex = 24, Parent = acoes }, { round(9) })
+		hoverFX(b, T.surface2, T.surface3)
+		b.MouseButton1Click:Connect(aoClicar)
+	end
+	botaoAcao("Reaplicar", 1, function()
+		if RV.api then RV.api.reaplicar() end
+	end)
+	botaoAcao("Padrões", 2, function()
+		for k, v in pairs(RV.padroes) do RV.cfg[k] = v end
+		KAME.SAVE.salvar("ranoveradeer", function() return RV.cfg end)
+		if RV.api then RV.api.aplicar(true) end
+		sincronizar()
+	end)
+	txt({ Text = "Teclas: C = UV • [ ] = peito/bunda • P = trocar modelo", TextSize = 9, TextColor3 = T.dim, Size = UDim2.new(1, 0, 0, 12), LayoutOrder = 3, ZIndex = 23, Parent = s3 })
+
+	function RV.alternar(ligar)
+		if RV.carregando then return end
+		if ligar == nil then ligar = not RV.ativo end
+		if ligar == RV.ativo then return end
+		if ligar then
+			RV.carregando = true
+			local ok, api = pcall(RV.carregar, LocalPlayer, RV.cfg)
+			RV.carregando = false
+			if not ok or not api then
+				warn("[Ranoveradeer] falha ao carregar:", ok and "lib Spring indisponivel" or api)
+				aviso("Ranoveradeer: falha ao carregar")
+				refreshAtivos()
+				return
+			end
+			RV.api = api
+			api.onChange = function()
+				sincronizar()
+				KAME.SAVE.salvar("ranoveradeer", function() return RV.cfg end)
+			end
+			RV.ativo = true
+			sincronizar()
+			local base = winScale.Scale
+			winScale.Scale = 0
+			win.Visible = true
+			tw(winScale, 0.22, { Scale = base }, Enum.EasingStyle.Back)
+		else
+			RV.ativo = false
+			win.Visible = false
+			if exp.atualizarChip then exp.atualizarChip() end
+			local api = RV.api
+			RV.api = nil
+			if api then pcall(api.parar) end
+		end
+		aviso(ligar and "Ranoveradeer ativado" or "Ranoveradeer desativado")
+		refreshAtivos()
+	end
+end
+KAME.RV.montarUI()
+
 do
 	local HAB = TELE.habilidade or {}
 	TELE.habilidade = HAB
@@ -5454,11 +9108,10 @@ do
 		Size = UDim2.fromScale(1, 1), Visible = false, ZIndex = 8, Parent = botao,
 	})
 
-	-- desarma sem cooldown (cancelou, trocou de emote, ragdoll, morreu...)
 	local function cancelar()
 		if not HAB.armado then return end
 		HAB.armado = false
-		if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end -- toggle: desliga a animacao
+		if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end
 	end
 
 	function HAB.alternar(ligar)
@@ -5475,6 +9128,7 @@ do
 			tempoLbl.Visible = false
 		end
 		if Pegar and Pegar.aviso then Pegar.aviso(ligar and "Teleporte ativado" or "Teleporte desativado") end
+		KAME.SAVE.salvarConfig()
 		refreshAtivos()
 	end
 
@@ -5499,10 +9153,6 @@ do
 		return workspace:Raycast(ray.Origin, ray.Direction * 1000, rp)
 	end
 
-	-- ===== VFX: teletransporte instantaneo (estilo Goku) =====
-	-- saida: imagem residual azul + flash + anel no chao + faiscas. Corpo some por um instante.
-	-- meio: linhas de velocidade brancas/azuis ligando saida e chegada.
-	-- chegada: pilar de luz + flash + anel + faiscas e o corpo reaparece com fade.
 	local Debris = game:GetService("Debris")
 	local pastaFx = workspace:FindFirstChild("TeleporteVFX")
 	if not pastaFx then
@@ -5527,8 +9177,6 @@ do
 		return t
 	end
 
-	-- som 2D (sem posicao): o som da saida tocava na posicao de origem e, como a camera ja estava la longe
-	-- depois do teleporte, nao dava pra ouvir. Parent no SoundService toca igual em qualquer lugar.
 	local SoundService = game:GetService("SoundService")
 	local function fxSom()
 		local sons = TELE.sons
@@ -5545,7 +9193,6 @@ do
 		Debris:AddItem(snd, 8)
 	end
 
-	-- pre-carrega os sons pra tocarem na hora certa (sem atraso de download no primeiro uso)
 	task.spawn(function()
 		local lista = {}
 		for _, id in ipairs(TELE.sons or {}) do
@@ -5563,13 +9210,11 @@ do
 		return root.Position - Vector3.new(0, hum.HipHeight + root.Size.Y / 2 - 0.1, 0)
 	end
 
-	-- corpo liga/desliga nos tempos dados (so visual, so pra voce). inicio/fim = visivel ou nao
 	local function fxPiscar(char, tempos, inicio, fim)
 		local lista = {}
 		for _, d in ipairs(char:GetDescendants()) do
 			if d:IsA("BasePart") then lista[#lista + 1] = d end
 		end
-		-- maos e dedos ficam numa pasta separada do personagem: piscam junto com o corpo
 		local pastaMaos = workspace:FindFirstChild("DynamicFingersFolder")
 		if pastaMaos then
 			for _, d in ipairs(pastaMaos:GetDescendants()) do
@@ -5591,12 +9236,9 @@ do
 				set(estado)
 			end)
 		end
-		task.delay(ultimo + 0.04, function() set(fim) end) -- garante o estado final (o corpo sempre volta a aparecer)
+		task.delay(ultimo + 0.04, function() set(fim) end)
 	end
 
-	-- camera desliza da origem ate o destino. Em vez de trocar o CameraType (que deixava a camera atrasada
-	-- quando o teleporte era feito andando), a camera normal continua seguindo o personagem e so somamos
-	-- um deslocamento que comeca "la atras" (na origem) e vai a zero em camDur segundos.
 	local camConexao = false
 	local function fxCamDeslizar(deslocamento, dur)
 		if not TELE.camDeslizar then return end
@@ -5618,19 +9260,17 @@ do
 			local e = TweenService:GetValue(a, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 			c.CFrame = c.CFrame + off0 * (1 - e)
 		end)
-		task.delay(dur + 0.3, function() if camConexao and os.clock() - t0 >= dur then parar() end end) -- seguranca
+		task.delay(dur + 0.3, function() if camConexao and os.clock() - t0 >= dur then parar() end end)
 	end
 
-	-- chamado ANTES de mover o personagem: o corpo pisca (devagar) ate sumir
 	local function fxSaida(char, root, hum)
 		if not TELE.vfx then return end
 		local prep = math.max(TELE.preparo or 0, 0.2)
 		local centro = root.Position
 		fxPiscar(char, TELE.piscaSaida, true, false)
 		task.delay(math.max(prep - 0.03, 0), function()
-			fxSom() -- som (variante sorteada) no instante do teleporte
+			fxSom()
 		end)
-		-- seguranca: se o teleporte nao completar, o corpo de verdade volta a aparecer
 		task.delay(prep + 0.8, function()
 			for _, d in ipairs(char:GetDescendants()) do
 				if d:IsA("BasePart") then d.LocalTransparencyModifier = 0 end
@@ -5644,7 +9284,6 @@ do
 		end)
 	end
 
-	-- chamado DEPOIS de mover o personagem: o corpo pisca MUITO mais rapido ate aparecer
 	local function fxChegada(char, root, hum, origem)
 		if not TELE.vfx then return end
 		fxPiscar(char, TELE.piscaChegada, false, true)
@@ -5662,7 +9301,7 @@ do
 
 		local function mover()
 			if not (root.Parent and hum.Parent) or hum.Health <= 0 then return end
-			local antes = root.Position -- posicao no instante do teleporte (o personagem pode ter andado durante o preparo)
+			local antes = root.Position
 			if TELE.vfx then pcall(fxCamDeslizar, dest - antes, TELE.camDur or 0.3) end
 			root.CFrame = CFrame.new(dest) * root.CFrame.Rotation
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -5674,7 +9313,6 @@ do
 		return true
 	end
 
-	-- clique/toque no mundo enquanto armado = teleporta (cliques em botoes da GUI chegam com gp = true e sao ignorados)
 	UserInputService.InputBegan:Connect(function(input, gp)
 		if gp or not HAB.armado then return end
 		local tipo = input.UserInputType
@@ -5687,7 +9325,6 @@ do
 		if not teleportar(res) then return end
 		HAB.armado = false
 		HAB.recargaAte = os.clock() + TELE.cooldown
-		-- encerra a animacao no proximo frame (evita conflito com o mini TP, que tambem le este clique)
 		task.delay((TELE.vfx and TELE.preparo or 0) + 0.03, function()
 			if currentEmote == "Teleporte" then tocarEmote("Teleporte", true) end
 		end)
@@ -5699,7 +9336,6 @@ do
 			if currentEmote ~= "Teleporte" or not hum or hum.Health <= 0 then HAB.armado = false end
 		end
 
-		-- destaque prateado enquanto armado (nao mexe no contorno branco do modo arrastar)
 		if stroke and stroke.Color ~= Color3.new(1, 1, 1) then
 			if HAB.armado then
 				stroke.Color, stroke.Thickness, stroke.Transparency = PRATA, 3.5, 0
@@ -5723,7 +9359,7 @@ do
 			if Pegar and Pegar.aviso then Pegar.aviso("Teleporte cancelado") end
 			return
 		end
-		if os.clock() < HAB.recargaAte then return end -- ainda em recarga
+		if os.clock() < HAB.recargaAte then return end
 		if Ragdoll.isOn() then
 			if Pegar and Pegar.aviso then Pegar.aviso("Em ragdoll") end
 			return
@@ -5733,13 +9369,11 @@ do
 			HAB.armado = true
 			if Pegar and Pegar.aviso then Pegar.aviso("Toque onde quer ir") end
 		end
-	end)
+	end, "teleporte")
 end
 
--- o "Pegar" agora é um emote dentro do menu (veja tocarEmote / EMOTES)
 
 do
-	-- aviso rápido (toast) no lugar do texto do antigo botão
 	local avisoCard = frame({
 		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -96), Size = UDim2.fromOffset(190, 34),
 		BackgroundColor3 = T.bg, BackgroundTransparency = 0.08, Visible = false, ZIndex = 40, Parent = MainGui,
@@ -5747,7 +9381,7 @@ do
 	local avisoTxt = txt({ Font = F.GothamBold, TextSize = 13, TextXAlignment = CENTER, Size = UDim2.fromScale(1, 1), ZIndex = 41, Parent = avisoCard })
 
 	function Pegar.atualizarBotao()
-		refreshAtivos() -- atualiza o card "Pegar" no menu
+		refreshAtivos()
 	end
 
 	function Pegar.aviso(msg)
@@ -5809,7 +9443,6 @@ do
 		return melhor
 	end
 
-	-- caixa que envolve o conjunto inteiro, no espaço do personagem
 	local function medir(raiz, cfRoot)
 		local conjunto, preso = {}, false
 		local minV = Vector3.new(math.huge, math.huge, math.huge)
@@ -5833,7 +9466,6 @@ do
 		return conjunto, maxV - minV, (minV + maxV) * 0.5, preso
 	end
 
-	-- poeira + som quando um objeto pesado encosta no chão depois de solto
 	local function poeira(pos, normal, cor, tam, vel)
 		local fx, fz = clamp(tam.X, 2, 10), clamp(tam.Z, 2, 10)
 		local part = Instance.new("Part")
@@ -5983,7 +9615,6 @@ do
 			usaD, usaE = false, true
 		end
 
-		-- posição de carregamento (espaço do personagem): face de perto fica na altura das mãos
 		local meio = tam * 0.5
 		local pertoZ = pesado and -1.6 or -1.7
 		local cx = pesado and 0 or (usaD and 1.5 or -1.5)
@@ -6037,7 +9668,6 @@ do
 		hum.WalkSpeed = Pegar.velBase * (pesado and Pegar.lentidaoPesado or Pegar.lentidaoLeve)
 		Pegar.velAplicada = hum.WalkSpeed
 
-		-- posição rígida: o objeto é colado na mão a cada frame (sem atraso), com um puxão rápido no início
 		local cfIni = raiz.CFrame
 		local inicio = os.clock()
 		local ultimoCF = cfIni
@@ -6065,7 +9695,6 @@ do
 		Pegar.atualizarBotao()
 	end
 
-	-- pose dos braços apontando para onde estão as mãos no objeto
 	function Pegar.pose(P)
 		local function angulos(alvo, lado)
 			local d = alvo - Vector3.new(lado * 1.5, 0.5, 0)
@@ -6122,13 +9751,11 @@ local closeDevBtn = btn({ Text = "", Font = F.GothamBold, TextSize = 13, TextCol
 hoverFX(trocarBtn, T.surface2, T.surface3)
 hoverFX(closeDevBtn, T.surface2, T.danger)
 T.Icones.centro(closeDevBtn, "_fechar", 14, 2)
--- minimizar (- / □) com animação; o X continua fechando o editor inteiro
 janelaControles({
 	win = DevPanel, head = devHead, scale = devScale, w = DEV_W, h = DEV_H, headH = 52,
 	posMin = UDim2.new(1, -78, 0, 11), size = 30, radius = 15, btnX = closeDevBtn, semChip = true,
 })
 
--- status: comeca recolhido (so um resumo D E C T P); toque na barra pra expandir os detalhes
 local STATUS_H_FECHADO, STATUS_H_ABERTO = 34, 186
 local statusAberto = false
 local statusCard = frame({ ClipsDescendants = true, Position = UDim2.fromOffset(12, 56), Size = UDim2.new(1, -24, 0, STATUS_H_FECHADO), Parent = DevPanel }, { round(12), outline(T.stroke, 1, 0.5) })
@@ -6253,7 +9880,6 @@ local Content = new("ScrollingFrame", {
 	Parent = DevPanel,
 }, { lista(8), padding(0, 0, 6, 4) })
 
--- ferramentas da aba (saem do rodape): Espelhar e Trocar lados
 local toolBar = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -24, 0, 28), Parent = DevPanel }, { lista(6, Enum.FillDirection.Horizontal) })
 
 local function layoutPainel()
@@ -6431,8 +10057,6 @@ end
 
 local function ecoMao() espelharPose(currentHand, nil) end
 
--- ESPELHAR V2: troca os lados só da categoria aberta (Braços, Mãos, Torso, Cabeça ou Pernas).
--- Os eixos laterais (y, z, px) são invertidos para a pose ficar espelhada de verdade.
 local function trocarLados()
 	salvarSnapshotPose()
 	local D, E = customPose.direita, customPose.esquerda
@@ -6501,11 +10125,8 @@ local function botaoResetParte(parte, rotulo)
 	return b
 end
 
--- ===== TOOLBOX: componentes reutilizáveis (Braços, Mãos, Torso, Cabeça, Pernas e Itens) =====
 local TB = { est = {} }
 
--- uma linha de controle: [X] rótulo  [-] [valor] [+]  + slider com marca central (0 ou 1)
--- sem o.axis vira um slider simples (cor do modo, sem chip)
 function TB.eixo(parent, o)
 	local mult = 10 ^ o.dec
 	local fmtS = "%." .. o.dec .. "f"
@@ -6572,7 +10193,6 @@ function TB.eixo(parent, o)
 		end
 	end)
 
-	-- segurar o botão repete (atualiza até soltar; o InputEnded global zera activeSlider)
 	local function segurar(b, dir)
 		b.InputBegan:Connect(function(input)
 			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -6604,7 +10224,6 @@ function TB.eixo(parent, o)
 	return { visual = visual, frame = c }
 end
 
--- abas (troca só a visibilidade, sem reconstruir nem perder o scroll)
 function TB.abas(parent, order, modos, atual, aoEscolher)
 	local seg = frame({ BackgroundColor3 = T.surface, Size = UDim2.new(1, 0, 0, 32), LayoutOrder = order, Parent = parent }, { round(10), padding(3), lista(3, Enum.FillDirection.Horizontal) })
 	local bts = {}
@@ -6632,7 +10251,6 @@ function TB.abas(parent, order, modos, atual, aoEscolher)
 	return seg
 end
 
--- linha de botões pequenos de atalho
 function TB.atalhos(parent, order, defs)
 	local n = #defs
 	local row = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = order, Parent = parent }, { lista(4, Enum.FillDirection.Horizontal) })
@@ -6647,7 +10265,6 @@ function TB.atalhos(parent, order, defs)
 	return row
 end
 
--- estado (aba escolhida + passo de cada aba) guardado por chave, sobrevive ao rebuildTab
 function TB.estado(key, modos)
 	local e = TB.est[key]
 	if not e then
@@ -6658,7 +10275,6 @@ function TB.estado(key, modos)
 	return e
 end
 
--- atalhos por tipo de aba: rot (+90°), pos (inverter), faixa (mín / meio / máx)
 function TB.presets(m, acao)
 	local C = m.campos
 	local base = m.marca or 0
@@ -6682,7 +10298,6 @@ function TB.presets(m, acao)
 	return { zerar }
 end
 
--- atalhos pra montar abas comuns
 function TB.modoRot(get, labels, campos)
 	return {
 		id = "rot", nome = "Rotação", sigla = "ROT", cor = T.ax[1], tipo = "rot", campos = campos or { "x", "y", "z" }, eixos = { 1, 2, 3 },
@@ -6698,8 +10313,6 @@ function TB.modoPos(get, labels, campos)
 	}
 end
 
--- bloco completo: seção + resumo + abas + (passo, eixos, atalhos) de cada aba
--- o: key, titulo, cor, order, aberta, ao (chamado a cada mudança), resumo (false desliga), modos = { ... }
 function TB.bloco(parent, o)
 	local body = criarSecao(parent, o.key, o.titulo, o.cor, o.order, o.aberta)
 	local e = TB.estado(o.key, o.modos)
@@ -6741,7 +10354,6 @@ function TB.bloco(parent, o)
 		}, { lista(4) })
 		paineis[m.id] = P
 
-		-- passo
 		local linha = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = 1, Parent = P }, { lista(4, Enum.FillDirection.Horizontal) })
 		txt({ Text = "Passo", TextSize = 10, TextColor3 = T.dim, Size = UDim2.fromOffset(40, 24), LayoutOrder = 0, Parent = linha })
 		local chips = {}
@@ -6765,7 +10377,6 @@ function TB.bloco(parent, o)
 		end
 		pintarPassos()
 
-		-- eixos
 		local ctr = {}
 		for k, campo in ipairs(m.campos) do
 			ctr[k] = TB.eixo(P, {
@@ -6781,7 +10392,6 @@ function TB.bloco(parent, o)
 			})
 		end
 
-		-- atalhos
 		local function acao(fn)
 			return function()
 				salvarSnapshotPose()
@@ -6894,9 +10504,6 @@ local function montarPernas()
 	perna("pernaEsq", "PERNA ESQUERDA", 3)
 end
 
--- ===== aba ITENS (TOOLBOX): acessórios / roupas / mesh pelo ID =====
--- Cada item vira um card com abas Posição / Rotação / Tamanho, passo ajustável, botões −/+ (segura pra repetir),
--- campo numérico, atalhos (zerar, inverter, +90°, ×2, 1:1), escala proporcional, duplicar e resetar.
 local ITU = {
 	tipo = "acessorio", parte = "Head", id = "", tex = "", aberto = 1, foco = nil,
 	refs = setmetatable({}, { __mode = "k" }),
@@ -6960,7 +10567,6 @@ function ITU.estado(it)
 	return e
 end
 
--- card completo de um item
 function ITU.card(B, it, i, refazer)
 	local e = ITU.estado(it)
 	local EIXOS = { "x", "y", "z" }
@@ -6997,7 +10603,6 @@ function ITU.card(B, it, i, refazer)
 		refazer()
 	end, 2)
 
-	-- leitura rápida dos 3 valores
 	local resumoBox = frame({
 		BackgroundColor3 = T.surface2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 3, Parent = B,
 	}, { round(9), padding(10, 6, 10, 6), outline(T.stroke, 1, 0.5) })
@@ -7031,7 +10636,6 @@ function ITU.card(B, it, i, refazer)
 		}, { lista(4) })
 		paineis[m.id] = P
 
-		-- passo
 		local linha = frame({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = 1, Parent = P }, { lista(4, Enum.FillDirection.Horizontal) })
 		txt({ Text = "Passo", TextSize = 10, TextColor3 = T.dim, Size = UDim2.fromOffset(40, 24), LayoutOrder = 0, Parent = linha })
 		local chips = {}
@@ -7055,7 +10659,6 @@ function ITU.card(B, it, i, refazer)
 		end
 		pintarPassos()
 
-		-- eixos
 		local ctr = {}
 		local function sync()
 			for k, eixo in ipairs(EIXOS) do ctr[k].visual(tab()[eixo]) end
@@ -7086,7 +10689,6 @@ function ITU.card(B, it, i, refazer)
 			})
 		end
 
-		-- atalhos
 		local function acao(fn)
 			return function()
 				salvarSnapshotPose()
@@ -7132,7 +10734,6 @@ function ITU.card(B, it, i, refazer)
 	end
 	for _, m in ipairs(ITU.MODOS) do criarPainel(m) end
 
-	-- rodapé: duplicar / resetar / remover
 	local linha = rodape(20)
 	local function botaoRodape(texto, cor, ordem)
 		local b = btn({
@@ -7169,7 +10770,6 @@ end
 local function montarItens()
 	botaoResetParte("itens", "itens")
 
-	-- refaz a aba; sem foco mantém o scroll, com foco rola até o item
 	local function refazer(foco)
 		if foco then
 			ITU.foco = foco
@@ -7403,7 +11003,7 @@ desfazerBtn.MouseButton1Click:Connect(function()
 end)
 
 local PREV_W, PREV_H = 230, 250
-local ANIM_H_REF = 202 -- altura do animador (TL_H): o preview fica logo acima dele
+local ANIM_H_REF = 202
 local DevPreviewWin = frame({
 	Name = "DevPreview", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -12, 1, -(12 + ANIM_H_REF + 8)), Size = UDim2.fromOffset(PREV_W, PREV_H),
 	BackgroundColor3 = T.bg, Visible = false, Parent = MainGui,
@@ -7474,10 +11074,9 @@ hoverFX(closeSel, T.surface2, T.danger)
 T.Icones.centro(closeSel, "_fechar", 14, 32)
 closeSel.MouseButton1Click:Connect(function() DevSelector.Visible = false end)
 
-local animNovo -- definido no bloco do ANIMADOR (zera a timeline e põe o nome do emote novo)
-local animCarregar -- definido no bloco do ANIMADOR (importa os keyframes de um emote animado já existente)
+local animNovo
+local animCarregar
 
--- ---------- CRIAR EMOTE (nome + pose em branco + animador zerado) ----------
 local criarNomeBox = new("TextBox", {
 	BackgroundColor3 = T.surface3, BorderSizePixel = 0, Font = F.Code, TextSize = 11, TextColor3 = T.text,
 	PlaceholderText = "nome do novo emote", PlaceholderColor3 = T.dim, Text = "", ClearTextOnFocus = false,
@@ -7531,10 +11130,6 @@ criarNomeBox.FocusLost:Connect(function(enter)
 end)
 criarNomeBox:GetPropertyChangedSignal("Text"):Connect(function() criarMsg.Text = "" end)
 
--- ---------- IMPORTAR ANIMAÇÃO (cola o código feito por outra pessoa → vira emote no DEV) ----------
--- Aceita o mesmo texto que o "Exportar" gera (pose ou animação com keyframes, do DEV ou do EMOTE CRIADOR):
---   ["Nome"] = { ... },        { ... }        defaultEmotes["Nome"] = { ... }        e vários emotes de uma vez.
--- O texto colado NÃO é executado: ele só é lido como dados (tabelas, números, textos, true/false).
 do
 	local function lerTabelaLua(src)
 		src = src:gsub("%-%-%[(=*)%[.-%]%1%]", " "):gsub("%-%-[^\n]*", " ")
@@ -7646,7 +11241,6 @@ do
 		return parseTabela(1)
 	end
 
-	-- ---------- deixa tudo no formato que o script espera (campos que faltam viram 0) ----------
 	local function num(v, padrao)
 		if type(v) == "number" and v == v and v > -1e6 and v < 1e6 then return v end
 		return padrao or 0
@@ -7738,7 +11332,6 @@ do
 		return type(t) == "table" and (t.dir ~= nil or t.esq ~= nil or t.frames ~= nil or t.animado ~= nil)
 	end
 
-	-- devolve { {nome = "...", dados = tabela}, ... }
 	local function acharEmotes(src)
 		local raw = lerTabelaLua(src)
 		local lista = {}
@@ -7776,7 +11369,6 @@ do
 		return nome
 	end
 
-	-- ---------- janela de importar ----------
 	local IMP_W, IMP_H = 300, 364
 	local ImpModal = frame({
 		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, Size = UDim2.fromScale(1, 1),
@@ -7848,7 +11440,6 @@ do
 
 	impCodigo:GetPropertyChangedSignal("Text"):Connect(function() msg("") end)
 
-	-- celular: o teclado cobre metade da tela, então a janela sobe pro topo enquanto você digita/cola
 	if UserInputService.TouchEnabled then
 		local function topo(sobe)
 			impCard.AnchorPoint = sobe and Vector2.new(0.5, 0) or Vector2.new(0.5, 0.5)
@@ -7899,7 +11490,6 @@ do
 	end
 	impOk.MouseButton1Click:Connect(fazerImportar)
 
-	-- botão dentro do seletor de emotes do DEV
 	local importarBtn = btn({
 		Text = "Importar animação (colar código)", Font = F.GothamBold, TextSize = 11, TextColor3 = T.ok,
 		Position = UDim2.fromOffset(0, 76), Size = UDim2.new(1, 0, 0, 26), ZIndex = 31, Parent = DevSelector,
@@ -7937,7 +11527,6 @@ end
 closeDevBtn.MouseButton1Click:Connect(fecharDev)
 trocarBtn.MouseButton1Click:Connect(function() DevSelector.Visible = true end)
 
--- ===================== ANIMADOR (linha do tempo no PainelDeAnimação) =====================
 do
 	local TL_W, TL_H = 380, 202
 	local anim = {
@@ -7977,7 +11566,6 @@ do
 	hoverFX(loopBtn, T.surface2, T.surface3)
 	hoverFX(suaveBtn, T.surface2, T.surface3)
 
-	-- bloco da timeline: trilha + transporte + tempo juntos num card
 	frame({ BackgroundColor3 = T.surface, Position = UDim2.fromOffset(8, 72), Size = UDim2.new(1, -16, 0, 84), Parent = TLWin }, { round(10), outline(T.stroke, 1, 0.55) })
 	local track = frame({ BackgroundColor3 = T.surface3, Position = UDim2.fromOffset(22, 92), Size = UDim2.new(1, -44, 0, 6), Parent = TLWin }, { round(3) })
 	local cursor = frame({
@@ -8004,11 +11592,9 @@ do
 	for _, b in ipairs({ prevBtn, playBtn, nextBtn, delBtn, expBtn }) do hoverFX(b, T.surface2, T.surface3) end
 	hoverFX(addBtn, T.accent, Color3.fromRGB(148, 134, 255))
 
-	-- partes que a animacao controla (ligado = anima; desligado = fica livre, anda/mexe normal). Vai no Exportar como "usa".
-	-- Ficam dentro do submenu "Rig" (botao ao lado do Exportar) pra deixar a janela do animador limpa.
 	local usaChips = {}
 	local usaPintar
-	local sincronizarUsaAnim -- definido mais abaixo (salva os chips no keyframe do cursor)
+	local sincronizarUsaAnim
 	local PARTES = { { "direita", "Braço D" }, { "esquerda", "Braço E" }, { "cabeca", "Cabeça" }, { "torso", "Torso" }, { "pernas", "Pernas" } }
 
 	local rigBtn = btn({
@@ -8027,7 +11613,7 @@ do
 	txt({ Text = "PARTES ANIMADAS", Font = F.GothamBold, TextSize = 9, TextColor3 = T.dim, Position = UDim2.fromOffset(32, 8), Size = UDim2.fromOffset(100, 16), ZIndex = 31, Parent = rigMenu })
 	local rigCont = txt({ Text = "0/5", Font = F.GothamBold, TextSize = 10, TextColor3 = T.ok, TextXAlignment = RIGHT, Position = UDim2.new(1, -42, 0, 8), Size = UDim2.fromOffset(32, 16), ZIndex = 31, Parent = rigMenu })
 
-	local VEL = { v = nil } -- WalkSpeed do keyframe do cursor (nil = normal); o submenu "Vel" fica mais abaixo
+	local VEL = { v = nil }
 	local function rigFechar()
 		rigMenu.Visible = false
 		if VEL.menu then VEL.menu.Visible = false end
@@ -8093,9 +11679,8 @@ do
 	local pasteBtn = btn({ Text = "Colar", TextSize = 11, TextColor3 = T.dim, Position = UDim2.fromOffset(240, 164), Size = UDim2.fromOffset(62, 28), Parent = TLWin }, { round(8), padding(20, 0, 4, 0) })
 	T.Icones.criar("_colar", pasteBtn, 16, { Position = UDim2.new(0, -19, 0.5, -8), ZIndex = 3 })
 	for _, b in ipairs({ moveBtn, copyBtn, pasteBtn }) do hoverFX(b, T.surface2, T.surface3) end
-	local clipPose = nil -- pose copiada (persiste entre emotes)
+	local clipPose = nil
 
-	-- ---------- interpolação ----------
 	local function lerpTab(a, b, t)
 		if type(a) == "number" then
 			if type(b) == "number" then return a + (b - a) * t end
@@ -8150,8 +11735,6 @@ do
 		end
 	end
 
-	-- ---------- partes liberadas por keyframe ----------
-	-- cada key guarda k.usa = { bracoDir, bracoEsq, cabeca, torso, pernas } (o que estava ligado nos chips quando ela foi criada)
 	local function usaDosChips()
 		return {
 			bracoDir = animConfig.direita == true, bracoEsq = animConfig.esquerda == true,
@@ -8181,7 +11764,6 @@ do
 		end
 	end
 
-	-- key que vale em "tempo" (a ultima que comecou ate esse tempo; antes da 1a vale a 1a)
 	local function keyBase(tempo)
 		local base = anim.keys[1]
 		for _, k in ipairs(anim.keys) do
@@ -8190,7 +11772,6 @@ do
 		return base
 	end
 
-	-- se o cursor esta numa key, o que esta ligado nos chips fica salvo nela
 	local function sincronizarUsa()
 		if anim.tocando then return end
 		local k = keyExata(anim.tempo)
@@ -8201,8 +11782,6 @@ do
 
 	sincronizarUsaAnim = sincronizarUsa
 
-	-- ---------- WalkSpeed por keyframe (submenu "Vel") ----------
-	-- cada key guarda k.vel (nil = velocidade normal do jogador). Vale da key ate a proxima (nao interpola).
 	do
 		local velBtn = btn({
 			Text = "Vel", Font = F.GothamBold, TextSize = 11, Position = UDim2.new(1, -288, 0, 6), Size = UDim2.fromOffset(66, 22), Parent = TLWin,
@@ -8248,7 +11827,6 @@ do
 			end
 		end
 
-		-- se o cursor esta numa key, o que foi escolhido aqui fica salvo nela
 		local function gravarNaKey()
 			if anim.tocando then return end
 			local k = keyExata(anim.tempo)
@@ -8290,7 +11868,6 @@ do
 			tw(velMenu, 0.14, { Position = UDim2.new(1, -288, 0, RIG_Y) }, Enum.EasingStyle.Quint)
 		end)
 
-		-- usado pelo irPara (cursor chegou numa key) e ao carregar uma animacao
 		VEL.aplicar = function(v)
 			VEL.v = v
 			velPintar()
@@ -8298,7 +11875,6 @@ do
 		velPintar()
 	end
 
-	-- ---------- UI ----------
 	local irPara
 
 	local function atualizarPlay()
@@ -8312,7 +11888,7 @@ do
 				BackgroundColor3 = (k == anim.sel) and T.warn or T.accent, AnchorPoint = Vector2.new(0.5, 0.5), Rotation = 45,
 				Position = UDim2.new(clamp(k.t / anim.duracao, 0, 1), 0, 0.5, 0), Size = UDim2.fromOffset(13, 13), ZIndex = 5, Parent = marcas,
 			}, { round(2) })
-			if k.vel ~= nil then -- marca: key com WalkSpeed definido mostra o numero embaixo
+			if k.vel ~= nil then
 				txt({
 					Text = (k.vel == math.floor(k.vel)) and string.format("%d", k.vel) or string.format("%.1f", k.vel),
 					Font = F.GothamBold, TextSize = 9, TextColor3 = (k == anim.sel) and T.warn or T.ok, TextXAlignment = CENTER,
@@ -8336,7 +11912,7 @@ do
 	VEL.redesenhar = desenhar
 
 	function irPara(tempo, reconstruir)
-		sincronizarUsa() -- salva no key atual o que foi mexido nos chips antes de sair dele
+		sincronizarUsa()
 		anim.tempo = clamp(tempo, 0, anim.duracao)
 		aplicarPose(poseEm(anim.tempo))
 		local ke = keyExata(anim.tempo)
@@ -8352,7 +11928,6 @@ do
 		if reconstruir then rebuildTab() end
 	end
 
-	-- ---------- controles ----------
 	nomeBox.FocusLost:Connect(function()
 		local n = nomeBox.Text:gsub('["\\%c]', ""):gsub("^%s+", ""):gsub("%s+$", "")
 		if n == "" then n = "MinhaAnimacao" end
@@ -8486,7 +12061,6 @@ do
 		end
 	end
 
-	-- Mover: leva a key selecionada (ou a do tempo atual) para a posição do cursor
 	moveBtn.MouseButton1Click:Connect(function()
 		anim.tocando = false
 		atualizarPlay()
@@ -8504,7 +12078,6 @@ do
 		irPara(t, true)
 	end)
 
-	-- Copiar: guarda a pose da key selecionada, da key no tempo atual ou, sem key, a pose atual dos sliders
 	copyBtn.MouseButton1Click:Connect(function()
 		local fonte = anim.sel
 		if not fonte or not table.find(anim.keys, fonte) then fonte = keyNoTempo(anim.tempo) end
@@ -8518,7 +12091,6 @@ do
 		end)
 	end)
 
-	-- Colar: cria (ou sobrescreve) uma key no tempo atual com a pose copiada
 	pasteBtn.MouseButton1Click:Connect(function()
 		if not clipPose then return end
 		anim.tocando = false
@@ -8539,7 +12111,6 @@ do
 		irPara(t, true)
 	end)
 
-	-- ---------- exportar ----------
 	local function gerarAnimLua()
 		if #anim.keys == 0 then return "-- adicione pelo menos 1 keyframe (Key)" end
 
@@ -8562,7 +12133,6 @@ do
 		local linhas = {}
 		linhas[#linhas + 1] = string.format('["%s"] = {', anim.nome)
 		linhas[#linhas + 1] = string.format("\tanimado = true, duracao = %s, loop = %s, suave = %s,", fmt(anim.duracao), tostring(anim.loop), tostring(anim.suave))
-		-- "usa" geral = uniao de todos os keyframes (as partes liberadas de verdade ficam em cada frame)
 		linhas[#linhas + 1] = "\t" .. USA.texto(USA.uniao(anim.keys, usaDosChips())) .. ","
 		local itensTxt = ItensEmote.texto(customPose.itens, "\t")
 		if itensTxt then linhas[#linhas + 1] = itensTxt .. "," end
@@ -8592,19 +12162,16 @@ do
 		print("========== COPIE A ANIMAÇÃO ABAIXO ==========")
 		print(out)
 		print("=============================================")
-		-- copia direto pro clipboard, sem abrir a janelinha (ela fica só pro Exportar do painel de pose)
 		local ok = pcall(function() setclipboard(out) end)
 		if ok then
 			expBtn.Text = "Copiado!"
 			task.delay(1.5, function() expBtn.Text = "Exportar" end)
 		else
-			-- executor sem setclipboard: abre a janelinha pra você copiar na mão
 			exportBox.Text = out
 			ExportModal.Visible = true
 		end
 	end)
 
-	-- ---------- reprodução ----------
 	RunService.RenderStepped:Connect(function(dt)
 		if not anim.tocando then return end
 		if not TLWin.Visible or #anim.keys == 0 then
@@ -8638,8 +12205,6 @@ do
 		desenhar()
 	end
 
-	-- Abre um emote existente no animador: se ele for animado, importa os keyframes dele
-	-- (duração, loop, suave e os frames); se não for, só zera a timeline (como um emote novo).
 	function animCarregar(nome)
 		local d = defaultEmotes[nome]
 		if not (d and d.animado and d.frames and #d.frames > 0) then
@@ -8687,7 +12252,7 @@ do
 		animConfig.torso = u.torso == true
 		animConfig.pernas = u.pernas == true
 		anim.tempo = 0
-		aplicarUsaNosChips(anim.keys[1].usa) -- os chips mostram o que esta liberado no 1o keyframe
+		aplicarUsaNosChips(anim.keys[1].usa)
 		VEL.aplicar(anim.keys[1].vel)
 		if usaPintar then usaPintar() end
 
@@ -8735,7 +12300,6 @@ for _, nome in ipairs(emotesDev) do
 	jaNaListaDev[nome] = true
 	adicionarLinhaDev(nome, EMOTE_POR_NOME[nome].icone)
 end
--- qualquer emote novo colado em defaultEmotes que não esteja na lista acima aparece sozinho aqui
 do
 	local extras = {}
 	for nome, d in pairs(defaultEmotes) do
@@ -8817,10 +12381,6 @@ local function aplicarCorpoBow(character, humanoid, rootPart, comTravas, emote)
 	end
 end
 
--- ===== KAME.criar(ctx): sistema completo do Kamehameha (sons, falas, VFX, feixe, fling, recuo) =====
--- Usado pelo jogador (criarMaoDinamica) e por cada clone. ctx:
---   character, rootPart, rightArm, leftArm, folder (onde o VFX nasce), partesMao (lista com braco/palma/pBase/pPonta),
---   ehLocal (true = camera do jogador treme/puxa), filtro (opcional: funcao que devolve o que o feixe ignora)
 function KAME.criar(ctx)
 	local character, rootPart = ctx.character, ctx.rootPart
 	local rightArm, leftArm = ctx.rightArm, ctx.leftArm
@@ -8842,7 +12402,6 @@ function KAME.criar(ctx)
 		end
 	end
 
-	-- fimClock: os.clock() em que a fase termina (o volume desce suave ate la)
 	local function kameSomTocar(id, fimClock)
 		kameSomParar()
 		if not (rootPart and rootPart.Parent) then return end
@@ -8882,19 +12441,14 @@ function KAME.criar(ctx)
 		end
 	end
 
-	-- ===== Kamehameha: FALAS do Goku =====
-	-- Mesmo sistema de falas do SANDEVISTAN: 1 BillboardGui sobre a cabeca, 1 TextLabel por letra,
-	-- tamanho fixo em pixels, digitacao letra por letra, tremor/pulso por emocao.
-	-- Fase 1 = frase curta | Fase 2 = "KA... ME... HA... ME..." | Fase 3 = grito "HAAAAA!!!"
 	local kameFala = (function()
 		local TextService = game:GetService("TextService")
 
 		local ATIVO = true
-		local TAM_BASE = 16          -- tamanho da letra (pixels)
-		local LARGURA_MAX = 260      -- largura maxima antes de quebrar linha
-		local ALTURA_CABECA = 2.1    -- studs acima da cabeca
+		local TAM_BASE = 16         
+		local LARGURA_MAX = 260     
+		local ALTURA_CABECA = 2.1   
 
-		-- Emocoes: cor, velocidade de digitacao, tremor, pulso e extras
 		local EMOCOES = {
 			calmo = { cor = Color3.fromRGB(255, 190, 80),  vel = 0.035, tremor = 0,   pulso = 0.02 },
 			carga = { cor = Color3.fromRGB(110, 200, 255), vel = 0.022, tremor = 0.8, pulso = 0.06 },
@@ -8902,7 +12456,6 @@ function KAME.criar(ctx)
 			victory = { cor = Color3.fromRGB(255, 215, 90), vel = 0.03, tremor = 1.2, pulso = 0.1, pulo = true },
 		}
 
-		-- Fase 1 (anda): frase curta aleatoria  {texto, emocao}
 		local FALAS_INICIO = {
 			{ "Preste atenção!", "calmo" },
 			{ "Olha só isso!", "calmo" },
@@ -8910,8 +12463,6 @@ function KAME.criar(ctx)
 			{ "Hora do meu golpe!", "calmo" },
 		}
 
-		-- Fase 2 (carregando): silabas. t = segundos depois do inicio da fase 2 (dura 1.85s)
-		--  {t, texto, emocao, intensidade 1-3, tempo de leitura}
 		local SILABAS = {
 			{ 0.00, "KA...", "carga", 1, 0.35 },
 			{ 0.45, "ME...", "carga", 1, 0.35 },
@@ -8919,7 +12470,6 @@ function KAME.criar(ctx)
 			{ 1.40, "ME...", "carga", 2, 0.35 },
 		}
 
-		-- Fase 3 (disparo): grito aleatorio
 		local FALAS_DISPARO = {
 			{ "HAAAAAAAAAAAA!!!", "grito", 3 },
 			{ "KAMEHAMEHAAAAA!!!", "grito", 3 },
@@ -8942,7 +12492,7 @@ function KAME.criar(ctx)
 			gui.LightInfluence = 0
 			gui.ResetOnSpawn = false
 			gui.Active = false
-			gui.Size = UDim2.fromOffset(40, 24) -- OFFSET = pixels, ignora zoom/distancia
+			gui.Size = UDim2.fromOffset(40, 24)
 			gui.StudsOffsetWorldSpace = Vector3.new(0, ALTURA_CABECA, 0)
 			gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -8961,7 +12511,7 @@ function KAME.criar(ctx)
 
 		local function parar()
 			S.token += 1
-			S.ciclo += 1 -- cancela silabas agendadas
+			S.ciclo += 1
 			if S.caixa then
 				S.caixa.Visible = false
 				S.caixa:ClearAllChildren()
@@ -8983,7 +12533,6 @@ function KAME.criar(ctx)
 
 			caixa:ClearAllChildren()
 
-			-- 1) mede cada letra e quebra em linhas
 			local function larguraChar(ch)
 				if ch == " " then return tam * 0.32 end
 				local ok, v = pcall(function()
@@ -9021,7 +12570,6 @@ function KAME.criar(ctx)
 			for _, l in ipairs(linhas) do larguraTotal = math.max(larguraTotal, l.w) end
 			local alturaTotal = #linhas * altLinha
 
-			-- 2) 1 TextLabel por letra, centralizado por linha
 			local letras = {}
 			for li, l in ipairs(linhas) do
 				local x = (larguraTotal - l.w) / 2
@@ -9059,7 +12607,7 @@ function KAME.criar(ctx)
 			local tLer = ler or (1.1 + total * 0.045)
 			local tFade = 0.3
 			local tFim = tDigitar + tLer + tFade
-			local amp = e.tremor * inten * 0.8 -- tremor de CADA letra
+			local amp = e.tremor * inten * 0.8
 
 			task.spawn(function()
 				local t0 = os.clock()
@@ -9087,10 +12635,8 @@ function KAME.criar(ctx)
 							end
 							local dx, dy = L.dx, L.dy
 
-							-- grito: onda pulando letra por letra
 							if e.pulo then dy -= math.abs(math.sin(t * 9 + i * 0.55)) * 2.2 * inten end
 
-							-- cada letra entra de baixo com um pulinho
 							local entra = math.clamp(tLetra / 0.1, 0, 1)
 							dy += (1 - entra) * 5
 
@@ -9113,7 +12659,6 @@ function KAME.criar(ctx)
 			end)
 		end
 
-		-- sorteia sem repetir a ultima
 		local function sortear(lista)
 			local f = lista[math.random(1, #lista)]
 			if f[1] == S.ultimo and #lista > 1 then
@@ -9123,7 +12668,6 @@ function KAME.criar(ctx)
 			return f
 		end
 
-		-- chamada quando a fase da Kamehameha muda (t = tempo atual dentro do ciclo)
 		local function entrar(fase, t)
 			if not ATIVO then return end
 			S.ciclo += 1
@@ -9137,7 +12681,7 @@ function KAME.criar(ctx)
 				for _, s in ipairs(SILABAS) do
 					task.spawn(function()
 						local espera = (KAME.tFase2 + s[1]) - t
-						if espera < -0.25 then return end -- silaba ja passou
+						if espera < -0.25 then return end
 						if espera > 0 then task.wait(espera) end
 						if S.ciclo ~= meu then return end
 						mostrar(s[2], s[3], s[4], s[5])
@@ -9146,14 +12690,14 @@ function KAME.criar(ctx)
 
 			elseif fase == 3 then
 				local f = sortear(FALAS_DISPARO)
-				local ler = math.max(0.6, KAME.ciclo - t - 0.8) -- segura o grito ate o fim do disparo
+				local ler = math.max(0.6, KAME.ciclo - t - 0.8)
 				mostrar(f[1], f[2], f[3], ler)
 			end
 		end
 
 		return {
 			entrar = entrar, parar = parar,
-			dizer = mostrar, -- dizer(texto, emocao, intensidade, tempoLeitura): fala avulsa (usada pelo Victoryy)
+			dizer = mostrar,
 			destruir = function()
 				parar()
 				if S.gui then S.gui:Destroy() S.gui = nil S.caixa = nil end
@@ -9161,7 +12705,6 @@ function KAME.criar(ctx)
 		}
 	end)()
 
-	-- ===== Kamehameha VFX =====
 	local kameFX = nil
 	local kameRay = RaycastParams.new()
 	kameRay.FilterType = Enum.RaycastFilterType.Exclude
@@ -9221,7 +12764,6 @@ function KAME.criar(ctx)
 			return p
 		end
 
-		-- esfera de energia
 		fx.brilho = nova("Brilho")
 		fx.nucleo = nova("Nucleo")
 		fx.nucleo.Color = KAME.corNucleo
@@ -9232,7 +12774,6 @@ function KAME.criar(ctx)
 		fx.luz.Shadows = false
 		fx.luz.Parent = fx.brilho
 
-		-- raios de luz saindo da esfera
 		for i = 1, 9 do
 			local p = nova("Raio", Enum.PartType.Block)
 			p.Color = (i % 2 == 0) and KAME.corNucleo or KAME.cor
@@ -9245,9 +12786,7 @@ function KAME.criar(ctx)
 			}
 		end
 
-		-- particulas convergindo pra esfera + explosao de faiscas
 		fx.conv = nova("Ancora")
-		-- mini trails semi transparentes sendo sugados pra esfera (no lugar das estrelinhas)
 		fx.sugados = {}
 		fx.sugAcc = 0
 		for i = 1, KAME.trailQtd do
@@ -9283,14 +12822,12 @@ function KAME.criar(ctx)
 		end
 		fx.conv.Size = Vector3.new(7, 7, 7)
 
-		-- feixe (3 camadas)
 		fx.feixeFora = nova("FeixeFora", Enum.PartType.Cylinder)
 		fx.feixeMeio = nova("FeixeMeio", Enum.PartType.Cylinder)
 		fx.feixeNucleo = nova("FeixeNucleo", Enum.PartType.Cylinder)
 		fx.feixeNucleo.Color = KAME.corNucleo
 		fx.feixeMeio.Color = Color3.fromRGB(150, 220, 255)
 
-		-- camadas com textura animada correndo pelo feixe
 		fx.feixeIni = nova("FeixeIni")
 		fx.feixeFim = nova("FeixeFim")
 		fx.beams = {}
@@ -9321,7 +12858,6 @@ function KAME.criar(ctx)
 		criarBeam(1.5, KAME.feixeTexVel, 0.25)
 		criarBeam(2.2, KAME.feixeTexVel * 0.6, 0.55)
 
-		-- vento cortado pelo feixe: casca de ar + riscos de vento correndo em volta
 		fx.ventoCasca = nova("VentoCasca", Enum.PartType.Cylinder)
 		fx.ventoCasca.Material = Enum.Material.ForceField
 		fx.ventoCasca.Color = Color3.fromRGB(215, 240, 255)
@@ -9359,7 +12895,6 @@ function KAME.criar(ctx)
 			fx.vento[i] = { p = vp, tr = tr, s = 0, ang = 0, rad = 1, vel = 80, giro = 0 }
 		end
 
-		-- impacto do feixe
 		fx.imp = nova("Impacto")
 		fx.impBola = nova("ImpactoBola")
 		fx.impLuz = Instance.new("PointLight")
@@ -9380,7 +12915,6 @@ function KAME.criar(ctx)
 		return fx
 	end
 
-	-- ===== camera do disparo: FOV puxa pra direcao do feixe + mini shake =====
 	local kameCam = nil
 	local KAME_CAM_NOME = "KamehamehaCam"
 
@@ -9401,7 +12935,6 @@ function KAME.criar(ctx)
 		local a = (agora - st.t0) / KAME.camDur
 		if a >= 1 then kameCamParar() return end
 
-		-- sobe rapido (18% inicial) e volta suave
 		local env
 		if a < 0.18 then env = a / 0.18 else env = (1 - (a - 0.18) / 0.82) ^ 2 end
 		local amp = (1 - a) ^ 2
@@ -9428,7 +12961,6 @@ function KAME.criar(ctx)
 		end
 	end
 
-	-- centro real da mao (palma + dedos), em vez da ponta do braco: a mao fica alem da ponta
 	local function kameMaoPonta(braco)
 		local soma, n, vistos = Vector3.new(0, 0, 0), 0, {}
 		for _, m in ipairs(partesMao) do
@@ -9464,7 +12996,7 @@ function KAME.criar(ctx)
 	local function kameVentoSortear(v, s0)
 		v.s = s0
 		v.ang = math.random() * math.pi * 2
-		v.rad = 0.9 + math.random() * 1.0 -- multiplicador da espessura do feixe
+		v.rad = 0.9 + math.random() * 1.0
 		v.vel = 70 + math.random() * 50
 		v.giro = (math.random() * 2 - 1) * 2.5
 	end
@@ -9482,14 +13014,12 @@ function KAME.criar(ctx)
 		local base = CFrame.lookAt(origem, origem + dir)
 		local dirDe, cimaDe = base.RightVector, base.UpVector
 
-		-- casca de ar translucida em volta do feixe
 		local mid = origem + dir * (len / 2)
 		local cf = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.pi / 2, 0)
 		fx.ventoCasca.Size = Vector3.new(len, esp * 2.8, esp * 2.8)
 		fx.ventoCasca.CFrame = cf
 		fx.ventoCasca.Transparency = KAME.ventoCasca
 
-		-- riscos de vento correndo no sentido do feixe
 		local primeiro = not fx.ventoLigado
 		fx.ventoLigado = true
 		for _, v in ipairs(fx.vento) do
@@ -9519,7 +13049,6 @@ function KAME.criar(ctx)
 		if not fx then return end
 		if not fx.pasta.Parent then kameFX = nil return end
 
-		-- fade geral do efeito
 		local alvo = ativo and 1 or 0
 		local passo = dt / (ativo and KAME.fxEntrada or KAME.fxSaida)
 		fx.g = fx.g + clamp(alvo - fx.g, -passo, passo)
@@ -9540,7 +13069,6 @@ function KAME.criar(ctx)
 		end
 		local fimFade = (fase == 3) and clamp((KAME.ciclo - t) / 0.5, 0, 1) or 1
 
-		-- esfera de energia
 		local pulso = 1 + 0.07 * math.sin(agora * 32)
 		local diam = KAME.bolaMax * (0.15 + 0.85 * prog ^ 1.4)
 		if fase == 3 then
@@ -9558,7 +13086,6 @@ function KAME.criar(ctx)
 		fx.nucleo.Transparency = (1 - g)
 		fx.luz.Brightness = (2 + 4 * prog) * g * fimFade
 
-		-- raios de luz
 		local raioAmt = (fase == 2) and prog or (fase == 3 and (1 - clamp(tr / 0.5, 0, 1)) or 0)
 		for _, r in ipairs(fx.raios) do
 			local d = CFrame.Angles(0, agora * r.vel, 0):VectorToWorldSpace(r.d0)
@@ -9570,9 +13097,7 @@ function KAME.criar(ctx)
 			r.p.Transparency = 1 - clamp(raioAmt * 1.6, 0, 0.85) * g
 		end
 
-		-- particulas
 		fx.conv.CFrame = CFrame.new(origem)
-		-- mini trails sendo sugados pra esfera
 		local taxaSug = (fase == 2) and (25 + 35 * prog) * g or 0
 		fx.sugAcc = fx.sugAcc + taxaSug * dt
 		for _, sg in ipairs(fx.sugados) do
@@ -9601,10 +13126,9 @@ function KAME.criar(ctx)
 			end
 		end
 
-		-- disparo
 		if fase == 3 and not fx.disparou then
 			fx.disparou = true
-			if ehLocal then kameCamIniciar(dir) end -- camera so mexe pro jogador
+			if ehLocal then kameCamIniciar(dir) end
 			local plano = Vector3.new(dir.X, 0, dir.Z)
 			if plano.Magnitude > 0.01 then
 				fx.recuoDir = -plano.Unit
@@ -9614,7 +13138,6 @@ function KAME.criar(ctx)
 			fx.disparou = false
 		end
 
-		-- recuo: desliza pra tras ao soltar o feixe
 		if fx.recuoT0 then
 			local a = (agora - fx.recuoT0) / KAME.recuoDur
 			if a >= 1 then
@@ -9626,7 +13149,6 @@ function KAME.criar(ctx)
 			end
 		end
 
-		-- ondas de choque
 		for i = #fx.ondas, 1, -1 do
 			local o = fx.ondas[i]
 			local a = (agora - o.t0) / o.dur
@@ -9641,7 +13163,6 @@ function KAME.criar(ctx)
 			end
 		end
 
-		-- feixe
 		local visivel = false
 		local ventoLen, ventoEsp = 0, 0
 		if fase == 3 then
@@ -9666,7 +13187,6 @@ function KAME.criar(ctx)
 				fx.feixeMeio.Transparency = 0.2
 				fx.feixeFora.Transparency = 0.6
 
-				-- textura animada
 				fx.feixeIni.CFrame = CFrame.new(origem)
 				fx.feixeFim.CFrame = CFrame.new(origem + dir * len)
 				for _, bm in ipairs(fx.beams) do
@@ -9675,7 +13195,6 @@ function KAME.criar(ctx)
 					bm.b.Width1 = esp * bm.k
 				end
 
-				-- fling: blocos, itens e pecas soltas (nao ancoradas) que encostam no feixe sao arremessados
 				local op = fx.flingParams
 				if not op then
 					op = OverlapParams.new()
@@ -9688,7 +13207,6 @@ function KAME.criar(ctx)
 				local partes = workspace:GetPartBoundsInBox(caixa, Vector3.new(esp * 1.6, esp * 1.6, len), op)
 				local feitos = {}
 				for _, part in ipairs(partes) do
-					-- ignora personagens / humanoides (jogadores e NPCs): so blocos, itens e pecas soltas
 					local modelo = part:FindFirstAncestorOfClass("Model")
 					if modelo and modelo:FindFirstChildOfClass("Humanoid") then continue end
 					local raiz = part.AssemblyRootPart or part
@@ -9704,7 +13222,6 @@ function KAME.criar(ctx)
 					pcall(function()
 						raiz.AssemblyLinearVelocity = dir * KAME.flingForca + Vector3.new(0, KAME.flingCima, 0)
 						if novo then
-							-- impulso extra proporcional a massa: tira ate peca pesada do chao (atrito)
 							raiz:ApplyImpulse(Vector3.new(0, raiz.AssemblyMass * KAME.flingCima, 0))
 							raiz.AssemblyAngularVelocity = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * KAME.flingGiro
 						end
@@ -9712,7 +13229,6 @@ function KAME.criar(ctx)
 				end
 			end
 
-			-- impacto
 			if res and visivel and cresce >= 0.98 then
 				local ip = res.Position + res.Normal * 0.6
 				local ib = esp * 2.4 * (1 + 0.1 * math.sin(agora * 38))
@@ -9723,12 +13239,10 @@ function KAME.criar(ctx)
 				fx.impLuz.Brightness = 5 * fimFade
 				fx.impPoeiraE.Rate = 18 * fimFade
 
-				-- repelicao: aneis de choque saindo do ponto atingido, na direcao da superficie
 				if agora - (fx.repelT or 0) > 0.16 then
 					fx.repelT = agora
 					kameOnda(fx, res.Position + res.Normal * 0.2, true, 2, 16, 0.5, 0.3, res.Normal)
 
-					-- repele blocos, itens e pecas soltas ao redor do ponto atingido
 					local repelidos = {}
 					local ao_redor = workspace:GetPartBoundsInRadius(res.Position, KAME.repelRaio, fx.flingParams)
 					for _, part in ipairs(ao_redor) do
@@ -9796,7 +13310,7 @@ _G.__ClonesHands = (function()
 	local DIST_PARAR = 7.3
 	local DIST_ANDAR = 8.6
 	local DIST_TELEPORTE = 110
-	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true, Pegar = true, Teleporte = true }
+	local EMOTES_OCULTOS = { Ragdoll = true, Apontar = true, Pegar = true, Teleporte = true, Ranoveradeer = true }
 
 	local NOMES_CLONE = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg" }
 	local NOMES_MEUS = { "HumanoidRootPart", "Torso", "Head", "Left Leg", "Right Leg", "Left Arm", "Right Arm" }
@@ -10103,8 +13617,6 @@ _G.__ClonesHands = (function()
 		end)
 	end
 
-	-- Kamehameha do clone: mesmas fases do jogador (KF1-3 anda, KF4-9 parado + recarga, KF10-11 parado + disparo),
-	-- mas com o relogio proprio de cada clone. Repete a cada KAME.ciclo ate o emote ser trocado.
 	local function kameClone(c, dt)
 		local emote = c.emote
 		local agora = os.clock()
@@ -10152,7 +13664,7 @@ _G.__ClonesHands = (function()
 
 		if c.kame then
 			c.kame.somAtualizar()
-			c.kame.vfxAtualizar(fase, t, dt) -- fase nil = fade out do VFX
+			c.kame.vfxAtualizar(fase, t, dt)
 		end
 	end
 
@@ -10163,7 +13675,7 @@ _G.__ClonesHands = (function()
 		local meuHum = meu and meu:FindFirstChildOfClass("Humanoid")
 		local emote = c.emote
 		local parado = emote ~= nil and (EMOTES_IMOVEIS[emote] == true or EMOTES_CORPO[emote] == true)
-		if emote == "Kamehameha" then parado = (c.kameFase or 1) ~= 1 end -- fase 1 (KF1-3) ainda anda
+		if emote == "Kamehameha" then parado = (c.kameFase or 1) ~= 1 end
 
 		if parado then
 			if not c.travado then
@@ -10299,7 +13811,7 @@ _G.__ClonesHands = (function()
 		c.fase = c.fase + dt * clamp(vel, 0, 40) * 0.55
 		local s = sin(c.fase) * c.amp
 
-		local kf = (emote == "Kamehameha") and c.kameFrame or nil -- pose pelo relogio do proprio clone
+		local kf = (emote == "Kamehameha") and c.kameFrame or nil
 		local P = emote and calcularPoseEmote(emote, t, false, kf) or poseVazia()
 		local ident = CFrame.new()
 
@@ -11071,7 +14583,6 @@ local function criarMaoDinamica(character)
 		end
 	end
 
-	-- WalkSpeed por keyframe: so mexe enquanto o emote animado pede; ao acabar devolve a velocidade original
 	local velCtl = { orig = nil, aplic = nil }
 	velCtl.aplicar = function(v)
 		if v ~= nil then
@@ -11084,7 +14595,6 @@ local function criarMaoDinamica(character)
 		end
 	end
 
-	-- Kamehameha: estado, sons (com fade) e VFX
 	local kameFase, kameInicio, kameUltimoEmote = nil, 0, nil
 	local kameFxFase, kameFxT = nil, 0
 	local kame = KAME.criar({
@@ -11123,7 +14633,6 @@ local function criarMaoDinamica(character)
 			end
 		end
 
-		-- Kamehameha: KF1-3 anda, KF4-9 parado + som de recarga, KF10-11 parado + som de disparo
 		local kameParado = false
 		kameFxFase, kameFxT = nil, 0
 		if currentEmote == "Kamehameha" and not freezeEmote and emoteTimer > 0 then
@@ -11148,13 +14657,10 @@ local function criarMaoDinamica(character)
 			kameSomParar()
 			kameFala.parar()
 		end
-		-- Victoryy: anda normalmente ate o 3o keyframe; dai em diante velocidade 0
-		-- e, nesse mesmo keyframe, toca o som + a fala do Subaru em cima da cabeca (KAME.victory)
 		local victoryParado = false
 		if currentEmote == "Victoryy" and not freezeEmote and emoteTimer > 0 then
 			local dV = defaultEmotes["Victoryy"]
 			local VC = KAME.victory
-			-- comeco do emote (ou reinicio no meio dele: o timer volta a subir)
 			if kameUltimoEmote ~= "Victoryy" or emoteTimer > (dV.timerAnt or 0) + 0.05 then
 				dV.inicioReal = os.clock()
 				dV.disparou = false
@@ -11165,7 +14671,6 @@ local function criarMaoDinamica(character)
 
 			if victoryParado and not dV.disparou then
 				dV.disparou = true
-				-- som
 				if dV.somInst then pcall(function() dV.somInst:Destroy() end) end
 				local snd = Instance.new("Sound")
 				snd.Name = "SomVictoryy"
@@ -11177,11 +14682,9 @@ local function criarMaoDinamica(character)
 				snd:Play()
 				game:GetService("Debris"):AddItem(snd, 10)
 				dV.somInst = snd
-				-- fala em cima da cabeca
 				kameFala.dizer(VC.texto, VC.emocao, VC.intensidade, VC.leitura)
 			end
 		elseif kameUltimoEmote == "Victoryy" then
-			-- saiu do Victoryy (acabou ou trocou de emote): some a fala e rearma pro proximo
 			kameFala.parar()
 			defaultEmotes["Victoryy"].disparou = false
 			defaultEmotes["Victoryy"].timerAnt = nil
@@ -11198,7 +14701,7 @@ local function criarMaoDinamica(character)
 		if victoryParado then travar = true end
 		do
 			local dVel = (not travar and currentEmote ~= nil and not freezeEmote and emoteTimer > 0) and defaultEmotes[currentEmote] or nil
-			if travar then velCtl.aplicar(nil) end -- devolve a velocidade antes de travar
+			if travar then velCtl.aplicar(nil) end
 			travarImovel(travar)
 			if not travar then velCtl.aplicar(dVel and dVel.animado and dVel.velAtual or nil) end
 		end
@@ -11206,7 +14709,6 @@ local function criarMaoDinamica(character)
 		local tempo = tick()
 
 		do
-			-- itens do emote (acessórios / roupas / mesh): no DEV mostra os que você está editando; fora dele, os do emote
 			local listaItens = nil
 			if currentEmote ~= nil then
 				if freezeEmote then
@@ -11471,14 +14973,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- Mini TP:
---  * clicar em quem esta "De Quatro" te teleporta atras dela e liga o seu Socar
---    (so funciona se voce ja estiver atras dela, dentro da area)
---  * clicar em um clone com "Socar" te teleporta na frente dele e liga o seu De Quatro
---    (so funciona se voce ja estiver na frente dele, dentro da area)
 do
-	local TP_DIST_MAX = 3.5   -- distancia maxima pra o tp funcionar
-	local TP_DIST_ATRAS = 2.5 -- distancia final atras dela
+	local TP_DIST_MAX = 3.5  
+	local TP_DIST_ATRAS = 2.5
 
 	local function cloneDoModelo(char)
 		local cs = _G.__ClonesHands
@@ -11496,13 +14993,12 @@ do
 		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
 		local raiz = char:FindFirstChild("HumanoidRootPart")
 		if not (hum and torso and raiz) or hum.Health <= 0 then return false end
-		-- torso inclinado pra frente (de quatro). Ajuste os limites se precisar.
 		local up = torso.CFrame.UpVector.Y
 		return up < 0.5 and up > -0.85
 	end
 
-	local alvoAtual = nil -- quem estou "acompanhando" depois do tp
-	local modoAtual = nil -- "tras" (eu faco Socar) ou "frente" (eu faco De Quatro)
+	local alvoAtual = nil
+	local modoAtual = nil
 
 	local function estaComSocar(char)
 		local clone = cloneDoModelo(char)
@@ -11547,7 +15043,7 @@ do
 		local delta = meuRoot.Position - alvoRoot.Position
 		local plano = Vector3.new(delta.X, 0, delta.Z)
 		if plano.Magnitude > TP_DIST_MAX then return end
-		local lado = plano:Dot(frente) -- >0 = estou na frente dela, <0 = estou atras
+		local lado = plano:Dot(frente)
 
 		local destino, olhar, meuEmote, modo
 		if lado < 0 and estaDeQuatro(alvoChar) then
@@ -11557,7 +15053,7 @@ do
 		elseif lado > 0 and estaComSocar(alvoChar) then
 			modo, meuEmote = "frente", "De Quatro"
 			destino = alvoRoot.Position + frente * TP_DIST_ATRAS
-			olhar = frente -- de costas pra ela
+			olhar = frente
 		else
 			return
 		end
@@ -11578,13 +15074,13 @@ do
 			return
 		end
 		local meuEmote = deQuatroSync.emote
-		if currentEmote ~= meuEmote then alvoAtual = nil pararSom() return end -- voce mesmo parou/trocou
+		if currentEmote ~= meuEmote then alvoAtual = nil pararSom() return end
 		local aindaOk = alvoAtual.Parent ~= nil
 			and ((modoAtual == "tras" and estaDeQuatro(alvoAtual)) or (modoAtual == "frente" and estaComSocar(alvoAtual)))
 		if not aindaOk then
 			alvoAtual = nil
 			pararSom()
-			tocarEmote(meuEmote) -- toggle: desliga
+			tocarEmote(meuEmote)
 		end
 	end)
 
@@ -11606,3 +15102,23 @@ do
 		if (plr and plr ~= LocalPlayer) or cloneDoModelo(char) then tentarTP(char) end
 	end)
 end
+
+task.defer(function()
+	local c = KAME.SAVE.dados.config
+	if type(c) ~= "table" then return end
+	KAME.SAVE.restaurando = true
+	if c.kamehameha == true and KAME.habilidade and KAME.habilidade.alternar and not KAME.habilidade.ativo then
+		pcall(KAME.habilidade.alternar, true)
+	end
+	if c.teleporte == true and TELE.habilidade and TELE.habilidade.alternar and not TELE.habilidade.ativo then
+		pcall(TELE.habilidade.alternar, true)
+	end
+	KAME.SAVE.restaurando = false
+end)
+
+task.defer(function()
+	KAME.SAVE.salvarConfig()
+	KAME.SAVE.salvar("favoritos", function() return { favoritos = favList } end)
+	KAME.SAVE.salvar("ranoveradeer", function() return KAME.RV.cfg end)
+	KAME.SAVE.salvar("posicoes", function() return KAME.SAVE.dados.posicoes end)
+end)

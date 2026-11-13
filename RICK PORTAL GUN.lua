@@ -938,6 +938,7 @@ State.buildShipSystem = function(ctx)
 			leanP = 0, leanPV = 0, leanR = 0, leanRV = 0, latN = 0, lonN = 0,
 			steer = 0, lastSteer = 0,
 			trails = {}, turbo = false, tk = 0,
+			lamps = {}, -- farois (lente + SpotLight), pra ligar/desligar
 			suspAcc = 0, -- acumulador pra rodar suspensao a ~30 Hz
 		}
 
@@ -1153,6 +1154,7 @@ State.buildShipSystem = function(ctx)
 			sl.Brightness = 2.5
 			sl.Color = Color3.fromRGB(255, 244, 214)
 			sl.Parent = lens.part
+			S.lamps[#S.lamps + 1] = { lens = lens, light = sl }
 			add("Knob", cylX(0.9, 0.7), CFrame.new(sx * 2.03, 3.1, -8.15) * RY, MID, METAL, 0, "cyl")
 		end
 		add("AntBase", cylX(0.5, 0.7), CFrame.new(5.0, 4.35, 5.2) * RY, DARK, METAL, 0, "cyl")
@@ -2002,13 +2004,101 @@ State.buildShipSystem = function(ctx)
 		if S.dust then S.dust.Rate = (grounded and hv.Magnitude > 4) and math.clamp(hv.Magnitude * 0.7, 0, 46) or 0 end
 	end
 
+	-- ---- variacoes da chegada: rota (portal + caminho) e final (derrapada etc.), sorteadas sem repetir a anterior ----
+	-- coordenadas {a, b, altura} relativas ao ponto de pouso T (a = pra tras do pouso, b = pro lado); o lado e espelhado ao acaso
+	local ROUTES = {
+		{ nome = "volta larga" }, -- a base
+		{ nome = "volta ampla", k = 1.2, hs = 1.25 }, -- laco maior e mais alto
+		{ nome = "volta fechada", k = 0.88, hs = 0.85 }, -- laco um pouco menor e mais baixo
+		{ nome = "volta alta", k = 1.0, hs = 1.4 }, -- mesmo laco, mais alto
+	}
+	-- o laco e um arco circular (raio constante) que sobe, contorna e entra alinhado na reta do pouso: nenhuma curva fechada no final
+	local ROUTE_PORTAL = { -50, -70, 56 }
+	local LOOP_R = 70
+	local LOOP_H = { 64, 68, 72, 72, 68, 62, 54, 44, 34, 22 } -- altura a cada 30 graus do arco (0..270)
+	local function loopMid(R, hs)
+		local function Y(v) return 8 + (v - 8) * hs end
+		-- sobe reto em direcao a +b e entra no arco (centro em (-50-R, R): o fundo do arco cai exatamente no eixo do pouso)
+		local mid = {
+			{ -50, -48 + (R + 48) / 3, Y(60) },
+			{ -50, -48 + 2 * (R + 48) / 3, Y(62) },
+		}
+		for n = 0, 12 do
+			local th = n * 22.5
+			local idx = th / 30
+			local lo = math.floor(idx)
+			local hi = math.min(lo + 1, 9)
+			local y = LOOP_H[lo + 1] + (LOOP_H[hi + 1] - LOOP_H[lo + 1]) * (idx - lo)
+			local rad = math.rad(th)
+			mid[#mid + 1] = { -50 - R + R * math.cos(rad), R + R * math.sin(rad), Y(y) }
+		end
+		mid[#mid + 1] = { -80, 0, Y(15) }
+		return mid
+	end
+	-- final: ang = quanto o nariz gira na derrapada (rad), dust = poeira, kick = balanco da carroceria, brake = onde freia de repente
+	local ENDINGS = {
+		-- speedK = quanto mais rapido a nave toca o chao (derrapar so faz sentido com velocidade); driveK = quanto mais ela rola ate parar
+		{ nome = "reta", w = 3, speedK = 1, driveK = 1 },
+		{ nome = "derrapada leve", w = 2, speedK = 2.0, driveK = 1.7, ang = 0.38, rise = 0.18, pow = 1.6, dust = 30, kick = 0.9 },
+		{ nome = "derrapada forte", w = 1, speedK = 2.6, driveK = 2.1, ang = 0.85, rise = 0.12, pow = 1.3, dust = 60, kick = 1.8, burst = true },
+		{ nome = "pendulo", w = 1, speedK = 2.2, driveK = 1.9, ang = 0.6, swing = true, dust = 26, kick = 1.1 },
+		{ nome = "freada brusca", w = 1, speedK = 2.4, driveK = 1.8, brake = 0.7, dust = 46 },
+	}
+	local lastRoute, lastEnding
+
+	local function pickWeighted(list, last)
+		local total = 0
+		for i, it in ipairs(list) do
+			if i ~= last then total = total + (it.w or 1) end
+		end
+		local r = math.random() * total
+		for i, it in ipairs(list) do
+			if i ~= last then
+				r = r - (it.w or 1)
+				if r <= 0 then return i end
+			end
+		end
+		return (last == 1) and 2 or 1
+	end
+
+	-- giro do nariz da derrapada (rad, sem o sinal do lado); a = 0..1 linear
+	local function endingYaw(ev, a)
+		if ev.swing then return ev.ang * math.sin(a * math.pi * 2) * (1 - a) end
+		if ev.ang then return ev.ang * smooth01(a / ev.rise) * (math.max(1 - a, 0) ^ ev.pow) end
+		return 0
+	end
+
+	local function wheelDust(S)
+		for _, w in pairs(S.wheels) do
+			local c = S.cf * CFrame.new(w.rel)
+			dustAt(c.Position - Vector3.new(0, w.r, 0))
+		end
+	end
+
+	-- farois: apagados no voo, acendem (piscando) ao pousar
+	local LAMP_ON = Color3.fromRGB(255, 246, 200)
+	local LAMP_OFF = Color3.fromRGB(110, 108, 96)
+	local function lampsSet(S, on)
+		for _, L in ipairs(S.lamps or {}) do
+			if L.lens and L.lens.part then
+				L.lens.part.Material = on and Enum.Material.Neon or Enum.Material.SmoothPlastic
+				L.lens.part.Color = on and LAMP_ON or LAMP_OFF
+			end
+			if L.light then L.light.Enabled = on end
+		end
+	end
+
 	local function runSummon(plan)
 		-- direcao final (nariz) = pra voce; r = direita
 		local h = Vector3.new(-math.sin(plan.yaw), 0, -math.cos(plan.yaw))
 		local r = h:Cross(Vector3.yAxis)
 
 		-- quanto ela anda no chao: encurta se faltar chao ou tiver parede atras do ponto de parada
-		local drive = C.ShipArriveDrive or 46
+		-- final sorteado ja aqui: ele define a velocidade de toque e quanto a nave rola ate parar
+		local endIdx = (C.ShipArriveEnding and ENDINGS[C.ShipArriveEnding]) and C.ShipArriveEnding or pickWeighted(ENDINGS, lastEnding)
+		lastEnding = endIdx
+		local ev = ENDINGS[endIdx]
+		local drive = (C.ShipArriveDrive or 46) * (ev.driveK or 1)
 		do
 			local back = castDir(plan.landPos + Vector3.new(0, 1.5 * SCALE, 0), -h * (drive + 14 * SCALE))
 			if back then
@@ -2034,7 +2124,10 @@ State.buildShipSystem = function(ctx)
 
 		-- portal EM PE, de frente pra onde a nave vai sair
 		local exitDir = r * sd
-		local portalPos = W(-50, -70, 56)
+		local routeIdx = (C.ShipArriveRoute and ROUTES[C.ShipArriveRoute]) and C.ShipArriveRoute or pickWeighted(ROUTES, lastRoute)
+		lastRoute = routeIdx
+		local rt = ROUTES[routeIdx]
+		local portalPos = W(ROUTE_PORTAL[1], ROUTE_PORTAL[2], ROUTE_PORTAL[3])
 		local portalCF = CFrame.lookAt(portalPos, portalPos + exitDir)
 		local portal = openSky(portalCF, C.ShipArrivePortalSize or Vector3.new(46, 46, 0.2))
 		ctx.playSound(C.SoundTeleport, 1.3)
@@ -2045,19 +2138,32 @@ State.buildShipSystem = function(ctx)
 		end
 
 		-- caminho: sai do portal, sobe um pouco, faz uma volta larga descendo e alinha pro pouso
-		local pts = {
-			W(-50, -84, 56), W(-50, -48, 57), W(-46, 30, 66), W(-62, 95, 72), W(-118, 105, 58),
-			W(-150, 50, 44), W(-135, -8, 30), W(-95, -10, 18), W(-48, 0, 8), W(-16, 0, 1.2), W(0, 0, 0),
-		}
-		local pos, len, total = buildPath(pts, 28)
-		local vS = (C.ShipArriveStartSpeed or 240) * SCALE
-		local vE = (C.ShipArriveEndSpeed or 44) * SCALE
-		local flightT = 2 * total / (vS + vE)
+		-- miolo da volta escalado pela rota (k = tamanho, hs = altura); comeco e final do pouso iguais em todas
+		local function mkPts(r)
+			local list = { W(ROUTE_PORTAL[1], ROUTE_PORTAL[2] - 14, ROUTE_PORTAL[3]), W(ROUTE_PORTAL[1], ROUTE_PORTAL[2] + 22, ROUTE_PORTAL[3] + 1) }
+			for _, m in ipairs(loopMid(LOOP_R * (r.k or 1), r.hs or 1)) do
+				list[#list + 1] = W(m[1], m[2], m[3])
+			end
+			list[#list + 1] = W(-48, 0, 8)
+			list[#list + 1] = W(-16, 0, 1.2)
+			list[#list + 1] = W(0, 0, 0)
+			return list
+		end
+		local pos, len, total = buildPath(mkPts(rt), 28)
+		local _, _, refTotal = buildPath(mkPts(ROUTES[1]), 28)
+		local vS0 = (C.ShipArriveStartSpeed or 240) * SCALE
+		local vE0 = (C.ShipArriveEndSpeed or 44) * SCALE
+		local vE = vE0 * (ev.speedK or 1) -- velocidade ao tocar o chao (maior nas derrapadas)
+		-- mesma duracao da rota base; rota maior/menor (ou toque mais rapido) so ajusta a velocidade inicial
+		local flightT = 2 * refTotal / (vS0 + vE0)
+		local vS = math.max(2 * total / flightT - vE, vE * 1.3)
+		flightT = 2 * total / (vS + vE)
 
 		local S = buildShip()
 		S.state = "arriving"
 		S.gear = 0
 		S.canopyAng = 0
+		lampsSet(S, false)
 		S.pos = pos[1]
 		S.yaw = math.atan2(-exitDir.X, -exitDir.Z)
 		S.pitch, S.roll = 0, 0
@@ -2065,6 +2171,13 @@ State.buildShipSystem = function(ctx)
 		snap(S)
 		S.model.Parent = workspace
 		ship = S
+
+		-- direcao do caminho numa janela larga (w): bem mais suave que olhar so 4 studs pra cada lado
+		local function tanAt(d, w)
+			local t = pathAt(pos, len, total, d + w) - pathAt(pos, len, total, d - w)
+			if t.Magnitude < 1e-3 then return S.cf.LookVector end
+			return t.Unit
+		end
 
 		local lastClk = os.clock()
 		local portalClosed, boomed = false, false
@@ -2078,28 +2191,29 @@ State.buildShipSystem = function(ctx)
 			local f = dist / total
 			local speed = vS + (vE - vS) * a
 			local p = pathAt(pos, len, total, dist)
-			local ahead = pathAt(pos, len, total, dist + 4)
-			local behind = pathAt(pos, len, total, dist - 4)
-			local tan = ahead - behind
-			if tan.Magnitude < 1e-3 then tan = S.cf.LookVector end
-			tan = tan.Unit
+			local win = 9 * SCALE + speed * 0.05 -- janela larga = direcao sem tremor
+			local tan = tanAt(dist, win)
 
-			-- nariz acompanha a trajetoria
-			local yawGoal = math.atan2(-tan.X, -tan.Z)
-			local oldYaw = S.yaw
-			S.yaw = S.yaw + wrapAng(yawGoal - S.yaw) * (1 - math.exp(-16 * dt))
-			local yawRate = wrapAng(S.yaw - oldYaw) / dt
+			-- nariz acompanha a trajetoria, mirando um pouquinho a frente pra nao ficar atrasado na curva (sem derrapar de lado)
+			local tanLead = tanAt(dist + speed * 0.1, win)
+			local yawGoal = math.atan2(-tanLead.X, -tanLead.Z)
+			S.yaw = S.yaw + wrapAng(yawGoal - S.yaw) * (1 - math.exp(-8 * dt))
 			local flare = smooth01((f - 0.78) / 0.22)
-			local hm = Vector3.new(tan.X, 0, tan.Z).Magnitude
-			local pitchGoal = math.atan2(tan.Y, hm) + 0.17 * flare
-			S.pitch = S.pitch + (pitchGoal - S.pitch) * (1 - math.exp(-9 * dt))
+			local hm = Vector3.new(tanLead.X, 0, tanLead.Z).Magnitude
+			local pitchGoal = math.atan2(tanLead.Y, hm) + 0.17 * flare
+			S.pitch = S.pitch + (pitchGoal - S.pitch) * (1 - math.exp(-5 * dt))
 
-			-- inclina na curva + parafuso (barrel roll) logo depois de sair do portal
-			local bank = math.clamp(yawRate * 0.32, -0.75, 0.75) * (1 - flare)
-			S.roll = S.roll + (bank - S.roll) * (1 - math.exp(-7 * dt))
+			-- inclina ANTES da curva (olha a curvatura do caminho mais a frente), como um aviao: rola pra dentro, depois vira
+			local look = 22 * SCALE + speed * 0.12
+			local tanFar = tanAt(dist + look, win)
+			local yawFar = math.atan2(-tanFar.X, -tanFar.Z)
+			local yawNear = math.atan2(-tan.X, -tan.Z)
+			local turn = wrapAng(yawFar - yawNear) / look * speed -- giro previsto (rad/s)
+			local bank = math.clamp(turn * 0.38, -0.85, 0.85) * (1 - flare)
+			S.roll = S.roll + (bank - S.roll) * (1 - math.exp(-4.5 * dt))
 			local barrel = -sd * math.pi * 2 * smooth01((f - 0.16) / 0.15)
-			local wob = math.sin(a * 23) * 0.04 * (1 - flare)
-			S.pos = p + Vector3.new(0, math.sin(a * 17) * 0.5 * SCALE * (1 - flare), 0)
+			local wob = math.sin(a * 9) * 0.025 * (1 - flare)
+			S.pos = p + Vector3.new(0, math.sin(a * 7) * 0.4 * SCALE * (1 - flare), 0)
 			S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0)
 				* CFrame.Angles(S.pitch, 0, S.roll + barrel + wob)
 
@@ -2142,19 +2256,60 @@ State.buildShipSystem = function(ctx)
 		end
 		ctx.flashAt(T - Vector3.new(0, LEG_H - 1, 0), 2.2)
 		ctx.playSound(C.SoundLand, 1.2)
+		task.spawn(function()
+			for _, on in ipairs({ true, false, true, false, true }) do
+				if not (S.model and S.model.Parent) then return end
+				pcall(lampsSet, S, on)
+				task.wait(0.09)
+			end
+		end)
 
 		-- anda ate voce freando suave (a velocidade inicial = a do toque, sem tranco)
-		local driveT = drive > 2 and (2 * drive / vE) or 0.01
+		local dsd = (math.random() < 0.5) and 1 or -1
+		local brakeK = ev.brake and (ev.brake + 0.5 * (1 - ev.brake)) or 1
+		local driveT
+		if drive > 2 then
+			driveT = ev.brake and (drive / (vE * brakeK)) or (2 * drive / vE)
+		else
+			driveT = 0.01
+		end
+		local function distFrac(a, e)
+			if not ev.brake then return e end
+			-- velocidade constante ate 'brake', depois freia ate parar
+			if a <= ev.brake then return a / brakeK end
+			local u = a - ev.brake
+			return (ev.brake + u - 0.5 * u * u / (1 - ev.brake)) / brakeK
+		end
 		local from = Vector3.new(T.X, 0, T.Z)
 		local yawGoal = math.atan2(-h.X, -h.Z)
+		local kick1, kick2, burst, braked = false, false, false, false
 		lastClk = os.clock()
-		animate(driveT, function(e)
+		animate(driveT, function(e, a)
 			local now = os.clock()
 			local dt = math.clamp(now - lastClk, 1 / 240, 0.1)
 			lastClk = now
-			local q = from + h * (drive * e)
-			rollFrame(S, dt, q, yawGoal)
-		end, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local q = from + h * (drive * distFrac(a, e))
+			rollFrame(S, dt, q, yawGoal + dsd * endingYaw(ev, a))
+
+			if ev.kick then
+				-- nariz vira pra um lado, a carroceria inclina pro outro
+				if not kick1 and a >= 0.05 then kick1 = true; S.leanRV = S.leanRV - dsd * ev.kick end
+				if ev.swing and not kick2 and a >= 0.5 then kick2 = true; S.leanRV = S.leanRV + dsd * ev.kick * 2 end
+			end
+			if ev.burst and not burst and a >= 0.06 then burst = true; wheelDust(S) end
+			if ev.brake and not braked and a >= ev.brake then
+				braked = true
+				S.leanPV = S.leanPV - 0.8 -- nariz mergulha
+				wheelDust(S)
+			end
+			if S.dust and ev.dust then
+				if ev.brake then
+					if braked then S.dust.Rate = ev.dust * (1 - a) end
+				else
+					S.dust.Rate = math.max(S.dust.Rate, ev.dust * (1 - a))
+				end
+			end
+		end, ev.brake and Enum.EasingStyle.Linear or Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		if gone(S) then return end
 
 		-- assenta a suspensao parado
@@ -2477,7 +2632,6 @@ State.buildShipSystem = function(ctx)
 		local floorPos = endPos - Vector3.new(0, LEG_H, 0)
 		dustAt(floorPos)
 		ctx.flashAt(floorPos + Vector3.new(0, 1, 0), 1.6)
-		ctx.playSound(C.SoundLand, 1)
 		return true
 	end
 
@@ -2496,7 +2650,6 @@ State.buildShipSystem = function(ctx)
 					local lastT = os.clock()
 					if S.dust then S.dust.Rate = 0 end
 					dustAt(S.pos - Vector3.new(0, LEG_H, 0))
-					ctx.playSound(C.SoundLand, 0.8)
 					animate(1.1, function(e)
 						S.gear = 1 - e -- rodas encolhem pra dentro
 						local now = os.clock()

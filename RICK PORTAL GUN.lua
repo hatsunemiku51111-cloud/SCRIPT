@@ -273,7 +273,7 @@ local function fetchAccessoryModel(id)
 		if not okG then lastErr = tostring(objs) end
 
 		local okI, model = pcall(function()
-			return game:GetService("InsertService"):LoadAsset(id)
+			return game:GetService("InsertService"):LoadAsset(tonumber(id) or id)
 		end)
 		if okI and model then return model end
 		if not okI then lastErr = tostring(model) end
@@ -518,6 +518,8 @@ local function setupRickGun(character)
 				burp  = { cor = Color3.fromRGB(205, 255, 120), vel = 0.028, tremor = 0.15, pulso = 0.02 },
 				grito = { cor = Color3.fromRGB(235, 255, 225), vel = 0.024, tremor = 0.3,  pulso = 0.03 },
 				erro  = { cor = Color3.fromRGB(255, 120, 110), vel = 0.03,  tremor = 0,    pulso = 0 },
+				nervoso = { cor = Color3.fromRGB(255, 220, 80), vel = 0.028, tremor = 0.18, pulso = 0.015 },
+				animado = { cor = Color3.fromRGB(110, 235, 255), vel = 0.026, tremor = 0.1, pulso = 0.02 },
 			}
 			-- 1 = suave (padrao), 0 = sem tremor/pulso, 2 = mais intenso (estilo Kamehameha)
 			local K = Config.FalaIntensidade or 1
@@ -578,6 +580,9 @@ local function setupRickGun(character)
 			-- chance de falar em cada situacao (1 = sempre)
 			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4 }
 
+			-- fabrica de falantes: cada um tem sua cabeca (getHead), suas falas/chances e seu proprio balao.
+			-- O falante do jogador e o padrao; o Morty cria o dele com Z.fala.criar(...)
+			local function criarFalante(getHead, FALAS, CHANCE, vivo, altura, maxDist)
 			local S = { gui = nil, caixa = nil, token = 0, ultimo = {}, t = 0 }
 
 			local function nomeBoneco()
@@ -588,7 +593,7 @@ local function setupRickGun(character)
 			end
 
 			local function garantirGui()
-				local head = character and character:FindFirstChild("Head")
+				local head = getHead()
 				if not head then return nil end
 				if S.gui and S.gui.Parent then
 					if S.gui.Adornee ~= head then S.gui.Adornee = head end
@@ -602,7 +607,8 @@ local function setupRickGun(character)
 				gui.ResetOnSpawn = false
 				gui.Active = false
 				gui.Size = UDim2.fromOffset(40, 24)
-				gui.StudsOffsetWorldSpace = Vector3.new(0, ALTURA_CABECA, 0)
+				gui.StudsOffsetWorldSpace = Vector3.new(0, altura or ALTURA_CABECA, 0)
+				if maxDist then gui.MaxDistance = maxDist end
 				parentGui(gui)
 
 				local caixa = Instance.new("Frame")
@@ -627,7 +633,7 @@ local function setupRickGun(character)
 			end
 
 			local function mostrar(texto, emo, inten, ler)
-				if not ATIVO or not Z.alive then return end
+				if not ATIVO or not vivo() then return end
 				local gui = garantirGui()
 				if not gui then return end
 				local caixa = S.caixa
@@ -720,7 +726,7 @@ local function setupRickGun(character)
 				task.spawn(function()
 					local t0 = os.clock()
 					local proxTremor = 0
-					while S.token == meuToken and Z.alive do
+					while S.token == meuToken and vivo() do
 						local t = os.clock() - t0
 						if t >= tFim then break end
 
@@ -765,7 +771,7 @@ local function setupRickGun(character)
 
 			-- dizer("tiro") / dizer("dim", { dim = "Nome" }) / dizer("alvo", { alvo = "Fulano" })
 			local function dizer(cat, vars)
-				if not ATIVO or not Z.alive then return end
+				if not ATIVO or not vivo() then return end
 				local lista = FALAS[cat]
 				if not lista then return end
 				if math.random() > (CHANCE[cat] or 1) then return end
@@ -792,6 +798,10 @@ local function setupRickGun(character)
 					if S.gui then S.gui:Destroy() S.gui, S.caixa = nil, nil end
 				end,
 			}
+			end
+			local fala = criarFalante(function() return character and character:FindFirstChild("Head") end, FALAS, CHANCE, function() return Z.alive end)
+			fala.criar = criarFalante
+			return fala
 		end)
 		if okF and F then
 			Z.fala = F
@@ -2638,25 +2648,130 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- copo com liquido, gelo, canudo listrado e rodela de limao
-				local function cup(b, liq)
-					local parts = {}
-					local function add(p) parts[#parts + 1] = p return p end
-					local glassC = C(205, 235, 255)
-					add(column(model, 0.1, 0.9, b + V3(0, 0.05, 0), glassC, M.Glass, {shadow = false, trans = 0.35}))
-					add(column(model, 1.7, 1.3, b + V3(0, 0.95, 0), glassC, M.Glass, {shadow = false, trans = 0.6}))
-					add(column(model, 1.2, 1.12, b + V3(0, 0.7, 0), liq, M.Neon, {shadow = false, trans = 0.12}))
-					add(column(model, 0.1, 1.12, b + V3(0, 1.3, 0), liq:Lerp(C(255, 255, 255), 0.5), M.Neon, {shadow = false}))
-					add(column(model, 0.06, 1.34, b + V3(0, 1.82, 0), liq:Lerp(C(255, 255, 255), 0.6), M.Neon, {shadow = false, trans = 0.4}))
-					add(mk(model, V3(0.4, 0.4, 0.4), CF(b + V3(0.2, 1.0, 0.1)) * ANG(0.5, 0.4, 0.2), C(255, 255, 255), M.Glass, {shadow = false, trans = 0.4}))
-					add(mk(model, V3(0.35, 0.35, 0.35), CF(b + V3(-0.2, 0.8, -0.15)) * ANG(0.2, 0.7, 0.5), C(255, 255, 255), M.Glass, {shadow = false, trans = 0.4}))
-					local strawCF = CF(b + V3(0.2, 1.3, 0)) * ANG(0, 0, -0.2)
-					add(mk(model, V3(0.1, 2.3, 0.1), strawCF, C(255, 255, 255), M.SmoothPlastic, {shadow = false}))
-					for _, off in ipairs({-0.6, 0.1, 0.8}) do
-						add(mk(model, V3(0.11, 0.28, 0.11), strawCF * CF(0, off, 0), MAG, M.Neon, {shadow = false}))
+				-- copo: tumbler com liquido em 3 camadas, espuma, gelo, canudo listrado com dobra, rodela de lima e aro neon.
+				-- dyn = true: pecas soldadas num root invisivel (pra animar); sem dyn: pecas fixas de decoracao.
+				-- par/sc: pai das pecas e escala (usado no item do inventario: Handle solto dentro do Tool).
+				local function cup(b, liq, dyn, par, sc)
+					sc = sc or 1
+					par = par or model
+					local held = par ~= model
+					local parts, info = {}, {groups = {ice = {}, straw = {}, lime = {}}}
+					local root
+					if dyn then
+						root = mk(par, V3(0.2, 0.2, 0.2), CF(b), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
+						parts[1] = root
+						info.root = root
 					end
-					add(column(model, 0.1, 0.9, b + V3(-0.45, 1.86, 0), GRN, M.Neon, {shadow = false, trans = 0.2}))
-					return parts
+					local WHT = C(255, 255, 255)
+					local function P(rel, size, col, mat, o, grp)
+						o = o or {}
+						if o.shadow == nil then o.shadow = false end
+						rel = CFrame.new(rel.Position * sc) * rel.Rotation
+						size = size * sc
+						local p
+						if dyn then
+							p = attach(root, rel, size, col, mat, o)
+							if held then p.Parent = par end
+						else
+							p = mk(par, size, CF(b) * rel, col, mat, o)
+						end
+						parts[#parts + 1] = p
+						if dyn and grp then
+							local w = p:FindFirstChildOfClass("Weld")
+							local g = info.groups[grp]
+							g[#g + 1] = {p = p, w = w, rest = w.C0, tr = p.Transparency}
+						end
+						return p
+					end
+					local function CY(y, h, d, col, mat, o, grp)
+						o = o or {}
+						o.cyl = true
+						return P(CF(0, y, 0) * ANG(0, 0, pi / 2), V3(h, d, d), col, mat, o, grp)
+					end
+					local glassC = C(205, 235, 255)
+					CY(0.05, 0.1, 0.9, glassC, M.Glass, {trans = 0.35})
+					CY(0.95, 1.7, 1.3, glassC, M.Glass, {trans = 0.6})
+					info.rim = CY(1.82, 0.05, 1.36, liq, M.Neon, {trans = 0.25})
+				
+					-- liquido em 3 camadas + espuma
+					local Y0, HT = 0.12, 1.4
+					info.Y0, info.HT = Y0, HT
+					local layers, acc = {}, 0
+					local frac = {0.38, 0.34, 0.28}
+					local lcol = {liq:Lerp(DARK, 0.4), liq, liq:Lerp(WHT, 0.4)}
+					for i = 1, 3 do
+						local len = HT * frac[i]
+						layers[i] = {p = CY(Y0 + acc + len / 2, len, 1.12, lcol[i], M.Neon, {trans = 0.12}), s = acc, len = len}
+						acc = acc + len
+					end
+					local foam = CY(Y0 + HT + 0.04, 0.1, 1.12, liq:Lerp(WHT, 0.6), M.Neon, {trans = 0.3})
+				
+					-- gelo
+					P(CF(0.2, 1.0, 0.1) * ANG(0.5, 0.4, 0.2), V3(0.4, 0.4, 0.4), WHT, M.Glass, {trans = 0.4}, "ice")
+					P(CF(-0.2, 0.8, -0.15) * ANG(0.2, 0.7, 0.5), V3(0.35, 0.35, 0.35), WHT, M.Glass, {trans = 0.4}, "ice")
+					P(CF(0.05, 1.2, -0.25) * ANG(0.9, 0.1, 0.6), V3(0.32, 0.32, 0.32), WHT, M.Glass, {trans = 0.4}, "ice")
+					-- canudo listrado com dobra
+					local strawRel = CF(0.2, 1.3, 0) * ANG(0, 0, -0.2)
+					P(strawRel, V3(0.1, 2.3, 0.1), WHT, M.SmoothPlastic, {}, "straw")
+					for _, off in ipairs({-0.6, 0.1, 0.8}) do
+						P(strawRel * CF(0, off, 0), V3(0.11, 0.28, 0.11), MAG, M.Neon, {}, "straw")
+					end
+					P(strawRel * CF(-0.1, 1.2, 0) * ANG(0, 0, 0.9), V3(0.1, 0.45, 0.1), WHT, M.SmoothPlastic, {}, "straw")
+					-- rodela de lima na borda
+					P(CF(-0.58, 1.78, 0) * ANG(0, 0, 0.5), V3(0.1, 0.95, 0.95), C(130, 255, 90), M.Neon, {cyl = true, trans = 0.15}, "lime")
+					P(CF(-0.58, 1.78, 0) * ANG(0, 0, 0.5), V3(0.12, 0.78, 0.78), C(235, 255, 160), M.Neon, {cyl = true, trans = 0.2}, "lime")
+				
+					if dyn then
+						info.light = glow(root, liq, held and 0.6 or 1.0, held and 7 or 14)
+						local function EM(part, props)
+							local e = Instance.new("ParticleEmitter")
+							e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+							e.Rate = 0
+							e.LightEmission = 1
+							e.Color = ColorSequence.new(liq:Lerp(WHT, 0.35), liq)
+							e.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.28 * sc), NumberSequenceKeypoint.new(1, 0)})
+							e.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+							for k, v in pairs(props) do pcall(function() e[k] = v end) end
+							e.Parent = part
+							return e
+						end
+						local bubP = P(CF(0, Y0, 0), V3(0.8, 0.1, 0.8), WHT, M.SmoothPlastic, {trans = 1})
+						local bubW = bubP:FindFirstChildOfClass("Weld")
+						info.bub = EM(bubP, {Lifetime = NumberRange.new(0.5, 1.0), Speed = NumberRange.new(1, 2.2), SpreadAngle = Vector2.new(20, 20), Acceleration = V3(0, -2, 0)})
+						info.spark = EM(root, {Lifetime = NumberRange.new(0.5, 1.1), Speed = NumberRange.new(3, 7), SpreadAngle = Vector2.new(180, 180), Acceleration = V3(0, -6, 0)})
+						local fw = foam:FindFirstChildOfClass("Weld")
+						for _, L in ipairs(layers) do L.w = L.p:FindFirstChildOfClass("Weld") end
+						-- enche o copo (k de 0 a 1): so as camadas que ja foram atingidas aparecem
+						info.fill = function(k)
+							local h = HT * math.clamp(k, 0, 1)
+							for _, L in ipairs(layers) do
+								local hh = math.clamp(h - L.s, 0, L.len)
+								if hh < 0.06 then
+									L.p.Transparency = 1
+								else
+									L.p.Transparency = 0.12
+									L.p.Size = V3(hh, 1.12, 1.12) * sc
+									L.w.C0 = CF(0, (Y0 + L.s + hh / 2) * sc, 0) * ANG(0, 0, pi / 2)
+								end
+							end
+							foam.Transparency = (h < 0.06) and 1 or 0.3
+							fw.C0 = CF(0, (Y0 + h + 0.04) * sc, 0) * ANG(0, 0, pi / 2)
+							bubW.C0 = CF(0, (Y0 + h) * sc, 0)
+						end
+						if held then
+							-- item do inventario: copo cheio e completo, Handle solto (sem ancora)
+							info.fill(1)
+							root.Anchored = false
+							root.Name = "Handle"
+							root.Massless = true
+						else
+							info.fill(0)
+							for _, g in pairs(info.groups) do
+								for _, e in ipairs(g) do e.p.Transparency = 1 end
+							end
+						end
+					end
+					return parts, info
 				end
 				for _, dz in ipairs({-11, -6.5, 3.5, 8, 12}) do
 					cup(O + V3(97.8, 4.3, cz + dz), bottleCols[r:NextInteger(1, #bottleCols)])
@@ -2709,15 +2824,15 @@ local function setupRickGun(character)
 
 				-- ===== BARMAN (robo original) + DRINKS =====
 				local GREET = {
-					"Bem-vindo ao Bar do Rick! Senta ai que eu preparo algo.",
-					"Opa, cliente novo! Nosso fluido de portal e o melhor da galaxia.",
-					"Entra, entra! Aqui o multiverso inteiro toma uma.",
+					"A-aw geez, bem-vindo ao Bar do Rick! Senta ai que eu preparo algo.",
+					"Opa, cliente novo! O Rick disse pra eu nao deixar ninguem tocar no fluido de portal... mas toma um.",
+					"Entra, entra! Aqui o multiverso inteiro toma uma, ah... geez.",
 				}
 				local IDLE = {
 					"Aperte E aqui pra pedir um drink.",
-					"Ja provou o Synthwave Sour?",
-					"Cuidado com o fluido de portal... ele e forte.",
-					"Aqui ninguem paga imposto interdimensional.",
+					"Ja provou o Synthwave Sour? E, tipo, muito bom.",
+					"Cuidado com o fluido de portal... ele e forte, Rick que disse.",
+					"Aqui ninguem paga imposto interdimensional, eu acho.",
 				}
 				local FLAVORS = {
 					{name = "Fluido de Portal", liquid = GRN},
@@ -2725,39 +2840,650 @@ local function setupRickGun(character)
 					{name = "Cyan Dream", liquid = CYA},
 					{name = "Sol Neon", liquid = YEL},
 				}
-				local BXp = V3(100.8, 0, cz - 3)
-				local BASE = CF(O + BXp + V3(0, 4.6, 0)) * ANG(0, pi / 2, 0)
-				local torso = mk(model, V3(2.6, 3.2, 1.6), BASE, C(30, 18, 64), M.SmoothPlastic, {shadow = false, refl = 0.3})
-				local function TB(rel, size, color, mat, o) return attach(torso, rel, size, color, mat, o or {shadow = false}) end
-				TB(CF(0, 0.5, -0.82), V3(1.4, 0.9, 0.1), MAG, M.Neon)
-				TB(CF(0, -0.7, -0.82), V3(1.8, 0.2, 0.1), GRN, M.Neon)
-				for _, sx in ipairs({-1, 1}) do
-					TB(CF(sx * 0.65, -3.1, 0), V3(0.9, 3, 0.9), C(22, 12, 48), M.SmoothPlastic)
-					TB(CF(sx * 0.65, -4.45, -0.25), V3(1.0, 0.3, 1.4), C(14, 6, 34), M.SmoothPlastic)
-				end
-				TB(CF(-1.75, 0.2, 0), V3(0.8, 2.6, 0.8), C(22, 12, 48), M.SmoothPlastic)
-				TB(CF(-1.75, -1.0, 0), V3(0.9, 0.4, 0.9), CYA, M.Neon)
+				local BXp = V3(100.0, 0, cz - 3)
+				local MS = 1.4 -- escala do Morty (R6 padrao = 5 studs)
+				local BASE = CF(O + BXp + V3(0, 3 * MS + 0.15, 0)) * ANG(0, pi / 2, 0)
 
-				local head = mk(model, V3(2.2, 1.9, 2), BASE * CF(0, 2.8, 0), C(40, 22, 84), M.SmoothPlastic, {shadow = false, refl = 0.3})
-				local function HD(rel, size, color, mat, o) return attach(head, rel, size, color, mat, o or {shadow = false}) end
-				HD(CF(0, 0.1, -1.02), V3(1.8, 0.5, 0.1), CYA, M.Neon)
-				HD(CF(0, -0.55, -1.02), V3(1.0, 0.12, 0.1), C(10, 5, 25), M.SmoothPlastic)
-				HD(CF(0, 1.3, 0), V3(0.15, 0.8, 0.15), C(60, 60, 90), M.SmoothPlastic)
-				HD(CF(0, 1.8, 0), V3(0.5, 0.5, 0.5), MAG, M.Neon, {shadow = false, ball = true})
-				for _, sx in ipairs({-1, 1}) do
-					HD(CF(sx * 1.15, 0, 0), V3(0.2, 0.8, 0.8), GRN, M.Neon, {shadow = false, cyl = true})
-				end
+				-- ===== MORTY (rig R6 montado por partes; roupa e acessorios carregados por ID) =====
+				local MR = (function()
+					local SKIN, MYEL, MBLU = C(250, 208, 160), C(255, 214, 52), C(44, 84, 168)
+					local rig = Instance.new("Model")
+					rig.Name = "Morty"
+					rig.Parent = model
 
-				local armR = mk(model, V3(0.2, 0.2, 0.2), BASE * CF(1.75, 1.4, 0), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
-				attach(armR, CF(0, -1.2, 0), V3(0.8, 2.4, 0.8), C(22, 12, 48), M.SmoothPlastic, {shadow = false})
-				attach(armR, CF(0, -2.6, 0) * ANG(0, 0, pi / 2), V3(1.6, 0.9, 0.9), C(190, 200, 220), M.Metal, {shadow = false, cyl = true})
-				attach(armR, CF(0, -2.6, 0) * ANG(0, 0, pi / 2), V3(0.3, 1.0, 1.0), GRN, M.Neon, {shadow = false, cyl = true})
+					local root = mk(rig, V3(2, 2, 1) * MS, BASE, DARK, M.SmoothPlastic, {trans = 1, shadow = false})
+					root.Name = "HumanoidRootPart"
+					local function MP(name, size, col)
+						local p = mk(rig, size * MS, BASE, col, M.SmoothPlastic, {shadow = false})
+						p.Name = name
+						p.Anchored = false
+						p.Massless = true
+						return p
+					end
+					local torso = MP("Torso", V3(2, 2, 1), MYEL)
+					local head = MP("Head", V3(2, 1, 1), SKIN)
+					local lArm = MP("Left Arm", V3(1, 2, 1), SKIN)
+					local rArm = MP("Right Arm", V3(1, 2, 1), SKIN)
+					local lLeg = MP("Left Leg", V3(1, 2, 1), MBLU)
+					local rLeg = MP("Right Leg", V3(1, 2, 1), MBLU)
+
+					local hm = Instance.new("SpecialMesh")
+					hm.MeshType = Enum.MeshType.Head
+					hm.Scale = V3(1.25, 1.25, 1.25)
+					hm.Parent = head
+					local face = Instance.new("Decal")
+					face.Name = "face"
+					face.Texture = "rbxasset://textures/face.png"
+					face.Face = Enum.NormalId.Front
+					face.Parent = head
+
+					local function joint(name, p0, p1, c0, c1)
+						local m = Instance.new("Motor6D")
+						m.Name = name
+						m.Part0, m.Part1 = p0, p1
+						m.C0, m.C1 = c0, c1
+						m.Parent = p0
+						return m
+					end
+					local RJ = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
+					joint("RootJoint", root, torso, RJ, RJ)
+					local neck = joint("Neck", torso,  head,
+						CFrame.new(0, 1 * MS, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0),
+						CFrame.new(0, -0.5 * MS, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0))
+					local rShoulder = joint("Right Shoulder", torso, rArm,
+						CFrame.new(1 * MS, 0.5 * MS, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+						CFrame.new(-0.5 * MS, 0.5 * MS, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0))
+					local lShoulder = joint("Left Shoulder", torso, lArm,
+						CFrame.new(-1 * MS, 0.5 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+						CFrame.new(0.5 * MS, 0.5 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0))
+					local rHip = joint("Right Hip", torso, rLeg,
+						CFrame.new(1 * MS, -1 * MS, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+						CFrame.new(0.5 * MS, 1 * MS, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0))
+					local lHip = joint("Left Hip", torso, lLeg,
+						CFrame.new(-1 * MS, -1 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+						CFrame.new(-0.5 * MS, 1 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0))
+
+					-- attachments padrao do R6 (acessorios encaixam por nome)
+					local rigAtt = {}
+					local function AT(part, name, pos)
+						local at = Instance.new("Attachment")
+						at.Name = name
+						at.Position = pos * MS
+						at.Parent = part
+						rigAtt[name] = at
+					end
+					AT(head, "FaceCenterAttachment", V3(0, 0, 0))
+					AT(head, "FaceFrontAttachment", V3(0, 0, -0.6))
+					AT(head, "HairAttachment", V3(0, 0.6, 0))
+					AT(head, "HatAttachment", V3(0, 0.6, 0))
+					AT(torso, "NeckAttachment", V3(0, 1, 0))
+					AT(torso, "BodyFrontAttachment", V3(0, 0, -0.5))
+					AT(torso, "BodyBackAttachment", V3(0, 0, 0.5))
+					AT(torso, "LeftCollarAttachment", V3(-1, 1, 0))
+					AT(torso, "RightCollarAttachment", V3(1, 1, 0))
+					AT(torso, "WaistFrontAttachment", V3(0, -1, -0.5))
+					AT(torso, "WaistCenterAttachment", V3(0, -1, 0))
+					AT(torso, "WaistBackAttachment", V3(0, -1, 0.5))
+
+					local hum = Instance.new("Humanoid")
+					pcall(function() hum.RigType = Enum.HumanoidRigType.R6 end)
+					pcall(function() hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end)
+					pcall(function() hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff end)
+					pcall(function() hum.EvaluateStateMachine = false end)
+					hum.Parent = rig
+					rig.PrimaryPart = root
+
+					-- pano de limpeza na mao esquerda (fica invisivel ate o Morty limpar o balcao)
+					local rag = attach(lArm, CF(0, -1 * MS - 0.05, 0), V3(1.0, 0.3, 0.9), C(190, 205, 230), M.SmoothPlastic, {shadow = false, trans = 1})
+
+					-- shaker na mao direita (mesmo do barman antigo)
+					local shRel = CF(0, -1 * MS - 0.3, 0) * ANG(0, 0, pi / 2)
+					local shk = attach(rArm, shRel, V3(1.5, 0.8, 0.8), C(190, 200, 220), M.Metal, {shadow = false, cyl = true})
+					attach(rArm, shRel, V3(0.3, 0.9, 0.9), GRN, M.Neon, {shadow = false, cyl = true})
+					local shEm = Instance.new("ParticleEmitter")
+					shEm.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+					shEm.Rate = 0
+					shEm.LightEmission = 1
+					shEm.Lifetime = NumberRange.new(0.5, 0.9)
+					shEm.Speed = NumberRange.new(2, 5)
+					shEm.SpreadAngle = Vector2.new(60, 60)
+					shEm.Acceleration = V3(0, -5, 0)
+					shEm.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0)})
+					shEm.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+					shEm.Parent = shk
+
+					-- roupa (Shirt/Pants) e acessorios: carregados em segundo plano pra nao travar a construcao
+					local function clothing(cls, prop, id)
+						local obj = fetchAccessoryModel(id)
+						local item
+						if obj then
+							item = obj:IsA(cls) and obj or obj:FindFirstChildWhichIsA(cls, true)
+						end
+						if not item then
+							item = Instance.new(cls)
+							pcall(function() item[prop] = "rbxassetid://" .. tostring(id) end)
+						end
+						if not rig.Parent then
+							pcall(function() item:Destroy() end)
+						else
+							item.Parent = rig
+						end
+						if obj and obj ~= item then pcall(function() obj:Destroy() end) end
+					end
+
+					local function dress(id)
+						local obj, err = fetchAccessoryModel(id)
+						if not obj then
+							warnRG("Morty: nao foi possivel carregar o acessorio " .. tostring(id) .. " (" .. tostring(err) .. ")")
+							return
+						end
+						local acc = obj:IsA("Accessory") and obj or obj:FindFirstChildWhichIsA("Accessory", true)
+						local src = acc and acc:FindFirstChild("Handle")
+						if not src then
+							src = (obj:IsA("BasePart") and obj) or obj:FindFirstChild("Handle", true)
+						end
+						if not (src and src:IsA("BasePart")) then
+							pcall(function() obj:Destroy() end)
+							warnRG("Morty: acessorio " .. tostring(id) .. " sem Handle")
+							return
+						end
+						local h = src:Clone()
+						local ap = acc and acc.AttachmentPoint or CFrame.new()
+						pcall(function() obj:Destroy() end)
+						if not rig.Parent then h:Destroy() return end
+						for _, d in ipairs(h:GetDescendants()) do
+							if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Sound")
+								or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Motor6D") then
+								d:Destroy()
+							end
+						end
+						h.Anchored, h.CanCollide, h.CanQuery, h.CanTouch, h.Massless = false, false, false, false, true
+						h.CastShadow = false
+						h.Size = h.Size * MS
+						for _, d in ipairs(h:GetChildren()) do
+							if d:IsA("SpecialMesh") then
+								d.Scale = d.Scale * MS
+							elseif d:IsA("Attachment") then
+								d.Position = d.Position * MS
+							end
+						end
+						local part0, c0, c1
+						for _, d in ipairs(h:GetChildren()) do
+							if d:IsA("Attachment") and rigAtt[d.Name] then
+								part0, c0, c1 = rigAtt[d.Name].Parent, rigAtt[d.Name].CFrame, d.CFrame
+								break
+							end
+						end
+						if not part0 then
+							part0 = head
+							c0 = CFrame.new(0, 0.5 * MS, 0)
+							c1 = CFrame.new(ap.Position * MS) * (ap - ap.Position)
+						end
+						h.CFrame = part0.CFrame * c0 * c1:Inverse()
+						local w = Instance.new("Weld")
+						w.Part0, w.Part1, w.C0, w.C1 = part0, h, c0, c1
+						w.Parent = h
+						h.Parent = rig
+					end
+
+					-- IK simples dos bracos: aponta o braço (ombro -> mao) na direcao de um ponto do mundo; alcance fixo (len)
+					local function mkIK(joint, sx, len)
+						local c1 = joint.C1
+						local sL = V3(sx * MS, 0.5 * MS, 0)
+						return function(want)
+							local dl = root.CFrame:PointToObjectSpace(want) - sL
+							if dl.Magnitude < 0.05 then return nil end
+							local up = -dl.Unit
+							local xa = V3(1, 0, 0) - up * up.X
+							if xa.Magnitude < 0.05 then xa = V3(0, 0, 1) - up * up.Z end
+							xa = xa.Unit
+							local R = CFrame.fromMatrix(V3(0, 0, 0), xa, up)
+							local A = CFrame.fromMatrix(sL - R:VectorToWorldSpace(c1.Position), xa, up)
+							return A * c1
+						end
+					end
+					task.spawn(clothing, "Shirt", "ShirtTemplate", "70540651523892")
+					task.spawn(clothing, "Pants", "PantsTemplate", "88425125226234")
+					task.spawn(dress, "78898300239369") -- acessorio de cabeca
+					task.spawn(dress, "139792469671352") -- acessorio de pescoco
+
+					return {
+						root = root, torso = torso, head = head, neck = neck, rShoulder = rShoulder,
+						neckC0 = neck.C0, shoulderC0 = rShoulder.C0,
+						shaker = shk, shakeEm = shEm, armA = 0.12,
+						lShoulder = lShoulder, lC0 = lShoulder.C0, lLen = 2.3, rBlend = 0,
+						rHip = rHip, lHip = lHip, rHipC0 = rHip.C0, lHipC0 = lHip.C0, rag = rag,
+						ikL = mkIK(lShoulder, -1, 2.3), ikR = mkIK(rShoulder, 1, 2.4),
+					}
+				end)()
+				local torso, head = MR.torso, MR.head
+				-- ===== drink: Morty pega o copo com a mao esquerda enquanto balanca o shaker com a direita, poe no balcao,
+				-- enche com jato, guarnicao, desliza ate voce. Voce clica no copo e ele vira item (Tool) no inventario;
+				-- ao beber o copo quebra e some do inventario. =====
+				local DR = (function()
+					local D = {}
+					local WHT = C(255, 255, 255)
+					local GLASS = C(205, 235, 255)
+					local function ease(k) return k * k * (3 - 2 * k) end
+					local function run(dur, fn, alive)
+						alive = alive or function() return model.Parent ~= nil end
+						local t0 = os.clock()
+						while alive() do
+							local k = (os.clock() - t0) / dur
+							if k >= 1 then fn(1) return true end
+							fn(k)
+							RunService.Heartbeat:Wait()
+						end
+						return false
+					end
+					local function bez(a, c, b, u)
+						local v = 1 - u
+						return a * (v * v) + c * (2 * v * u) + b * (u * u)
+					end
+					local function ring(pos, col, d)
+						local rg = column(model, 0.08, 0.5, pos, col, M.Neon, {shadow = false, trans = 0.2})
+						task.spawn(function()
+							run(0.55, function(k)
+								local s = 0.5 + d * k
+								rg.Size = V3(0.08, s, s)
+								rg.Transparency = 0.2 + 0.8 * k
+							end)
+							pcall(function() rg:Destroy() end)
+						end)
+					end
+					-- ponto do mundo onde a mao esquerda fica com o braco apontando na direcao d (espaco do tronco)
+					local function handPoint(d)
+						return MR.root.CFrame:PointToWorldSpace(V3(-MS, 0.5 * MS, 0) + d * MR.lLen)
+					end
+				
+					function D.shakeFx(on, col)
+						local em = MR.shakeEm
+						if on then
+							em.Color = ColorSequence.new(col:Lerp(WHT, 0.35), col)
+							em.Rate = 50
+						else
+							em.Rate = 0
+						end
+					end
+				
+					function D.make(liq)
+						-- posicao do copo no balcao = onde a mao esquerda chega com o braco esticado pra frente
+						local sL = V3(-MS, 0.5 * MS, 0)
+						local hy = (O.Y + 4.3 + 0.95) - BASE.Position.Y
+						local dy = (hy - sL.Y) / MR.lLen
+						local dx = (-0.45 * MS - sL.X) / MR.lLen
+						local dz = -math.sqrt(math.max(0.01, 1 - dx * dx - dy * dy))
+						local dP = V3(dx, dy, dz)
+						local base = BASE:PointToWorldSpace(sL + dP * MR.lLen) - V3(0, 0.95, 0)
+				
+						local parts, info = cup(base + V3(0, -500, 0), liq, true)
+						local root = info.root
+						local extras = {}
+						local cur = base
+						local dk = {}
+						local function place(p, y, yaw, tilt)
+							root.CFrame = CF(p + V3(0, y or 0, 0)) * ANG(0, yaw or 0, tilt or 0)
+						end
+						place(base, -500, 0, 0)
+						function dk.wipe()
+							for _, p in ipairs(parts) do pcall(function() p:Destroy() end) end
+							for _, p in ipairs(extras) do pcall(function() p:Destroy() end) end
+						end
+				
+						-- 1) braco esquerdo pega o copo atras/embaixo do balcao, leva em arco e poe no balcao
+						function dk.fetch()
+							local d0 = V3(0, -1, 0)
+							local d1 = V3(-0.1, -0.78, 0.62).Unit
+							run(0.5, function(k) MR.lWant = handPoint(d0:Lerp(d1, ease(k)).Unit) end)
+							do
+								local hp = handPoint(d1)
+								MR.lWant = hp
+								place(hp - V3(0, 0.95, 0), 0, 0, 0)
+							end
+							info.spark:Emit(10) -- o copo aparece na mao
+							run(0.15, function()
+								local hp = handPoint(d1)
+								MR.lWant = hp
+								place(hp - V3(0, 0.95, 0), 0, 0, 0)
+							end)
+							run(0.8, function(k)
+								local e = ease(k)
+								local hp = handPoint((d1:Lerp(dP, e) + V3(0, 0.5 * sin(e * pi), 0)).Unit)
+								MR.lWant = hp
+								place(hp - V3(0, 0.95, 0), 0, 0, sin(e * pi * 2) * 0.08)
+							end)
+							place(base, 0, 0, 0) -- larga o copo no balcao
+							ring(base + V3(0, 0.1, 0), liq, 3)
+							info.spark:Emit(8)
+							run(0.4, function(k) MR.lWant = handPoint(dP:Lerp(d0, ease(k)).Unit) end)
+							MR.lWant = nil
+						end
+				
+						-- 2) shaker (mao direita) fica por cima do copo e o jato de liquido enche em camadas
+						function dk.pour()
+							MR.rWant = base + V3(0, 2.9, 0)
+							run(0.45, function() end)
+							local N = 16
+							local beads = {}
+							for i = 1, N do
+								beads[i] = ball(model, 0.34, base, liq:Lerp(WHT, 0.25), M.Neon, {shadow = false, trans = 0.05})
+								extras[#extras + 1] = beads[i]
+							end
+							info.bub.Rate = 30
+							local t0 = os.clock()
+							run(1.7, function(k)
+								local kk = ease(k)
+								info.fill(kk)
+								local surf = base + V3(0, info.Y0 + info.HT * kk, 0)
+								local a = MR.shaker and MR.shaker.Position or (base + V3(1.5, 2.5, 0))
+								local c = V3(surf.X + (a.X - surf.X) * 0.35, a.Y + 0.5, surf.Z + (a.Z - surf.Z) * 0.35)
+								local el = os.clock() - t0
+								local ph = (el * 1.8) % 1
+								local fade = (k > 0.9) and (1 - (k - 0.9) / 0.1) or 1
+								for i, bd in ipairs(beads) do
+									local u = ((i - 1) / N + ph) % 1
+									bd.Position = bez(a, c, surf, u)
+									local s = math.max(0.06, 0.34 * fade * (0.85 + 0.15 * sin(el * 14 + i)))
+									bd.Size = V3(s, s, s)
+								end
+							end)
+							info.fill(1)
+							info.bub.Rate = 8
+							for _, bd in ipairs(beads) do pcall(function() bd:Destroy() end) end
+							MR.rWant = nil
+						end
+				
+						-- 3) o Morty poe o gelo (um por um), o canudo e a lima no copo com a mao esquerda
+						-- (a mao pega atras do balcao, leva em arco ate cima do copo e solta)
+						function dk.garnish()
+							local G = info.groups
+							local d0 = V3(0, -1, 0)
+							local dA = (dP + V3(0, 0.8, 0)).Unit
+							local dc = d0
+							local function center(list)
+								local sum = V3(0, 0, 0)
+								for _, e in ipairs(list) do sum = sum + e.rest.Position end
+								return sum / #list
+							end
+							-- off = onde (em relacao ao copo) fica o centro do grupo; o root do copo esta sem rotacao
+							local function shift(list, ctr, off, spin)
+								for _, e in ipairs(list) do
+									e.p.Transparency = e.tr
+									local c = CF(off - ctr) * e.rest
+									e.w.C0 = spin and (c * ANG(spin, 0, 0)) or c
+								end
+							end
+							local function carry(list, dropT, spin)
+								local ctr = center(list)
+								-- volta a mao pro ponto de pegar
+								if dc ~= d0 then
+									local from = dc
+									run(0.2, function(k) MR.lWant = handPoint(from:Lerp(d0, ease(k)).Unit) end)
+									dc = d0
+								end
+								-- o item aparece na mao
+								MR.lWant = handPoint(d0)
+								shift(list, ctr, handPoint(d0) - base)
+								info.spark:Emit(6)
+								-- leva em arco ate cima do copo
+								run(0.35, function(k)
+									local e = ease(k)
+									local d = (d0:Lerp(dA, e) + V3(0, 0.4 * sin(e * pi), 0)).Unit
+									local hp = handPoint(d)
+									MR.lWant = hp
+									shift(list, ctr, hp - base)
+								end)
+								dc = dA
+								-- solta: cai (ou desce, no caso do canudo) ate o lugar dentro do copo
+								local from = handPoint(dA) - base
+								run(dropT, function(k)
+									MR.lWant = handPoint(dA)
+									shift(list, ctr, from:Lerp(ctr, k * k), spin and (ease(k) * pi * 4) or nil)
+								end)
+								for _, e in ipairs(list) do
+									e.p.Transparency = e.tr
+									e.w.C0 = e.rest
+								end
+								info.spark:Emit(5)
+								ring(base + V3(0, info.Y0 + info.HT, 0), liq, 1.4)
+							end
+							for _, e in ipairs(G.ice) do carry({e}, 0.18, nil) end
+							carry(G.straw, 0.4, nil)
+							carry(G.lime, 0.25, true)
+							-- braco volta pra posicao de descanso
+							run(0.3, function(k) MR.lWant = handPoint(dA:Lerp(d0, ease(k)).Unit) end)
+							MR.lWant = nil
+							for _, g in pairs(G) do
+								for _, e in ipairs(g) do
+									e.p.Transparency = e.tr
+									e.w.C0 = e.rest
+								end
+							end
+							info.spark:Emit(14)
+						end
+
+						-- 4) o Morty empurra o copo pelo balcao ate voce: o braco da o empurrao (mao do lado oposto ao destino)
+						-- e depois o copo continua deslizando sozinho, girando e com rastro de faiscas
+						function dk.slide(zc)
+							local to = O + V3(96.2, 4.3, zc)
+							local dzs = to.Z - base.Z
+							-- destino pro lado esquerdo do Morty (+Z do mundo): empurra com a mao direita; senao, com a esquerda
+							local rightHand = dzs > 0
+							local side = rightHand and -1 or 1
+							local hy = base.Y + 0.95
+							local function contact(p) return V3(p.X, hy, p.Z + side * 0.85) end
+							local function aim(pt)
+								if rightHand then MR.rWant = pt else MR.lWant = pt end
+							end
+							local restPt = handPoint(V3(0, -1, 0))
+							local W = contact(base) + V3(0, 0.4, side * 1.0)
+							-- 1) braco vai pro lado do copo
+							if rightHand then
+								aim(W)
+								run(0.5, function() end)
+							else
+								run(0.3, function(k) MR.lWant = restPt:Lerp(W, ease(k)) end)
+							end
+							-- 2) empurrao + deslize
+							local T = math.clamp(0.8 + math.abs(dzs) * 0.045, 0.9, 1.5)
+							info.spark.Rate = 40
+							local released, relK, lastHand = false, 0, W
+							run(T, function(k)
+								local e = 1 - (1 - k) ^ 3
+								local p = base:Lerp(to, e)
+								place(p, 0, e * pi * 2, sin(k * pi * 3) * 0.12 * (1 - k))
+								if not released then
+									if (p - base).Magnitude < 1.7 and k < 0.35 then
+										lastHand = contact(p)
+										aim(lastHand)
+									else
+										released, relK = true, k
+										if rightHand then MR.rWant = nil end
+									end
+								elseif not rightHand then
+									MR.lWant = lastHand:Lerp(restPt, ease(math.clamp((k - relK) / 0.3, 0, 1)))
+								end
+							end)
+							info.spark.Rate = 0
+							if rightHand then MR.rWant = nil else MR.lWant = nil end
+							cur = to
+							place(cur, 0, 0, 0)
+							ring(cur + V3(0, 0.1, 0), liq, 4)
+						end
+
+						-- 5) copo levita pulsando e espera o clique do jogador (devolve true se clicou)
+						function dk.offer(timeout)
+							local hit = attach(root, CF(0, 1.0, 0), V3(2.4, 3.4, 2.4), WHT, M.SmoothPlastic, {shadow = false, trans = 1})
+							hit.CanQuery = true
+							parts[#parts + 1] = hit
+							local cd = Instance.new("ClickDetector")
+							cd.MaxActivationDistance = 60
+							cd.Parent = hit
+							local bb = Instance.new("BillboardGui")
+							bb.Adornee = root
+							bb.Size = UDim2.fromOffset(210, 34)
+							bb.StudsOffset = V3(0, 3.6, 0)
+							bb.AlwaysOnTop = true
+							bb.MaxDistance = 70
+							bb.Parent = root
+							local bf = Instance.new("Frame")
+							bf.Size = UDim2.fromScale(1, 1)
+							bf.BackgroundColor3 = C(12, 6, 30)
+							bf.BackgroundTransparency = 0.15
+							bf.Parent = bb
+							Instance.new("UICorner", bf).CornerRadius = UDim.new(0, 10)
+							local bs = Instance.new("UIStroke", bf)
+							bs.Color, bs.Thickness = GRN, 2
+							local bl = Instance.new("TextLabel")
+							bl.Size = UDim2.fromScale(1, 1)
+							bl.BackgroundTransparency = 1
+							bl.Font = Enum.Font.GothamBold
+							bl.TextSize = 15
+							bl.TextColor3 = GRN
+							bl.Text = "Clique no copo pra pegar"
+							bl.Parent = bf
+							local clicked = false
+							local conn = cd.MouseClick:Connect(function(plr)
+								if plr == player then clicked = true end
+							end)
+							info.spark.Rate = 6
+							local t0 = os.clock()
+							while model.Parent and not clicked and os.clock() - t0 < timeout do
+								local t = os.clock() - t0
+								local lift = 0.55 * ease(math.min(1, t / 0.45)) + 0.12 * sin(t * 3)
+								place(cur, lift, t * 1.3, 0)
+								local pl = 0.5 + 0.5 * sin(t * 6)
+								info.rim.Color = liq:Lerp(WHT, pl * 0.6)
+								info.light.Brightness = 1 + 1.2 * pl
+								RunService.Heartbeat:Wait()
+							end
+							conn:Disconnect()
+							pcall(function() bb:Destroy() end)
+							pcall(function() hit:Destroy() end)
+							info.spark.Rate = 0
+							return clicked
+						end
+				
+						-- 6a) clicou: copo voa ate o jogador e vira item (o Tool e criado por D.giveTool)
+						function dk.take(hrp)
+							local from = cur + V3(0, 0.6, 0)
+							local to = hrp and (hrp.Position + V3(0, 1.4, 0)) or (from + V3(0, 3, 0))
+							info.spark.Rate = 50
+							run(0.5, function(k)
+								place(from:Lerp(to, ease(k)) + V3(0, 1.6 * sin(k * pi), 0), 0, k * pi * 4, 0)
+							end)
+							info.spark.Rate = 0
+							info.spark:Emit(35)
+							ring(to, liq, 5)
+							task.delay(0.8, dk.wipe)
+						end
+				
+						-- 6b) ninguem clicou: copo evapora
+						function dk.expire()
+							info.spark:Emit(30)
+							ring(cur + V3(0, 0.5, 0), liq, 4)
+							task.delay(0.6, dk.wipe)
+						end
+						return dk
+					end
+				
+					-- item no inventario: copo cheio. Clicar (equipado) = beber; o copo quebra e o item some.
+					function D.giveTool(fl, onDrink)
+						local liq = fl.liquid
+						local sc = 0.55
+						local tool = Instance.new("Tool")
+						tool.Name = fl.name
+						tool.ToolTip = "Clique pra beber"
+						tool.RequiresHandle = true
+						tool.CanBeDropped = false
+						local _, info = cup(V3(0, 0, 0), liq, true, tool, sc)
+						local handle = info.root
+						for _, g in pairs(info.groups) do
+							for _, e in ipairs(g) do e.p.Transparency = e.tr end
+						end
+						local gripPos = CFrame.new(0, 0.95 * sc, 0)
+						tool.Grip = gripPos
+						local drinking = false
+						tool.Activated:Connect(function()
+							if drinking then return end
+							drinking = true
+							tool.Enabled = false
+							local fired = false
+							run(1.1, function(k)
+								local e = ease(math.min(1, k / 0.8))
+								-- inclina o copo pra boca e sobe ate o rosto
+								tool.Grip = gripPos * ANG(-2.0 * e, 0, 0) * CFrame.new(0, -1.0 * e, -0.5 * e)
+								info.fill(1 - math.clamp((k - 0.4) / 0.5, 0, 1))
+								if k > 0.45 and not fired then
+									fired = true
+									if onDrink then task.spawn(onDrink) end
+								end
+							end, function() return tool.Parent ~= nil end)
+							-- quebra: cacos de vidro, gotas e faiscas; o item some do inventario
+							local pos = handle.Position
+							local fxp = Instance.new("Part")
+							fxp.Anchored, fxp.CanCollide, fxp.CanQuery, fxp.CanTouch = true, false, false, false
+							fxp.Transparency = 1
+							fxp.Size = V3(0.2, 0.2, 0.2)
+							fxp.Position = pos
+							fxp.Parent = workspace
+							local em = Instance.new("ParticleEmitter")
+							em.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+							em.Rate = 0
+							em.LightEmission = 1
+							em.Color = ColorSequence.new(liq:Lerp(WHT, 0.4), liq)
+							em.Lifetime = NumberRange.new(0.5, 1.1)
+							em.Speed = NumberRange.new(4, 9)
+							em.SpreadAngle = Vector2.new(180, 180)
+							em.Acceleration = V3(0, -8, 0)
+							em.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0)})
+							em.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+							em.Parent = fxp
+							em:Emit(40)
+							Debris:AddItem(fxp, 1.6)
+							for i = 1, 12 do
+								local s = Instance.new("Part")
+								s.Size = V3(0.12 + math.random() * 0.18, 0.06, 0.12 + math.random() * 0.18)
+								s.Color = GLASS
+								s.Material = Enum.Material.Glass
+								s.Transparency = 0.35
+								s.CanCollide = false
+								s.CanQuery = false
+								s.CanTouch = false
+								s.CFrame = CFrame.new(pos + V3((math.random() - 0.5) * 0.6, math.random() * 0.4, (math.random() - 0.5) * 0.6))
+									* CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+								s.AssemblyLinearVelocity = V3((math.random() - 0.5) * 16, 4 + math.random() * 8, (math.random() - 0.5) * 16)
+								s.AssemblyAngularVelocity = V3((math.random() - 0.5) * 20, (math.random() - 0.5) * 20, (math.random() - 0.5) * 20)
+								s.Parent = workspace
+								Debris:AddItem(s, 2.5)
+								task.delay(0.25, function() s.CanCollide = true end)
+							end
+							for i = 1, 8 do
+								local d = Instance.new("Part")
+								d.Shape = Enum.PartType.Ball
+								d.Size = V3(0.18, 0.18, 0.18)
+								d.Color = liq
+								d.Material = Enum.Material.Neon
+								d.CanCollide, d.CanQuery, d.CanTouch = false, false, false
+								d.Position = pos
+								d.AssemblyLinearVelocity = V3((math.random() - 0.5) * 10, 2 + math.random() * 6, (math.random() - 0.5) * 10)
+								d.Parent = workspace
+								Debris:AddItem(d, 0.9)
+							end
+							pcall(function() tool:Destroy() end)
+						end)
+						local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
+						tool.Parent = bp or player.Character
+						return tool
+					end
+					return D
+				end)()
 
 				-- balao de fala
 				local bubble = Instance.new("BillboardGui")
 				bubble.Adornee = head
 				bubble.Size = UDim2.fromOffset(300, 64)
-				bubble.StudsOffset = V3(0, 3.2, 0)
+				bubble.StudsOffset = V3(0, 3.0, 0)
 				bubble.AlwaysOnTop = true
 				bubble.MaxDistance = 90
 				bubble.Enabled = false
@@ -2790,8 +3516,75 @@ local function setupRickGun(character)
 					end)
 				end
 
+				-- falas do Morty: mesmo sistema do script (texto letra por letra sobre a cabeca), com falas e cores proprias
+				local MFALAS = {
+					greet = {
+						{ "A-aw geez, bem-vindo ao Bar do Rick, {nome}! Senta aí que eu preparo algo.", "nervoso", 1 },
+						{ "Opa, cliente novo! O Rick disse pra eu não deixar ninguém tocar no fluido de portal... mas toma um.", "nervoso", 1 },
+						{ "Entra, entra! Aqui o multiverso inteiro toma uma, ah... geez.", "animado", 1 },
+					},
+					idle = {
+						{ "Aperte E em mim pra pedir um drink.", "animado", 1 },
+						{ "Já provou o Synthwave Sour? É, tipo, muito bom.", "animado", 1 },
+						{ "Cuidado com o fluido de portal... ele é forte, o Rick que disse.", "nervoso", 1 },
+						{ "Aqui ninguém paga imposto interdimensional, eu acho.", "nervoso", 1 },
+					},
+					javou = {
+						{ "Já vou, geez!", "nervoso", 1 },
+						{ "A-aqui, já tô indo!", "nervoso", 1 },
+					},
+					pedido = {
+						{ "Um {drink} saindo!", "animado", 1 },
+						{ "{drink}? Boa escolha, eu acho... geez.", "nervoso", 1 },
+						{ "Já já fica pronto o seu {drink}!", "animado", 1 },
+					},
+					pronto = {
+						{ "Aqui está, viajante! Clica no copo pra pegar.", "animado", 1 },
+						{ "Pronto! É só clicar no copo.", "animado", 1 },
+					},
+					toma = {
+						{ "Toma! Equipa e clica pra beber.", "animado", 1 },
+						{ "Aproveita! Não conta pro Rick, tá?", "nervoso", 1 },
+					},
+					sentou = {
+						{ "O que vai ser, viajante? Aperte E em mim pra pedir.", "animado", 1 },
+						{ "Fica à vontade! É só apertar E em mim pra pedir.", "nervoso", 1 },
+					},
+					limpar = {
+						{ "Esse balcão tá, tipo, nojento... geez.", "nervoso", 1 },
+						{ "O Rick nunca limpa nada aqui.", "nervoso", 1 },
+					},
+					garrafas = {
+						{ "O Rick me mata se uma garrafa cair...", "nervoso", 1 },
+						{ "Essa garrafa é de outra dimensão, melhor ter cuidado.", "nervoso", 1 },
+					},
+					shaker = {
+						{ "Ainda tá cheio... eu acho.", "nervoso", 1 },
+						{ "Será que esse shaker tá, ah, funcionando?", "nervoso", 1 },
+					},
+				}
+				local MCHANCE = { greet = 1, idle = 1, javou = 1, pedido = 1, pronto = 1, toma = 1, sentou = 1, limpar = 0.6, garrafas = 0.6, shaker = 0.6 }
+				local MF
+				pcall(function()
+					if Z.fala and Z.fala.criar then
+						MF = Z.fala.criar(function() return head end, MFALAS, MCHANCE, function() return Z.alive end, 2.3, 90)
+						model.Destroying:Connect(function() pcall(MF.destruir) end)
+					end
+				end)
+				-- diz("categoria", {vars}): usa o sistema de falas; se ele nao carregou, cai no balao antigo
+				local function diz(cat, vars)
+					if MF then MF.dizer(cat, vars) return end
+					local lista = MFALAS[cat]
+					if not lista then return end
+					local f = lista[math.random(#lista)]
+					local v = vars or {}
+					local txt = (f[1]:gsub("{(%w+)}", function(k) return v[k] or player.DisplayName end))
+					say(txt, 4)
+				end
+
 				-- efeito de bebida: tela colorida, blur e FOV ondulando
 				local function drinkEffect()
+					local Lighting = game:GetService("Lighting")
 					local cam = workspace.CurrentCamera
 					local cc = Instance.new("ColorCorrectionEffect")
 					cc.Parent = Lighting
@@ -2818,27 +3611,276 @@ local function setupRickGun(character)
 					end)
 				end
 
-				local busy, shaking, pp = false, false, nil
+				local busy, shaking, pouring, pp = false, false, false, nil
+
+				-- ===== comportamento do Morty: anda atras do balcao, faz tarefas e volta pro posto quando alguem senta ou pede =====
+				local BHV = {atPost = true, callPost = false, serving = false, nextTask = os.clock() + 5}
+				local POST_X, POST_Z, POST_YAW = BASE.Position.X, BASE.Position.Z, pi / 2
+				MR.px, MR.pz, MR.yaw, MR.walking, MR.speedF = POST_X, POST_Z, POST_YAW, false, 1
+				do
+					local function angDiff(a, b) return (a - b + pi) % (2 * pi) - pi end
+					local function ez(k) return k * k * (3 - 2 * k) end
+					-- o model so recebe Parent no fim da construcao da dimensao: antes disso conta como vivo
+					local bornAt, seen = os.clock(), false
+					local function alive()
+						if model.Parent then seen = true return true end
+						return (not seen) and os.clock() - bornAt < 120
+					end
+					local function interrupted()
+						return (not alive()) or sitting or BHV.callPost or busy
+					end
+					local function relax()
+						if not BHV.serving then
+							MR.lWant, MR.rWant = nil, nil
+							pcall(function() MR.rag.Transparency = 1 end)
+						end
+					end
+					-- executa fn(k) por dur segundos; devolve false se algo interromper (alguem sentou, pediu drink...)
+					local function step(dur, fn)
+						local t0 = os.clock()
+						while true do
+							if interrupted() then return false end
+							local k = (os.clock() - t0) / dur
+							if k >= 1 then fn(1) return true end
+							fn(k)
+							RunService.Heartbeat:Wait()
+						end
+					end
+					local function turnTo(yaw)
+						local guard = 0
+						while alive() and math.abs(angDiff(yaw, MR.yaw)) > 0.04 and guard < 120 do
+							guard = guard + 1
+							local dt = RunService.Heartbeat:Wait()
+							MR.yaw = MR.yaw + math.clamp(angDiff(yaw, MR.yaw), -7 * dt, 7 * dt)
+						end
+						MR.yaw = yaw
+					end
+					-- force = true: ignora interrupcoes (usado pra voltar ao posto)
+					local function walkTo(x, z, speed, force)
+						BHV.atPost = false
+						MR.speedF = speed / 5.5
+						local ok = true
+						while alive() do
+							if not force and interrupted() then ok = false break end
+							local dx, dz = x - MR.px, z - MR.pz
+							local d = math.sqrt(dx * dx + dz * dz)
+							if d < 0.08 then break end
+							MR.walking = true
+							local dt = RunService.Heartbeat:Wait()
+							local sd = math.min(d, speed * dt)
+							MR.px = MR.px + dx / d * sd
+							MR.pz = MR.pz + dz / d * sd
+							local want = math.atan2(-dx, -dz)
+							MR.yaw = MR.yaw + math.clamp(angDiff(want, MR.yaw), -8 * dt, 8 * dt)
+						end
+						MR.walking = false
+						return ok
+					end
+					local function goPost(speed)
+						if BHV.atPost then return end
+						relax()
+						walkTo(POST_X, POST_Z, speed or 6.5, true)
+						turnTo(POST_YAW)
+						MR.px, MR.pz = POST_X, POST_Z
+						BHV.atPost = true
+					end
+					local function restPt()
+						return MR.root.CFrame:PointToWorldSpace(V3(-MS, 0.5 * MS, 0) + V3(0, -1, 0) * MR.lLen)
+					end
+
+					-- tarefa 1: limpar o balcao com um pano
+					local function tWipe()
+						local z = O.Z + cz + (math.random() * 18 - 9)
+						local ok = walkTo(POST_X, z, 5.2)
+						if ok then
+							turnTo(POST_YAW)
+							diz("limpar")
+							MR.rag.Transparency = 0
+							local function pt(off) return V3(O.X + 97.75, O.Y + 4.42, MR.pz + MS + off) end
+							ok = step(0.4, function(k) MR.lWant = restPt():Lerp(pt(0), ez(k)) end)
+							ok = ok and step(3.4, function(k) MR.lWant = pt(1.2 * sin(k * pi * 3)) end)
+							ok = ok and step(0.35, function(k) MR.lWant = pt(0):Lerp(restPt(), ez(k)) end)
+						end
+						relax()
+						return ok
+					end
+
+					-- tarefa 2: arrumar as garrafas da prateleira (levanta, gira o rotulo pra frente e devolve)
+					local bottleCache
+					local function loadBottles()
+						if bottleCache then return bottleCache end
+						bottleCache = {}
+						local x0 = O.X + BX1 - T - 0.9
+						for _, d in ipairs(model:GetDescendants()) do
+							if d:IsA("BasePart") and d.Anchored then
+								local pp2, sz = d.Position, d.Size
+								if math.abs(pp2.X - x0) < 1.3 and pp2.Y > O.Y + 6.3 and pp2.Y < O.Y + 10.4 and sz.Z < 3 and sz.X < 2.2 then
+									local i = math.floor((pp2.Z - (O.Z + cz - 12)) / 2.18 + 0.5)
+									if i >= 0 and i <= 11 then
+										bottleCache[i] = bottleCache[i] or {}
+										table.insert(bottleCache[i], {p = d, cf = d.CFrame})
+									end
+								end
+							end
+						end
+						return bottleCache
+					end
+					local function tBottles()
+						local cache = loadBottles()
+						local x0 = O.X + BX1 - T - 0.9
+						local i = math.random(1, 10)
+						local touched = {}
+						local function zOf(j) return O.Z + cz - 12 + j * 2.18 end
+						local function pose(j, lift, ang)
+							local recs = cache[j]
+							if not recs then return end
+							local piv = V3(x0, O.Y + 8, zOf(j))
+							local TT = CF(0, lift, 0) * CF(piv) * ANG(0, ang, 0) * CF(-piv)
+							for _, rc in ipairs(recs) do
+								pcall(function() rc.p.CFrame = TT * rc.cf end)
+							end
+						end
+						local ok = walkTo(O.X + 101.9, zOf(i) + MS, 5.2)
+						if ok then
+							turnTo(-pi / 2)
+							diz("garrafas")
+							local function hand(j, lift) return V3(x0 - 0.5, O.Y + 7.2 + lift * 0.3, zOf(j)) end
+							ok = step(0.5, function(k) MR.lWant = restPt():Lerp(hand(i, 0), ez(k)) end)
+							for _, j in ipairs({i, i + 1}) do
+								if not ok then break end
+								touched[#touched + 1] = j
+								local from = MR.lWant
+								ok = step(0.3, function(k) MR.lWant = from:Lerp(hand(j, 0), ez(k)) end)
+								ok = ok and step(0.35, function(k) local l = 0.5 * ez(k) pose(j, l, 0) MR.lWant = hand(j, l) end)
+								ok = ok and step(0.8, function(k) pose(j, 0.5, ez(k) * pi * 2) MR.lWant = hand(j, 0.5) end)
+								ok = ok and step(0.35, function(k) local l = 0.5 * (1 - ez(k)) pose(j, l, 0) MR.lWant = hand(j, l) end)
+								pose(j, 0, 0)
+							end
+							ok = ok and step(0.4, function(k) MR.lWant = hand(i + 1, 0):Lerp(restPt(), ez(k)) end)
+						end
+						for _, j in ipairs(touched) do
+							for _, rc in ipairs(cache[j] or {}) do
+								pcall(function() rc.p.CFrame = rc.cf end)
+							end
+						end
+						relax()
+						return ok
+					end
+
+					-- tarefa 3: conferir o shaker (levanta na frente do rosto e chacoalha)
+					local function tShaker()
+						local z = O.Z + cz + (math.random() * 14 - 7)
+						local ok = walkTo(POST_X, z, 5.2)
+						if ok then
+							turnTo(POST_YAW)
+							local function sp(j) return MR.root.CFrame:PointToWorldSpace(V3(0.4 * MS, 1.1 * MS + j, -1.5 * MS)) end
+							ok = step(0.6, function() MR.rWant = sp(0) end)
+							if ok then DR.shakeFx(true, GRN) end
+							ok = ok and step(1.8, function(k) MR.rWant = sp(0.2 * sin(k * pi * 18)) end)
+							if not BHV.serving then DR.shakeFx(false) end
+							diz("shaker")
+						end
+						relax()
+						return ok
+					end
+
+					task.spawn(function()
+						local announced, waiting, lastPick = false, false, 0
+						while alive() do
+							RunService.Heartbeat:Wait()
+							if BHV.serving then
+								-- o drink assume os bracos
+							elseif BHV.callPost or sitting then
+								if not BHV.atPost then goPost(BHV.callPost and 7.5 or 6.5) end
+								if sitting and BHV.atPost and not busy then
+									if not announced then
+										announced = true
+										diz("sentou")
+									end
+									waiting = true
+									-- esperando o pedido: mao esquerda apoiada no balcao, tamborilando
+									MR.lWant = V3(O.X + 97.75, O.Y + 4.42, MR.pz + MS + 0.25 * sin(os.clock() * 6))
+								end
+								BHV.nextTask = os.clock() + 6
+							else
+								announced = false
+								if waiting then waiting = false relax() end
+								if os.clock() >= BHV.nextTask and not busy then
+									local pick = math.random(1, 3)
+									if pick == lastPick then pick = pick % 3 + 1 end
+									lastPick = pick
+									if pick == 1 then tWipe() elseif pick == 2 then tBottles() else tShaker() end
+									if not interrupted() then
+										if math.random() < 0.4 then
+											BHV.nextTask = os.clock() + 0.6
+										else
+											goPost(5)
+											BHV.nextTask = os.clock() + math.random(6, 11)
+										end
+									end
+								end
+							end
+						end
+					end)
+				end
 				local function serve()
 					if busy then return end
 					busy = true
 					if pp then pp.Enabled = false end
 					task.spawn(function()
+						-- se o Morty estiver longe do balcao, ele volta antes de preparar
+						BHV.callPost = true
+						if not BHV.atPost then diz("javou") end
+						local tw = os.clock()
+						while not BHV.atPost and os.clock() - tw < 12 and model.Parent do
+							RunService.Heartbeat:Wait()
+						end
+						if not BHV.atPost then
+							MR.px, MR.pz, MR.yaw, MR.walking = POST_X, POST_Z, POST_YAW, false
+							BHV.atPost = true
+						end
+						BHV.callPost = false
+						BHV.serving = true
+						MR.lWant, MR.rWant = nil, nil
 						local fl = FLAVORS[math.random(#FLAVORS)]
-						say("Um " .. fl.name .. " saindo!", 3)
+						diz("pedido", {drink = fl.name})
 						shaking = true
-						task.wait(2.2)
-						shaking = false
-						local char = player.Character
-						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						local zc = hrp and math.clamp(hrp.Position.Z - O.Z, cz - 12, cz + 12) or cz
-						local parts = cup(O + V3(96.2, 4.3, zc), fl.liquid)
-						say("Aqui esta, viajante! Bebe ai.", 2.5)
-						task.wait(2)
-						for _, p in ipairs(parts) do p:Destroy() end
-						say("Saude!", 2)
-						drinkEffect()
-						task.wait(10)
+						DR.shakeFx(true, fl.liquid)
+						local dk
+						local ok, err = pcall(function()
+							dk = DR.make(fl.liquid)
+							dk.fetch() -- mao esquerda pega o copo e poe no balcao enquanto a direita balanca o shaker
+							task.wait(0.4)
+							shaking = false
+							DR.shakeFx(false)
+							pouring = true
+							dk.pour()
+							pouring = false
+							dk.garnish()
+							local char = player.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							local zc = hrp and math.clamp(hrp.Position.Z - O.Z, cz - 12, cz + 12) or cz
+							diz("pronto")
+							dk.slide(zc)
+							if dk.offer(40) then
+								local ch2 = player.Character
+								dk.take(ch2 and ch2:FindFirstChild("HumanoidRootPart"))
+								DR.giveTool(fl, drinkEffect)
+								diz("toma")
+							else
+								dk.expire()
+							end
+						end)
+						if not ok then
+							warnRG("Morty drink: " .. tostring(err))
+							shaking, pouring = false, false
+							DR.shakeFx(false)
+							MR.lWant, MR.rWant = nil, nil
+							if dk then dk.wipe() end
+						end
+						task.wait(1)
+						BHV.serving = false
+						BHV.nextTask = os.clock() + 8
 						busy = false
 						if pp then pp.Enabled = true end
 					end)
@@ -2846,7 +3888,7 @@ local function setupRickGun(character)
 				pcall(function()
 					pp = Instance.new("ProximityPrompt")
 					pp.ActionText = "Pedir drink"
-					pp.ObjectText = "Barman"
+					pp.ObjectText = "Morty"
 					pp.HoldDuration = 0.2
 					pp.MaxActivationDistance = 14
 					pp.RequiresLineOfSight = false
@@ -2856,28 +3898,47 @@ local function setupRickGun(character)
 
 				local headYaw, wasInside, greetT, nextIdle = 0, false, -100, 0
 				local function updBarman(t, pos)
-					local bob = sin(t * 1.6) * 0.06
-					torso.CFrame = BASE * CF(0, bob, 0)
+					local dt = math.clamp(t - (MR.lastT or t), 0, 0.1)
+					MR.lastT = t
+					MR.walkAmt = (MR.walkAmt or 0) + ((MR.walking and 1 or 0) - (MR.walkAmt or 0)) * math.min(1, dt * 10)
+					MR.walkPh = (MR.walkPh or 0) + dt * 9 * (MR.speedF or 1) * MR.walkAmt
+					local wa = MR.walkAmt
+					local sw = sin(MR.walkPh) * 0.65 * wa
+					local bob = sin(t * 1.6) * 0.06 * (1 - wa) + math.abs(sin(MR.walkPh)) * 0.12 * wa
+					MR.root.CFrame = CF(MR.px, BASE.Position.Y + bob, MR.pz) * ANG(0, MR.yaw, 0)
+					MR.rHip.C0 = MR.rHipC0 * ANG(0, 0, sw)
+					MR.lHip.C0 = MR.lHipC0 * ANG(0, 0, sw)
 					local rel = 0
 					if pos then
-						local dx, dz = pos.X - (O.X + BXp.X), pos.Z - (O.Z + BXp.Z)
+						local dx, dz = pos.X - MR.px, pos.Z - MR.pz
 						if dx * dx + dz * dz < 2500 then
-							rel = math.clamp((math.atan2(-dx, -dz) - pi / 2 + pi) % (2 * pi) - pi, -1.1, 1.1)
+							rel = math.clamp((math.atan2(-dx, -dz) - MR.yaw + pi) % (2 * pi) - pi, -1.1, 1.1)
 						end
 					end
 					headYaw = headYaw + (rel - headYaw) * 0.15
-					head.CFrame = BASE * CF(0, 2.8 + bob, 0) * ANG(0, headYaw, 0)
-					armR.CFrame = BASE * CF(1.75, 1.4 + bob, 0)
-						* ANG(shaking and (1.2 + 0.3 * sin(t * 16)) or (0.12 + 0.05 * sin(t * 1.6)), 0, 0)
+					MR.neck.C0 = MR.neckC0 * ANG(0, 0, headYaw)
+					local target = pouring and (2.1 + 0.05 * sin(t * 5))
+						or (shaking and (1.2 + 0.3 * sin(t * 16)) or (0.12 + 0.05 * sin(t * 1.6)))
+					MR.armA = shaking and target or (MR.armA + (target - MR.armA) * 0.18)
+					local rc0 = MR.shoulderC0 * ANG(0, 0, MR.armA - sw * 0.5)
+					if MR.rWant then MR.rLast = MR.rWant end
+					MR.rBlend = MR.rBlend + ((MR.rWant and 1 or 0) - MR.rBlend) * 0.15
+					if MR.rBlend > 0.01 and MR.rLast then
+						local ik = MR.ikR(MR.rLast)
+						if ik then rc0 = rc0:Lerp(ik, MR.rBlend) end
+					end
+					MR.rShoulder.C0 = rc0
+					local lc0 = MR.lWant and MR.ikL(MR.lWant) or nil
+					MR.lShoulder.C0 = lc0 or (MR.lC0 * ANG(0, 0, 0.03 * sin(t * 1.3) - sw * 0.5))
 					if pos then
 						local inside = pos.X > O.X + BX0 + 1 and pos.X < O.X + BX1 and pos.Z > O.Z + BZ0 and pos.Z < O.Z + BZ1 and pos.Y < O.Y + H
 						if inside and not wasInside and t - greetT > 15 then
 							greetT = t
-							say(GREET[math.random(#GREET)], 4.5)
+							diz("greet")
 							nextIdle = t + 30
 						end
 						if inside and t > nextIdle and not busy then
-							say(IDLE[math.random(#IDLE)], 4)
+							diz("idle")
 							nextIdle = t + math.random(25, 45)
 						end
 						wasInside = inside

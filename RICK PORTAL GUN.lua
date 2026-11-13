@@ -23,6 +23,13 @@ local STEP_NAME = "RickPortalGunStep"
 
 local scriptAlive = true
 local State = { cleanup = nil, rebuilds = 0 }
+-- ganchos do Morty (Bar do Rick): State.morty = { onPortal, onShot, onTeleport }
+State.morty = nil
+State.mortyEvent = function(name, ...)
+	local m = State.morty
+	local f = m and m[name]
+	if f then pcall(f, ...) end
+end
 local rootConns = {}
 local safeSetup = nil
 
@@ -243,6 +250,32 @@ local Config = {
 	AccessoryLength = 2.5,
 	AccessoryGrip = Vector3.new(0, -0.6, -0.4),
 	AccessoryExtraRotation = Vector3.new(-90, 180, 0),
+
+	-- ===== CHAVE DA NAVE (item no inventario) =====
+	KeyToolName = "Chave da Nave",                  -- nome do item no inventario
+	KeyAccessoryId = 71337506344769,                -- acessorio do catalogo usado como visual da chave
+	KeyLength = 1.6,                                -- tamanho da chave na mao (studs, lado mais comprido)
+	KeyGrip = Vector3.new(0, 0, 0),                 -- posicao na mao (se ficar torta/afastada, ajuste aqui)
+	KeyRotation = Vector3.new(0, 0, 0),             -- rotacao na mao em graus (X, Y, Z)
+	KeyCooldown = 0.9,                              -- tempo minimo entre usos
+	KeySlotOffsetX = -142,                          -- posicao do mini slot (o da arma fica em -98)
+	KeyIcon = "🔑",                                 -- icone de reserva do slot (enquanto a miniatura carrega)
+
+	-- ===== NAVE DO RICK =====
+	ShipScale = 1,                                  -- tamanho da nave (1 = ~24 studs de diametro)
+	ShipSpeed = 95,                                 -- velocidade normal (studs/s)
+	ShipTurbo = 2.6,                                -- multiplicador do turbo (SHIFT / botao TURBO)
+	ShipAccel = 2.6,                                -- quao rapido acelera/freia
+	ShipTurnRate = 5,                               -- quao rapido o nariz vira
+	ShipPortalSize = Vector3.new(70, 70, 0.2),      -- tamanho do portal gigante no ceu
+	ShipPortalHeight = 130,                         -- altura do portal acima do ponto de pouso
+	ShipLandDistance = 26,                          -- distancia da nave ate voce quando pousa
+	ShipDescentTime = 4.2,                          -- tempo da descida
+	ShipSeatHeight = 1.5,                           -- ajuste fino: altura do boneco sentado (sobe/desce se ficar torto)
+	ShipBoardRadius = 8,                            -- andar ate esse raio do centro da nave = entra sozinho
+	ShipGroundSpeed = 45,                          -- velocidade no modo TERRA
+	ShipGroundTurbo = 2,                            -- multiplicador do turbo no modo TERRA
+	ShipAutoBoard = true,                           -- false = so entra pelo botao PILOTAR / tecla E
 }
 
 -- Contador de inatividade: o portal fecha se ninguem entrar em PortalDuration segundos.
@@ -429,6 +462,120 @@ local function glassGradient(parent)
 	return g
 end
 
+-- ===== ANIMACOES DE UI (aplicadas automaticamente a todas as telas do script) =====
+-- hover/clique em botoes, "pop" ao aparecer, foco de caixas de texto, pulso de texto e de botoes
+local UIAnim = {}
+do
+	local BACK, QUAD = Enum.EasingStyle.Back, Enum.EasingStyle.Quad
+	local OUT, IN = Enum.EasingDirection.Out, Enum.EasingDirection.In
+	local running = setmetatable({}, { __mode = "k" })
+
+	-- uma UIScale por objeto (as ja existentes sao reaproveitadas); o tween anterior e cancelado
+	function UIAnim.getScale(o)
+		local s = o:FindFirstChildOfClass("UIScale")
+		if not s then
+			s = Instance.new("UIScale")
+			s.Name = "UIAnimScale"
+			s.Parent = o
+		end
+		return s
+	end
+
+	function UIAnim.scaleTo(o, v, t, style, dir)
+		local s = UIAnim.getScale(o)
+		local old = running[s]
+		if old then pcall(function() old:Cancel() end) end
+		local tw = TweenService:Create(s, TweenInfo.new(t, style or BACK, dir or OUT), { Scale = v })
+		running[s] = tw
+		tw:Play()
+		return tw
+	end
+
+	-- bate e volta (ex.: botao FIRE ao atirar)
+	function UIAnim.pulse(o, amt)
+		if not o or not o.Parent then return end
+		UIAnim.scaleTo(o, amt or 1.12, 0.08, QUAD)
+		task.delay(0.08, function()
+			if o.Parent then UIAnim.scaleTo(o, 1, 0.35) end
+		end)
+	end
+
+	-- aparece crescendo (com fade do fundo)
+	function UIAnim.pop(o, from)
+		if not o or not o.Parent then return end
+		UIAnim.getScale(o).Scale = from or 0.8
+		UIAnim.scaleTo(o, 1, 0.3)
+		local bt = o.BackgroundTransparency
+		if bt < 1 then
+			o.BackgroundTransparency = 1
+			TweenService:Create(o, TweenInfo.new(0.25, QUAD, OUT), { BackgroundTransparency = bt }):Play()
+		end
+	end
+
+	-- pulso sempre que o texto do label muda
+	function UIAnim.watchText(l)
+		local last = l.Text
+		l:GetPropertyChangedSignal("Text"):Connect(function()
+			if l.Text ~= last then
+				last = l.Text
+				if l.Visible then UIAnim.pulse(l, 1.14) end
+			end
+		end)
+	end
+
+	local function hasOwnScale(o)
+		for _, c in ipairs(o:GetChildren()) do
+			if c:IsA("UIScale") and c.Name ~= "UIAnimScale" then return true end
+		end
+		return false
+	end
+
+	local function setup(o)
+		if not o:IsA("GuiObject") then return end
+		o:GetPropertyChangedSignal("Visible"):Connect(function()
+			if o.Visible then UIAnim.pop(o) end
+		end)
+		if o:IsA("GuiButton") then
+			if hasOwnScale(o) then return end -- esse botao ja tem hover/clique proprio
+			o.MouseEnter:Connect(function() UIAnim.scaleTo(o, 1.06, 0.18) end)
+			o.MouseLeave:Connect(function() UIAnim.scaleTo(o, 1, 0.15, QUAD) end)
+			o.MouseButton1Down:Connect(function() UIAnim.scaleTo(o, 0.92, 0.07, QUAD) end)
+			o.MouseButton1Up:Connect(function() UIAnim.scaleTo(o, 1.04, 0.25) end)
+		elseif o:IsA("TextBox") then
+			local st = o:FindFirstChildOfClass("UIStroke")
+			local base = st and st.Thickness or 0
+			if not st then
+				st = Instance.new("UIStroke")
+				st.Thickness = 0
+				st.Color = Config.PortalColor
+				st.Transparency = 0.1
+				st.Parent = o
+			end
+			o.Focused:Connect(function()
+				TweenService:Create(st, TweenInfo.new(0.2), { Thickness = base + 2 }):Play()
+				UIAnim.scaleTo(o, 1.05, 0.25)
+			end)
+			o.FocusLost:Connect(function()
+				TweenService:Create(st, TweenInfo.new(0.25), { Thickness = base }):Play()
+				UIAnim.scaleTo(o, 1, 0.2, QUAD)
+			end)
+		end
+	end
+
+	-- liga as animacoes em tudo que existe (e que for criado depois) dentro de uma ScreenGui
+	function UIAnim.attach(root)
+		if root.Name == "RickPortalGunFlash" then return end
+		local function go(o)
+			-- defer: espera o codigo terminar de montar o elemento (ex.: UIScale propria) antes de decidir
+			task.defer(function()
+				if o.Parent then pcall(setup, o) end
+			end)
+		end
+		for _, d in ipairs(root:GetDescendants()) do go(d) end
+		root.DescendantAdded:Connect(go)
+	end
+end
+
 local function buildGun(container, withLight)
 	if not AccTemplate then return nil, {} end
 	local ah = AccTemplate:Clone()
@@ -442,6 +589,1937 @@ local function buildGun(container, withLight)
 	end
 	return ah, { Handle = ah, Custom = true }
 end
+
+-- ===================================================================
+-- NAVE DO RICK (chamada pela CHAVE DA NAVE, item do inventario)
+-- Usar a chave -> portal gigante no ceu -> a nave sai dele e pousa na sua frente
+-- -> voce entra, senta no banco do piloto e voa pra onde quiser.
+-- Usar a chave de novo (com a nave estacionada) abre um portal no ceu e a nave vai embora.
+-- Fica fora do setupRickGun pra nao estourar o limite de locals de la.
+-- ===================================================================
+State.buildShipSystem = function(ctx)
+	local Z = ctx.Z
+	local character, humanoid, rootPart, camera = ctx.character, ctx.humanoid, ctx.rootPart, ctx.camera
+	local ContextActionService = game:GetService("ContextActionService")
+	local C = Config
+
+	local SCALE = C.ShipScale or 1
+	local SPEED = C.ShipSpeed or 95
+	local TURBO = C.ShipTurbo or 2.6
+	local ACCEL = C.ShipAccel or 2.6
+	local TURN = C.ShipTurnRate or 5
+	local PORTAL_SIZE = C.ShipPortalSize or Vector3.new(70, 70, 0.2)
+	local PORTAL_H = C.ShipPortalHeight or 130
+	local LAND_DIST = C.ShipLandDistance or 26
+	local DESCENT = C.ShipDescentTime or 4.2
+	local SEAT_H = C.ShipSeatHeight or 1.5
+	local BOARD_R = (C.ShipBoardRadius or 8) * SCALE
+	local AUTO_BOARD = C.ShipAutoBoard ~= false
+	local LEG_H = 5.0 * SCALE                 -- centro da nave ate o chao com as rodas abaixadas
+	local CANOPY_OPEN = 1                       -- 0 = vidro fechado, 1 = aberto (progresso da animacao)
+	local CANOPY_ANGLE = math.rad(105)          -- quanto o vidro tomba pra tras ao abrir (graus)
+	local CANOPY_HINGE = Vector3.new(0, 3.8, 6.85) * SCALE -- dobradica: base traseira da cupula (nave aponta pra -Z)
+	local GEAR_TRAVEL = 3.0 * SCALE
+	local SEAT_REL = CFrame.new(-2.3 * SCALE, 4.5 * SCALE + SEAT_H, 0.9 * SCALE) -- banco esquerdo (motorista)
+	local STEP_ID = "RickShipStep"
+	local GROUND_SPEED = C.ShipGroundSpeed or 45
+	local GROUND_TURBO = C.ShipGroundTurbo or 2
+	local GROUND_ACCEL = 3.2
+	local STEP_UP = 3.5 * SCALE   -- degrau maximo que a nave sobe sozinha no modo terra
+	-- suspensao das rodas (mola + amortecedor)
+	local SUSP_BUMP = 1.8 * SCALE   -- curso maximo de compressao (roda sobe pro casco)
+	local SUSP_DROOP = 1.3 * SCALE  -- curso maximo de extensao (roda desce quando o chao some)
+	local SUSP_K = 145              -- dureza da mola
+	local SUSP_ZETA = 0.27          -- amortecimento (menor = quica mais)
+	local SUSP_LOAD = 0.9 * SCALE   -- quanto cada roda comprime/estica com curva, aceleracao e freada
+
+	local api = {}
+	local ship = nil
+	local busy = false
+	local destroyed = false
+	local lastBoard = 0
+	local skyPortals = {}
+	local jobs = {}
+	local held = { up = false, down = false, turbo = false }
+	local controls = nil
+	local savedCollide = {}
+	local savedJump = nil
+	local savedAutoRotate = nil
+	local baseFov = nil
+	local savedZoom = nil
+	local sinkBound = false
+
+	-- ---------------------------------------------------------------
+	-- HUD (botoes de voo, botao PILOTAR, aviso e velocimetro)
+	-- ---------------------------------------------------------------
+	local hud = ctx.newGui("RickShipHud", 26)
+	local ACC = C.PortalColor
+
+	local function styleBtn(b)
+		b.BackgroundColor3 = Theme.Bg
+		b.BackgroundTransparency = 0.12
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.TextColor3 = Theme.Text
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 14
+		b.ZIndex = 5
+		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+		local st = Instance.new("UIStroke")
+		st.Color = ACC
+		st.Thickness = 1.6
+		st.Parent = b
+	end
+
+	local pad = Instance.new("Frame")
+	pad.Name = "FlightPad"
+	pad.BackgroundTransparency = 1
+	pad.AnchorPoint = Vector2.new(1, 0.5)
+	pad.Position = UDim2.new(1, -14, 0.5, 0)
+	pad.Size = UDim2.fromOffset(76, 0)
+	pad.AutomaticSize = Enum.AutomaticSize.Y
+	pad.Visible = false
+	pad.Parent = hud
+	do
+		local lay = Instance.new("UIListLayout")
+		lay.SortOrder = Enum.SortOrder.LayoutOrder
+		lay.Padding = UDim.new(0, 8)
+		lay.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		lay.Parent = pad
+	end
+
+	local function padBtn(i, text)
+		local b = Instance.new("TextButton")
+		b.Name = "Btn" .. i
+		b.LayoutOrder = i
+		b.Size = UDim2.fromOffset(76, 50)
+		b.Text = text
+		styleBtn(b)
+		b.Parent = pad
+		return b
+	end
+	local btnMode = padBtn(1, "VOAR")
+	local btnUp = padBtn(2, "SOBE")
+	local btnDown = padBtn(3, "DESCE")
+	local btnTurbo = padBtn(4, "TURBO")
+	local btnExit = padBtn(5, "SAIR")
+	btnMode.TextColor3 = ACC
+
+	local function isPress(i)
+		return i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch
+	end
+	local function holdBtn(b, key)
+		b.InputBegan:Connect(function(i)
+			if isPress(i) then held[key] = true end
+		end)
+		b.InputEnded:Connect(function(i)
+			if isPress(i) then held[key] = false end
+		end)
+	end
+	holdBtn(btnUp, "up")
+	holdBtn(btnDown, "down")
+	btnTurbo.MouseButton1Click:Connect(function()
+		held.turbo = not held.turbo
+		btnTurbo.TextColor3 = held.turbo and ACC or Theme.Text
+	end)
+	btnExit.MouseButton1Click:Connect(function() api.exit() end)
+	btnMode.MouseButton1Click:Connect(function() api.toggleMode() end)
+
+	local boardBtn = Instance.new("TextButton")
+	boardBtn.Name = "BoardBtn"
+	boardBtn.AnchorPoint = Vector2.new(0.5, 1)
+	boardBtn.Position = UDim2.new(0.5, 0, 1, -120)
+	boardBtn.Size = UDim2.fromOffset(210, 48)
+	boardBtn.Text = "PILOTAR NAVE  (E)"
+	styleBtn(boardBtn)
+	boardBtn.TextSize = 16
+	boardBtn.Visible = false
+	boardBtn.Parent = hud
+	boardBtn.MouseButton1Click:Connect(function() api.board() end)
+
+	local function mkLabel(name, y, size)
+		local l = Instance.new("TextLabel")
+		l.Name = name
+		l.AnchorPoint = Vector2.new(0.5, 0)
+		l.Position = UDim2.new(0.5, 0, 0, y)
+		l.Size = UDim2.fromOffset(440, size + 10)
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.GothamBold
+		l.TextSize = size
+		l.TextColor3 = ACC
+		l.TextStrokeTransparency = 0.5
+		l.TextStrokeColor3 = Color3.new(0, 0, 0)
+		l.TextWrapped = true
+		l.Visible = false
+		l.ZIndex = 5
+		l.Parent = hud
+		return l
+	end
+	local infoLbl = mkLabel("Info", 18, 16)
+	local toastLbl = mkLabel("Toast", 54, 15)
+	toastLbl.TextColor3 = Theme.Text
+	local toastId = 0
+	local function toast(msg, dur)
+		toastId = toastId + 1
+		local my = toastId
+		toastLbl.Text = msg
+		toastLbl.Visible = true
+		task.delay(dur or 3, function()
+			if my == toastId then toastLbl.Visible = false end
+		end)
+	end
+	api.toast = toast
+
+	-- ---------------------------------------------------------------
+	-- Utilidades
+	-- ---------------------------------------------------------------
+	-- animate: roda fn(easedAlpha, rawAlpha) todo frame (no passo de render, antes da camera)
+	-- por "dur" segundos. Devolve true se terminou, false se foi interrompida.
+	local function animate(dur, fn, style, dir)
+		if destroyed or not Z.alive then return false end
+		local job = {
+			t0 = os.clock(), dur = math.max(dur, 0.01), fn = fn,
+			style = style or Enum.EasingStyle.Quad,
+			dir = dir or Enum.EasingDirection.InOut,
+			th = coroutine.running(), ok = false,
+		}
+		jobs[#jobs + 1] = job
+		coroutine.yield()
+		return job.ok
+	end
+
+	local function flushJobs()
+		local list = jobs
+		jobs = {}
+		for _, j in ipairs(list) do
+			j.ok = false
+			task.spawn(j.th)
+		end
+	end
+
+	local function wrapAng(a)
+		return (a + math.pi) % (math.pi * 2) - math.pi
+	end
+
+	-- CFrame de um portal horizontal (a face da frente aponta pra baixo)
+	local function skyCF(pos, rightHint)
+		local r = Vector3.new(rightHint.X, 0, rightHint.Z)
+		if r.Magnitude < 0.01 then r = Vector3.xAxis end
+		r = r.Unit
+		local vz = Vector3.yAxis
+		return CFrame.fromMatrix(pos, r, vz:Cross(r), vz)
+	end
+
+	local function castDir(origin, vec)
+		local ignore = buildIgnore(character, ship and ship.model)
+		for _, m in ipairs(skyPortals) do ignore[#ignore + 1] = m end
+		return castSolid(origin, vec, ignore)
+	end
+
+	-- devolve posicao e normal do chao abaixo de pos (comecando fromAbove acima)
+	local function groundAt(pos, fromAbove)
+		local res = castDir(pos + Vector3.new(0, fromAbove, 0), Vector3.new(0, -(fromAbove + 4000), 0))
+		if res then return res.Position, res.Normal end
+		return nil
+	end
+
+	local function openSky(cf)
+		local oldSize, oldGoo = C.PortalSize, C.GooDrips
+		C.PortalSize = PORTAL_SIZE
+		C.GooDrips = false
+		local ok, model = pcall(ctx.createPortalModel, cf)
+		if ok and model then pcall(ctx.openRipple, cf) end
+		C.PortalSize = oldSize
+		C.GooDrips = oldGoo
+		if ok and model then
+			skyPortals[#skyPortals + 1] = model
+			return model
+		end
+		return nil
+	end
+
+	local function closeSky(model)
+		if model then task.spawn(ctx.closePortal, model) end
+	end
+
+	local function dustAt(pos)
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Transparency = 1
+		p.Size = Vector3.new(1, 1, 1)
+		p.Position = pos + Vector3.new(0, 0.5, 0)
+		p.Parent = workspace
+		local em = Instance.new("ParticleEmitter")
+		em.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		em.Color = ColorSequence.new(Color3.fromRGB(190, 190, 185))
+		em.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3), NumberSequenceKeypoint.new(1, 14) })
+		em.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 1) })
+		em.Lifetime = NumberRange.new(1.2, 2.2)
+		em.Speed = NumberRange.new(18, 34)
+		em.SpreadAngle = Vector2.new(88, 88)
+		em.EmissionDirection = Enum.NormalId.Top
+		em.Drag = 3
+		em.Rate = 0
+		em.Parent = p
+		em:Emit(36)
+		Debris:AddItem(p, 3)
+	end
+
+	-- ---------------------------------------------------------------
+	-- Modelo da nave (todo procedural, nenhum asset externo)
+	-- Eixo: -Z = frente, +Y = cima
+	-- ---------------------------------------------------------------
+	local function buildShip()
+		local model = Instance.new("Model")
+		model.Name = "RickShip"
+
+		-- Peca raiz ancorada: so ela se mexe por frame. O resto fica soldado nela
+		-- (Weld), e so as partes animadas (rodas, cupula, turbinas) mexem no C0.
+		local root = Instance.new("Part")
+		root.Name = "Root"
+		root.Anchored = true
+		root.CanCollide = false
+		root.CanQuery = false
+		root.CanTouch = false
+		root.Transparency = 1
+		root.Size = Vector3.new(1, 1, 1)
+		root.Parent = model
+
+		local S = {
+			model = model, root = root,
+			parts = {}, gearParts = {}, canopyParts = {}, thrParts = {}, emitters = {},
+			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
+			yaw = 0, pitch = 0, roll = 0, yawRate = 0,
+			gear = 1, canopyAng = 0, state = "arriving", infoT = 0, shaking = false,
+			mode = "ground", vy = 0, spinDist = 0,
+			wheels = {}, suspDirty = false, landImpact = nil, prevHv = nil,
+			leanP = 0, leanPV = 0, leanR = 0, leanRV = 0, latN = 0, lonN = 0,
+			steer = 0, lastSteer = 0,
+			trails = {}, turbo = false, tk = 0,
+		}
+
+		local RZ = CFrame.Angles(0, math.rad(90), 0) -- cilindro: eixo X -> eixo Z da nave
+		local RY = CFrame.Angles(0, 0, math.rad(90)) -- cilindro: eixo X -> vertical
+		local function cylX(len, diam) return Vector3.new(len, diam, diam) end
+		local METAL, PLASTIC, SMOOTH, NEON = Enum.Material.Metal, Enum.Material.Plastic, Enum.Material.SmoothPlastic, Enum.Material.Neon
+
+		local function add(name, size, rel, color, material, transp, shape, tag)
+			local p = Instance.new("Part")
+			p.Name = name
+			p.Anchored = false
+			p.Massless = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Size = size * SCALE
+			p.CastShadow = size.Magnitude > 3
+			p.Color = color
+			p.Material = material or METAL
+			p.Transparency = transp or 0
+			if shape == "sphere" then
+				local m = Instance.new("SpecialMesh")
+				m.MeshType = Enum.MeshType.Sphere
+				m.Parent = p
+			elseif shape == "cyl" then
+				p.Shape = Enum.PartType.Cylinder
+			end
+			local relS = CFrame.new(rel.Position * SCALE) * rel.Rotation
+			local w = Instance.new("Weld")
+			w.Part0 = root
+			w.Part1 = p
+			w.C0 = relS
+			w.Parent = p
+			p.Parent = model
+			local e = { part = p, weld = w, rel = relS, tag = tag, baseT = p.Transparency }
+			S.parts[#S.parts + 1] = e
+			if tag == "gear" then S.gearParts[#S.gearParts + 1] = e
+			elseif tag == "canopy" then S.canopyParts[#S.canopyParts + 1] = e
+			elseif tag == "thr" then S.thrParts[#S.thrParts + 1] = e end
+			return e
+		end
+
+		local HULL = Color3.fromRGB(205, 210, 214)
+		local PLATE = Color3.fromRGB(224, 228, 231)
+		local SEAM = Color3.fromRGB(96, 104, 112)
+		local FLANGE = Color3.fromRGB(150, 160, 170)
+		local BELLY = Color3.fromRGB(128, 136, 146)
+		local DARK = Color3.fromRGB(44, 48, 54)
+		local BLACK = Color3.fromRGB(18, 20, 24)
+		local MID = Color3.fromRGB(112, 120, 128)
+		local RIM = Color3.fromRGB(92, 100, 110)
+		local THR = Color3.fromRGB(214, 220, 224)
+		local THR_DARK = Color3.fromRGB(120, 128, 136)
+		local HOSE = Color3.fromRGB(150, 158, 164)
+		local TIRE = Color3.fromRGB(46, 50, 56)
+		local GLASS = Color3.fromRGB(176, 236, 214)
+		local SEATC = Color3.fromRGB(52, 58, 68)
+		local SEATC2 = Color3.fromRGB(72, 80, 92)
+		local TANK = Color3.fromRGB(92, 102, 96)
+		local GLOW = C.PortalColor
+
+		-- ===== CASCO: saucer achatado =====
+		local N, R_BOT, R_TOP, BOT_Y, TOP_Y = 10, 11.0, 7.2, 0.35, 3.75
+		for i = 1, N do
+			local t = (i - 0.5) / N
+			local r = R_BOT + (R_TOP - R_BOT) * t
+			local y = BOT_Y + (TOP_Y - BOT_Y) * t
+			add("HullLayer" .. i, cylX((TOP_Y - BOT_Y) / N + 0.12, r * 2), CFrame.new(0, y, 0) * RY, HULL, METAL, 0, "cyl")
+		end
+		add("Flange", cylX(0.7, 23.6), CFrame.new(0, 0, 0) * RY, FLANGE, METAL, 0, "cyl")
+		add("FlangeRim", cylX(0.25, 24.0), CFrame.new(0, -0.1, 0) * RY, MID, METAL, 0, "cyl")
+		add("UnderPlate", cylX(0.4, 20), CFrame.new(0, -0.55, 0) * RY, BELLY, METAL, 0, "cyl")
+		local belly = add("Belly", Vector3.new(15, 6, 15), CFrame.new(0, -0.7, 0), BELLY, METAL, 0, "sphere")
+
+		-- paineis radiais (frisos) + placas com puxador nas 8 faces do casco
+		do
+			local dR, dY = R_BOT - R_TOP, TOP_Y - BOT_Y
+			local L = math.sqrt(dR * dR + dY * dY)
+			local slope = math.atan2(dY, dR)
+			local nR, nY = dY / L, dR / L -- normal (radial, vertical)
+			local rMid, yMid = (R_BOT + R_TOP) / 2, (BOT_Y + TOP_Y) / 2
+			for k = 0, 7 do
+				local aSeam = math.rad(22.5 + 45 * k)
+				local sr, sy = rMid + 0.12 * nR, yMid + 0.12 * nY
+				add("Seam", Vector3.new(0.26, 0.26, L), CFrame.Angles(0, aSeam, 0) * CFrame.new(0, sy, -sr) * CFrame.Angles(-slope, 0, 0), SEAM, METAL)
+
+				local aPl = math.rad(45 * k)
+				local pr, py = rMid + 0.07 * nR, yMid + 0.07 * nY
+				local base = CFrame.Angles(0, aPl, 0) * CFrame.new(0, py, -pr) * CFrame.Angles(-slope, 0, 0)
+				add("Plate", Vector3.new(4.2, 0.16, 3.4), base, PLATE, METAL)
+				add("PlateHandle", Vector3.new(1.4, 0.2, 0.22), base * CFrame.new(0, 0.16, 1.05), DARK, METAL)
+			end
+		end
+
+		-- aro da cabine + parafusos
+		do
+			local nR, RR = 24, 7.0
+			for k = 0, nR - 1 do
+				local a = 2 * math.pi * k / nR
+				local chord = 2 * RR * math.tan(math.pi / nR) + 0.06
+				add("Rim", Vector3.new(chord, 0.55, 0.75), CFrame.Angles(0, a, 0) * CFrame.new(0, 4.0, -RR), RIM, METAL)
+				if k % 2 == 0 then
+					add("Bolt", cylX(0.28, 0.5), CFrame.Angles(0, a, 0) * CFrame.new(0, 4.4, -RR) * RY, MID, METAL, 0, "cyl")
+				end
+			end
+		end
+
+		-- ===== CUPULA DE VIDRO + ARCO (sobem/descem juntos) =====
+		-- meia-cupula (hemisferio) feita de paineis finos de vidro: sem a metade de baixo, nao parece uma bola
+		do
+			local ax, ay, az = 6.7, 5.95, 6.85   -- semi-eixos (az/ay batem com o arco abaixo)
+			local nLon, nLat = 20, 5
+			local phiMax = math.rad(75)            -- acima disso entra a tampa do topo
+			local function surf(th, ph)
+				return Vector3.new(ax * math.cos(ph) * math.cos(th), ay * math.sin(ph), az * math.cos(ph) * math.sin(th))
+			end
+			for i = 0, nLat - 1 do
+				local ph0, ph1 = phiMax * i / nLat, phiMax * (i + 1) / nLat
+				local phm = (ph0 + ph1) / 2
+				for j = 0, nLon - 1 do
+					local th = 2 * math.pi * (j + 0.5) / nLon
+					local p = surf(th, phm)
+					local n = Vector3.new(p.X / (ax * ax), p.Y / (ay * ay), p.Z / (az * az)).Unit
+					local w = 2 * math.pi * ((ax + az) / 2) * math.cos(phm) / nLon * 1.03
+					local h = (surf(th, ph1) - surf(th, ph0)).Magnitude * 1.04
+					local pos = Vector3.new(0, 3.8, 0) + p
+					local e = add("DomePane", Vector3.new(w, h, 0.12), CFrame.lookAt(pos, pos + n), GLASS, Enum.Material.Glass, 0.55, nil, "canopy")
+					e.part.Reflectance = 0.12
+					e.part.CastShadow = false
+				end
+			end
+			local capR = ax * math.cos(phiMax)
+			local cap = add("DomeCap", cylX(0.14, capR * 2 + 0.2), CFrame.new(0, 3.8 + ay * math.sin(phiMax), 0) * RY, GLASS, Enum.Material.Glass, 0.55, "cyl", "canopy")
+			cap.part.Reflectance = 0.12
+			cap.part.CastShadow = false
+		end
+		do
+			local segs = 14
+			local function P(phi)
+				return Vector3.new(0, 3.8 + 5.95 * math.sin(phi), -6.85 * math.cos(phi))
+			end
+			for k = 0, segs - 1 do
+				local p0, p1 = P(math.pi * k / segs), P(math.pi * (k + 1) / segs)
+				add("Hoop", Vector3.new(0.3, 0.3, (p1 - p0).Magnitude + 0.06), CFrame.lookAt((p0 + p1) / 2, p1), MID, METAL, 0, nil, "canopy")
+			end
+		end
+
+		-- ===== INTERIOR =====
+		add("Floor", cylX(0.12, 13), CFrame.new(0, 3.84, 0) * RY, DARK, SMOOTH, 0, "cyl")
+		for _, sx in ipairs({ -1, 1 }) do
+			local x = sx * 2.3
+			local tilt = CFrame.Angles(math.rad(10), 0, 0)
+			add("SeatBase", Vector3.new(2.6, 0.6, 2.6), CFrame.new(x, 4.2, 0.4), SEATC, PLASTIC)
+			add("SeatBack", Vector3.new(2.6, 3.2, 0.6), CFrame.new(x, 6.1, 2.0) * tilt, SEATC, PLASTIC)
+			add("SeatHead", Vector3.new(1.6, 1.1, 0.5), CFrame.new(x, 8.0, 2.45) * tilt, SEATC2, PLASTIC)
+			add("SeatPanel", Vector3.new(0.9, 0.55, 0.05), CFrame.new(x, 8.0, 2.74) * tilt, BLACK, SMOOTH)
+			add("SeatLed", Vector3.new(0.18, 0.18, 0.06), CFrame.new(x + 0.25, 8.12, 2.78) * tilt, GLOW, SMOOTH)
+			add("SeatBolsterA", Vector3.new(0.4, 1.3, 2.2), CFrame.new(x - 1.25, 4.95, 0.5), SEATC2, PLASTIC)
+			add("SeatBolsterB", Vector3.new(0.4, 1.3, 2.2), CFrame.new(x + 1.25, 4.95, 0.5), SEATC2, PLASTIC)
+		end
+		add("Console", Vector3.new(1.6, 1.0, 3.6), CFrame.new(0, 4.4, -0.2), DARK, PLASTIC)
+		add("ShiftRod", cylX(1.1, 0.18), CFrame.new(0, 5.2, -1.2) * RY, MID, METAL, 0, "cyl")
+		add("ShiftKnob", Vector3.new(0.5, 0.5, 0.5), CFrame.new(0, 5.85, -1.2), BLACK, PLASTIC, 0, "sphere")
+
+		local dashTilt = CFrame.Angles(math.rad(-12), 0, 0)
+		add("Dash", Vector3.new(11.2, 1.1, 1.6), CFrame.new(0, 4.5, -4.4) * dashTilt, MID, METAL)
+		add("ScreenL", Vector3.new(2.2, 0.08, 0.8), CFrame.new(-3.4, 5.08, -4.42) * dashTilt, GLOW, SMOOTH)
+		add("ScreenR", Vector3.new(2.2, 0.08, 0.8), CFrame.new(3.4, 5.08, -4.42) * dashTilt, GLOW, SMOOTH)
+		add("DashGauge", cylX(0.12, 0.9), CFrame.new(0.2, 5.1, -4.42) * dashTilt * RY, BLACK, SMOOTH, 0, "cyl")
+
+		-- volante (anel de 12 segmentos + raios + coluna), inclinado pro piloto
+		do
+			local wc = CFrame.new(-2.3, 5.9, -2.3) * CFrame.Angles(math.rad(-35), 0, 0)
+			local nW, RW = 12, 0.95
+			for k = 0, nW - 1 do
+				local a = 2 * math.pi * k / nW
+				local seg = 2 * RW * math.tan(math.pi / nW) + 0.06
+				add("WheelSeg", Vector3.new(seg, 0.2, 0.2),
+					wc * CFrame.new(RW * math.cos(a), RW * math.sin(a), 0) * CFrame.Angles(0, 0, a + math.pi / 2), BLACK, PLASTIC)
+			end
+			for k = 0, 2 do
+				add("WheelSpoke", Vector3.new(1.9, 0.14, 0.14), wc * CFrame.Angles(0, 0, math.rad(k * 60)), BLACK, PLASTIC)
+			end
+			add("WheelHub", cylX(0.3, 0.6), wc * RZ, MID, METAL, 0, "cyl")
+			add("WheelColumn", Vector3.new(0.28, 0.28, 2.0), wc * CFrame.new(0, -0.15, -1.0), DARK, METAL)
+		end
+
+		-- tanque / bateria atras dos bancos
+		add("Tank", cylX(7.4, 2.3), CFrame.new(0, 5.1, 4.6), TANK, METAL, 0, "cyl")
+		for _, sx in ipairs({ -1, 1 }) do
+			add("TankBand", cylX(0.4, 2.5), CFrame.new(sx * 2.4, 5.1, 4.6), DARK, METAL, 0, "cyl")
+			add("TankCap", cylX(0.3, 2.5), CFrame.new(sx * 3.75, 5.1, 4.6), MID, METAL, 0, "cyl")
+		end
+		add("TankValve", Vector3.new(0.7, 0.7, 0.7), CFrame.new(0, 6.35, 4.6), MID, METAL, 0, "sphere")
+		add("TankGauge", cylX(0.2, 0.9), CFrame.new(4.0, 5.1, 4.6), BLACK, SMOOTH, 0, "cyl")
+		add("TankGaugeLed", Vector3.new(0.06, 0.2, 0.2), CFrame.new(4.12, 5.1, 4.6), GLOW, SMOOTH)
+
+		-- ===== FAROIS (pods redondos na frente do casco, abaixo do vidro), KNOBS, ANTENA =====
+		for _, sx in ipairs({ -1, 1 }) do
+			-- cabeca do farol: cilindro apontando pra frente (-Z), levemente aberto pra fora, encaixado no casco
+			local head = CFrame.new(sx * 3.9, 2.5, -8.5) * CFrame.Angles(0, -sx * math.rad(8), 0)
+			add("LampMount", cylX(1.8, 1.2), head * CFrame.new(0, 0, 1.4) * RZ, DARK, METAL, 0, "cyl")
+			add("LampHousing", cylX(1.3, 1.9), head * RZ, THR, METAL, 0, "cyl")
+			add("LampBack", cylX(0.35, 1.5), head * CFrame.new(0, 0, 0.8) * RZ, DARK, METAL, 0, "cyl")
+			add("LampBezel", cylX(0.28, 2.15), head * CFrame.new(0, 0, -0.62) * RZ, FLANGE, METAL, 0, "cyl")
+			add("LampTopKnob", cylX(0.35, 0.6), head * CFrame.new(0, 1.0, 0.15) * RY, MID, METAL, 0, "cyl")
+			local lens = add("LampLens", cylX(0.14, 1.55), head * CFrame.new(0, 0, -0.74) * RZ, Color3.fromRGB(255, 246, 200), NEON, 0, "cyl")
+			local sl = Instance.new("SpotLight")
+			sl.Face = Enum.NormalId.Right -- cilindro girado: +X local = frente da nave (-Z)
+			sl.Angle = 50
+			sl.Range = 70
+			sl.Brightness = 2.5
+			sl.Color = Color3.fromRGB(255, 244, 214)
+			sl.Parent = lens.part
+			add("Knob", cylX(0.9, 0.7), CFrame.new(sx * 2.03, 3.1, -8.15) * RY, MID, METAL, 0, "cyl")
+		end
+		add("AntBase", cylX(0.5, 0.7), CFrame.new(5.0, 4.35, 5.2) * RY, DARK, METAL, 0, "cyl")
+		add("AntRod", cylX(3.2, 0.14), CFrame.new(5.0, 6.1, 5.2) * RY, MID, METAL, 0, "cyl")
+		add("AntTip", Vector3.new(0.4, 0.4, 0.4), CFrame.new(5.0, 7.8, 5.2), Color3.fromRGB(255, 90, 70), NEON, 0, "sphere")
+
+		-- ===== TURBINAS (lata cilindrica + bocal + mangueira sanfonada) =====
+		local function addThruster(sx)
+			local cf0 = CFrame.new(sx * 9.5, 2.9, 1.0) * CFrame.Angles(0, math.rad(8) * sx, 0)
+			local function sub(z, extra) return cf0 * CFrame.new(0, 0, z) * (extra or CFrame.new()) end
+			add("ThrBody", cylX(7, 4.2), sub(0, RZ), THR, METAL, 0, "cyl", "thr")
+			for _, z in ipairs({ -2.3, 0, 2.3 }) do
+				add("ThrBand", cylX(0.35, 4.5), sub(z, RZ), THR_DARK, METAL, 0, "cyl", "thr")
+			end
+			add("ThrCap", cylX(0.5, 4.4), sub(-3.6, RZ), THR_DARK, METAL, 0, "cyl", "thr")
+			add("ThrLatch", Vector3.new(0.8, 0.5, 1.2), sub(-1.1, CFrame.new(0, 2.3, 0)), DARK, METAL, 0, nil, "thr")
+			add("NozA", cylX(0.8, 3.6), sub(3.9, RZ), THR, METAL, 0, "cyl", "thr")
+			add("NozB", cylX(0.7, 3.0), sub(4.55, RZ), THR_DARK, METAL, 0, "cyl", "thr")
+			add("NozC", cylX(0.6, 2.5), sub(5.15, RZ), DARK, METAL, 0, "cyl", "thr")
+			local g = add("NozGlow", cylX(0.15, 1.9), sub(5.5, RZ), GLOW, NEON, 0, "cyl", "thr")
+
+			-- rastro (Trail) em vez de particulas: so aparece no modo voo; muda no turbo (setThrust)
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.95 * SCALE, 0)
+			a0.Parent = g.part
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.95 * SCALE, 0)
+			a1.Parent = g.part
+			local tr = Instance.new("Trail")
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Color = ColorSequence.new(Color3.new(1, 1, 1), GLOW)
+			tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+			tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+			tr.LightEmission = 1
+			tr.LightInfluence = 0
+			tr.FaceCamera = true
+			tr.MinLength = 0.05
+			tr.Lifetime = 0.3
+			tr.Enabled = false
+			tr.Parent = g.part
+			S.trails[#S.trails + 1] = tr
+		end
+
+		local function addHose(sx)
+			local A = Vector3.new(sx * 8.7, 2.6, -2.8)
+			local B = Vector3.new(sx * 6.4, 4.4, -4.2)
+			local n = 8
+			local function P(t) return A:Lerp(B, t) + Vector3.new(0, math.sin(math.pi * t) * 0.5, 0) end
+			for i = 0, n - 1 do
+				local t = (i + 0.5) / n
+				local pos = P(t)
+				local dir = P(t + 0.01) - P(t - 0.01)
+				add("Hose", cylX(0.34, (i % 2 == 0) and 1.25 or 0.95), CFrame.lookAt(pos, pos + dir) * RZ, HOSE, METAL, 0, "cyl")
+			end
+		end
+
+		for _, sx in ipairs({ -1, 1 }) do
+			addThruster(sx)
+			addHose(sx)
+		end
+
+		-- ===== EMBAIXO: grades de ventilacao + RODAS DE MONSTER TRUCK (4 rodas: pneu com garras em V + aro cromado) =====
+		for _, sx in ipairs({ -1, 1 }) do
+			add("Vent", Vector3.new(2.6, 0.1, 3.2), CFrame.new(sx * 8.6, -0.78, 0), DARK, METAL)
+			for _, z in ipairs({ -1.0, -0.35, 0.3, 0.95 }) do
+				add("VentSlit", Vector3.new(2.2, 0.05, 0.12), CFrame.new(sx * 8.6, -0.82, z), MID, METAL)
+			end
+		end
+
+		local CHROME = Color3.fromRGB(228, 234, 240)
+		local CHROME_D = Color3.fromRGB(58, 62, 68)
+		local TIRE_D = Color3.fromRGB(28, 30, 34)
+
+		-- peca da roda: guarda o cubo (hub) e a posicao local (loc) pra girar tudo em volta do eixo
+		local function addSpin(wid, wr, hub, name, size, loc, color, material, shape, refl)
+			local e = add(name, size, hub * loc, color, material, 0, shape, "gear")
+			e.wr = wr
+			e.wid = wid
+			e.hub = CFrame.new(hub.Position * SCALE)
+			e.loc = CFrame.new(loc.Position * SCALE) * loc.Rotation
+			if refl then e.part.Reflectance = refl end
+			return e
+		end
+
+		-- side: -1 = roda da esquerda (face de fora no -X), 1 = direita
+		local function monsterWheel(tag, id, side, x, y, z, len, diam)
+			local wr = diam / 2 * SCALE
+			S.wheels[id] = { rel = Vector3.new(x, y, z) * SCALE, r = wr, x = 0, v = 0, lastX = 0 }
+			local hub = CFrame.new(x, y, z)
+			local function sp(...) return addSpin(id, wr, hub, ...) end
+
+			-- pneu: carcaca + garras largas em V (chevron), igual pneu de monster truck
+			local lugH = diam * 0.12
+			local coreD = diam - 2 * lugH
+			sp("Tire" .. tag, cylX(len, coreD), CFrame.new(), TIRE, SMOOTH, "cyl")
+			local LUGS = 11
+			local R = coreD / 2 + lugH / 2 - 0.02
+			for k = 0, LUGS - 1 do
+				local a = 2 * math.pi * k / LUGS
+				for _, h in ipairs({ -1, 1 }) do
+					local loc = CFrame.Angles(a, 0, 0) * CFrame.new(h * len * 0.25, R, 0) * CFrame.Angles(0, h * math.rad(32), 0)
+					sp("Lug" .. tag, Vector3.new(len * 0.52, lugH, diam * 0.17), loc, TIRE_D, SMOOTH)
+				end
+			end
+
+			-- aro cromado + anel beadlock + 6 furos + tampa do cubo (cromada)
+			-- side = 0: roda central, com aro nos dois lados
+			local sides = (side == 0) and { -1, 1 } or { side }
+			local rimD = diam * 0.5
+			if side == 0 then
+				sp("Rim" .. tag, cylX(len + 0.16, rimD), CFrame.new(), CHROME, METAL, "cyl", 0.45)
+			else
+				sp("Rim" .. tag, cylX(len * 0.8, rimD), CFrame.new(side * (len * 0.1 + 0.08), 0, 0), CHROME, METAL, "cyl", 0.45)
+			end
+			for _, sd in ipairs(sides) do
+				sp("Bead" .. tag, cylX(0.16, rimD * 1.18), CFrame.new(sd * len * 0.5, 0, 0), CHROME_D, METAL, "cyl")
+				for k = 0, 5 do
+					local a = 2 * math.pi * k / 6 + 0.26
+					sp("RimHole" .. tag, cylX(0.12, rimD * 0.17),
+						CFrame.Angles(a, 0, 0) * CFrame.new(sd * (len * 0.5 + 0.08), rimD * 0.32, 0), BLACK, SMOOTH, "cyl")
+				end
+				sp("Cap" .. tag, cylX(0.35, rimD * 0.36), CFrame.new(sd * (len * 0.5 + 0.2), 0, 0), CHROME, METAL, "cyl", 0.5)
+			end
+		end
+
+		-- 3 rodas, como no original: 2 na frente (id 1 esq, 2 dir) + 1 atras no meio (id 3).
+		-- centro y = -5 + raio (o pneu toca o chao em LEG_H)
+		monsterWheel("FL", 1, -1, -5.4, -2.7, -4.6, 2.0, 4.6)
+		monsterWheel("FR", 2, 1, 5.4, -2.7, -4.6, 2.0, 4.6)
+		monsterWheel("RC", 3, 0, 0, -2.6, 6.8, 2.4, 4.8)
+		add("Peg", cylX(1.3, 0.9), CFrame.new(0, -3.9, -1.0) * RY, MID, METAL, 0, "cyl", "gear")
+
+		-- (luz verde da barriga removida: so os farois iluminam)
+
+		-- poeira levantada pelas rodas no modo terra
+		local ds = add("DustSrc", Vector3.new(9, 0.1, 6), CFrame.new(0, -4.6, 3), BLACK, SMOOTH, 1)
+		local dust = Instance.new("ParticleEmitter")
+		dust.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		dust.Color = ColorSequence.new(Color3.fromRGB(196, 190, 178))
+		dust.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 7) })
+		dust.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) })
+		dust.Lifetime = NumberRange.new(0.7, 1.2)
+		dust.Speed = NumberRange.new(3, 8)
+		dust.SpreadAngle = Vector2.new(40, 40)
+		dust.EmissionDirection = Enum.NormalId.Top
+		dust.Rate = 0
+		dust.Parent = ds.part
+		S.dust = dust
+
+		return S
+	end
+
+	local function place(S)
+		S.root.CFrame = S.cf
+		if S.lastGear ~= S.gear or S.lastSpin ~= S.spinDist or S.suspDirty or S.lastSteer ~= S.steer then
+			S.lastGear = S.gear
+			S.lastSpin = S.spinDist
+			S.lastSteer = S.steer
+			S.suspDirty = false
+			local gs = (1 - S.gear) * GEAR_TRAVEL
+			for _, e in ipairs(S.gearParts) do
+				local off = 0
+				if e.wid then off = S.wheels[e.wid].x * S.gear end -- suspensao: sobe (+) / desce (-)
+				local c
+				if e.loc then -- peca da roda: gira em torno do eixo do cubo
+					-- rodas da frente (id 1 e 2) esterçam em torno do eixo vertical antes de girar
+					local st = (e.wid == 1 or e.wid == 2) and (S.steer or 0) * S.gear or 0
+					c = CFrame.new(0, gs + off, 0) * e.hub * CFrame.Angles(0, st, 0) * CFrame.Angles(-S.spinDist / e.wr, 0, 0) * e.loc
+				else
+					c = CFrame.new(0, gs + off, 0) * e.rel
+					if e.wr then c = c * CFrame.Angles(-S.spinDist / e.wr, 0, 0) end
+				end
+				e.weld.C0 = c
+			end
+		end
+		if S.lastCa ~= S.canopyAng then
+			S.lastCa = S.canopyAng
+			local frac = math.clamp(S.canopyAng / CANOPY_OPEN, 0, 1)
+			-- o vidro gira em torno da dobradica traseira (eixo X): a frente sobe e tomba pra tras.
+			-- fechar = mesma conta com frac voltando a 0 (animacao ao contrario). Sem fade de transparencia.
+			local hinge = CFrame.new(CANOPY_HINGE)
+			local swing = hinge * CFrame.Angles(frac * CANOPY_ANGLE, 0, 0) * hinge:Inverse()
+			for _, e in ipairs(S.canopyParts) do
+				e.weld.C0 = swing * e.rel
+				e.part.Transparency = e.baseT
+			end
+		end
+	end
+
+	-- posiciona tudo de uma vez (evita 1 frame das pecas na origem ao criar)
+	local function snap(S)
+		place(S)
+		for _, e in ipairs(S.parts) do
+			e.part.CFrame = S.cf * e.weld.C0
+		end
+	end
+
+	-- turbinas tremem em velocidade alta
+	local function shake(S, amp)
+		if amp < 0.01 then
+			if S.shaking then
+				S.shaking = false
+				for _, e in ipairs(S.thrParts) do e.weld.C0 = e.rel end
+			end
+			return
+		end
+		S.shaking = true
+		for _, e in ipairs(S.thrParts) do
+			e.weld.C0 = e.rel * CFrame.new((math.random() - 0.5) * amp, (math.random() - 0.5) * amp, 0)
+		end
+	end
+
+	-- rastro das turbinas: so no modo VOO (e nas animacoes de chegada/saida/troca de modo).
+	-- No modo TERRA (carro) nao tem nada. Turbo = rastro mais longo, largo e quente (laranja).
+	local function setThrust(S, t)
+		local st = S.state
+		local on = t > 0.02 and (S.mode == "fly" or st == "arriving" or st == "leaving" or st == "shifting")
+		local now = os.clock()
+		local dt = math.min(now - (S.trailClk or now), 0.1)
+		S.trailClk = now
+		local goal = (on and S.turbo) and 1 or 0
+		local k = (S.tk or 0) + (goal - (S.tk or 0)) * (1 - math.exp(-7 * dt))
+		S.tk = k
+		local ti = math.clamp(t, 0, 1)
+		local head = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(255, 244, 205), k)
+		local mid = C.PortalColor:Lerp(Color3.fromRGB(255, 150, 40), k)
+		local tail = C.PortalColor:Lerp(Color3.fromRGB(220, 50, 20), k)
+		local cs = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, head),
+			ColorSequenceKeypoint.new(0.45, mid),
+			ColorSequenceKeypoint.new(1, tail),
+		})
+		local ws = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1 + 0.9 * k), NumberSequenceKeypoint.new(1, 0) })
+		local life = (0.28 + 0.55 * k) * (0.55 + 0.45 * ti)
+		for _, tr in ipairs(S.trails) do
+			tr.Enabled = on
+			if on then
+				tr.Color = cs
+				tr.WidthScale = ws
+				tr.Lifetime = life
+			end
+		end
+		if t <= 0.02 then shake(S, 0) end
+	end
+
+	local function removeShip()
+		if ship then
+			local m = ship.model
+			ship = nil
+			pcall(function() m:Destroy() end)
+		end
+	end
+
+	local function inShip()
+		return ship ~= nil and (ship.state == "boarding" or ship.state == "flying" or ship.state == "landing" or ship.state == "shifting")
+	end
+
+	local function gone(S)
+		return destroyed or not Z.alive or ship ~= S
+	end
+
+	-- ---------------------------------------------------------------
+	-- Personagem preso ao banco
+	-- ---------------------------------------------------------------
+	local function holdChar(S)
+		rootPart.CFrame = S.cf * SEAT_REL
+		rootPart.AssemblyLinearVelocity = Vector3.zero
+		rootPart.AssemblyAngularVelocity = Vector3.zero
+		if not humanoid.Sit then humanoid.Sit = true end
+		for p, _ in pairs(savedCollide) do
+			if p.Parent and p.CanCollide then p.CanCollide = false end
+		end
+	end
+
+	local function bindSink()
+		if sinkBound then return end
+		sinkBound = true
+		pcall(function()
+			ContextActionService:BindActionAtPriority(
+				"RickShipSink",
+				function() return Enum.ContextActionResult.Sink end,
+				false,
+				Enum.ContextActionPriority.High.Value,
+				Enum.KeyCode.Space
+			)
+		end)
+	end
+
+	local function unbindSink()
+		if not sinkBound then return end
+		sinkBound = false
+		pcall(function() ContextActionService:UnbindAction("RickShipSink") end)
+	end
+
+	local function restoreChar()
+		for p, v in pairs(savedCollide) do
+			if p.Parent then p.CanCollide = v end
+		end
+		savedCollide = {}
+		if savedJump ~= nil then
+			local v = savedJump
+			savedJump = nil
+			pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, v) end)
+		end
+		if savedAutoRotate ~= nil then
+			local v = savedAutoRotate
+			savedAutoRotate = nil
+			pcall(function() humanoid.AutoRotate = v end)
+		end
+		unbindSink()
+		if baseFov then
+			local f = baseFov
+			baseFov = nil
+			pcall(function() camera.FieldOfView = f end)
+		end
+		if savedZoom then
+			local z = savedZoom
+			savedZoom = nil
+			pcall(function()
+				player.CameraMinZoomDistance = z[1]
+				player.CameraMaxZoomDistance = z[2]
+			end)
+		end
+		pad.Visible = false
+		infoLbl.Visible = false
+		held.up, held.down, held.turbo = false, false, false
+		btnTurbo.TextColor3 = Theme.Text
+	end
+
+	-- ---------------------------------------------------------------
+	-- Entrada de controle
+	-- ---------------------------------------------------------------
+	local function getMove()
+		if controls == nil then
+			controls = false
+			pcall(function()
+				local ps = player:FindFirstChild("PlayerScripts")
+				local pm = ps and ps:FindFirstChild("PlayerModule")
+				if pm then controls = require(pm):GetControls() or false end
+			end)
+		end
+		if controls then
+			local ok, v = pcall(function() return controls:GetMoveVector() end)
+			if ok and typeof(v) == "Vector3" then return v end
+		end
+		local x = (UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
+		local z = (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+		return Vector3.new(x, 0, z)
+	end
+
+	local function flightStep(S, dt)
+		local typing = UserInputService:GetFocusedTextBox() ~= nil
+		local mv = getMove()
+		local dir = camera.CFrame:VectorToWorldSpace(Vector3.new(mv.X, 0, mv.Z))
+
+		local vert = 0
+		if not typing then
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vert = vert + 1 end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then vert = vert - 1 end
+		end
+		if held.up then vert = vert + 1 end
+		if held.down then vert = vert - 1 end
+		dir = dir + Vector3.new(0, vert, 0)
+		if dir.Magnitude > 1 then dir = dir.Unit end
+
+		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
+		local top = SPEED * (turbo and TURBO or 1)
+		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * dt))
+		S.pos = S.pos + S.vel * dt
+
+		local minY = workspace.FallenPartsDestroyHeight + 40
+		if S.pos.Y < minY then
+			S.pos = Vector3.new(S.pos.X, minY, S.pos.Z)
+			S.vel = Vector3.new(S.vel.X, math.max(S.vel.Y, 0), S.vel.Z)
+		end
+
+		-- vira o nariz pra direcao do movimento
+		local hv = Vector3.new(S.vel.X, 0, S.vel.Z)
+		if hv.Magnitude > 6 then
+			local diff = wrapAng(math.atan2(-hv.X, -hv.Z) - S.yaw)
+			local stepYaw = diff * (1 - math.exp(-TURN * dt))
+			S.yaw = S.yaw + stepYaw
+			S.yawRate = stepYaw / math.max(dt, 1e-3)
+		else
+			S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
+		end
+
+		local tPitch = math.clamp(S.vel.Y / SPEED, -1, 1) * 0.4
+		local tRoll = math.clamp(S.yawRate * 0.18, -0.5, 0.5)
+		S.pitch = S.pitch + (tPitch - S.pitch) * (1 - math.exp(-4 * dt))
+		S.roll = S.roll + (tRoll - S.roll) * (1 - math.exp(-5 * dt))
+
+		local spd = S.vel.Magnitude
+		S.turbo = turbo and spd > SPEED * 1.2
+		local bob = math.sin(os.clock() * 1.8) * 0.25 * SCALE * (1 - math.min(spd / top, 1))
+		S.cf = CFrame.new(S.pos + Vector3.new(0, bob, 0)) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch, 0, S.roll)
+		place(S)
+		setThrust(S, math.clamp(spd / (SPEED * 1.2), 0.15, 1))
+		shake(S, math.clamp(spd / (SPEED * TURBO) - 0.35, 0, 1) * 0.18 * SCALE)
+		holdChar(S)
+
+		if baseFov then
+			local tgt = baseFov + ((turbo and spd > SPEED * 1.2) and 16 or 0)
+			camera.FieldOfView = camera.FieldOfView + (tgt - camera.FieldOfView) * (1 - math.exp(-6 * dt))
+		end
+
+		S.infoT = S.infoT + dt
+		if S.infoT > 0.1 then
+			S.infoT = 0
+			infoLbl.Text = string.format("VOO   VEL %d   ALT %d%s",
+				math.floor(spd + 0.5), math.floor(S.pos.Y + 0.5), turbo and "   TURBO" or "")
+		end
+	end
+
+	-- movimento livre durante a troca de modo: a nave segue o controle e a inercia
+	-- (altura fica por conta da animacao de quem chamou)
+	function api.glide(S, dt)
+		local typing = UserInputService:GetFocusedTextBox() ~= nil
+		local mv = getMove()
+		local d = camera.CFrame:VectorToWorldSpace(Vector3.new(mv.X, 0, mv.Z))
+		d = Vector3.new(d.X, 0, d.Z)
+		if d.Magnitude > 1 then d = d.Unit end
+		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
+		local top = SPEED * (turbo and TURBO or 1)
+		local hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(d * top, 1 - math.exp(-ACCEL * dt))
+		S.vel = hv
+		S.pos = S.pos + hv * dt
+		if hv.Magnitude > 6 then
+			local diff = wrapAng(math.atan2(-hv.X, -hv.Z) - S.yaw)
+			S.yaw = S.yaw + diff * (1 - math.exp(-TURN * dt))
+		end
+		S.turbo = turbo and hv.Magnitude > SPEED * 1.2
+	end
+
+	local function refreshHud(S)
+		local fly = S.mode == "fly"
+		btnMode.Text = fly and "TERRA" or "VOAR"
+		btnUp.Visible = fly
+		btnDown.Visible = fly
+	end
+
+	-- suspensao: cada roda e uma mola+amortecedor que segue o chao embaixo dela.
+	-- degrau/buraco/pouso fazem a roda subir/descer e balancar ate assentar.
+	local function suspStep(S, dt, grounded, spd, top)
+		local damp = 2 * SUSP_ZETA * math.sqrt(SUSP_K)
+		local impact = S.landImpact
+		S.landImpact = nil
+		local rough = grounded and math.min(spd / top, 1) or 0
+		local n = math.max(1, math.ceil(dt / 0.012))
+		local h = dt / n
+		for id, w in pairs(S.wheels) do
+			local center = S.cf * CFrame.new(w.rel)
+			local u = -SUSP_DROOP -- no ar / sem chao: a roda fica pendurada
+			if grounded then
+				local g = groundAt(center.Position, 6 * SCALE)
+				if g then
+					u = math.clamp(g.Y - (center.Position.Y - w.r), -SUSP_DROOP, SUSP_BUMP)
+				end
+				-- trepidacao leve da estrada, proporcional a velocidade
+				u = u + math.noise(S.spinDist * 0.4, id * 7.3) * 0.12 * SCALE * rough
+				-- transferencia de carga: na curva a roda de fora comprime e a de dentro estica;
+				-- acelerando a de tras comprime, freando as da frente comprimem
+				local sx = (w.rel.X > 0.1) and 1 or ((w.rel.X < -0.1) and -1 or 0)
+				local sz = (w.rel.Z > 0) and 1 or -1
+				u = u + (-sx * (S.latN or 0) + sz * (S.lonN or 0)) * SUSP_LOAD
+				u = math.clamp(u, -SUSP_DROOP, SUSP_BUMP)
+			end
+			if impact then w.v = w.v + math.clamp(-impact * 0.35, 0, 18) end -- pancada do pouso
+			for _ = 1, n do
+				w.v = w.v + (SUSP_K * (u - w.x) - damp * w.v) * h
+				w.x = w.x + w.v * h
+				if w.x > SUSP_BUMP then
+					w.x = SUSP_BUMP
+					if w.v > 0 then w.v = -w.v * 0.2 end
+				elseif w.x < -SUSP_DROOP then
+					w.x = -SUSP_DROOP
+					if w.v < 0 then w.v = -w.v * 0.2 end
+				end
+			end
+			if math.abs(w.x - w.lastX) > 0.001 then
+				w.lastX = w.x
+				S.suspDirty = true
+			end
+		end
+	end
+
+	-- MODO TERRA: a nave anda pelo chao, rodas abaixadas, segue o relevo e nao atravessa paredes
+	local function groundStep(S, dt)
+		local typing = UserInputService:GetFocusedTextBox() ~= nil
+		local mv = getMove()
+		local flatIn = Vector3.new(mv.X, 0, mv.Z)
+		local look = camera.CFrame:VectorToWorldSpace(flatIn)
+		local flat = Vector3.new(look.X, 0, look.Z)
+		local dir = Vector3.zero
+		if flat.Magnitude > 0.01 then dir = flat.Unit * math.min(flatIn.Magnitude, 1) end
+
+		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
+		local top = GROUND_SPEED * (turbo and GROUND_TURBO or 1)
+		local hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-GROUND_ACCEL * dt))
+
+		-- parede na frente (3 raios: centro e as duas laterais do casco)
+		if hv.Magnitude > 0.5 then
+			local mDir = hv.Unit
+			local lat = Vector3.new(-mDir.Z, 0, mDir.X)
+			local reach = 11.5 * SCALE + hv.Magnitude * dt
+			for _, off in ipairs({ 0, 7 * SCALE, -7 * SCALE }) do
+				local w = castDir(S.pos + Vector3.new(0, 1.5 * SCALE, 0) + lat * off, mDir * reach)
+				if w and math.abs(w.Normal.Y) < 0.6 then
+					local n = Vector3.new(w.Normal.X, 0, w.Normal.Z)
+					if n.Magnitude > 0.01 then
+						n = n.Unit
+						local into = hv:Dot(n)
+						if into < 0 then hv = hv - n * into end -- desliza ao longo da parede
+					end
+					break
+				end
+			end
+		end
+
+		local posN = Vector3.new(S.pos.X + hv.X * dt, S.pos.Y, S.pos.Z + hv.Z * dt)
+		local g, gn = groundAt(posN, 6 * SCALE)
+		local targetY = nil
+		if g then
+			targetY = g.Y + LEG_H
+			if targetY - S.pos.Y > STEP_UP then -- degrau alto demais: nao sobe
+				hv = Vector3.zero
+				posN = S.pos
+				g, gn = groundAt(S.pos, 6 * SCALE)
+				targetY = g and (g.Y + LEG_H) or nil
+			end
+		end
+
+		local y = posN.Y
+		local grounded = false
+		if targetY then
+			if y > targetY + 0.15 then
+				S.vy = S.vy - 160 * dt
+				y = math.max(targetY, y + S.vy * dt)
+				if y <= targetY then S.landImpact = S.vy; S.vy = 0 end
+			else
+				S.vy = 0
+				y = y + (targetY - y) * (1 - math.exp(-18 * dt))
+				grounded = true
+			end
+		else
+			S.vy = S.vy - 160 * dt
+			y = y + S.vy * dt
+		end
+		local minY = workspace.FallenPartsDestroyHeight + 40
+		if y < minY then y = minY; S.vy = 0 end
+		S.pos = Vector3.new(posN.X, y, posN.Z)
+		S.vel = hv
+
+		S.turbo = false -- modo carro: sem rastro
+		-- nariz vira pra onde anda
+		local spd = hv.Magnitude
+		if spd > 3 then
+			local diff = wrapAng(math.atan2(-hv.X, -hv.Z) - S.yaw)
+			S.yaw = S.yaw + diff * (1 - math.exp(-8 * dt))
+		end
+
+		-- direcao das rodas da frente: apontam pra onde voce quer ir (como volante de carro)
+		-- 0.66 rad (~38 graus) = angulo maximo; 12 = rapidez com que as rodas viram
+		do
+			local ref = (spd > 3) and hv or dir
+			local tgt = 0
+			if ref.Magnitude > 0.01 then
+				local d = wrapAng(math.atan2(-ref.X, -ref.Z) - S.yaw)
+				tgt = math.clamp(d, -0.66, 0.66)
+			end
+			S.steer = (S.steer or 0) + (tgt - (S.steer or 0)) * (1 - math.exp(-12 * dt))
+		end
+
+		-- inclina com o relevo
+		local tPitch, tRoll = 0, 0
+		if grounded and gn then
+			local f = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
+			local r = Vector3.new(math.cos(S.yaw), 0, -math.sin(S.yaw))
+			tPitch = math.clamp(math.atan2(-gn:Dot(f), gn.Y), -0.5, 0.5)
+			tRoll = math.clamp(math.atan2(-gn:Dot(r), gn.Y), -0.5, 0.5)
+		end
+		S.pitch = S.pitch + (tPitch - S.pitch) * (1 - math.exp(-6 * dt))
+		S.roll = S.roll + (tRoll - S.roll) * (1 - math.exp(-6 * dt))
+
+		-- peso da nave: acelerar levanta o nariz, frear baixa, curva inclina pro lado de fora (mola + amortecedor)
+		local fwd = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
+		local rgt = Vector3.new(math.cos(S.yaw), 0, -math.sin(S.yaw))
+		local acc = (hv - (S.prevHv or hv)) / math.max(dt, 1 / 120)
+		S.prevHv = hv
+		-- inercia normalizada (-1..1): curva = lateral, acelerar/frear = longitudinal
+		local latT = grounded and math.clamp(acc:Dot(rgt) / 150, -1, 1) or 0
+		local lonT = grounded and math.clamp(acc:Dot(fwd) / 150, -1, 1) or 0
+		S.latN = (S.latN or 0) + (latT - (S.latN or 0)) * (1 - math.exp(-10 * dt))
+		S.lonN = (S.lonN or 0) + (lonT - (S.lonN or 0)) * (1 - math.exp(-10 * dt))
+		local tLP = lonT * 0.07   -- ate ~4 graus (nariz sobe ao acelerar)
+		local tLR = latT * 0.12   -- ate ~7 graus (corpo tomba pra fora na curva)
+		if S.landImpact then S.leanPV = S.leanPV + math.clamp(S.landImpact * 0.008, -0.7, 0) end -- pouso: nariz mergulha e volta
+		local LK, LC = 70, 2 * 0.36 * math.sqrt(70)   -- um pouco mais de balanco que o original
+		S.leanPV = S.leanPV + (LK * (tLP - S.leanP) - LC * S.leanPV) * dt
+		S.leanP = S.leanP + S.leanPV * dt
+		S.leanRV = S.leanRV + (LK * (tLR - S.leanR) - LC * S.leanRV) * dt
+		S.leanR = S.leanR + S.leanRV * dt
+
+		S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch + S.leanP, 0, S.roll + S.leanR)
+
+		suspStep(S, dt, grounded, spd, top)
+
+		-- rodas giram conforme a distancia andada
+		S.spinDist = S.spinDist + hv:Dot(fwd) * dt
+		place(S)
+
+		setThrust(S, 0.12 + 0.3 * math.min(spd / top, 1))
+		shake(S, math.clamp(spd / (GROUND_SPEED * GROUND_TURBO), 0, 1) * 0.08 * SCALE)
+		if S.dust then S.dust.Rate = (grounded and spd > 4) and math.clamp(spd * 0.6, 0, 40) or 0 end
+		holdChar(S)
+
+		if baseFov then
+			local tgt = baseFov + ((turbo and spd > GROUND_SPEED * 1.2) and 10 or 0)
+			camera.FieldOfView = camera.FieldOfView + (tgt - camera.FieldOfView) * (1 - math.exp(-6 * dt))
+		end
+		S.infoT = S.infoT + dt
+		if S.infoT > 0.1 then
+			S.infoT = 0
+			infoLbl.Text = string.format("TERRA   VEL %d%s", math.floor(spd + 0.5), turbo and "   TURBO" or "")
+		end
+	end
+
+	local function proximity(S)
+		if busy or humanoid.Health <= 0 then
+			boardBtn.Visible = false
+			return
+		end
+		local d = rootPart.Position - S.pos
+		local flat = Vector3.new(d.X, 0, d.Z).Magnitude
+		boardBtn.Visible = flat < 24 * SCALE and math.abs(d.Y) < 14
+		if AUTO_BOARD and flat < BOARD_R and math.abs(d.Y) < 9
+			and os.clock() > lastBoard and not humanoid.SeatPart then
+			api.board()
+		end
+	end
+
+	local function step(dt)
+		if destroyed or not Z.alive then return end
+		dt = math.min(dt, 0.1)
+
+		for i = #jobs, 1, -1 do
+			local j = jobs[i]
+			if j then
+				local a = math.clamp((os.clock() - j.t0) / j.dur, 0, 1)
+				local okF, errF = pcall(j.fn, TweenService:GetValue(a, j.style, j.dir), a)
+				if not okF then
+					warnRG("erro na animacao da nave:", errF)
+					table.remove(jobs, i)
+					j.ok = false
+					task.spawn(j.th)
+				elseif a >= 1 then
+					table.remove(jobs, i)
+					j.ok = true
+					task.spawn(j.th)
+				end
+			end
+		end
+
+		local S = ship
+		if not S then
+			boardBtn.Visible = false
+			return
+		end
+		if S.state == "flying" then
+			boardBtn.Visible = false
+			if S.mode == "ground" then groundStep(S, dt) else flightStep(S, dt) end
+		elseif S.state == "landed" then
+			proximity(S)
+		else
+			boardBtn.Visible = false
+		end
+	end
+
+	-- ---------------------------------------------------------------
+	-- Sequencias: chegada, saida, pouso
+	-- ---------------------------------------------------------------
+	local function runSummon(plan)
+		local portal = openSky(plan.portalCF)
+		ctx.playSound(C.SoundTeleport, 1.3)
+		task.wait(1.1)
+		if destroyed or not Z.alive then
+			closeSky(portal)
+			return
+		end
+
+		local S = buildShip()
+		S.state = "arriving"
+		S.yaw = plan.yaw
+		S.gear = 0
+		S.canopyAng = 0
+		local startPos = plan.portalCF.Position + Vector3.new(0, 7 * SCALE, 0)
+		local endPos = plan.landPos
+		local sideDir = plan.portalCF.RightVector
+		S.pos = startPos
+		S.cf = CFrame.new(startPos) * CFrame.Angles(0, S.yaw, 0)
+		snap(S)
+		S.model.Parent = workspace
+		ship = S
+
+		animate(DESCENT, function(e, a)
+			local k = 1 - e
+			S.pos = startPos:Lerp(endPos, e) + sideDir * (math.sin(a * 7) * 3 * k * SCALE)
+			S.pitch = 0.22 * k
+			S.roll = math.sin(a * 6) * 0.12 * k
+			S.gear = math.clamp((a - 0.5) / 0.35, 0, 1)
+			S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch, 0, S.roll)
+			place(S)
+			setThrust(S, k + 0.15)
+		end, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		if gone(S) then
+			closeSky(portal)
+			return
+		end
+
+		S.pos, S.pitch, S.roll, S.gear = endPos, 0, 0, 1
+		S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0)
+		place(S)
+		setThrust(S, 0)
+		local floorPos = endPos - Vector3.new(0, LEG_H, 0)
+		dustAt(floorPos)
+		ctx.flashAt(floorPos + Vector3.new(0, 1, 0), 2.2)
+		ctx.playSound(C.SoundEquip, 1.2)
+		closeSky(portal)
+
+		task.wait(0.5)
+		if gone(S) then return end
+		animate(0.8, function(e)
+			S.canopyAng = CANOPY_OPEN * e
+			place(S)
+		end)
+		if gone(S) then return end
+		S.state = "landed"
+		toast("Nave pronta! Chegue perto (ou toque em PILOTAR) pra entrar.", 4)
+	end
+
+	local function runDismiss(S, plan)
+		S.state = "leaving"
+		local ca0, g0 = S.canopyAng, S.gear
+		animate(0.8, function(e)
+			S.canopyAng = ca0 * (1 - e)
+			S.gear = g0 * (1 - e)
+			place(S)
+		end)
+		if gone(S) then return end
+
+		local portal = openSky(plan.portalCF)
+		ctx.playSound(C.SoundTeleport, 1.2)
+		task.wait(1.0)
+		if gone(S) then
+			closeSky(portal)
+			return
+		end
+
+		local startPos = S.pos
+		local endPos = plan.portalCF.Position + Vector3.new(0, 4 * SCALE, 0)
+		animate(DESCENT * 0.8, function(e, a)
+			S.pos = startPos:Lerp(endPos, e)
+			S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0)
+			place(S)
+			setThrust(S, 0.4 + a)
+		end, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+		removeShip()
+		task.wait(0.25)
+		closeSky(portal)
+	end
+
+	-- ---------------------------------------------------------------
+	-- API publica
+	-- ---------------------------------------------------------------
+	api.inShip = inShip
+
+	local function mkPlan(t)
+		t.started = false
+		task.delay(8, function()
+			if not t.started then busy = false end
+		end)
+		return t
+	end
+
+	-- devolve nil se nao pode agora; senao um plano (ponto do portal no ceu)
+	function api.plan()
+		if destroyed or busy or inShip() then return nil end
+		if ship then
+			if ship.state ~= "landed" then return nil end
+			busy = true
+			return mkPlan({
+				mode = "dismiss",
+				portalCF = skyCF(ship.pos + Vector3.new(0, PORTAL_H, 0), ship.cf.RightVector),
+			})
+		end
+
+		local look = camera.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude < 0.05 then
+			local rl = rootPart.CFrame.LookVector
+			flat = Vector3.new(rl.X, 0, rl.Z)
+		end
+		if flat.Magnitude < 0.05 then flat = Vector3.new(0, 0, -1) end
+		flat = flat.Unit
+
+		local xz = rootPart.Position + flat * LAND_DIST
+		local ground = groundAt(Vector3.new(xz.X, rootPart.Position.Y + 4, xz.Z), 0)
+		local gy = ground and ground.Y or (rootPart.Position.Y - 3)
+		local landPos = Vector3.new(xz.X, gy + LEG_H, xz.Z)
+		busy = true
+		return mkPlan({
+			mode = "summon",
+			landPos = landPos,
+			yaw = math.atan2(flat.X, flat.Z), -- nariz virado pra voce
+			portalCF = skyCF(landPos + Vector3.new(0, PORTAL_H, 0), Vector3.new(-flat.Z, 0, flat.X)),
+		})
+	end
+
+	function api.execute(plan)
+		plan.started = true
+		task.spawn(function()
+			local ok, err = pcall(function()
+				if plan.mode == "dismiss" then
+					if ship then runDismiss(ship, plan) end
+				else
+					runSummon(plan)
+				end
+			end)
+			if not ok then
+				warnRG("erro na nave do Rick:", err)
+				removeShip()
+			end
+			busy = false
+		end)
+	end
+
+	function api.board()
+		local S = ship
+		if destroyed or not S or busy or S.state ~= "landed" then return end
+		if humanoid.Health <= 0 or humanoid.SeatPart then return end
+		busy = true
+		S.state = "boarding"
+		boardBtn.Visible = false
+		task.spawn(function()
+			local ok, err = pcall(function()
+				if ctx.hasPortals() then ctx.closeAllPortals() end
+				pcall(function() humanoid:UnequipTools() end)
+
+				savedCollide = {}
+				for _, p in ipairs(character:GetDescendants()) do
+					if p:IsA("BasePart") then
+						savedCollide[p] = p.CanCollide
+						p.CanCollide = false
+					end
+				end
+				savedJump = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+				savedAutoRotate = humanoid.AutoRotate
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+				humanoid.AutoRotate = false
+				humanoid.Sit = true
+
+				local from = rootPart.CFrame
+				animate(0.7, function(e)
+					local to = S.cf * SEAT_REL
+					local pos = from.Position:Lerp(to.Position, e) + Vector3.new(0, math.sin(e * math.pi) * 4, 0)
+					rootPart.CFrame = CFrame.new(pos) * to.Rotation
+					rootPart.AssemblyLinearVelocity = Vector3.zero
+					if not humanoid.Sit then humanoid.Sit = true end
+				end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+				if gone(S) then return end
+
+				local ca0 = S.canopyAng
+				animate(0.6, function(e)
+					S.canopyAng = ca0 * (1 - e)
+					place(S)
+					holdChar(S)
+				end)
+				if gone(S) then return end
+
+				S.vel = Vector3.zero
+				S.vy = 0
+				S.pos = S.cf.Position
+				S.pitch, S.roll, S.yawRate = 0, 0, 0
+				S.mode = S.mode or "ground"
+				refreshHud(S)
+				baseFov = camera.FieldOfView
+				pcall(function()
+					savedZoom = { player.CameraMinZoomDistance, player.CameraMaxZoomDistance }
+					player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, 60 * SCALE)
+					player.CameraMinZoomDistance = 32 * SCALE -- camera fora do casco
+				end)
+				bindSink()
+				pad.Visible = true
+				infoLbl.Visible = true
+				S.state = "flying"
+				toast("WASD/analógico dirigem · R troca TERRA/VOO · ESPAÇO sobe · CTRL desce · SHIFT turbo · F sai", 6)
+			end)
+			if not ok then
+				warnRG("erro ao embarcar na nave:", err)
+				restoreChar()
+				pcall(function() humanoid.Sit = false end)
+				if ship == S then S.state = "landed" end
+			end
+			busy = false
+		end)
+	end
+
+	-- voo -> chao: a nave desce, as rodas aparecem de novo (mostra que pousou)
+	local function descend(S, ground, keep)
+		local startPos = S.pos
+		local endPos = Vector3.new(startPos.X, ground.Y + LEG_H, startPos.Z)
+		local p0, r0 = S.pitch, S.roll
+		local dist = math.max(startPos.Y - endPos.Y, 0)
+		local dur = math.clamp(0.9 + dist / 110, 0.9, 4.5)
+		local lastT, tgtY = os.clock(), endPos.Y
+		if not keep then S.vel = Vector3.zero; S.turbo = false end
+
+		animate(dur, function(e, a)
+			if keep then
+				-- continua andando/voando enquanto desce; o chao e reavaliado a cada frame
+				local now = os.clock()
+				local dtg = math.min(now - lastT, 0.1)
+				lastT = now
+				api.glide(S, dtg)
+				local g = groundAt(S.pos, 0)
+				if g then tgtY = g.Y + LEG_H end
+				S.pos = Vector3.new(S.pos.X, startPos.Y + (tgtY - startPos.Y) * e, S.pos.Z)
+			else
+				S.pos = startPos:Lerp(endPos, e)
+			end
+			S.pitch = p0 * (1 - e)
+			S.roll = r0 * (1 - e)
+			S.gear = math.clamp((a - 0.4) / 0.5, 0, 1)
+			S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch, 0, S.roll)
+			place(S)
+			setThrust(S, 1 - e)
+			holdChar(S)
+		end, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		if gone(S) then return false end
+
+		if keep then endPos = Vector3.new(S.pos.X, tgtY, S.pos.Z) end
+		S.pos, S.pitch, S.roll, S.gear = endPos, 0, 0, 1
+		S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0)
+		place(S)
+		setThrust(S, 0)
+		local floorPos = endPos - Vector3.new(0, LEG_H, 0)
+		dustAt(floorPos)
+		ctx.flashAt(floorPos + Vector3.new(0, 1, 0), 1.6)
+		ctx.playSound(C.SoundEquip, 1)
+		return true
+	end
+
+	-- alterna MODO TERRA <-> MODO VOO
+	function api.toggleMode()
+		local S = ship
+		if destroyed or not S or busy or S.state ~= "flying" then return end
+		if S.mode == "ground" then
+			if S.vy < -5 then return end
+			busy = true
+			S.state = "shifting"
+			task.spawn(function()
+				local ok, err = pcall(function()
+					local y0 = S.pos.Y
+					local p0, r0 = S.pitch, S.roll
+					local lastT = os.clock()
+					if S.dust then S.dust.Rate = 0 end
+					dustAt(S.pos - Vector3.new(0, LEG_H, 0))
+					ctx.playSound(C.SoundEquip, 0.8)
+					animate(1.1, function(e)
+						S.gear = 1 - e -- rodas encolhem pra dentro
+						local now = os.clock()
+						local dtg = math.min(now - lastT, 0.1)
+						lastT = now
+						api.glide(S, dtg) -- segue andando (mantem velocidade e controle)
+						S.pos = Vector3.new(S.pos.X, y0 + 7 * SCALE * e, S.pos.Z)
+						S.pitch = p0 * (1 - e)
+						S.roll = r0 * (1 - e)
+						S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch, 0, S.roll)
+						place(S)
+						setThrust(S, 0.3 + 0.7 * e)
+						holdChar(S)
+					end, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+					if gone(S) then return end
+					S.gear = 0
+					S.mode = "fly"
+					S.state = "flying"
+					refreshHud(S)
+					toast("MODO VOO", 2)
+				end)
+				if not ok then
+					warnRG("erro ao trocar pro modo voo:", err)
+					if ship == S then S.mode = "fly"; S.state = "flying"; refreshHud(S) end
+				end
+				busy = false
+			end)
+		else
+			local ground = groundAt(S.pos, 0)
+			if not ground then
+				toast("Sem chão embaixo pra pousar. Voe até algum lugar com chão!", 3)
+				return
+			end
+			busy = true
+			S.state = "shifting"
+			task.spawn(function()
+				local ok, err = pcall(function()
+					if not descend(S, ground, true) then return end
+					S.mode = "ground"
+					S.vy = 0
+					S.state = "flying"
+					refreshHud(S)
+					toast("MODO TERRA", 2)
+				end)
+				if not ok then
+					warnRG("erro ao trocar pro modo terra:", err)
+					if ship == S then S.mode = "ground"; S.gear = 1; S.state = "flying"; refreshHud(S) end
+				end
+				busy = false
+			end)
+		end
+	end
+
+	-- sair: no modo TERRA o vidro abre e voce desce; no modo VOO a nave pousa primeiro
+	function api.exit()
+		local S = ship
+		if destroyed or not S or busy or S.state ~= "flying" then return end
+		local ground = groundAt(S.pos, 0)
+		if S.mode == "fly" and not ground then
+			toast("Sem chão embaixo pra pousar. Voe até algum lugar com chão!", 3)
+			return
+		end
+		if S.mode == "ground" and S.vy < -5 then return end
+		busy = true
+		S.state = "landing"
+		task.spawn(function()
+			local ok, err = pcall(function()
+				if S.mode == "fly" then
+					if not descend(S, ground) then return end
+					S.mode = "ground"
+				else
+					S.vel = Vector3.zero
+					setThrust(S, 0)
+					shake(S, 0)
+					if S.dust then S.dust.Rate = 0 end
+				end
+				local gy = ground and ground.Y or (S.pos.Y - LEG_H)
+				pad.Visible = false
+				infoLbl.Visible = false
+				if baseFov then camera.FieldOfView = baseFov end
+
+				animate(0.7, function(e)
+					S.canopyAng = CANOPY_OPEN * e
+					place(S)
+					holdChar(S)
+				end)
+				if gone(S) then return end
+
+				-- solta o piloto ao lado da nave
+				local right = S.cf.RightVector
+				local side = Vector3.new(right.X, 0, right.Z).Unit * -(14 * SCALE)
+				local spot = S.pos + side
+				local g2 = groundAt(spot, 8)
+				local y = (g2 and g2.Y or gy) + 3.2
+				restoreChar()
+				rootPart.CFrame = CFrame.lookAt(Vector3.new(spot.X, y, spot.Z), Vector3.new(S.pos.X, y, S.pos.Z))
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+				humanoid.Sit = false
+				pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+				lastBoard = os.clock() + 1.5
+				S.state = "landed"
+			end)
+			if not ok then
+				warnRG("erro ao pousar a nave:", err)
+				restoreChar()
+				pcall(function() humanoid.Sit = false end)
+				if ship == S then S.state = "landed" end
+			end
+			busy = false
+		end)
+	end
+
+	function api.onDeath()
+		pcall(restoreChar)
+		flushJobs()
+		removeShip()
+		busy = false
+	end
+
+	function api.destroy()
+		destroyed = true
+		pcall(function()
+			if inShip() then humanoid.Sit = false end
+		end)
+		pcall(restoreChar)
+		flushJobs()
+		pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
+		removeShip()
+		for _, m in ipairs(skyPortals) do
+			pcall(function() m:Destroy() end)
+		end
+		skyPortals = {}
+	end
+
+	-- ---------------------------------------------------------------
+	-- Liga tudo
+	-- ---------------------------------------------------------------
+	pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
+	RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, step)
+
+	ctx.track(UserInputService.InputBegan:Connect(function(input)
+		if UserInputService:GetFocusedTextBox() then return end
+		if input.KeyCode == Enum.KeyCode.F then
+			api.exit()
+		elseif input.KeyCode == Enum.KeyCode.R then
+			api.toggleMode()
+		elseif input.KeyCode == Enum.KeyCode.E then
+			if ship and ship.state == "landed" and boardBtn.Visible then api.board() end
+		end
+	end))
+
+	return api
+end
+
+
+-- ===================================================================
+-- CHAVE DA NAVE
+-- Item (Tool) no inventario + mini slot na tela. Usar = chama a nave
+-- (portal no ceu, nave desce e pousa) ou, com a nave estacionada,
+-- manda ela embora (portal no ceu, nave sobe e some).
+-- Fica fora do setupRickGun pra nao estourar o limite de locals de la.
+-- ===================================================================
+State.keyTemplate, State.keyAxis, State.keyTried = nil, Vector3.zAxis, false
+
+State.makeFallbackKey = function()
+	local L = Config.KeyLength or 1.6
+	local h = Instance.new("Part")
+	h.Name = "Handle"
+	h.Size = Vector3.new(0.22, 0.22, L)
+	h.Material = Enum.Material.Neon
+	h.Color = Config.PortalColor
+	h.Anchored = false
+	h.CanCollide = false
+	h.CanQuery = false
+	h.CanTouch = false
+	h.Massless = true
+	local function piece(size, off, shape)
+		local p = Instance.new("Part")
+		p.Size = size
+		p.Shape = shape or Enum.PartType.Block
+		p.Material = Enum.Material.Neon
+		p.Color = Config.PortalColor
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.CFrame = h.CFrame * CFrame.new(off)
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = h
+		w.Part1 = p
+		w.Parent = p
+		p.Parent = h
+	end
+	piece(Vector3.new(0.7, 0.7, 0.7), Vector3.new(0, 0, -L / 2), Enum.PartType.Ball) -- cabeca (argola)
+	piece(Vector3.new(0.5, 0.2, 0.2), Vector3.new(0.3, 0, L / 2 - 0.1))                 -- dentes
+	piece(Vector3.new(0.4, 0.2, 0.2), Vector3.new(0.25, 0, L / 2 - 0.4))
+	State.keyAxis = Vector3.zAxis
+	return h
+end
+
+State.loadKeyTemplate = function()
+	if State.keyTried then return State.keyTemplate end
+	State.keyTried = true
+	local id = Config.KeyAccessoryId
+	if id then
+		local model, err = fetchAccessoryModel(id)
+		if model then
+			local h
+			if model:IsA("BasePart") then
+				h = model
+			else
+				h = model:FindFirstChild("Handle", true) or model:FindFirstChildWhichIsA("BasePart", true)
+			end
+			if h then
+				local c = h:Clone()
+				pcall(function() model:Destroy() end)
+				for _, d in ipairs(c:GetDescendants()) do
+					if d:IsA("Attachment") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Script")
+						or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound") then
+						d:Destroy()
+					end
+				end
+				c.Name = "Handle"
+				c.Anchored = false
+				c.CanCollide = false
+				c.CanQuery = false
+				c.CanTouch = false
+				c.Massless = true
+				c.CastShadow = true
+				local s = c.Size
+				local f = (Config.KeyLength or 1.6) / math.max(math.max(s.X, s.Y, s.Z), 0.01)
+				c.Size = s * f
+				local sm = c:FindFirstChildOfClass("SpecialMesh")
+				if sm then sm.Scale = sm.Scale * f end
+				local ns = c.Size
+				if ns.X >= ns.Y and ns.X >= ns.Z then
+					State.keyAxis = Vector3.xAxis
+				elseif ns.Y >= ns.Z then
+					State.keyAxis = Vector3.yAxis
+				else
+					State.keyAxis = Vector3.zAxis
+				end
+				State.keyTemplate = c
+				return c
+			end
+			pcall(function() model:Destroy() end)
+			warnRG("Acessorio da chave sem parte Handle. Usando chave simples.")
+		else
+			warnRG("Nao foi possivel carregar o acessorio da chave " .. tostring(id) .. " (" .. tostring(err) .. "). Usando chave simples.")
+		end
+	end
+	State.keyTemplate = State.makeFallbackKey()
+	return State.keyTemplate
+end
+
+State.buildKeySystem = function(ctx)
+	local Z, humanoid, rootPart, backpack, character = ctx.Z, ctx.humanoid, ctx.rootPart, ctx.backpack, ctx.character
+	local C = Config
+	local NAME = C.KeyToolName or "Chave da Nave"
+	local api = {}
+
+	-- limpa copias antigas
+	for _, v in ipairs(backpack:GetChildren()) do
+		if v.Name == NAME then pcall(function() v:Destroy() end) end
+	end
+	local oldInChar = character:FindFirstChild(NAME)
+	if oldInChar then pcall(function() oldInChar:Destroy() end) end
+
+	-- ---------- item ----------
+	local tpl = State.loadKeyTemplate()
+	local tool = Instance.new("Tool")
+	tool.Name = NAME
+	tool.ToolTip = "Chama a nave do Rick"
+	tool.RequiresHandle = true
+	tool.CanBeDropped = false
+	local handle = tpl:Clone()
+	handle.Name = "Handle"
+	handle.Parent = tool
+
+	local rot = CFrame.new()
+	if State.keyAxis == Vector3.xAxis then
+		rot = CFrame.Angles(0, math.rad(90), 0)
+	elseif State.keyAxis == Vector3.yAxis then
+		rot = CFrame.Angles(math.rad(90), 0, 0)
+	end
+	local e = C.KeyRotation or Vector3.zero
+	tool.Grip = CFrame.new(C.KeyGrip or Vector3.zero) * rot
+		* CFrame.Angles(math.rad(e.X), math.rad(e.Y), math.rad(e.Z))
+	pcall(function() tool.Parent = backpack end)
+
+	-- ---------- mini slot na tela (igual ao da portal gun) ----------
+	local gui = ctx.newGui("RickKeyHotbar", 1)
+	local frame = Instance.new("Frame")
+	frame.Name = "KeySlotFrame"
+	frame.Size = UDim2.fromOffset(38, 40)
+	frame.Position = UDim2.new(1, C.KeySlotOffsetX or -142, 1, -72)
+	frame.BackgroundTransparency = 1
+	frame.Parent = gui
+
+	local slotBtn = Instance.new("TextButton")
+	slotBtn.Name = "Slot_ChaveDaNave"
+	slotBtn.Size = UDim2.fromOffset(32, 32)
+	slotBtn.Position = UDim2.fromOffset(4, 4)
+	slotBtn.BackgroundColor3 = Color3.fromRGB(12, 22, 14)
+	slotBtn.BorderSizePixel = 0
+	slotBtn.Text = ""
+	slotBtn.AutoButtonColor = false
+	slotBtn.Parent = frame
+	Instance.new("UICorner", slotBtn).CornerRadius = UDim.new(0, 10)
+	local slotStroke = Instance.new("UIStroke")
+	slotStroke.Thickness = 2
+	slotStroke.Parent = slotBtn
+	tintStroke(slotStroke, C.PortalColor, true)
+
+	local slotIcon = Instance.new("TextLabel")
+	slotIcon.Size = UDim2.fromScale(1, 1)
+	slotIcon.BackgroundTransparency = 1
+	slotIcon.Text = C.KeyIcon or "🔑"
+	slotIcon.TextSize = 18
+	slotIcon.Parent = slotBtn
+
+	-- miniatura do acessorio do catalogo (troca o emoji quando carregar)
+	if C.KeyAccessoryId then
+		local img = Instance.new("ImageLabel")
+		img.Name = "KeyThumb"
+		img.BackgroundTransparency = 1
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.fromScale(0.5, 0.5)
+		img.Size = UDim2.new(1, -6, 1, -6)
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Visible = false
+		img.Image = "rbxthumb://type=Asset&id=" .. tostring(C.KeyAccessoryId) .. "&w=150&h=150"
+		img.Parent = slotBtn
+		task.spawn(function()
+			for _ = 1, 24 do
+				if not (Z.alive and img.Parent) then return end
+				if img.IsLoaded then
+					img.Visible = true
+					slotIcon.Visible = false
+					return
+				end
+				task.wait(0.25)
+			end
+		end)
+	end
+
+	local selectedFrame = Instance.new("Frame")
+	selectedFrame.Size = UDim2.fromScale(1, 1)
+	selectedFrame.BackgroundTransparency = 1
+	selectedFrame.Visible = false
+	selectedFrame.Parent = slotBtn
+	local selStroke = Instance.new("UIStroke")
+	selStroke.Color = Color3.new(1, 1, 1)
+	selStroke.Thickness = 2.5
+	selStroke.Parent = selectedFrame
+	Instance.new("UICorner", selectedFrame).CornerRadius = UDim.new(0, 10)
+
+	slotBtn.MouseEnter:Connect(function()
+		TweenService:Create(slotBtn, TweenInfo.new(0.12), {Size = UDim2.fromOffset(34, 34)}):Play()
+	end)
+	slotBtn.MouseLeave:Connect(function()
+		TweenService:Create(slotBtn, TweenInfo.new(0.12), {Size = UDim2.fromOffset(32, 32)}):Play()
+	end)
+	slotBtn.MouseButton1Click:Connect(function()
+		pcall(function()
+			if tool.Parent == character then
+				humanoid:UnequipTools()
+			else
+				humanoid:EquipTool(tool)
+			end
+		end)
+	end)
+
+	-- ---------- uso da chave ----------
+	local lastUse = 0
+	local function use()
+		if not Z.alive or humanoid.Health <= 0 then return end
+		local sh = State.ship
+		if not sh then return end
+		if sh.inShip() then
+			sh.toast("Saia da nave (F ou botão SAIR) pra usar a chave.", 2.5)
+			return
+		end
+		if os.clock() - lastUse < (C.KeyCooldown or 0.9) then return end
+		local plan = sh.plan()
+		if not plan then
+			sh.toast("A nave está ocupada, espera um pouco.", 2)
+			return
+		end
+		lastUse = os.clock()
+		pcall(ctx.closePair)
+		pcall(ctx.faceToward, plan.portalCF.Position)
+		local from = (handle and handle.Parent) and handle.Position or rootPart.Position
+		pcall(ctx.flashAt, from, 0.6)
+		pcall(function() Z.fala.dizer("nave") end)
+		State.mortyEvent("onShot", from)
+		pcall(UIAnim.pulse, slotBtn, 1.2)
+		ctx.playSound(C.SoundShoot, 0.9, handle)
+		ctx.launchProjectile(from, plan.portalCF.Position, function()
+			if not Z.alive then return end
+			sh.execute(plan)
+		end)
+	end
+
+	ctx.track(tool.Activated:Connect(use))
+	ctx.track(tool.Equipped:Connect(function()
+		selectedFrame.Visible = true
+		ctx.playSound(C.SoundEquip, 1, handle)
+		local sh = State.ship
+		if sh and not sh.inShip() then
+			pcall(sh.toast, "Clique pra chamar a nave (de novo pra mandar embora).", 2.5)
+		end
+	end))
+	ctx.track(tool.Unequipped:Connect(function()
+		selectedFrame.Visible = false
+	end))
+
+	-- mantem a chave no inventario
+	task.spawn(function()
+		while Z.alive and character.Parent do
+			task.wait(0.5)
+			if not (Z.alive and character.Parent) then break end
+			if tool.Parent ~= backpack and tool.Parent ~= character then
+				pcall(function() tool.Parent = backpack end)
+			end
+		end
+	end)
+
+	api.tool = tool
+	api.use = use
+	function api.destroy()
+		pcall(function() tool:Destroy() end)
+	end
+	return api
+end
+
 
 local function setupRickGun(character)
 	if not scriptAlive then return end
@@ -476,6 +2554,7 @@ local function setupRickGun(character)
 	end
 
 	loadAccessoryTemplate()
+	pcall(State.loadKeyTemplate)
 	resolvePortalImage()
 
 	if not scriptAlive or not character.Parent or (player.Character and player.Character ~= character) then return end
@@ -501,6 +2580,7 @@ local function setupRickGun(character)
 		g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		parentGui(g)
 		myGuis[#myGuis + 1] = g
+		pcall(UIAnim.attach, g)
 		return g
 	end
 
@@ -565,6 +2645,12 @@ local function setupRickGun(character)
 					{ "Tchau, realidade! *burp*", "burp", 1 },
 					{ "{nome} abre, {nome} fecha.", "calmo", 1 },
 				},
+				nave = {
+					{ "Táxi do {nome} chegando! *burp*", "grito", 1 },
+					{ "Entra na nave, Morty! E não vomita no banco.", "grito", 1 },
+					{ "Minha nave, minhas regras. Pra onde, {nome}?", "calmo", 1 },
+					{ "Ciência não tem estacionamento, mas eu dou um jeito!", "burp", 1 },
+				},
 				corte = {
 					{ "Ai! Meu membro!", "grito", 1 },
 					{ "Isso... *burp* não estava nos planos.", "burp", 1 },
@@ -578,7 +2664,7 @@ local function setupRickGun(character)
 				},
 			}
 			-- chance de falar em cada situacao (1 = sempre)
-			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4 }
+			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1 }
 
 			-- fabrica de falantes: cada um tem sua cabeca (getHead), suas falas/chances e seu proprio balao.
 			-- O falante do jogador e o padrao; o Morty cria o dele com Z.fala.criar(...)
@@ -1537,6 +3623,7 @@ local function setupRickGun(character)
 			P.host = hostPart
 			P.rel = hostPart.CFrame:ToObjectSpace(cf)
 		end
+		State.mortyEvent("onPortal", cf.Position)
 		return P
 	end
 
@@ -2835,10 +4922,10 @@ local function setupRickGun(character)
 					"Aqui ninguem paga imposto interdimensional, eu acho.",
 				}
 				local FLAVORS = {
-					{name = "Fluido de Portal", liquid = GRN},
-					{name = "Synthwave Sour", liquid = MAG},
-					{name = "Cyan Dream", liquid = CYA},
-					{name = "Sol Neon", liquid = YEL},
+					{name = "Fluido de Portal", liquid = GRN, fx = "portal", desc = "Tela verde com ondas"},
+					{name = "Synthwave Sour", liquid = MAG, fx = "synth", desc = "Neon rosa pulsando"},
+					{name = "Cyan Dream", liquid = CYA, fx = "cyan", desc = "Câmera lenta"},
+					{name = "Sol Neon", liquid = YEL, fx = "sol", desc = "Arco-íris ondulante"},
 				}
 				local BXp = V3(100.0, 0, cz - 3)
 				local MS = 1.4 -- escala do Morty (R6 padrao = 5 studs)
@@ -3562,8 +5649,35 @@ local function setupRickGun(character)
 						{ "Ainda tá cheio... eu acho.", "nervoso", 1 },
 						{ "Será que esse shaker tá, ah, funcionando?", "nervoso", 1 },
 					},
+					pergunta = {
+						{ "O-o que vai ser, viajante? Escolhe aí, eu acho.", "nervoso", 1 },
+						{ "Tenho quatro sabores... qual você quer? Geez.", "nervoso", 1 },
+						{ "Escolhe um sabor! Mas sem pressão, tá?", "animado", 1 },
+					},
+					cancela = {
+						{ "Ah, tá... sem problema, geez.", "nervoso", 1 },
+						{ "Se mudar de ideia, é só me chamar!", "animado", 1 },
+					},
+					susto = {
+						{ "AAAH! Um portal dentro do bar?! O Rick vai me matar!", "grito", 2 },
+						{ "Geez! Avisa antes de abrir um portal aqui dentro!", "grito", 2 },
+						{ "Ah geez, ah geez, ah geez! Isso é, tipo, proibido aqui!", "grito", 2 },
+						{ "Tem um portal no meio do bar! Fecha isso, por favor!", "grito", 2 },
+					},
+					arma = {
+						{ "Essa arma é igualzinha à do Rick... isso não é bom.", "nervoso", 1 },
+						{ "Ei, cuidado com essa coisa, eu acho!", "nervoso", 1 },
+						{ "Uau, uma arma de portal de verdade! Será que eu posso... ah, deixa.", "animado", 1 },
+						{ "Por favor, não atira nada perto das garrafas...", "nervoso", 1 },
+					},
+					entrou = {
+						{ "Ele simplesmente pulou no portal?! Geez.", "nervoso", 1 },
+						{ "Viagem interdimensional... eu nunca tenho coragem.", "animado", 1 },
+						{ "Volta logo, viajante! Seu drink vai esquentar!", "animado", 1 },
+						{ "Isso nunca acaba bem... eu acho.", "nervoso", 1 },
+					},
 				}
-				local MCHANCE = { greet = 1, idle = 1, javou = 1, pedido = 1, pronto = 1, toma = 1, sentou = 1, limpar = 0.6, garrafas = 0.6, shaker = 0.6 }
+				local MCHANCE = { greet = 1, idle = 1, javou = 1, pedido = 1, pronto = 1, toma = 1, sentou = 1, limpar = 0.6, garrafas = 0.6, shaker = 0.6, pergunta = 1, cancela = 1, susto = 1, arma = 0.8, entrou = 0.8 }
 				local MF
 				pcall(function()
 					if Z.fala and Z.fala.criar then
@@ -3582,34 +5696,432 @@ local function setupRickGun(character)
 					say(txt, 4)
 				end
 
-				-- efeito de bebida: tela colorida, blur e FOV ondulando
-				local function drinkEffect()
+				-- ===== efeitos de bebida (um por sabor) + menu de sabores (o Morty pergunta, voce escolhe nos botoes) =====
+				local drinkEffect, askFlavor
+				do
 					local Lighting = game:GetService("Lighting")
-					local cam = workspace.CurrentCamera
-					local cc = Instance.new("ColorCorrectionEffect")
-					cc.Parent = Lighting
-					local bb = Instance.new("BlurEffect")
-					bb.Size = 0
-					bb.Parent = Lighting
-					local fov0 = cam and cam.FieldOfView or 70
-					local DUR, t0 = 9, os.clock()
-					task.spawn(function()
-						while true do
-							local e = os.clock() - t0
-							if e >= DUR then break end
-							local k = math.min(1, e / 1.2, (DUR - e) / 2)
-							cc.TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromHSV((e * 0.35) % 1, 0.55, 1), k)
-							cc.Saturation = 0.9 * k
-							cc.Contrast = 0.25 * k
-							bb.Size = 6 * k * (0.5 + 0.5 * sin(e * 2.2))
-							if cam then cam.FieldOfView = fov0 + 10 * k * sin(e * 1.7) end
-							RunService.RenderStepped:Wait()
+					local NSK = NumberSequenceKeypoint.new
+					local fxCur = nil
+					State.drinkStop = function() if fxCur then fxCur.stop() end end
+
+					-- n ondas suaves: alterna a transparencia entre lo e hi
+					local function bands(n, lo, hi)
+						local pts = {}
+						for i = 0, n * 2 do
+							pts[#pts + 1] = NSK(i / (n * 2), (i % 2 == 0) and hi or lo)
 						end
-						cc:Destroy()
-						bb:Destroy()
-						if cam then cam.FieldOfView = fov0 end
-					end)
+						return NumberSequence.new(pts)
+					end
+
+					drinkEffect = function(fl)
+						if fxCur then pcall(fxCur.stop) end
+						local cam = workspace.CurrentCamera
+						local stopped, cleanups = false, {}
+						local fx = {}
+						local function onStop(f) cleanups[#cleanups + 1] = f end
+						function fx.stop()
+							if stopped then return end
+							stopped = true
+							for i = #cleanups, 1, -1 do pcall(cleanups[i]) end
+							if fxCur == fx then fxCur = nil end
+						end
+						fxCur = fx
+
+						-- cria uma instancia que e destruida sozinha quando o efeito termina
+						local function new(class, parent, props)
+							local inst = Instance.new(class)
+							for k, v in pairs(props or {}) do inst[k] = v end
+							inst.Parent = parent
+							onStop(function() inst:Destroy() end)
+							return inst
+						end
+
+						local overlay
+						local function getOverlay()
+							if overlay then return overlay end
+							local g = Instance.new("ScreenGui")
+							g.Name = "RickDrinkFx"
+							g.ResetOnSpawn = false
+							g.IgnoreGuiInset = true
+							g.DisplayOrder = 8
+							g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+							parentGui(g)
+							onStop(function() g:Destroy() end)
+							overlay = g
+							return g
+						end
+
+						-- camada de tela cheia com gradiente (BackgroundTransparency = 1 - intensidade)
+						local function layer(rot, seq, color)
+							local f = new("Frame", getOverlay(), {
+								Size = UDim2.fromScale(1, 1),
+								BackgroundColor3 = color,
+								BackgroundTransparency = 1,
+								BorderSizePixel = 0,
+							})
+							local gr = new("UIGradient", f, { Rotation = rot, Transparency = seq })
+							return f, gr
+						end
+
+						-- inclinacao da camera (roll), aplicada depois do script de camera do Roblox
+						local roll, rollBound = 0, false
+						local function useRoll()
+							if rollBound then return end
+							rollBound = true
+							local name = "RickDrinkRoll"
+							pcall(function() RunService:UnbindFromRenderStep(name) end)
+							RunService:BindToRenderStep(name, Enum.RenderPriority.Camera.Value + 2, function()
+								local c = workspace.CurrentCamera
+								if c and roll ~= 0 and c.CameraType ~= Enum.CameraType.Scriptable then
+									c.CFrame = c.CFrame * CFrame.Angles(0, 0, roll)
+								end
+							end)
+							onStop(function() pcall(function() RunService:UnbindFromRenderStep(name) end) end)
+						end
+
+						local FX = {}
+
+						-- Fluido de Portal: tela verde com ondas (faixas ondulando, aneis se expandindo, camera balancando)
+						FX.portal = function()
+							local cc = new("ColorCorrectionEffect", Lighting)
+							local bb = new("BlurEffect", Lighting, { Size = 0 })
+							local fA, gA = layer(90, bands(4, 0.72, 1), C(60, 255, 90))
+							local fB, gB = layer(20, bands(3, 0.8, 1), C(150, 255, 150))
+							local rings, nextRing = {}, 0
+							useRoll()
+							return function(e, k)
+								cc.TintColor = Color3.new(1, 1, 1):Lerp(C(110, 255, 125), 0.85 * k)
+								cc.Saturation = 0.35 * k
+								cc.Contrast = 0.12 * k
+								bb.Size = 5 * k * (0.5 + 0.5 * sin(e * 2.4))
+								fA.BackgroundTransparency = 1 - k
+								fB.BackgroundTransparency = 1 - k
+								gA.Offset = Vector2.new(0.25 * sin(e * 1.3), 0.35 * sin(e * 1.7))
+								gA.Rotation = 90 + 12 * sin(e * 0.9)
+								gB.Offset = Vector2.new(0.3 * cos(e * 1.1), 0.3 * sin(e * 2.1 + 1))
+								gB.Rotation = 20 + 25 * sin(e * 0.7)
+								roll = math.rad(2.5) * k * sin(e * 1.6)
+								if e >= nextRing and k > 0.3 then
+									nextRing = e + 1.0
+									local ring = new("Frame", getOverlay(), {
+										AnchorPoint = Vector2.new(0.5, 0.5),
+										Position = UDim2.fromScale(0.5, 0.5),
+										Size = UDim2.fromScale(0.1, 0.1),
+										BackgroundTransparency = 1,
+										BorderSizePixel = 0,
+									})
+									new("UICorner", ring, { CornerRadius = UDim.new(0.5, 0) })
+									local st = new("UIStroke", ring, { Thickness = 5, Color = C(90, 255, 110), Transparency = 0.3 })
+									rings[#rings + 1] = { f = ring, st = st, t0 = e }
+								end
+								for i = #rings, 1, -1 do
+									local R = rings[i]
+									local a = (e - R.t0) / 2.4
+									if a >= 1 then
+										R.f:Destroy()
+										table.remove(rings, i)
+									else
+										local s = 0.1 + 1.5 * a
+										R.f.Size = UDim2.fromScale(s, s)
+										R.st.Transparency = 0.3 + 0.7 * a
+									end
+								end
+							end, function(e, k) return 4 * k * sin(e * 1.6) end
+						end
+
+						-- Synthwave Sour: neon rosa pulsando no ritmo, bordas magenta/ciano e linhas de scan
+						FX.synth = function()
+							local cc = new("ColorCorrectionEffect", Lighting)
+							local bloom = new("BloomEffect", Lighting, { Intensity = 0, Size = 30, Threshold = 0.8 })
+							local edge = NumberSequence.new({ NSK(0, 0.35), NSK(0.35, 1), NSK(0.65, 1), NSK(1, 0.35) })
+							local fV = layer(90, edge, MAG)
+							local fH = layer(0, edge, CYA)
+							local fS = layer(90, bands(9, 0.9, 1), C(90, 0, 70))
+							local beat = 0
+							return function(e, k)
+								beat = (0.5 + 0.5 * sin(e * 11.9)) ^ 3
+								cc.TintColor = Color3.new(1, 1, 1):Lerp(C(255, 110, 215), 0.8 * k)
+								cc.Saturation = 0.5 * k
+								cc.Contrast = 0.22 * k
+								bloom.Intensity = k * (0.9 + 1.1 * beat)
+								fV.BackgroundTransparency = 1 - k * (0.6 + 0.4 * beat)
+								fH.BackgroundTransparency = 1 - k * (0.5 + 0.5 * beat)
+								fS.BackgroundTransparency = 1 - k
+							end, function(e, k) return 3.5 * k * beat end
+						end
+
+						-- Cyan Dream: camera lenta (movimento, gravidade e som desaceleram) + visual onirico ciano
+						FX.cyan = function()
+							local cc = new("ColorCorrectionEffect", Lighting)
+							local bloom = new("BloomEffect", Lighting, { Intensity = 0, Size = 24, Threshold = 0.9 })
+							local bb = new("BlurEffect", Lighting, { Size = 0 })
+							local dof = new("DepthOfFieldEffect", Lighting, {
+								FarIntensity = 0, NearIntensity = 0, FocusDistance = 30, InFocusRadius = 25,
+							})
+							local edge = NumberSequence.new({ NSK(0, 0.5), NSK(0.3, 1), NSK(0.7, 1), NSK(1, 0.5) })
+							local vA = layer(0, edge, CYA)
+							local vB = layer(90, edge, C(30, 120, 255))
+
+							local ch = player.Character
+							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+							local g0 = workspace.Gravity
+							local ws0, jp0, usePower
+							if hum then ws0, jp0, usePower = hum.WalkSpeed, hum.JumpPower, hum.UseJumpPower end
+							onStop(function()
+								workspace.Gravity = g0
+								if hum and hum.Parent and ws0 then
+									hum.WalkSpeed = ws0
+									if usePower then hum.JumpPower = jp0 end
+								end
+							end)
+							-- som mais grave (efeito no master do SoundService); se nao existir, so ignora
+							local okP, pitch = pcall(function()
+								return new("PitchShiftSoundEffect", SoundService, { Octave = 1 })
+							end)
+
+							local S = 0.4 -- fator de tempo (0.4 = 40% da velocidade)
+							return function(e, k)
+								local s = 1 - (1 - S) * k
+								workspace.Gravity = g0 * s * s -- v*s e g*s^2: mesma altura de pulo, so que em camera lenta
+								if hum and hum.Parent and ws0 then
+									hum.WalkSpeed = ws0 * s
+									if usePower then hum.JumpPower = jp0 * s end
+								end
+								if okP and pitch then pitch.Octave = 1 - 0.35 * k end
+								cc.TintColor = Color3.new(1, 1, 1):Lerp(C(150, 235, 255), 0.7 * k)
+								cc.Contrast = 0.1 * k
+								bloom.Intensity = 0.9 * k
+								bb.Size = 2 * k * (0.5 + 0.5 * sin(e * 0.9))
+								dof.FarIntensity = 0.45 * k
+								vA.BackgroundTransparency = 1 - k
+								vB.BackgroundTransparency = 1 - k
+							end, function(e, k) return 6 * k * sin(e * 0.8) end
+						end
+
+						-- Sol Neon: o efeito original (arco-iris ondulando)
+						FX.sol = function()
+							local cc = new("ColorCorrectionEffect", Lighting)
+							local bb = new("BlurEffect", Lighting, { Size = 0 })
+							return function(e, k)
+								cc.TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromHSV((e * 0.35) % 1, 0.55, 1), k)
+								cc.Saturation = 0.9 * k
+								cc.Contrast = 0.25 * k
+								bb.Size = 6 * k * (0.5 + 0.5 * sin(e * 2.2))
+							end, function(e, k) return 10 * k * sin(e * 1.7) end
+						end
+
+						local name = fl and fl.fx or "sol"
+						local DUR = ({ portal = 10, synth = 9, cyan = 11, sol = 9 })[name] or 9
+						local okM, update, fovFn = pcall(FX[name] or FX.sol)
+						if not okM then
+							warnRG("efeito de bebida: " .. tostring(update))
+							fx.stop()
+							return
+						end
+
+						local fov0 = cam and cam.FieldOfView or 70
+						onStop(function() if cam then cam.FieldOfView = fov0 end end)
+						task.spawn(function()
+							local t0 = os.clock()
+							while not stopped and Z.alive do
+								local e = os.clock() - t0
+								if e >= DUR then break end
+								local k = math.min(1, e / 1.2, (DUR - e) / 2)
+								local okU, err = pcall(update, e, k)
+								if not okU then
+									warnRG("efeito de bebida: " .. tostring(err))
+									break
+								end
+								if cam and fovFn then cam.FieldOfView = fov0 + fovFn(e, k) end
+								RunService.RenderStepped:Wait()
+							end
+							fx.stop()
+						end)
+					end
+
+					-- ===== menu de sabores: botoes na tela; devolve o sabor escolhido (ou nil se cancelar/afastar/demorar) =====
+					local menuGui, menuPick, menuFrame
+					local menuItems = {}
+
+					local function buildMenu()
+						local g = newGui("RickMortyMenu", 30)
+						g.Enabled = false
+						menuItems = {}
+
+						-- sem fundo: so a pergunta e os botoes flutuando no lado esquerdo
+						local frame = Instance.new("Frame")
+						frame.Name = "Menu"
+						frame.AnchorPoint = Vector2.new(0, 0.5)
+						frame.Position = UDim2.new(0, 14, 0.5, 0)
+						frame.Size = UDim2.new(0.4, 0, 0, 0)
+						frame.AutomaticSize = Enum.AutomaticSize.Y
+						frame.BackgroundTransparency = 1
+						frame.BorderSizePixel = 0
+						frame.Parent = g
+						menuFrame = frame
+						local sc = Instance.new("UISizeConstraint")
+						sc.MinSize = Vector2.new(190, 0)
+						sc.MaxSize = Vector2.new(270, 10000)
+						sc.Parent = frame
+						local lay = Instance.new("UIListLayout")
+						lay.Padding = UDim.new(0, 6)
+						lay.SortOrder = Enum.SortOrder.LayoutOrder
+						lay.HorizontalAlignment = Enum.HorizontalAlignment.Left
+						lay.Parent = frame
+
+						local function label(parent, text, size, font, color, pos, sz)
+							local l = Instance.new("TextLabel")
+							l.BackgroundTransparency = 1
+							l.Position = pos
+							l.Size = sz
+							l.Text = text
+							l.TextSize = size
+							l.Font = font
+							l.TextColor3 = color
+							l.TextXAlignment = Enum.TextXAlignment.Left
+							l.TextStrokeColor3 = Color3.new(0, 0, 0)
+							l.TextStrokeTransparency = 0.35
+							l.Parent = parent
+							return l
+						end
+
+						-- pergunta do Morty
+						local q = label(frame, "Morty: o que vai ser, viajante?", 19, Enum.Font.GothamBlack, GRN,
+							UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 0))
+						q.TextWrapped = true
+						q.AutomaticSize = Enum.AutomaticSize.Y
+						q.LayoutOrder = 1
+
+						-- botao 3D: sombra/base escura embaixo + face com gradiente e brilho; flutua e afunda ao clicar
+						local H3, DEPTH = 52, 7
+						local function make3D(order, base, accent, onClick)
+							local wrap = Instance.new("Frame")
+							wrap.BackgroundTransparency = 1
+							wrap.Size = UDim2.new(1, 0, 0, H3 + DEPTH + 4)
+							wrap.LayoutOrder = order
+							wrap.Parent = frame
+
+							local sh = Instance.new("Frame")
+							sh.Size = UDim2.new(1, 0, 0, H3)
+							sh.Position = UDim2.new(0, 0, 0, DEPTH + 4)
+							sh.BackgroundColor3 = base:Lerp(Color3.new(0, 0, 0), 0.65)
+							sh.BorderSizePixel = 0
+							sh.Parent = wrap
+							Instance.new("UICorner", sh).CornerRadius = UDim.new(0, 12)
+
+							local b = Instance.new("TextButton")
+							b.Size = UDim2.new(1, 0, 0, H3)
+							b.Position = UDim2.new(0, 0, 0, 0)
+							b.BackgroundColor3 = base
+							b.AutoButtonColor = false
+							b.Text = ""
+							b.BorderSizePixel = 0
+							b.Parent = wrap
+							Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+							local gr = Instance.new("UIGradient")
+							gr.Rotation = 90
+							gr.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.62, 0.62, 0.7))
+							gr.Parent = b
+							local st = Instance.new("UIStroke")
+							st.Color = accent
+							st.Thickness = 2
+							st.Transparency = 0.2
+							st.Parent = b
+
+							local item = { b = b, sh = sh, ph = order * 0.9, down = false }
+							b.MouseButton1Down:Connect(function() item.down = true end)
+							b.MouseButton1Up:Connect(function() item.down = false end)
+							b.MouseLeave:Connect(function() item.down = false end)
+							b.Activated:Connect(onClick)
+							menuItems[#menuItems + 1] = item
+							return b
+						end
+
+						local order = 2
+						for _, fl in ipairs(FLAVORS) do
+							local b = make3D(order, C(48, 26, 92), fl.liquid, function() menuPick = fl end)
+							menuItems[#menuItems].val = fl
+							order = order + 1
+							local sw = Instance.new("Frame")
+							sw.Size = UDim2.new(0, 8, 1, -18)
+							sw.Position = UDim2.new(0, 10, 0, 9)
+							sw.BackgroundColor3 = fl.liquid
+							sw.BorderSizePixel = 0
+							sw.Parent = b
+							Instance.new("UICorner", sw).CornerRadius = UDim.new(1, 0)
+							label(b, fl.name, 16, Enum.Font.GothamBold, Color3.new(1, 1, 1),
+								UDim2.new(0, 28, 0, 6), UDim2.new(1, -36, 0, 22))
+							label(b, fl.desc or "", 12, Enum.Font.Gotham, fl.liquid,
+								UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 18))
+						end
+
+						local cb = make3D(order, C(80, 36, 84), C(255, 160, 210), function() menuPick = false end)
+						menuItems[#menuItems].val = false
+						local cl = label(cb, "Deixa pra lá", 15, Enum.Font.GothamBold, C(255, 205, 230),
+							UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 1, 0))
+						cl.TextXAlignment = Enum.TextXAlignment.Center
+
+						menuGui = g
+					end
+
+					-- flutuacao dos botoes (chamada a cada frame enquanto o menu esta aberto)
+					local function animMenu(t)
+						for _, it in ipairs(menuItems) do
+							local off = it.down and 5 or (2 + 3 * math.sin(t * 2 + it.ph))
+							if it.down then off = 5 end
+							it.b.Position = UDim2.new(0, 0, 0, off)
+							it.sh.BackgroundTransparency = it.down and 0.3 or 0.1 + 0.1 * (0.5 + 0.5 * math.sin(t * 2 + it.ph))
+						end
+					end
+
+
+					askFlavor = function()
+						if not (menuGui and menuGui.Parent) then buildMenu() end
+						if not menuGui then return nil end
+						menuPick = nil
+						-- entrada: o menu desliza da esquerda e os botoes crescem um apos o outro
+						if menuFrame then
+							menuFrame.Position = UDim2.new(0, -320, 0.5, 0)
+							TweenService:Create(menuFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, 14, 0.5, 0)}):Play()
+						end
+						for i, it in ipairs(menuItems) do
+							UIAnim.getScale(it.b).Scale = 0
+							task.delay(0.05 + i * 0.07, function()
+								if it.b.Parent then UIAnim.scaleTo(it.b, 1, 0.35) end
+							end)
+						end
+						menuGui.Enabled = true
+						local t0 = os.clock()
+						while menuPick == nil and Z.alive and model.Parent and os.clock() - t0 < 45 do
+							local ch = player.Character
+							local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+							if not hrp or not hum or hum.Health <= 0 then break end
+							if MR.root and (hrp.Position - MR.root.Position).Magnitude > 32 then break end
+							pcall(animMenu, os.clock())
+							RunService.Heartbeat:Wait()
+						end
+						local pick = menuPick
+						menuPick = nil
+						-- saida: o botao escolhido da um pulso e o menu desliza pra fora
+						if menuGui then
+							if menuFrame and Z.alive and menuGui.Parent then
+								if pick ~= nil then
+									for _, it in ipairs(menuItems) do
+										if it.val == pick then pcall(UIAnim.pulse, it.b, 1.2) end
+									end
+									task.wait(0.2)
+								end
+								TweenService:Create(menuFrame, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0, -320, 0.5, 0)}):Play()
+								task.wait(0.3)
+							end
+							menuGui.Enabled = false
+						end
+						if pick == false then return nil end
+						return pick
+					end
 				end
+
 
 				local busy, shaking, pouring, pp = false, false, false, nil
 
@@ -3842,7 +6354,17 @@ local function setupRickGun(character)
 						BHV.callPost = false
 						BHV.serving = true
 						MR.lWant, MR.rWant = nil, nil
-						local fl = FLAVORS[math.random(#FLAVORS)]
+						diz("pergunta")
+						local fl = askFlavor()
+						if not fl then
+							diz("cancela")
+							task.wait(0.6)
+							BHV.serving = false
+							BHV.nextTask = os.clock() + 6
+							busy = false
+							if pp then pp.Enabled = true end
+							return
+						end
 						diz("pedido", {drink = fl.name})
 						shaking = true
 						DR.shakeFx(true, fl.liquid)
@@ -3865,7 +6387,7 @@ local function setupRickGun(character)
 							if dk.offer(40) then
 								local ch2 = player.Character
 								dk.take(ch2 and ch2:FindFirstChild("HumanoidRootPart"))
-								DR.giveTool(fl, drinkEffect)
+								DR.giveTool(fl, function() drinkEffect(fl) end)
 								diz("toma")
 							else
 								dk.expire()
@@ -3905,7 +6427,19 @@ local function setupRickGun(character)
 					local wa = MR.walkAmt
 					local sw = sin(MR.walkPh) * 0.65 * wa
 					local bob = sin(t * 1.6) * 0.06 * (1 - wa) + math.abs(sin(MR.walkPh)) * 0.12 * wa
-					MR.root.CFrame = CF(MR.px, BASE.Position.Y + bob, MR.pz) * ANG(0, MR.yaw, 0)
+					-- susto/reacao: pulinho, tremedeira e bracos pra cima (MR.startle = {t0, dur, amp})
+					local su, suK, hop, shake = MR.startle, 0, 0, 0
+					if su then
+						local se = os.clock() - su.t0
+						if se >= su.dur then
+							MR.startle = nil
+						else
+							suK = math.clamp(math.min(se / 0.12, (su.dur - se) / 0.5), 0, 1) * su.amp
+							hop = math.max(0, sin(math.min(se / 0.4, 1) * pi)) * 0.8 * su.amp
+							shake = sin(se * 42) * 0.05 * suK
+						end
+					end
+					MR.root.CFrame = CF(MR.px, BASE.Position.Y + bob + hop, MR.pz) * ANG(0, MR.yaw + shake, 0)
 					MR.rHip.C0 = MR.rHipC0 * ANG(0, 0, sw)
 					MR.lHip.C0 = MR.lHipC0 * ANG(0, 0, sw)
 					local rel = 0
@@ -3916,7 +6450,7 @@ local function setupRickGun(character)
 						end
 					end
 					headYaw = headYaw + (rel - headYaw) * 0.15
-					MR.neck.C0 = MR.neckC0 * ANG(0, 0, headYaw)
+					MR.neck.C0 = MR.neckC0 * ANG(0, 0, headYaw + sin(os.clock() * 30) * 0.3 * suK)
 					local target = pouring and (2.1 + 0.05 * sin(t * 5))
 						or (shaking and (1.2 + 0.3 * sin(t * 16)) or (0.12 + 0.05 * sin(t * 1.6)))
 					MR.armA = shaking and target or (MR.armA + (target - MR.armA) * 0.18)
@@ -3927,8 +6461,16 @@ local function setupRickGun(character)
 						local ik = MR.ikR(MR.rLast)
 						if ik then rc0 = rc0:Lerp(ik, MR.rBlend) end
 					end
+					local suArms = suK > 0.02 and not MR.rWant and not MR.lWant and MR.rBlend < 0.05
+					local suTr = sin(os.clock() * 28) * 0.08 * suK
+					if suArms then
+						rc0 = MR.shoulderC0 * ANG(0, 0, 2.5 * suK + (MR.armA - sw * 0.5) * (1 - suK) + suTr)
+					end
 					MR.rShoulder.C0 = rc0
 					local lc0 = MR.lWant and MR.ikL(MR.lWant) or nil
+					if suArms then
+						lc0 = MR.lC0 * ANG(0, 0, -2.5 * suK + (0.03 * sin(t * 1.3) - sw * 0.5) * (1 - suK) - suTr)
+					end
 					MR.lShoulder.C0 = lc0 or (MR.lC0 * ANG(0, 0, 0.03 * sin(t * 1.3) - sw * 0.5))
 					if pos then
 						local inside = pos.X > O.X + BX0 + 1 and pos.X < O.X + BX1 and pos.Z > O.Z + BZ0 and pos.Z < O.Z + BZ1 and pos.Y < O.Y + H
@@ -3944,6 +6486,67 @@ local function setupRickGun(character)
 						wasInside = inside
 					end
 				end
+
+				-- ===== reacoes do Morty: susto com portal dentro do bar + comentarios ao usar a arma e ao atravessar um portal =====
+				do
+					local function insideBar(p)
+						return p.X > O.X + BX0 + 1 and p.X < O.X + BX1 and p.Z > O.Z + BZ0 and p.Z < O.Z + BZ1 and p.Y < O.Y + H
+					end
+					local function nearMorty(p, d)
+						local rp = MR.root and MR.root.Position
+						return rp ~= nil and (p - rp).Magnitude <= d
+					end
+
+					-- fala na hora (interrompe a fala atual), sem o limite de 1.5s do diz()
+					local function dizAgora(cat)
+						local lista = MFALAS[cat]
+						if not lista or not MF then return end
+						if math.random() > (MCHANCE[cat] or 1) then return end
+						local f = lista[math.random(#lista)]
+						local txt = (f[1]:gsub("{(%w+)}", function() return player.DisplayName end))
+						pcall(MF.mostrar, txt, f[2], f[3] or 1)
+					end
+
+					local lastReact, lastScare = 0, 0
+					local hooks = {}
+
+					-- portal aberto dentro do bar: o Morty se assusta
+					function hooks.onPortal(pos)
+						if not Z.alive or not insideBar(pos) then return end
+						local now = os.clock()
+						if now - lastScare < 4 then return end
+						lastScare, lastReact = now, now
+						MR.startle = { t0 = now, dur = 1.7, amp = 1 }
+						dizAgora("susto")
+					end
+
+					-- tiro da arma por perto: comentario + sustinho leve
+					function hooks.onShot(pos)
+						if not Z.alive then return end
+						local now = os.clock()
+						if now - lastReact < 7 then return end
+						if not (insideBar(pos) or nearMorty(pos, 70)) then return end
+						lastReact = now
+						if not MR.startle then MR.startle = { t0 = now, dur = 0.7, amp = 0.35 } end
+						dizAgora("arma")
+					end
+
+					-- jogador atravessou um portal (saida ou chegada perto do Morty)
+					function hooks.onTeleport(fromPos, toPos)
+						if not Z.alive then return end
+						local now = os.clock()
+						if now - lastReact < 6 then return end
+						if not (insideBar(fromPos) or insideBar(toPos) or nearMorty(fromPos, 60) or nearMorty(toPos, 60)) then return end
+						lastReact = now
+						dizAgora("entrou")
+					end
+
+					State.morty = hooks
+					model.Destroying:Connect(function()
+						if State.morty == hooks then State.morty = nil end
+					end)
+				end
+
 
 				-- jukebox
 				local jx, jz = 80, BZ0 + T + 1.6
@@ -7385,6 +9988,7 @@ local function setupRickGun(character)
 	okBtn.Parent = nameTag
 	Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 7)
 
+	for _, l in ipairs({redMode, redKind, redInfo}) do UIAnim.watchText(l) end
 	setStatus = function() end
 
 	function refreshVariantUI()
@@ -8032,6 +10636,7 @@ local function setupRickGun(character)
 		State.lastActivity = os.clock()
 		playSound(Config.SoundTeleport, 1.1, rootPart)
 		Z.fala.dizer("tp")
+		State.mortyEvent("onTeleport", fromCF.Position, toCF.Position)
 		if Config.Elastic then
 			pcall(wobblePortal, fromP, false)
 			pcall(wobblePortal, toP, true)
@@ -10204,6 +12809,8 @@ local function setupRickGun(character)
 	local function shotEffects(muzzlePos)
 		flashAt(muzzlePos, 0.6)
 		Z.fala.dizer("tiro")
+		State.mortyEvent("onShot", muzzlePos)
+		pcall(UIAnim.pulse, fireBtn, 1.18)
 		playSound(Config.SoundShoot, 0.9, handle)
 		task.spawn(playRecoil)
 	end
@@ -10511,6 +13118,25 @@ local function setupRickGun(character)
 		end)
 	end
 
+	State.ship = State.buildShipSystem({
+		Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, camera = camera,
+		track = track, newGui = newGui, playSound = playSound, flashAt = flashAt,
+		createPortalModel = createPortalModel, openRipple = openRipple, closePortal = closePortal,
+		closeAllPortals = closeAllPortals,
+		hasPortals = function() return entrance ~= nil or exitP ~= nil end,
+	})
+
+	-- CHAVE DA NAVE: item no inventario + mini slot na tela (substitui a antiga V4 da arma)
+	if not pcall(function()
+		State.key = State.buildKeySystem({
+			Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, backpack = backpack,
+			track = track, newGui = newGui, playSound = playSound, flashAt = flashAt,
+			closePair = closePair, faceToward = faceToward, launchProjectile = launchProjectile,
+		})
+	end) then
+		warnRG("a Chave da Nave nao carregou")
+	end
+
 	local function fire()
 		if not isEquipped or not Z.alive then return end
 		if humanoid.Health <= 0 then return end
@@ -10614,6 +13240,7 @@ local function setupRickGun(character)
 		isEquipped = false
 		aimDot.Visible = false
 		pcall(function() Z.fala.parar() end)
+		pcall(function() if State.ship then State.ship.onDeath() end end)
 		closeAllPortals()
 		pcall(releasePortalWalk)
 		refreshVariantUI()
@@ -10681,6 +13308,10 @@ local function setupRickGun(character)
 		pcall(releaseSevered)
 		pcall(function() if Z.bloodFolder then Z.bloodFolder:Destroy() end end)
 		pcall(Dim.destroy)
+		pcall(function() if State.key then State.key.destroy(); State.key = nil end end)
+		pcall(function() if State.ship then State.ship.destroy(); State.ship = nil end end)
+		pcall(function() if State.drinkStop then State.drinkStop() end end)
+		State.morty = nil
 		pcall(function() Z.fala.destruir() end)
 		pcall(stopCamSlide)
 		if Z.muzzleDot then pcall(function() Z.muzzleDot:Destroy() end) end

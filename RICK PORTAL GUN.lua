@@ -811,15 +811,43 @@ State.buildShipSystem = function(ctx)
 		return CFrame.fromMatrix(pos, r, vz:Cross(r), vz)
 	end
 
+	-- RaycastParams reaproveitado (evita alocar tabela/params a cada frame no modo TERRA)
+	local shipRayParams = RaycastParams.new()
+	shipRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	shipRayParams.IgnoreWater = true
+	local shipRayIgnore = {}
+
+	local function rebuildShipIgnore()
+		table.clear(shipRayIgnore)
+		if character then shipRayIgnore[#shipRayIgnore + 1] = character end
+		if ship and ship.model then shipRayIgnore[#shipRayIgnore + 1] = ship.model end
+		for _, m in ipairs(skyPortals) do shipRayIgnore[#shipRayIgnore + 1] = m end
+		shipRayParams.FilterDescendantsInstances = shipRayIgnore
+	end
+
 	local function castDir(origin, vec)
-		local ignore = buildIgnore(character, ship and ship.model)
-		for _, m in ipairs(skyPortals) do ignore[#ignore + 1] = m end
-		return castSolid(origin, vec, ignore)
+		rebuildShipIgnore()
+		-- pula partes quase transparentes (igual castSolid) sem recriar params
+		for _ = 1, 8 do
+			local result = workspace:Raycast(origin, vec, shipRayParams)
+			if not result then return nil end
+			local inst = result.Instance
+			if inst and inst.ClassName ~= "Terrain" and inst:IsA("BasePart") and inst.Transparency >= 0.95 then
+				shipRayIgnore[#shipRayIgnore + 1] = inst
+				shipRayParams.FilterDescendantsInstances = shipRayIgnore
+			else
+				return result
+			end
+		end
+		return nil
 	end
 
 	-- devolve posicao e normal do chao abaixo de pos (comecando fromAbove acima)
+	-- raio encurtado (~150 studs) em vez de 4000+ — suficiente pro relevo da nave
 	local function groundAt(pos, fromAbove)
-		local res = castDir(pos + Vector3.new(0, fromAbove, 0), Vector3.new(0, -(fromAbove + 4000), 0))
+		local above = math.min(fromAbove or 6, 30)
+		local down = above + 120
+		local res = castDir(pos + Vector3.new(0, above, 0), Vector3.new(0, -down, 0))
 		if res then return res.Position, res.Normal end
 		return nil
 	end
@@ -892,6 +920,7 @@ State.buildShipSystem = function(ctx)
 		local S = {
 			model = model, root = root,
 			parts = {}, gearParts = {}, canopyParts = {}, thrParts = {}, emitters = {},
+			wheelHubs = {}, -- 1 hub por roda: anima so 3 welds em vez de ~100 pecas
 			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
 			yaw = 0, pitch = 0, roll = 0, yawRate = 0,
 			gear = 1, canopyAng = 0, state = "arriving", infoT = 0, shaking = false,
@@ -900,6 +929,7 @@ State.buildShipSystem = function(ctx)
 			leanP = 0, leanPV = 0, leanR = 0, leanRV = 0, latN = 0, lonN = 0,
 			steer = 0, lastSteer = 0,
 			trails = {}, turbo = false, tk = 0,
+			suspAcc = 0, -- acumulador pra rodar suspensao a ~30 Hz
 		}
 
 		local RZ = CFrame.Angles(0, math.rad(90), 0) -- cilindro: eixo X -> eixo Z da nave
@@ -1188,14 +1218,65 @@ State.buildShipSystem = function(ctx)
 		local CHROME_D = Color3.fromRGB(58, 62, 68)
 		local TIRE_D = Color3.fromRGB(28, 30, 34)
 
-		-- peca da roda: guarda o cubo (hub) e a posicao local (loc) pra girar tudo em volta do eixo
-		local function addSpin(wid, wr, hub, name, size, loc, color, material, shape, refl)
-			local e = add(name, size, hub * loc, color, material, 0, shape, "gear")
-			e.wr = wr
-			e.wid = wid
-			e.hub = CFrame.new(hub.Position * SCALE)
-			e.loc = CFrame.new(loc.Position * SCALE) * loc.Rotation
-			if refl then e.part.Reflectance = refl end
+		-- Hub invisivel por roda: todas as pecas do pneu soldam nele.
+		-- place() anima so o weld do hub (3 welds) em vez de ~100 pecas.
+		local function makeWheelHub(id, x, y, z, wr)
+			local hubPart = Instance.new("Part")
+			hubPart.Name = "WheelHub" .. id
+			hubPart.Anchored = false
+			hubPart.Massless = true
+			hubPart.CanCollide = false
+			hubPart.CanQuery = false
+			hubPart.CanTouch = false
+			hubPart.Transparency = 1
+			hubPart.Size = Vector3.new(0.2, 0.2, 0.2)
+			hubPart.CastShadow = false
+			local hubRel = CFrame.new(x * SCALE, y * SCALE, z * SCALE)
+			local w = Instance.new("Weld")
+			w.Part0 = root
+			w.Part1 = hubPart
+			w.C0 = hubRel
+			w.Parent = hubPart
+			hubPart.Parent = model
+			local e = { part = hubPart, weld = w, rel = hubRel, tag = "gear", baseT = 1, wr = wr, wid = id, isHub = true }
+			S.parts[#S.parts + 1] = e
+			S.gearParts[#S.gearParts + 1] = e
+			S.wheelHubs[id] = e
+			return e
+		end
+
+		-- peca visual da roda: soldada no hub (nao no root) — C0 fixo, nunca reescrito por frame
+		local function addSpin(hubE, name, size, loc, color, material, shape, refl)
+			local p = Instance.new("Part")
+			p.Name = name
+			p.Anchored = false
+			p.Massless = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Size = size * SCALE
+			p.CastShadow = size.Magnitude > 3
+			p.Color = color
+			p.Material = material or METAL
+			p.Transparency = 0
+			if shape == "sphere" then
+				local m = Instance.new("SpecialMesh")
+				m.MeshType = Enum.MeshType.Sphere
+				m.Parent = p
+			elseif shape == "cyl" then
+				p.Shape = Enum.PartType.Cylinder
+			end
+			local locS = CFrame.new(loc.Position * SCALE) * loc.Rotation
+			local w = Instance.new("Weld")
+			w.Part0 = hubE.part
+			w.Part1 = p
+			w.C0 = locS
+			w.Parent = p
+			p.Parent = model
+			if refl then p.Reflectance = refl end
+			-- entra em parts so pro snap inicial; NAO em gearParts (nao reescreve C0)
+			local e = { part = p, weld = w, rel = locS, tag = nil, baseT = 0, parentHub = hubE }
+			S.parts[#S.parts + 1] = e
 			return e
 		end
 
@@ -1203,8 +1284,10 @@ State.buildShipSystem = function(ctx)
 		local function monsterWheel(tag, id, side, x, y, z, len, diam)
 			local wr = diam / 2 * SCALE
 			S.wheels[id] = { rel = Vector3.new(x, y, z) * SCALE, r = wr, x = 0, v = 0, lastX = 0 }
-			local hub = CFrame.new(x, y, z)
-			local function sp(...) return addSpin(id, wr, hub, ...) end
+			local hubE = makeWheelHub(id, x, y, z, wr)
+			local function sp(name, size, loc, color, material, shape, refl)
+				return addSpin(hubE, name, size, loc, color, material, shape, refl)
+			end
 
 			-- pneu: carcaca + garras largas em V (chevron), igual pneu de monster truck
 			local lugH = diam * 0.12
@@ -1276,18 +1359,17 @@ State.buildShipSystem = function(ctx)
 			S.suspDirty = false
 			local gs = (1 - S.gear) * GEAR_TRAVEL
 			for _, e in ipairs(S.gearParts) do
-				local off = 0
-				if e.wid then off = S.wheels[e.wid].x * S.gear end -- suspensao: sobe (+) / desce (-)
-				local c
-				if e.loc then -- peca da roda: gira em torno do eixo do cubo
-					-- rodas da frente (id 1 e 2) esterçam em torno do eixo vertical antes de girar
+				if e.isHub then
+					-- so o hub gira/esterça/sobe; as dezenas de pecas do pneu ja estao soldadas nele
+					local off = (S.wheels[e.wid] and S.wheels[e.wid].x or 0) * S.gear
 					local st = (e.wid == 1 or e.wid == 2) and (S.steer or 0) * S.gear or 0
-					c = CFrame.new(0, gs + off, 0) * e.hub * CFrame.Angles(0, st, 0) * CFrame.Angles(-S.spinDist / e.wr, 0, 0) * e.loc
+					e.weld.C0 = CFrame.new(0, gs + off, 0) * e.rel * CFrame.Angles(0, st, 0) * CFrame.Angles(-S.spinDist / e.wr, 0, 0)
 				else
-					c = CFrame.new(0, gs + off, 0) * e.rel
+					-- pecas de gear que nao sao hub (ex.: Peg)
+					local c = CFrame.new(0, gs, 0) * e.rel
 					if e.wr then c = c * CFrame.Angles(-S.spinDist / e.wr, 0, 0) end
+					e.weld.C0 = c
 				end
-				e.weld.C0 = c
 			end
 		end
 		if S.lastCa ~= S.canopyAng then
@@ -1308,7 +1390,12 @@ State.buildShipSystem = function(ctx)
 	local function snap(S)
 		place(S)
 		for _, e in ipairs(S.parts) do
-			e.part.CFrame = S.cf * e.weld.C0
+			if e.parentHub then
+				-- peca visual da roda: CFrame = world hub * loc local
+				e.part.CFrame = e.parentHub.part.CFrame * e.weld.C0
+			else
+				e.part.CFrame = S.cf * e.weld.C0
+			end
 		end
 	end
 
@@ -1332,10 +1419,19 @@ State.buildShipSystem = function(ctx)
 	local function setThrust(S, t)
 		local st = S.state
 		local on = t > 0.02 and (S.mode == "fly" or st == "arriving" or st == "leaving" or st == "shifting")
+		if not on then
+			-- modo TERRA / desligado: so garante trails off, sem alocar ColorSequence
+			if S.tk and S.tk ~= 0 then S.tk = 0 end
+			for _, tr in ipairs(S.trails) do
+				if tr.Enabled then tr.Enabled = false end
+			end
+			if t <= 0.02 then shake(S, 0) end
+			return
+		end
 		local now = os.clock()
 		local dt = math.min(now - (S.trailClk or now), 0.1)
 		S.trailClk = now
-		local goal = (on and S.turbo) and 1 or 0
+		local goal = S.turbo and 1 or 0
 		local k = (S.tk or 0) + (goal - (S.tk or 0)) * (1 - math.exp(-7 * dt))
 		S.tk = k
 		local ti = math.clamp(t, 0, 1)
@@ -1350,14 +1446,11 @@ State.buildShipSystem = function(ctx)
 		local ws = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1 + 0.9 * k), NumberSequenceKeypoint.new(1, 0) })
 		local life = (0.28 + 0.55 * k) * (0.55 + 0.45 * ti)
 		for _, tr in ipairs(S.trails) do
-			tr.Enabled = on
-			if on then
-				tr.Color = cs
-				tr.WidthScale = ws
-				tr.Lifetime = life
-			end
+			tr.Enabled = true
+			tr.Color = cs
+			tr.WidthScale = ws
+			tr.Lifetime = life
 		end
-		if t <= 0.02 then shake(S, 0) end
 	end
 
 	local function removeShip()
@@ -1720,14 +1813,20 @@ State.buildShipSystem = function(ctx)
 
 		S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch + S.leanP, 0, S.roll + S.leanR)
 
-		suspStep(S, dt, grounded, spd, top)
+		-- suspensao a ~30 Hz (nao precisa do custo de 3 raycasts a 60+)
+		S.suspAcc = (S.suspAcc or 0) + dt
+		if S.suspAcc >= (1 / 30) then
+			local sdt = S.suspAcc
+			S.suspAcc = 0
+			suspStep(S, sdt, grounded, spd, top)
+		end
 
 		-- rodas giram conforme a distancia andada
 		S.spinDist = S.spinDist + hv:Dot(fwd) * dt
 		place(S)
 
-		setThrust(S, 0.12 + 0.3 * math.min(spd / top, 1))
-		shake(S, math.clamp(spd / (GROUND_SPEED * GROUND_TURBO), 0, 1) * 0.08 * SCALE)
+		-- modo TERRA: sem rastro de turbina e sem shake (economiza welds + GC)
+		setThrust(S, 0)
 		if S.dust then S.dust.Rate = (grounded and spd > 4) and math.clamp(spd * 0.6, 0, 40) or 0 end
 		holdChar(S)
 

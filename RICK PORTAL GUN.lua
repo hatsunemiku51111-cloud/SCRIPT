@@ -213,6 +213,9 @@ local Config = {
 	PortalBoingDuration = 1.3,
 	PortalBoingFrequency = 3.2,
 	PortalBoingDamping = 2.6,
+	PortalBoingJelly = 0.7,      -- gelatina: quanto X e Y balancam em oposicao (0 = desliga, volta ao pulso uniforme)
+	PortalBoingJellyFreq = 1.45, -- a gelatina balanca mais rapido que o pulso
+	PortalBoingCascade = 0.06,   -- segundos de atraso entre as camadas (borda -> centro); 0 = tudo junto
 	PortalBoingEnter = -0.3,
 	PortalBoingExit = 0.4,
 
@@ -10832,24 +10835,33 @@ local function setupRickGun(character)
 		P.boingId = (P.boingId or 0) + 1
 		local id = P.boingId
 		local amp = isExit and Config.PortalBoingExit or Config.PortalBoingEnter
-		local bases = {
-			{outer, Config.PortalSize},
-			{core, Config.PortalSize * Vector3.new(0.88, 0.88, 0.55)},
-			{portal, Config.PortalSize * Vector3.new(0.88, 0.88, 0.5)},
+		-- camadas de fora pra dentro: cada uma comeca um pouquinho depois, a vibracao corre da borda pro centro
+		local layers = {
+			{ part = outer, size = Config.PortalSize, step = 0 },
+			{ part = core, size = Config.PortalSize * Vector3.new(0.88, 0.88, 0.55), step = 1 },
+			{ part = portal, size = Config.PortalSize * Vector3.new(0.88, 0.88, 0.5), step = 2 },
 		}
+		local freq, damp = Config.PortalBoingFrequency, Config.PortalBoingDamping
+		local jelly = Config.PortalBoingJelly or 0
+		local jelFreq = Config.PortalBoingJellyFreq or 1.45
+		local gap = Config.PortalBoingCascade or 0
 		task.spawn(function()
 			local t0 = os.clock()
 			while Z.alive and P.boingId == id and P.model.Parent do
 				local t = os.clock() - t0
-				local done = t >= Config.PortalBoingDuration
-				local sc = 1
-				if not done then
-					sc = 1 + amp * math.exp(-Config.PortalBoingDamping * t) * math.cos(Config.PortalBoingFrequency * t * math.pi * 2)
-				end
-				for _, bp in ipairs(bases) do
-					local part, base = bp[1], bp[2]
+				local done = t >= Config.PortalBoingDuration + gap * 2
+				for _, L in ipairs(layers) do
+					local part = L.part
 					if part and part.Parent then
-						part.Size = Vector3.new(base.X * sc, base.Y * sc, base.Z)
+						local sx, sy = 1, 1
+						local tl = t - L.step * gap
+						if not done and tl > 0 then
+							-- u = pulso uniforme (o boing de antes); j = gelatina: X estica enquanto Y achata e inverte
+							local u = amp * math.exp(-damp * tl) * math.cos(freq * tl * math.pi * 2)
+							local j = jelly * math.abs(amp) * math.exp(-damp * 0.85 * tl) * math.sin(freq * jelFreq * tl * math.pi * 2)
+							sx, sy = 1 + u + j, 1 + u - j
+						end
+						part.Size = Vector3.new(L.size.X * sx, L.size.Y * sy, L.size.Z)
 					end
 				end
 				if done then break end

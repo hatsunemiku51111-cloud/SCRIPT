@@ -2542,6 +2542,51 @@ local function setupRickGun(character)
 				end
 				updPortal(0)
 
+				-- banquinhos sentaveis (aperte E perto do banquinho; mova ou pule pra levantar)
+				local sitting = false
+				local function sittable(pos, face)
+					local seat = mk(model, V3(2.2, 0.3, 2.2), CFrame.lookAt(O + pos, O + pos + face), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
+					pcall(function()
+						local pp = Instance.new("ProximityPrompt")
+						pp.ActionText = "Sentar"
+						pp.ObjectText = "Banquinho"
+						pp.HoldDuration = 0
+						pp.MaxActivationDistance = 7
+						pp.RequiresLineOfSight = false
+						pp.Parent = seat
+						pp.Triggered:Connect(function()
+							if sitting then return end
+							local char = player.Character
+							local hum = char and char:FindFirstChildOfClass("Humanoid")
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							if not hum or not hrp or hum.Health <= 0 or hum.Sit then return end
+							sitting = true
+							pp.Enabled = false
+							hum.Sit = true
+							hrp.CFrame = seat.CFrame * CFrame.new(0, 1.35, 0)
+							local weld = Instance.new("Weld")
+							weld.Part0, weld.Part1 = seat, hrp
+							weld.C0 = CFrame.new(0, 1.35, 0)
+							weld.Parent = seat
+							task.spawn(function()
+								local t0 = os.clock()
+								while weld.Parent and hum.Parent and hum.Health > 0 do
+									if os.clock() - t0 > 0.6 and (hum.Jump or hum.MoveDirection.Magnitude > 0.2 or not hum.Sit) then break end
+									RunService.Heartbeat:Wait()
+								end
+								pcall(function() weld:Destroy() end)
+								hum.Sit = false
+								if hrp.Parent then
+									hrp.CFrame = CFrame.new(hrp.Position + face * 2.5 + V3(0, 1, 0))
+								end
+								sitting = false
+								pp.Enabled = true
+							end)
+						end)
+					end)
+					return seat
+				end
+
 				-- ===== INTERIOR =====
 				-- balcao
 				local top = neon(V3(3.2, 0.3, 28.4), O + V3(97, 4.15, cz), GRN, {trans = 0.2})
@@ -2553,20 +2598,80 @@ local function setupRickGun(character)
 					column(model, 0.2, 2, O + V3(93.3, 0.35, sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
 					mk(model, V3(0.3, 2.2, 0.3), O + V3(93.3, 1.4, sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
 					column(model, 0.7, 2.6, O + V3(93.3, 2.6, sz), C(200, 30, 150), M.SmoothPlastic, {shadow = false})
+					sittable(V3(93.3, 2.8, sz), V3(1, 0, 0))
 				end
-				-- prateleiras com garrafas de fluido de portal
-				neon(V3(0.2, 6.5, 26), O + V3(BX1 - T - 0.2, 8.7, cz), VIO, {trans = 0.55})
+				-- prateleiras com garrafas bonitas (3 formatos, vidro + liquido neon, rotulo e tampa)
+				neon(V3(0.2, 8, 26), O + V3(BX1 - T - 0.2, 8.4, cz), VIO, {trans = 0.55})
 				local bottleCols = {GRN, MAG, CYA, YEL}
-				for _, sy in ipairs({7, 10.5}) do
-					mk(model, V3(1.2, 0.3, 26), O + V3(BX1 - T - 0.8, sy, cz), C(40, 20, 70), M.SmoothPlastic, {shadow = false})
-					for i = 0, 11 do
-						column(model, 1.8, 0.8, O + V3(BX1 - T - 0.8, sy + 1.05, cz - 12 + i * 2.18),
-							bottleCols[r:NextInteger(1, #bottleCols)], M.Neon, {shadow = false})
+				local DKP = C(20, 10, 40)
+				local function bottle(x, y, z, kind, col)
+					local pos = O + V3(x, y, z)
+					local gl = col:Lerp(C(255, 255, 255), 0.75)
+					local function G(h, d, dy, c, mat, o) return column(model, h, d, pos + V3(0, dy, 0), c, mat, o or {shadow = false}) end
+					if kind == 1 then
+						G(2.6, 0.95, 1.3, gl, M.Glass, {shadow = false, trans = 0.55})
+						G(2.0, 0.78, 1.05, col, M.Neon, {shadow = false, trans = 0.1})
+						G(0.9, 0.42, 3.05, gl, M.Glass, {shadow = false, trans = 0.5})
+						G(0.25, 0.55, 3.6, DKP, M.SmoothPlastic)
+						G(0.8, 0.98, 1.3, DKP, M.SmoothPlastic)
+						G(0.1, 1.0, 1.62, col, M.Neon)
+						G(0.1, 1.0, 0.98, col, M.Neon)
+					elseif kind == 2 then
+						ball(model, 1.9, pos + V3(0, 0.95, 0), gl, M.Glass, {shadow = false, trans = 0.55})
+						ball(model, 1.55, pos + V3(0, 0.8, 0), col, M.Neon, {shadow = false, trans = 0.1})
+						G(1.1, 0.48, 2.3, gl, M.Glass, {shadow = false, trans = 0.5})
+						G(0.1, 0.62, 2.55, col, M.Neon)
+						G(0.3, 0.6, 3.0, DKP, M.SmoothPlastic)
+					else
+						mk(model, V3(1.5, 2.2, 0.7), CF(pos + V3(0, 1.1, 0)), gl, M.Glass, {shadow = false, trans = 0.55})
+						mk(model, V3(1.25, 1.7, 0.5), CF(pos + V3(0, 0.95, 0)), col, M.Neon, {shadow = false, trans = 0.1})
+						mk(model, V3(1.52, 0.25, 0.72), CF(pos + V3(0, 1.55, 0)), DKP, M.SmoothPlastic, {shadow = false})
+						G(0.8, 0.5, 2.6, gl, M.Glass, {shadow = false, trans = 0.5})
+						G(0.3, 0.62, 3.15, DKP, M.SmoothPlastic)
 					end
 				end
-				local fl = mk(model, V3(22, 5, 0.4), O + V3(96, 15, BZ0 + T + 0.2), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
-				neon(V3(22.4, 0.3, 0.5), O + V3(96, 17.6, BZ0 + T + 0.3), GRN)
-				neon(V3(22.4, 0.3, 0.5), O + V3(96, 12.4, BZ0 + T + 0.3), GRN)
+				for _, sy in ipairs({6.2, 10.6}) do
+					mk(model, V3(1.4, 0.3, 26), O + V3(BX1 - T - 0.9, sy, cz), C(40, 20, 70), M.SmoothPlastic, {shadow = false})
+					neon(V3(1.4, 0.1, 26), O + V3(BX1 - T - 0.9, sy - 0.2, cz), MAG)
+					for i = 0, 11 do
+						bottle(BX1 - T - 0.9, sy + 0.15, cz - 12 + i * 2.18, r:NextInteger(1, 3), bottleCols[r:NextInteger(1, #bottleCols)])
+					end
+				end
+
+				-- copo com liquido, gelo, canudo listrado e rodela de limao
+				local function cup(b, liq)
+					local parts = {}
+					local function add(p) parts[#parts + 1] = p return p end
+					local glassC = C(205, 235, 255)
+					add(column(model, 0.1, 0.9, b + V3(0, 0.05, 0), glassC, M.Glass, {shadow = false, trans = 0.35}))
+					add(column(model, 1.7, 1.3, b + V3(0, 0.95, 0), glassC, M.Glass, {shadow = false, trans = 0.6}))
+					add(column(model, 1.2, 1.12, b + V3(0, 0.7, 0), liq, M.Neon, {shadow = false, trans = 0.12}))
+					add(column(model, 0.1, 1.12, b + V3(0, 1.3, 0), liq:Lerp(C(255, 255, 255), 0.5), M.Neon, {shadow = false}))
+					add(column(model, 0.06, 1.34, b + V3(0, 1.82, 0), liq:Lerp(C(255, 255, 255), 0.6), M.Neon, {shadow = false, trans = 0.4}))
+					add(mk(model, V3(0.4, 0.4, 0.4), CF(b + V3(0.2, 1.0, 0.1)) * ANG(0.5, 0.4, 0.2), C(255, 255, 255), M.Glass, {shadow = false, trans = 0.4}))
+					add(mk(model, V3(0.35, 0.35, 0.35), CF(b + V3(-0.2, 0.8, -0.15)) * ANG(0.2, 0.7, 0.5), C(255, 255, 255), M.Glass, {shadow = false, trans = 0.4}))
+					local strawCF = CF(b + V3(0.2, 1.3, 0)) * ANG(0, 0, -0.2)
+					add(mk(model, V3(0.1, 2.3, 0.1), strawCF, C(255, 255, 255), M.SmoothPlastic, {shadow = false}))
+					for _, off in ipairs({-0.6, 0.1, 0.8}) do
+						add(mk(model, V3(0.11, 0.28, 0.11), strawCF * CF(0, off, 0), MAG, M.Neon, {shadow = false}))
+					end
+					add(column(model, 0.1, 0.9, b + V3(-0.45, 1.86, 0), GRN, M.Neon, {shadow = false, trans = 0.2}))
+					return parts
+				end
+				for _, dz in ipairs({-11, -6.5, 3.5, 8, 12}) do
+					cup(O + V3(97.8, 4.3, cz + dz), bottleCols[r:NextInteger(1, #bottleCols)])
+				end
+
+				-- letreiro interno (afastado da parede, dentro do vao entre jukebox e prateleiras)
+				local fl = mk(model, V3(20, 5, 0.5), O + V3(92, 15, BZ0 + T + 0.9), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
+				for _, px in ipairs({-8, 8}) do
+					mk(model, V3(0.3, 0.3, 0.9), O + V3(92 + px, 15, BZ0 + T + 0.45), C(40, 20, 70), M.SmoothPlastic, {shadow = false})
+				end
+				neon(V3(20.4, 0.3, 0.4), O + V3(92, 17.6, BZ0 + T + 0.95), GRN)
+				neon(V3(20.4, 0.3, 0.4), O + V3(92, 12.4, BZ0 + T + 0.95), GRN)
+				neon(V3(0.3, 5.2, 0.4), O + V3(82, 15, BZ0 + T + 0.95), GRN)
+				neon(V3(0.3, 5.2, 0.4), O + V3(102, 15, BZ0 + T + 0.95), GRN)
+				signGui(fl, Enum.NormalId.Front, "PORTAL FLUID", GRN)
 				signGui(fl, Enum.NormalId.Back, "PORTAL FLUID", GRN)
 
 				-- mesas e banquinhos
@@ -2576,9 +2681,11 @@ local function setupRickGun(character)
 					mk(model, V3(0.6, 2.8, 0.6), O + V3(tx, 1.5, tz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
 					column(model, 0.4, 4.2, O + V3(tx, 3.1, tz), C(24, 12, 52), M.SmoothPlastic, {shadow = false, refl = 0.2})
 					column(model, 0.3, 4.5, O + V3(tx, 2.85, tz), pick2(), M.Neon, {shadow = false})
+					cup(O + V3(tx + 0.7, 3.3, tz + 0.5), bottleCols[r:NextInteger(1, #bottleCols)])
 					for _, sz in ipairs({-2.9, 2.9}) do
 						column(model, 0.6, 1.8, O + V3(tx, 1.7, tz + sz), C(200, 30, 150), M.SmoothPlastic, {shadow = false})
 						mk(model, V3(0.3, 1.4, 0.3), O + V3(tx, 0.9, tz + sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+						sittable(V3(tx, 1.85, tz + sz), V3(0, 0, -sz / 2.9))
 					end
 				end
 
@@ -2599,6 +2706,183 @@ local function setupRickGun(character)
 				mk(model, V3(0.1, 4, 0.1), O + V3(74.6, H - 2, cz + 0.5), C(60, 60, 80), M.SmoothPlastic, {shadow = false})
 				local discoBall = ball(model, 3.6, O + V3(74.6, H - 4.4, cz + 0.5), C(215, 215, 235), M.Metal, {shadow = false, refl = 0.6})
 				local discoLight = glow(discoBall, CYA, 1.2, 35)
+
+				-- ===== BARMAN (robo original) + DRINKS =====
+				local GREET = {
+					"Bem-vindo ao Bar do Rick! Senta ai que eu preparo algo.",
+					"Opa, cliente novo! Nosso fluido de portal e o melhor da galaxia.",
+					"Entra, entra! Aqui o multiverso inteiro toma uma.",
+				}
+				local IDLE = {
+					"Aperte E aqui pra pedir um drink.",
+					"Ja provou o Synthwave Sour?",
+					"Cuidado com o fluido de portal... ele e forte.",
+					"Aqui ninguem paga imposto interdimensional.",
+				}
+				local FLAVORS = {
+					{name = "Fluido de Portal", liquid = GRN},
+					{name = "Synthwave Sour", liquid = MAG},
+					{name = "Cyan Dream", liquid = CYA},
+					{name = "Sol Neon", liquid = YEL},
+				}
+				local BXp = V3(100.8, 0, cz - 3)
+				local BASE = CF(O + BXp + V3(0, 4.6, 0)) * ANG(0, pi / 2, 0)
+				local torso = mk(model, V3(2.6, 3.2, 1.6), BASE, C(30, 18, 64), M.SmoothPlastic, {shadow = false, refl = 0.3})
+				local function TB(rel, size, color, mat, o) return attach(torso, rel, size, color, mat, o or {shadow = false}) end
+				TB(CF(0, 0.5, -0.82), V3(1.4, 0.9, 0.1), MAG, M.Neon)
+				TB(CF(0, -0.7, -0.82), V3(1.8, 0.2, 0.1), GRN, M.Neon)
+				for _, sx in ipairs({-1, 1}) do
+					TB(CF(sx * 0.65, -3.1, 0), V3(0.9, 3, 0.9), C(22, 12, 48), M.SmoothPlastic)
+					TB(CF(sx * 0.65, -4.45, -0.25), V3(1.0, 0.3, 1.4), C(14, 6, 34), M.SmoothPlastic)
+				end
+				TB(CF(-1.75, 0.2, 0), V3(0.8, 2.6, 0.8), C(22, 12, 48), M.SmoothPlastic)
+				TB(CF(-1.75, -1.0, 0), V3(0.9, 0.4, 0.9), CYA, M.Neon)
+
+				local head = mk(model, V3(2.2, 1.9, 2), BASE * CF(0, 2.8, 0), C(40, 22, 84), M.SmoothPlastic, {shadow = false, refl = 0.3})
+				local function HD(rel, size, color, mat, o) return attach(head, rel, size, color, mat, o or {shadow = false}) end
+				HD(CF(0, 0.1, -1.02), V3(1.8, 0.5, 0.1), CYA, M.Neon)
+				HD(CF(0, -0.55, -1.02), V3(1.0, 0.12, 0.1), C(10, 5, 25), M.SmoothPlastic)
+				HD(CF(0, 1.3, 0), V3(0.15, 0.8, 0.15), C(60, 60, 90), M.SmoothPlastic)
+				HD(CF(0, 1.8, 0), V3(0.5, 0.5, 0.5), MAG, M.Neon, {shadow = false, ball = true})
+				for _, sx in ipairs({-1, 1}) do
+					HD(CF(sx * 1.15, 0, 0), V3(0.2, 0.8, 0.8), GRN, M.Neon, {shadow = false, cyl = true})
+				end
+
+				local armR = mk(model, V3(0.2, 0.2, 0.2), BASE * CF(1.75, 1.4, 0), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
+				attach(armR, CF(0, -1.2, 0), V3(0.8, 2.4, 0.8), C(22, 12, 48), M.SmoothPlastic, {shadow = false})
+				attach(armR, CF(0, -2.6, 0) * ANG(0, 0, pi / 2), V3(1.6, 0.9, 0.9), C(190, 200, 220), M.Metal, {shadow = false, cyl = true})
+				attach(armR, CF(0, -2.6, 0) * ANG(0, 0, pi / 2), V3(0.3, 1.0, 1.0), GRN, M.Neon, {shadow = false, cyl = true})
+
+				-- balao de fala
+				local bubble = Instance.new("BillboardGui")
+				bubble.Adornee = head
+				bubble.Size = UDim2.fromOffset(300, 64)
+				bubble.StudsOffset = V3(0, 3.2, 0)
+				bubble.AlwaysOnTop = true
+				bubble.MaxDistance = 90
+				bubble.Enabled = false
+				bubble.Parent = head
+				local bf = Instance.new("Frame")
+				bf.Size = UDim2.fromScale(1, 1)
+				bf.BackgroundColor3 = C(12, 6, 30)
+				bf.BackgroundTransparency = 0.15
+				bf.Parent = bubble
+				Instance.new("UICorner", bf).CornerRadius = UDim.new(0, 10)
+				local bs = Instance.new("UIStroke", bf)
+				bs.Color, bs.Thickness = GRN, 2
+				local bl = Instance.new("TextLabel")
+				bl.Size = UDim2.new(1, -16, 1, -8)
+				bl.Position = UDim2.fromOffset(8, 4)
+				bl.BackgroundTransparency = 1
+				bl.Font = Enum.Font.GothamBold
+				bl.TextSize = 16
+				bl.TextWrapped = true
+				bl.TextColor3 = GRN
+				bl.Parent = bf
+				local token = 0
+				local function say(txt, dur)
+					token = token + 1
+					local my = token
+					bl.Text = txt
+					bubble.Enabled = true
+					task.delay(dur or 4, function()
+						if token == my then bubble.Enabled = false end
+					end)
+				end
+
+				-- efeito de bebida: tela colorida, blur e FOV ondulando
+				local function drinkEffect()
+					local cam = workspace.CurrentCamera
+					local cc = Instance.new("ColorCorrectionEffect")
+					cc.Parent = Lighting
+					local bb = Instance.new("BlurEffect")
+					bb.Size = 0
+					bb.Parent = Lighting
+					local fov0 = cam and cam.FieldOfView or 70
+					local DUR, t0 = 9, os.clock()
+					task.spawn(function()
+						while true do
+							local e = os.clock() - t0
+							if e >= DUR then break end
+							local k = math.min(1, e / 1.2, (DUR - e) / 2)
+							cc.TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromHSV((e * 0.35) % 1, 0.55, 1), k)
+							cc.Saturation = 0.9 * k
+							cc.Contrast = 0.25 * k
+							bb.Size = 6 * k * (0.5 + 0.5 * sin(e * 2.2))
+							if cam then cam.FieldOfView = fov0 + 10 * k * sin(e * 1.7) end
+							RunService.RenderStepped:Wait()
+						end
+						cc:Destroy()
+						bb:Destroy()
+						if cam then cam.FieldOfView = fov0 end
+					end)
+				end
+
+				local busy, shaking, pp = false, false, nil
+				local function serve()
+					if busy then return end
+					busy = true
+					if pp then pp.Enabled = false end
+					task.spawn(function()
+						local fl = FLAVORS[math.random(#FLAVORS)]
+						say("Um " .. fl.name .. " saindo!", 3)
+						shaking = true
+						task.wait(2.2)
+						shaking = false
+						local char = player.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						local zc = hrp and math.clamp(hrp.Position.Z - O.Z, cz - 12, cz + 12) or cz
+						local parts = cup(O + V3(96.2, 4.3, zc), fl.liquid)
+						say("Aqui esta, viajante! Bebe ai.", 2.5)
+						task.wait(2)
+						for _, p in ipairs(parts) do p:Destroy() end
+						say("Saude!", 2)
+						drinkEffect()
+						task.wait(10)
+						busy = false
+						if pp then pp.Enabled = true end
+					end)
+				end
+				pcall(function()
+					pp = Instance.new("ProximityPrompt")
+					pp.ActionText = "Pedir drink"
+					pp.ObjectText = "Barman"
+					pp.HoldDuration = 0.2
+					pp.MaxActivationDistance = 14
+					pp.RequiresLineOfSight = false
+					pp.Parent = torso
+					pp.Triggered:Connect(serve)
+				end)
+
+				local headYaw, wasInside, greetT, nextIdle = 0, false, -100, 0
+				local function updBarman(t, pos)
+					local bob = sin(t * 1.6) * 0.06
+					torso.CFrame = BASE * CF(0, bob, 0)
+					local rel = 0
+					if pos then
+						local dx, dz = pos.X - (O.X + BXp.X), pos.Z - (O.Z + BXp.Z)
+						if dx * dx + dz * dz < 2500 then
+							rel = math.clamp((math.atan2(-dx, -dz) - pi / 2 + pi) % (2 * pi) - pi, -1.1, 1.1)
+						end
+					end
+					headYaw = headYaw + (rel - headYaw) * 0.15
+					head.CFrame = BASE * CF(0, 2.8 + bob, 0) * ANG(0, headYaw, 0)
+					armR.CFrame = BASE * CF(1.75, 1.4 + bob, 0)
+						* ANG(shaking and (1.2 + 0.3 * sin(t * 16)) or (0.12 + 0.05 * sin(t * 1.6)), 0, 0)
+					if pos then
+						local inside = pos.X > O.X + BX0 + 1 and pos.X < O.X + BX1 and pos.Z > O.Z + BZ0 and pos.Z < O.Z + BZ1 and pos.Y < O.Y + H
+						if inside and not wasInside and t - greetT > 15 then
+							greetT = t
+							say(GREET[math.random(#GREET)], 4.5)
+							nextIdle = t + 30
+						end
+						if inside and t > nextIdle and not busy then
+							say(IDLE[math.random(#IDLE)], 4)
+							nextIdle = t + math.random(25, 45)
+						end
+						wasInside = inside
+					end
+				end
 
 				-- jukebox
 				local jx, jz = 80, BZ0 + T + 1.6
@@ -2647,7 +2931,7 @@ local function setupRickGun(character)
 					end)
 				end)
 
-				return function(t)
+				return function(t, pos)
 					local on = party.on
 					local sp = on and 5 or 0.8
 					for i, c in ipairs(ceil) do
@@ -2664,6 +2948,7 @@ local function setupRickGun(character)
 					mk1.CFrame = CF(rc) * ANG(0, 0, party.ang)
 					mk2.CFrame = CF(rc) * ANG(0, 0, party.ang + pi / 2)
 					updPortal(t)
+					updBarman(t, pos)
 				end
 			end)()
 
@@ -2744,7 +3029,7 @@ local function setupRickGun(character)
 				Texture = "rbxasset://textures/particles/sparkles_main.dds",
 			})
 
-			return function(t)
+			return function(t, pos)
 				for _, c in ipairs(cubes) do
 					c.p.CFrame = CF(c.base + V3(0, sin(t * c.sp + c.ph) * 4, 0)) * ANG(t * c.sp, t * c.sp * 0.7, 0)
 				end
@@ -2762,7 +3047,7 @@ local function setupRickGun(character)
 					local v = sin(t * s.fl * 7 + s.ph) * sin(t * 2.3 + s.ph)
 					s.lbl.TextTransparency = (v > 0.93) and 0.85 or 0
 				end
-				updBar(t)
+				updBar(t, pos)
 				updTrain(t)
 			end
 		end

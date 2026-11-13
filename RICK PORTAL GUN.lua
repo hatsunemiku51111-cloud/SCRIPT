@@ -126,7 +126,7 @@ local Config = {
 
 	PortalSize = Vector3.new(10, 10, 0.2),
 	PortalOffset = 0.12,
-	PortalDuration = 45,
+	PortalDuration = 10,
 	MaxDistance = 600,
 	EntranceDistance = 8,
 	BeamWidth = 0.2,
@@ -154,7 +154,14 @@ local Config = {
 	SeverSpurtTime = 6,
 	SeverDecay = true,
 	SeverFakeGhost = true,
+	SeverFreezeAnimR6 = true,
+	SeverRagdollArmsR15 = true,
+	SeverRagdollGravity = 0.6,
+	SeverRagdollDamping = 3,
+	SeverRagdollMaxAngle = 110,
+	SeverRagdollLength = 1.6,
 	SeverRegrowFitJoints = true,
+	SeverRegrowFitJointsR6 = false,
 	BloodStains = true,
 	BloodStainLifetime = 28,
 	BloodMaxStains = 80,
@@ -202,6 +209,11 @@ local Config = {
 	PortalBoingEnter = -0.3,
 	PortalBoingExit = 0.4,
 
+	HideHoldAnim = true,
+	ArmAim = true,
+	ArmAimMaxAngle = 90,
+	ArmAimSmooth = 22,
+
 	HolsterOffset = CFrame.new(1.4, -1, -0.2) * CFrame.Angles(0.8, math.rad(0), math.rad(-35)),
 
 	SoundOpen = "rbxassetid://7229703765",
@@ -211,6 +223,8 @@ local Config = {
 	SoundShoot = "rbxassetid://74562584385247",
 	SoundInvalid = "rbxassetid://132281440773764",
 	SoundDial = "rbxassetid://6042053626",
+	SoundBoneGrow = "rbxassetid://84312631986360",
+	SoundBoneGrowVolume = 1.2,
 
 	ParticleSpark = "rbxassetid://241594419",
 	ParticleSpark2 = "rbxassetid://243660364",
@@ -230,6 +244,22 @@ local Config = {
 	AccessoryGrip = Vector3.new(0, -0.6, -0.4),
 	AccessoryExtraRotation = Vector3.new(-90, 180, 0),
 }
+
+-- Contador de inatividade: o portal fecha se ninguem entrar em PortalDuration segundos.
+-- Cada travessia (State.lastActivity) reinicia a contagem.
+State.lastActivity = os.clock()
+State.watchIdle = function(isValid, onExpire)
+	State.lastActivity = os.clock()
+	task.spawn(function()
+		while true do
+			if not isValid() then return end
+			local remaining = Config.PortalDuration - (os.clock() - State.lastActivity)
+			if remaining <= 0 then break end
+			task.wait(remaining)
+		end
+		if isValid() then onExpire() end
+	end)
+end
 
 local AccTemplate, AccAxis, AccHalf, AccTried = nil, nil, 0, false
 
@@ -1927,33 +1957,22 @@ local function setupRickGun(character)
 	local hotbarGui = newGui("RickPortalGunHotbar", 1)
 	local flashGui = newGui("RickPortalGunFlash", 50)
 
-	local crosshair = Instance.new("Frame")
-	crosshair.Name = "Crosshair"
-	crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
-	crosshair.Position = UDim2.fromScale(0.5, 0.5)
-	crosshair.Size = UDim2.fromOffset(46, 46)
-	crosshair.BackgroundTransparency = 1
-	crosshair.Visible = false
-	crosshair.Parent = gui
-	local crossScale = Instance.new("UIScale", crosshair)
+	local aimDot = Instance.new("Frame")
+	aimDot.Name = "AimDot"
+	aimDot.AnchorPoint = Vector2.new(0.5, 0.5)
+	aimDot.Position = UDim2.fromScale(0.5, 0.5)
+	aimDot.Size = UDim2.fromOffset(4, 4)
+	aimDot.BackgroundColor3 = Config.PortalLight
+	aimDot.BorderSizePixel = 0
+	aimDot.Visible = false
+	aimDot.Parent = gui
+	Instance.new("UICorner", aimDot).CornerRadius = UDim.new(1, 0)
 	do
-		local ring = Instance.new("Frame")
-		ring.Size = UDim2.fromScale(1, 1)
-		ring.BackgroundTransparency = 1
-		ring.Parent = crosshair
-		Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
-		local rs = Instance.new("UIStroke")
-		rs.Thickness = 2.5
-		rs.Color = Config.PortalColor
-		rs.Parent = ring
-		local dot = Instance.new("Frame")
-		dot.AnchorPoint = Vector2.new(0.5, 0.5)
-		dot.Position = UDim2.fromScale(0.5, 0.5)
-		dot.Size = UDim2.fromOffset(6, 6)
-		dot.BackgroundColor3 = Config.PortalLight
-		dot.BorderSizePixel = 0
-		dot.Parent = crosshair
-		Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+		local st = Instance.new("UIStroke")
+		st.Thickness = 1
+		st.Color = Color3.new(0, 0, 0)
+		st.Transparency = 0.4
+		st.Parent = aimDot
 	end
 
 	local function makeButton(name, text, sub, pos)
@@ -2118,60 +2137,633 @@ local function setupRickGun(character)
 			return part
 		end
 
+		-- Musicas do jukebox do Bar do Rick: cole aqui os IDs, ex: "rbxassetid://123456". Vazio = so luzes.
+		local BAR_SONGS = {}
+
 		local function buildNeon(model, O, r)
+			local cos, sin, abs, floor, pi, sqrt, max, min = math.cos, math.sin, math.abs, math.floor, math.pi, math.sqrt, math.max, math.min
+			local V3, CF, ANG = Vector3.new, CFrame.new, CFrame.Angles
+			local function rnd(a, b) return r:NextNumber(a, b) end
 			local MAG, CYA = C(255, 40, 200), C(40, 230, 255)
-			mk(model, Vector3.new(1200, 2, 1200), O + Vector3.new(0, -1, 0), C(14, 6, 34), M.SmoothPlastic, {solid = true, refl = 0.08})
-			for i = -14, 14 do
-				local o = i * 40
-				mk(model, Vector3.new(1200, 0.12, 0.6), O + Vector3.new(0, 0.06, o), MAG, M.Neon, {shadow = false})
-				mk(model, Vector3.new(0.6, 0.12, 1200), O + Vector3.new(o, 0.06, 0), CYA, M.Neon, {shadow = false})
+			local VIO, YEL, ORA = C(150, 70, 255), C(255, 225, 90), C(255, 110, 150)
+			local DARK = C(14, 6, 34)
+			local function pick2() return (r:NextInteger(0, 1) == 0) and MAG or CYA end
+			local function winCol()
+				local v = r:NextNumber()
+				if v < 0.35 then return CYA elseif v < 0.65 then return MAG elseif v < 0.85 then return YEL end
+				return VIO
+			end
+			local function neon(size, cf, col, o)
+				o = o or {}
+				o.shadow = false
+				return mk(model, size, cf, col, M.Neon, o)
 			end
 
-			ball(model, 260, O + Vector3.new(0, 110, 700), C(255, 110, 150), M.Neon, {shadow = false})
-			for i = 0, 6 do
-				mk(model, Vector3.new(300, 3 + (6 - i) * 1.6, 2), O + Vector3.new(0, 10 + i * 17, 560), C(10, 4, 24), M.SmoothPlastic, {shadow = false})
+			-- ===== CHAO, GRADE E AVENIDA =====
+			mk(model, V3(2400, 2, 2400), O + V3(0, -1, 0), DARK, M.SmoothPlastic, {solid = true, refl = 0.15})
+			for i = -24, 24 do
+				local o = i * 50
+				neon(V3(2400, 0.12, 0.6), O + V3(0, 0.06, o), MAG)
+				neon(V3(0.6, 0.12, 2400), O + V3(o, 0.06, 0), CYA)
 			end
-			for i = -7, 7 do
-				local s = r:NextNumber(60, 130)
-				mk(model, Vector3.new(s, s, 40), CFrame.new(O + Vector3.new(i * 85 + r:NextNumber(-20, 20), 0, 520)) * CFrame.Angles(0, 0, math.pi / 4),
-					C(20, 8, 50), M.SmoothPlastic, {refl = 0.1})
+			mk(model, V3(52, 0.1, 1900), O + V3(0, 0.1, 350), C(20, 10, 44), M.SmoothPlastic, {shadow = false, refl = 0.2})
+			neon(V3(0.8, 0.12, 1900), O + V3(-26, 0.17, 350), MAG)
+			neon(V3(0.8, 0.12, 1900), O + V3(26, 0.17, 350), CYA)
+			local dashes = {}
+			for i = 0, 52 do
+				dashes[#dashes + 1] = neon(V3(1, 0.12, 14), O + V3(0, 0.17, -560 + i * 35), CYA)
 			end
 
-			local lit = 0
-			for i = 1, 14 do
-				local a = i / 14 * TAU + r:NextNumber(-0.2, 0.2)
-				local d = r:NextNumber(110, 270)
-				local x, z = math.cos(a) * d, math.sin(a) * d
-				if free(x, z) then
-					local h = r:NextNumber(40, 130)
-					mk(model, Vector3.new(7, h, 7), O + Vector3.new(x, h / 2, z), C(18, 10, 40), M.SmoothPlastic, {solid = true})
-					local col = (i % 2 == 0) and MAG or CYA
-					for k = 1, math.floor(h / 18) do
-						local ring = mk(model, Vector3.new(7.6, 0.6, 7.6), O + Vector3.new(x, k * 18, z), col, M.Neon, {shadow = false})
-						if k == 1 and lit < 6 then
-							lit = lit + 1
-							glow(ring, col, 2, 45)
+			-- plataforma de chegada
+			column(model, 0.2, 42, O + V3(0, 0.19, -30), MAG, M.Neon, {shadow = false})
+			column(model, 0.24, 39, O + V3(0, 0.2, -30), DARK, M.SmoothPlastic, {shadow = false})
+			local pad = column(model, 0.2, 36, O + V3(0, 0.25, -30), CYA, M.Neon, {shadow = false, trans = 0.5})
+			glow(pad, CYA, 2, 40)
+
+			-- postes de luz
+			for i = 0, 21 do
+				local z = -330 + i * 65
+				for _, s in ipairs({-1, 1}) do
+					local sx = s * 31
+					mk(model, V3(0.7, 16, 0.7), O + V3(sx, 8, z), C(25, 15, 55), M.SmoothPlastic, {shadow = false})
+					local col = ((i + (s == 1 and 1 or 0)) % 2 == 0) and MAG or CYA
+					local arm = neon(V3(6, 0.6, 0.6), O + V3(sx - s * 3, 16, z), col)
+					if i % 3 == 0 then glow(arm, col, 1.6, 42) end
+				end
+			end
+
+			-- ===== SOL LISTRADO =====
+			local SR, SY, SZ = 200, 210, 1000
+			local nBars = 34
+			local full = 2 * SR / nBars
+			for k = 0, nBars - 1 do
+				local t = k / (nBars - 1)
+				local th = full * ((t < 0.4) and 1 or (1 - (t - 0.4) / 0.6 * 0.85))
+				local y = SY + SR - k * full - full / 2
+				local dy = y - SY
+				local chord = 2 * sqrt(max(SR * SR - dy * dy, 0))
+				if chord > 1 then
+					local col
+					if t < 0.5 then col = YEL:Lerp(ORA, t * 2) else col = ORA:Lerp(MAG, (t - 0.5) * 2) end
+					neon(V3(chord, th, 4), O + V3(0, y, SZ), col)
+				end
+			end
+			ball(model, 560, O + V3(0, SY, SZ + 20), ORA, M.Neon, {shadow = false, trans = 0.9})
+
+			-- montanhas com contorno neon
+			for i = -6, 6 do
+				local x = i * 165 + rnd(-40, 40)
+				local s = rnd(140, 320)
+				local h = s * 0.7071
+				mk(model, V3(s, s, 30), CF(O + V3(x, 0, 930)) * ANG(0, 0, pi / 4), C(16, 6, 38), M.SmoothPlastic, {shadow = false})
+				local col = (i % 2 == 0) and MAG or CYA
+				neon(V3(s, 1.2, 1.2), CF(O + V3(x + h / 2, h / 2, 913)) * ANG(0, 0, -pi / 4), col)
+				neon(V3(s, 1.2, 1.2), CF(O + V3(x - h / 2, h / 2, 913)) * ANG(0, 0, pi / 4), col)
+			end
+
+			-- skyline distante (silhueta)
+			for i = 1, 70 do
+				local a = i / 70 * pi * 2 + rnd(-0.05, 0.05)
+				local d = rnd(760, 1050)
+				local x, z = cos(a) * d, sin(a) * d
+				local h, w = rnd(60, 240), rnd(30, 70)
+				mk(model, V3(w, h, w), O + V3(x, h / 2, z), C(10, 5, 26), M.SmoothPlastic, {shadow = false})
+				neon(V3(w + 0.4, 1.2, w + 0.4), O + V3(x, h, z), pick2())
+			end
+
+			-- ===== PREDIOS =====
+			local beacons, beams, signs, nB = {}, {}, {}, 0
+			local SIGN_TEXT = {"WUBBA LUBBA\nDUB DUB", "GET\nSCHWIFTY", "BAR DO\nRICK", "C-35K", "PORTAL\nZONE", "PICKLE\nRICK", "NEON\nCITY"}
+
+			local function makeSign(x, w, z, d, h, side, text)
+				local sw = min(30, d - 4)
+				local sh = 13
+				local y = max(22, h * rnd(0.45, 0.7))
+				local px = x - side * (w / 2 + 0.5)
+				local col = pick2()
+				local p = mk(model, V3(0.8, sh, sw), O + V3(px, y, z), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
+				local fx = px - side * 0.2
+				neon(V3(0.9, 0.5, sw + 1), O + V3(fx, y + sh / 2, z), col)
+				neon(V3(0.9, 0.5, sw + 1), O + V3(fx, y - sh / 2, z), col)
+				neon(V3(0.9, sh + 0.5, 0.5), O + V3(fx, y, z - sw / 2), col)
+				neon(V3(0.9, sh + 0.5, 0.5), O + V3(fx, y, z + sw / 2), col)
+				local gui = Instance.new("SurfaceGui")
+				gui.Face = (side == 1) and Enum.NormalId.Left or Enum.NormalId.Right
+				gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+				gui.PixelsPerStud = 24
+				gui.LightInfluence = 0
+				gui.Parent = p
+				local lbl = Instance.new("TextLabel")
+				lbl.Size = UDim2.fromScale(1, 1)
+				lbl.BackgroundTransparency = 1
+				lbl.Text = text
+				lbl.Font = Enum.Font.GothamBlack
+				lbl.TextScaled = true
+				lbl.TextColor3 = col
+				lbl.TextStrokeColor3 = col
+				lbl.TextStrokeTransparency = 0.6
+				lbl.Parent = gui
+				signs[#signs + 1] = {lbl = lbl, ph = rnd(0, 6.28), fl = rnd(0.6, 1.8)}
+			end
+
+			local function building(x, z, w, d, h, side, detail)
+				local body = C(15 + floor(rnd(0, 8)), 7 + floor(rnd(0, 5)), 36 + floor(rnd(0, 20)))
+				mk(model, V3(w, h, d), O + V3(x, h / 2, z), body, M.SmoothPlastic, {solid = true})
+				local col = pick2()
+				neon(V3(w + 0.8, 0.7, d + 0.8), O + V3(x, h + 0.35, z), col)
+				local px = x - side * (w / 2 + 0.12)
+				local pz = z - (d / 2 + 0.12)
+				if detail > 0.9 then
+					local col2 = (col == MAG) and CYA or MAG
+					neon(V3(0.6, h, 0.6), O + V3(x - side * (w / 2), h / 2, z - d / 2), col2)
+					neon(V3(0.6, h, 0.6), O + V3(x - side * (w / 2), h / 2, z + d / 2), col2)
+				end
+				if detail > 0.2 then
+					local step = (detail > 0.9) and 10 or 16
+					local prob = (detail > 0.9) and 0.6 or 0.35
+					for k = 1, floor((h - 6) / step) do
+						local y = 5 + k * step
+						if r:NextNumber() < prob then
+							local len = rnd(0.35, 0.9) * d
+							neon(V3(0.3, 2.2, len), O + V3(px, y, z + rnd(-(d - len) / 2, (d - len) / 2)), winCol())
 						end
+						if r:NextNumber() < prob then
+							local len = rnd(0.35, 0.9) * w
+							neon(V3(len, 2.2, 0.3), O + V3(x + rnd(-(w - len) / 2, (w - len) / 2), y, pz), winCol())
+						end
+					end
+				end
+				return col
+			end
+
+			local rows = {
+				{edge = 62, hmul = 1.0, detail = 1.0},
+				{edge = 165, hmul = 1.6, detail = 0.5},
+				{edge = 290, hmul = 2.2, detail = 0.1},
+			}
+			for ri, row in ipairs(rows) do
+				for _, side in ipairs({-1, 1}) do
+					local z = -400 + rnd(0, 20)
+					while z < 760 do
+						local d, w = rnd(26, 44), rnd(26, 46)
+						local cz = z + d / 2
+						local x = side * (row.edge + rnd(0, 8) + w / 2)
+						local h = (rnd(45, 110) + max(0, cz) * 0.1) * row.hmul
+						if r:NextNumber() < 0.15 then h = h + rnd(40, 110) end
+						local reserved = (ri == 1 and side == 1 and cz + d / 2 > -5 and cz - d / 2 < 65)
+						local col = reserved and MAG or building(x, cz, w, d, h, side, row.detail)
+
+						if not reserved and ri <= 2 and r:NextNumber() < 0.3 then
+							mk(model, V3(0.6, 14, 0.6), O + V3(x, h + 7, cz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+							local bc = (r:NextInteger(0, 1) == 0) and C(255, 50, 70) or MAG
+							local b = ball(model, 2.6, O + V3(x, h + 14.5, cz), bc, M.Neon, {shadow = false})
+							if #beacons < 8 then glow(b, bc, 1.5, 40) end
+							beacons[#beacons + 1] = {p = b, ph = rnd(0, 6.28), per = rnd(1.2, 2.4)}
+						end
+						if not reserved and ri == 1 and #signs < 7 and d >= 32 and h > 70 and r:NextNumber() < 0.28 then
+							makeSign(x, w, cz, d, h, side, SIGN_TEXT[#signs + 1])
+						end
+						if not reserved and ri == 2 and #beams < 7 and r:NextNumber() < 0.12 then
+							local bm = neon(V3(2.6, 2.6, 520), CF(O), col, {trans = 0.82})
+							beams[#beams + 1] = {part = bm, base = O + V3(x, h + 1, cz), ph = rnd(0, 6.28),
+								sp = rnd(0.3, 0.7) * ((r:NextInteger(0, 1) == 0) and 1 or -1), tilt = rnd(0.25, 0.55)}
+						end
+
+						z = z + d + rnd((row.detail > 0.9) and 6 or 14, 22)
+						nB = nB + 1
+						if nB % 16 == 0 then task.wait() end
 					end
 				end
 			end
 
-			local cubes = {}
-			for i = 1, 18 do
-				local s = r:NextNumber(4, 10)
-				local base = O + Vector3.new(r:NextNumber(-300, 300), r:NextNumber(25, 90), r:NextNumber(-250, 350))
-				local p = mk(model, Vector3.new(s, s, s), base, (i % 2 == 0) and MAG or CYA, M.Neon, {shadow = false})
-				cubes[i] = {p = p, base = base, sp = r:NextNumber(0.3, 1), ph = r:NextNumber(0, TAU)}
+			local function updBeam(b, t)
+				local phi = t * b.sp + b.ph
+				local dir = V3(sin(b.tilt) * cos(phi), cos(b.tilt), sin(b.tilt) * sin(phi))
+				b.part.CFrame = CFrame.lookAt(b.base, b.base + dir) * CF(0, 0, -260)
+			end
+			for _, b in ipairs(beams) do updBeam(b, 0) end
+
+			-- ===== ANEIS GIRATORIOS SOBRE A AVENIDA =====
+			local rings = {}
+			for ri2, rz in ipairs({250, 520}) do
+				local segs = {}
+				for i = 1, 28 do
+					segs[i] = neon(V3(12, 2.4, 2.4), CF(O), (i % 2 == 0) and MAG or CYA)
+				end
+				rings[ri2] = {segs = segs, z = rz, sp = (ri2 == 1) and 0.5 or -0.35}
+			end
+			local function updRing(rg, t)
+				local R = 52
+				for i, p in ipairs(rg.segs) do
+					local a = i / 28 * pi * 2 + t * rg.sp
+					p.CFrame = CF(O + V3(cos(a) * R, 62 + sin(a) * R, rg.z)) * ANG(0, 0, a + pi / 2)
+				end
+			end
+			for _, rg in ipairs(rings) do updRing(rg, 0) end
+
+			-- ===== CARROS VOADORES (design novo: cupe esportivo com spoiler, faixas neon e propulsores) =====
+			local cars = {}
+			local function attach(root, rel, size, col, mat, o)
+				local p = mk(model, size, root.CFrame * rel, col, mat, o)
+				local w = Instance.new("Weld")
+				w.Part0, w.Part1, w.C0 = root, p, rel
+				w.Parent = p
+				p.Anchored = false
+				p.Massless = true
+				return p
+			end
+			local function carCF(c, t)
+				local z = ((c.z0 + c.dir * c.sp * t) + 500) % 1400 - 500
+				local y = c.y + sin(t * 1.3 + c.z0) * 0.8
+				return z, CF(O + V3(c.x, y, z)) * ANG(0, (c.dir == 1) and 0 or pi, sin(t * 0.9 + c.z0) * 0.04)
+			end
+			for i = 1, 12 do
+				local c = {dir = (i % 2 == 0) and 1 or -1, x = ((i % 4 < 2) and 1 or -1) * rnd(14, 42), y = rnd(26, 78),
+					sp = rnd(40, 90), z0 = rnd(-500, 900), off = 0}
+				local col = pick2()
+				local col2 = (col == MAG) and CYA or MAG
+				local paint = col:Lerp(C(8, 4, 20), 0.82)
+				local glass = C(90, 170, 230)
+				local z, cf = carCF(c, 0)
+				local body = mk(model, V3(4.6, 0.9, 10.4), cf, paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
+				c.body, c.last = body, z
+				local function P(rel, size, color, mat, o) return attach(body, rel, size, color, mat, o or {shadow = false}) end
+				-- capo inclinado e traseira
+				P(CF(0, 0.5, 4.9) * ANG(0.2, 0, 0), V3(4.4, 0.4, 3.2), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
+				P(CF(0, 0.5, -4.2) * ANG(0.1, 0, 0), V3(4.4, 0.4, 2.6), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
+				-- cabine de vidro, teto e para-brisa
+				P(CF(0, 0.9, -0.6), V3(3.5, 0.8, 4.4), glass, M.Glass, {shadow = false, trans = 0.35})
+				P(CF(0, 1.38, -0.8), V3(3.3, 0.14, 3.4), paint, M.SmoothPlastic, {shadow = false, refl = 0.4})
+				P(CF(0, 0.95, 1.9) * ANG(0.65, 0, 0), V3(3.4, 0.12, 1.9), glass, M.Glass, {shadow = false, trans = 0.3})
+				-- aerofolio
+				for _, sx in ipairs({-1, 1}) do
+					P(CF(sx * 1.4, 0.8, -4.6), V3(0.22, 0.9, 0.3), paint, M.SmoothPlastic)
+					P(CF(sx * 2.4, 1.3, -4.9), V3(0.14, 0.5, 1.4), paint, M.SmoothPlastic)
+				end
+				P(CF(0, 1.3, -4.9), V3(4.8, 0.16, 1.4), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
+				P(CF(0, 1.3, -5.62), V3(4.8, 0.12, 0.12), col, M.Neon)
+				-- faixas laterais e luz por baixo
+				for _, sx in ipairs({-1, 1}) do
+					P(CF(sx * 2.34, -0.3, 0), V3(0.12, 0.16, 9.4), col, M.Neon)
+					P(CF(sx * 2.34, 0.15, 0), V3(0.1, 0.1, 9.4), col2, M.Neon)
+				end
+				P(CF(0, -0.55, 0), V3(3.8, 0.12, 8.8), col, M.Neon, {shadow = false, trans = 0.35})
+				-- farois, DRL e lanterna
+				for _, sx in ipairs({-1, 1}) do
+					P(CF(sx * 1.55, 0.15, 5.22), V3(1.0, 0.26, 0.16), C(230, 250, 255), M.Neon)
+				end
+				P(CF(0, 0.05, 5.22), V3(3.0, 0.1, 0.14), col, M.Neon)
+				P(CF(0, 0.3, -5.22), V3(4.2, 0.22, 0.14), C(255, 50, 70), M.Neon)
+				-- propulsores
+				for _, sx in ipairs({-1, 1}) do
+					P(CF(sx * 1.2, 0, -5.5) * ANG(0, pi / 2, 0), V3(0.9, 1.1, 1.1), C(30, 20, 50), M.SmoothPlastic, {shadow = false, cyl = true})
+					P(CF(sx * 1.2, 0, -6.05) * ANG(0, pi / 2, 0), V3(0.2, 0.9, 0.9), col2, M.Neon, {shadow = false, cyl = true})
+					P(CF(sx * 1.2, 0, -6.4), V3(1.6, 1.6, 1.6), col2, M.Neon, {shadow = false, ball = true, trans = 0.7})
+				end
+				local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+				a0.Position = V3(-1.2, 0, -6.4)
+				a1.Position = V3(1.2, 0, -6.4)
+				a0.Parent, a1.Parent = body, body
+				local tr = Instance.new("Trail")
+				tr.Attachment0, tr.Attachment1 = a0, a1
+				tr.Lifetime = 0.9
+				tr.Color = ColorSequence.new(col2)
+				tr.Transparency = NumberSequence.new(0.3, 1)
+				tr.LightEmission = 1
+				tr.FaceCamera = true
+				tr.Parent = body
+				c.tr = tr
+				cars[i] = c
+			end
+			local function updCar(c, t)
+				local z, cf = carCF(c, t)
+				if abs(z - c.last) > 100 then
+					c.tr.Enabled = false
+					c.off = 3
+				elseif c.off > 0 then
+					c.off = c.off - 1
+					if c.off <= 0 then c.tr.Enabled = true end
+				end
+				c.last = z
+				c.body.CFrame = cf
 			end
 
-			mk(model, Vector3.new(0.2, 34, 34), CFrame.new(O + Vector3.new(0, 0.1, -30)) * CFrame.Angles(0, 0, math.pi / 2),
-				CYA, M.Neon, {cyl = true, trans = 0.6, shadow = false})
+			-- ===== BAR DO RICK (predio com porta, interior, jukebox e luzes) =====
+			local party = {on = false, ang = 0}
+			local updBar = (function()
+				local GRN = C(110, 255, 120)
+				local BX0, W, BZ0, D, H, T = 62, 44, 5, 50, 24, 1.5
+				local BX1, BZ1 = BX0 + W, BZ0 + D
+				local cz, mx = BZ0 + D / 2, BX0 + W / 2
+				local WALL = C(26, 12, 58)
+				local function wall(size, pos)
+					return mk(model, size, O + pos, WALL, M.SmoothPlastic, {solid = true})
+				end
+
+				-- estrutura
+				mk(model, V3(W, 0.25, D), O + V3(mx, 0.125, cz), C(34, 18, 46), M.SmoothPlastic, {solid = true, refl = 0.12})
+				wall(V3(T, H, D), V3(BX1 - T / 2, H / 2, cz))
+				wall(V3(W, H, T), V3(mx, H / 2, BZ0 + T / 2))
+				wall(V3(W, H, T), V3(mx, H / 2, BZ1 - T / 2))
+				wall(V3(W + 1, 1.5, D + 1), V3(mx, H + 0.75, cz))
+
+				-- parede da frente (porta + vitrines)
+				local fx = BX0 + T / 2
+				local DOORW, DOORH = 9, 11
+				local function frontPiece(za, zb)
+					local len, zc = zb - za, (za + zb) / 2
+					wall(V3(T, 3.5, len), V3(fx, 1.75, zc))
+					wall(V3(T, H - 9, len), V3(fx, 9 + (H - 9) / 2, zc))
+					wall(V3(T, 5.5, 4), V3(fx, 6.25, za + 2))
+					wall(V3(T, 5.5, 4), V3(fx, 6.25, zb - 2))
+					mk(model, V3(0.3, 5.5, len - 8), O + V3(fx, 6.25, zc), C(120, 210, 255), M.Glass, {solid = true, trans = 0.55, shadow = false})
+					neon(V3(0.3, 0.3, len - 8), O + V3(BX0 - 0.1, 3.5, zc), GRN)
+					neon(V3(0.3, 0.3, len - 8), O + V3(BX0 - 0.1, 9, zc), GRN)
+				end
+				frontPiece(BZ0 + T, cz - DOORW / 2)
+				frontPiece(cz + DOORW / 2, BZ1 - T)
+				wall(V3(T, H - DOORH, DOORW), V3(fx, DOORH + (H - DOORH) / 2, cz))
+
+				-- moldura da porta e porta aberta
+				neon(V3(0.4, DOORH, 0.4), O + V3(BX0 - 0.1, DOORH / 2, cz - DOORW / 2), GRN)
+				neon(V3(0.4, DOORH, 0.4), O + V3(BX0 - 0.1, DOORH / 2, cz + DOORW / 2), GRN)
+				neon(V3(0.4, 0.4, DOORW + 0.4), O + V3(BX0 - 0.1, DOORH + 0.2, cz), GRN)
+				mk(model, V3(4.4, 10.6, 0.35), O + V3(BX0 + T + 2.4, 5.4, cz - DOORW / 2 + 0.4), C(120, 210, 255), M.Glass, {trans = 0.5, shadow = false})
+				neon(V3(4.4, 0.2, 0.45), O + V3(BX0 + T + 2.4, 10.7, cz - DOORW / 2 + 0.4), GRN)
+
+				-- neon externo (cantos e borda do telhado)
+				for _, zz in ipairs({BZ0 - 0.1, BZ1 + 0.1}) do
+					neon(V3(0.6, H, 0.6), O + V3(BX0 - 0.1, H / 2, zz), GRN)
+					neon(V3(0.6, H, 0.6), O + V3(BX1 + 0.1, H / 2, zz), GRN)
+					neon(V3(W + 1.4, 0.5, 0.5), O + V3(mx, H + 1.6, zz + (zz < cz and -0.4 or 0.4)), MAG)
+				end
+				for _, xx in ipairs({BX0 - 0.5, BX1 + 0.5}) do
+					neon(V3(0.5, 0.5, D + 1.4), O + V3(xx, H + 1.6, cz), MAG)
+				end
+
+				-- letreiro externo
+				local function signGui(part, face, text, color)
+					local gui = Instance.new("SurfaceGui")
+					gui.Face = face
+					gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+					gui.PixelsPerStud = 24
+					gui.LightInfluence = 0
+					gui.Parent = part
+					local lbl = Instance.new("TextLabel")
+					lbl.Size = UDim2.fromScale(1, 1)
+					lbl.BackgroundTransparency = 1
+					lbl.Text = text
+					lbl.Font = Enum.Font.GothamBlack
+					lbl.TextScaled = true
+					lbl.TextColor3 = color
+					lbl.TextStrokeColor3 = color
+					lbl.TextStrokeTransparency = 0.6
+					lbl.Parent = gui
+				end
+				local sp = mk(model, V3(0.8, 9, 40), O + V3(BX0 - 0.6, 17.5, cz), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
+				neon(V3(0.9, 0.5, 41), O + V3(BX0 - 0.9, 22, cz), GRN)
+				neon(V3(0.9, 0.5, 41), O + V3(BX0 - 0.9, 13, cz), GRN)
+				neon(V3(0.9, 9.5, 0.5), O + V3(BX0 - 0.9, 17.5, cz - 20), MAG)
+				neon(V3(0.9, 9.5, 0.5), O + V3(BX0 - 0.9, 17.5, cz + 20), MAG)
+				signGui(sp, Enum.NormalId.Left, "BAR DO RICK", GRN)
+
+				-- portal verde girando no telhado
+				local PR, pcx, pcy = 9, BX0 + 12, H + 1.5 + 11
+				mk(model, V3(0.5, PR * 2 - 2, PR * 2 - 2), CF(O + V3(pcx, pcy, cz)), GRN, M.Neon, {cyl = true, trans = 0.55, shadow = false})
+				local psegs = {}
+				for i = 1, 20 do
+					psegs[i] = neon(V3(2.2, 2.2, 3.4), CF(O), (i % 2 == 0) and GRN or C(190, 255, 130))
+				end
+				local function updPortal(t)
+					for i, p in ipairs(psegs) do
+						local a = i / 20 * pi * 2 + t * 0.8
+						p.CFrame = CF(O + V3(pcx, pcy + sin(a) * PR, cz + cos(a) * PR)) * ANG(-(a + pi / 2), 0, 0)
+					end
+				end
+				updPortal(0)
+
+				-- ===== INTERIOR =====
+				-- balcao
+				local top = neon(V3(3.2, 0.3, 28.4), O + V3(97, 4.15, cz), GRN, {trans = 0.2})
+				glow(top, GRN, 1.2, 28)
+				mk(model, V3(3, 4, 28), O + V3(97, 2, cz), C(28, 14, 60), M.SmoothPlastic, {solid = true, refl = 0.2})
+				neon(V3(0.3, 0.4, 28), O + V3(95.4, 2, cz), MAG)
+				for i = 0, 5 do
+					local sz = cz - 12.5 + i * 5
+					column(model, 0.2, 2, O + V3(93.3, 0.35, sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+					mk(model, V3(0.3, 2.2, 0.3), O + V3(93.3, 1.4, sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+					column(model, 0.7, 2.6, O + V3(93.3, 2.6, sz), C(200, 30, 150), M.SmoothPlastic, {shadow = false})
+				end
+				-- prateleiras com garrafas de fluido de portal
+				neon(V3(0.2, 6.5, 26), O + V3(BX1 - T - 0.2, 8.7, cz), VIO, {trans = 0.55})
+				local bottleCols = {GRN, MAG, CYA, YEL}
+				for _, sy in ipairs({7, 10.5}) do
+					mk(model, V3(1.2, 0.3, 26), O + V3(BX1 - T - 0.8, sy, cz), C(40, 20, 70), M.SmoothPlastic, {shadow = false})
+					for i = 0, 11 do
+						column(model, 1.8, 0.8, O + V3(BX1 - T - 0.8, sy + 1.05, cz - 12 + i * 2.18),
+							bottleCols[r:NextInteger(1, #bottleCols)], M.Neon, {shadow = false})
+					end
+				end
+				local fl = mk(model, V3(22, 5, 0.4), O + V3(96, 15, BZ0 + T + 0.2), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
+				neon(V3(22.4, 0.3, 0.5), O + V3(96, 17.6, BZ0 + T + 0.3), GRN)
+				neon(V3(22.4, 0.3, 0.5), O + V3(96, 12.4, BZ0 + T + 0.3), GRN)
+				signGui(fl, Enum.NormalId.Back, "PORTAL FLUID", GRN)
+
+				-- mesas e banquinhos
+				for _, tb in ipairs({{68, 12}, {68, 48}, {86, 46}, {88, 14}}) do
+					local tx, tz = tb[1], tb[2]
+					column(model, 0.2, 2.4, O + V3(tx, 0.35, tz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+					mk(model, V3(0.6, 2.8, 0.6), O + V3(tx, 1.5, tz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+					column(model, 0.4, 4.2, O + V3(tx, 3.1, tz), C(24, 12, 52), M.SmoothPlastic, {shadow = false, refl = 0.2})
+					column(model, 0.3, 4.5, O + V3(tx, 2.85, tz), pick2(), M.Neon, {shadow = false})
+					for _, sz in ipairs({-2.9, 2.9}) do
+						column(model, 0.6, 1.8, O + V3(tx, 1.7, tz + sz), C(200, 30, 150), M.SmoothPlastic, {shadow = false})
+						mk(model, V3(0.3, 1.4, 0.3), O + V3(tx, 0.9, tz + sz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
+					end
+				end
+
+				-- pista de danca
+				local tiles = {}
+				for i = 0, 3 do
+					for j = 0, 4 do
+						tiles[#tiles + 1] = {p = neon(V3(4, 0.12, 4), O + V3(68 + i * 4.4, 0.31, cz - 10 + j * 4.4), MAG), s = (i + j) * 0.8}
+					end
+				end
+
+				-- luzes do teto e globo de espelhos
+				local ceil = {}
+				for i, cx in ipairs({70, 80, 90, 100}) do
+					local p = neon(V3(0.8, 0.4, 40), O + V3(cx, H - 0.3, cz), MAG)
+					ceil[i] = {p = p, l = glow(p, MAG, 0.9, 30)}
+				end
+				mk(model, V3(0.1, 4, 0.1), O + V3(74.6, H - 2, cz + 0.5), C(60, 60, 80), M.SmoothPlastic, {shadow = false})
+				local discoBall = ball(model, 3.6, O + V3(74.6, H - 4.4, cz + 0.5), C(215, 215, 235), M.Metal, {shadow = false, refl = 0.6})
+				local discoLight = glow(discoBall, CYA, 1.2, 35)
+
+				-- jukebox
+				local jx, jz = 80, BZ0 + T + 1.6
+				local jb = mk(model, V3(6, 9, 3), O + V3(jx, 4.5, jz), C(40, 14, 80), M.SmoothPlastic, {solid = true, refl = 0.3})
+				mk(model, V3(3, 6, 6), CF(O + V3(jx, 9, jz)) * ANG(0, pi / 2, 0), C(40, 14, 80), M.SmoothPlastic, {cyl = true, shadow = false, refl = 0.3})
+				mk(model, V3(0.3, 5, 5), CF(O + V3(jx, 9, jz + 1.55)) * ANG(0, pi / 2, 0), MAG, M.Neon, {cyl = true, shadow = false})
+				mk(model, V3(0.35, 3.6, 3.6), CF(O + V3(jx, 9, jz + 1.6)) * ANG(0, pi / 2, 0), C(10, 5, 25), M.SmoothPlastic, {cyl = true, shadow = false})
+				local rc = O + V3(jx, 9, jz + 1.85)
+				local mk1 = neon(V3(3.2, 0.18, 0.1), CF(rc), CYA)
+				local mk2 = neon(V3(3.2, 0.18, 0.1), CF(rc) * ANG(0, 0, pi / 2), CYA)
+				mk(model, V3(0.4, 0.9, 0.9), CF(O + V3(jx, 9, jz + 1.95)) * ANG(0, pi / 2, 0), GRN, M.Neon, {cyl = true, shadow = false})
+				neon(V3(0.5, 8, 0.4), O + V3(jx - 2.6, 4.5, jz + 1.55), CYA)
+				neon(V3(0.5, 8, 0.4), O + V3(jx + 2.6, 4.5, jz + 1.55), MAG)
+				neon(V3(3.2, 1.2, 0.15), O + V3(jx, 5.2, jz + 1.55), YEL, {trans = 0.2})
+				mk(model, V3(4.4, 2.4, 0.15), O + V3(jx, 2.6, jz + 1.55), C(10, 5, 25), M.SmoothPlastic, {shadow = false})
+				glow(mk(model, V3(0.2, 0.2, 0.2), O + V3(jx, 6, jz + 3), DARK, M.SmoothPlastic, {trans = 1, shadow = false}), MAG, 1.2, 22)
+
+				local idx, snd = 0, nil
+				pcall(function()
+					local pp = Instance.new("ProximityPrompt")
+					pp.ActionText = "Ligar jukebox"
+					pp.ObjectText = "Jukebox do Rick"
+					pp.HoldDuration = 0.15
+					pp.MaxActivationDistance = 12
+					pp.RequiresLineOfSight = false
+					pp.Parent = jb
+					pp.Triggered:Connect(function()
+						local n = #BAR_SONGS
+						idx = idx + 1
+						if idx > math.max(n, 1) then idx = 0 end
+						party.on = idx > 0
+						if snd then pcall(function() snd:Stop() end) end
+						if party.on and n > 0 then
+							if not snd then
+								snd = Instance.new("Sound")
+								snd.Looped = true
+								snd.Volume = 1
+								snd.RollOffMinDistance = 12
+								snd.RollOffMaxDistance = 100
+								snd.Parent = jb
+							end
+							snd.SoundId = BAR_SONGS[idx]
+							snd:Play()
+						end
+						pp.ActionText = party.on and "Trocar / desligar" or "Ligar jukebox"
+					end)
+				end)
+
+				return function(t)
+					local on = party.on
+					local sp = on and 5 or 0.8
+					for i, c in ipairs(ceil) do
+						local col = MAG:Lerp(CYA, 0.5 + 0.5 * sin(t * sp + i * 1.3))
+						c.p.Color, c.l.Color = col, col
+						c.l.Brightness = on and (1.2 + 1.2 * (0.5 + 0.5 * sin(t * 8 + i))) or 0.9
+					end
+					discoLight.Color = GRN:Lerp(CYA, 0.5 + 0.5 * sin(t * sp))
+					for _, tl in ipairs(tiles) do
+						tl.p.Color = MAG:Lerp(CYA, 0.5 + 0.5 * sin(t * sp + tl.s))
+						tl.p.Transparency = on and (0.05 + 0.3 * (0.5 + 0.5 * sin(t * 8 + tl.s))) or 0.8
+					end
+					if on then party.ang = t * 4 end
+					mk1.CFrame = CF(rc) * ANG(0, 0, party.ang)
+					mk2.CFrame = CF(rc) * ANG(0, 0, party.ang + pi / 2)
+					updPortal(t)
+				end
+			end)()
+
+			-- ===== MONOTRILHO SUSPENSO =====
+			local updTrain = (function()
+				local BY, L0, L1 = 128, -750, 1150
+				local mid = (L0 + L1) / 2
+				mk(model, V3(3.2, 3, L1 - L0), O + V3(0, BY, mid), C(22, 12, 48), M.SmoothPlastic, {solid = true, refl = 0.2})
+				neon(V3(0.35, 0.35, L1 - L0), O + V3(-1.7, BY - 1.3, mid), MAG)
+				neon(V3(0.35, 0.35, L1 - L0), O + V3(1.7, BY - 1.3, mid), CYA)
+				neon(V3(1, 0.25, L1 - L0), O + V3(0, BY + 1.6, mid), CYA, {trans = 0.3})
+				for k = 0, 12 do
+					local z = -720 + 150 * k
+					local col = (k % 2 == 0) and MAG or CYA
+					for _, s in ipairs({-1, 1}) do
+						mk(model, V3(3, BY + 4.5, 3), O + V3(s * 10, (BY + 4.5) / 2, z), C(24, 12, 52), M.SmoothPlastic, {solid = true})
+						for _, yy in ipairs({30, 60, 90, 120}) do
+							neon(V3(3.4, 0.4, 3.4), O + V3(s * 10, yy, z), col)
+						end
+					end
+					mk(model, V3(26, 3, 4), O + V3(0, BY + 3, z), C(24, 12, 52), M.SmoothPlastic, {solid = true})
+					neon(V3(26.2, 0.3, 4.2), O + V3(0, BY + 4.6, z), (col == MAG) and CYA or MAG)
+				end
+
+				local root = mk(model, V3(1, 1, 1), CF(O + V3(0, 121, 0)), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
+				glow(root, CYA, 1.2, 50)
+				local function T(rel, size, col, mat, o) return attach(root, rel, size, col, mat, o or {shadow = false}) end
+				local PAINT, DK = C(34, 18, 70), C(14, 6, 34)
+				for i = 0, 3 do
+					local zc = (i - 1.5) * 19.5
+					T(CF(0, 0, zc), V3(6.2, 4.6, 18), PAINT, M.SmoothPlastic, {shadow = false, refl = 0.25})
+					T(CF(0, 2.5, zc), V3(5.4, 0.5, 17), C(48, 24, 96), M.SmoothPlastic)
+					T(CF(0, -2.35, zc), V3(6.6, 1, 17.4), DK, M.SmoothPlastic)
+					for _, sx in ipairs({-1, 1}) do
+						for j = 0, 3 do
+							T(CF(sx * 3.12, 0.6, zc - 6.3 + j * 4.2), V3(0.2, 1.6, 3), (j % 2 == 0) and CYA or C(255, 230, 150), M.Neon)
+						end
+						T(CF(sx * 3.12, -1.2, zc), V3(0.2, 0.35, 17.4), MAG, M.Neon)
+					end
+					T(CF(0, 3.9, zc - 5), V3(1, 3.4, 1.6), DK, M.SmoothPlastic)
+					T(CF(0, 3.9, zc + 5), V3(1, 3.4, 1.6), DK, M.SmoothPlastic)
+					if i < 3 then T(CF(0, 0.2, zc + 9.75), V3(3, 2.2, 1.6), DK, M.SmoothPlastic) end
+				end
+				for _, ez in ipairs({-1, 1}) do
+					local zz = ez * (1.5 * 19.5 + 9.15)
+					T(CF(0, 0.7, zz), V3(5.2, 2, 0.15), CYA, M.Neon, {shadow = false, trans = 0.3})
+					T(CF(0, -1.0, zz), V3(4, 0.5, 0.2), C(230, 250, 255), M.Neon)
+				end
+
+				local LEN = (L1 - L0) - 160
+				return function(t)
+					local p = (t * 55) % (2 * LEN)
+					local s = (p < LEN) and p or (2 * LEN - p)
+					root.CFrame = CF(O + V3(0, 121, L0 + 80 + s))
+				end
+			end)()
+
+
+			-- ===== CUBOS FLUTUANTES =====
+			local cubes = {}
+			for i = 1, 22 do
+				local s = rnd(4, 10)
+				local base = O + V3(rnd(-50, 50), rnd(30, 100), rnd(40, 700))
+				local p = neon(V3(s, s, s), CF(base), (i % 2 == 0) and MAG or CYA)
+				cubes[i] = {p = p, base = base, sp = rnd(0.3, 1), ph = rnd(0, 6.28)}
+			end
+
+			-- particulas de poeira neon sobre a avenida
+			emitterBox(model, V3(300, 2, 900), O + V3(0, 3, 300), {
+				Rate = 140, Lifetime = NumberRange.new(5, 9), Speed = NumberRange.new(2, 5),
+				SpreadAngle = Vector2.new(30, 30), EmissionDirection = Enum.NormalId.Top,
+				Size = NumberSequence.new(0.5), LightEmission = 1,
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.2), NumberSequenceKeypoint.new(1, 1),
+				}),
+				Color = ColorSequence.new(MAG, CYA),
+				Acceleration = V3(0, 1.2, 0),
+				Texture = "rbxasset://textures/particles/sparkles_main.dds",
+			})
 
 			return function(t)
 				for _, c in ipairs(cubes) do
-					c.p.CFrame = CFrame.new(c.base + Vector3.new(0, math.sin(t * c.sp + c.ph) * 4, 0))
-						* CFrame.Angles(t * c.sp, t * c.sp * 0.7, 0)
+					c.p.CFrame = CF(c.base + V3(0, sin(t * c.sp + c.ph) * 4, 0)) * ANG(t * c.sp, t * c.sp * 0.7, 0)
 				end
+				for i, p in ipairs(dashes) do
+					p.Transparency = 0.15 + 0.7 * (0.5 + 0.5 * sin(t * 6 - i * 0.6))
+				end
+				pad.Transparency = 0.4 + 0.25 * sin(t * 3)
+				for _, rg in ipairs(rings) do updRing(rg, t) end
+				for _, c in ipairs(cars) do updCar(c, t) end
+				for _, b in ipairs(beams) do updBeam(b, t) end
+				for _, b in ipairs(beacons) do
+					b.p.Transparency = (((t + b.ph) % b.per) < b.per * 0.5) and 0 or 0.85
+				end
+				for _, s in ipairs(signs) do
+					local v = sin(t * s.fl * 7 + s.ph) * sin(t * 2.3 + s.ph)
+					s.lbl.TextTransparency = (v > 0.93) and 0.85 or 0
+				end
+				updBar(t)
+				updTrain(t)
 			end
 		end
 
@@ -4954,9 +5546,9 @@ local function setupRickGun(character)
 
 		local DEFS = {
 			{
-				id = "neon", name = "C-35K Neon", info = "Synthwave: grade neon, sol gigante e pilares.", build = buildNeon, stars = 4000,
+				id = "neon", name = "C-35K Neon", info = "Cidade synthwave: avenida, predios neon, sol listrado, carros voadores, letreiros e lasers, Bar do Rick e monotrilho.", build = buildNeon, stars = 4000,
 				light = {Ambient = C(70, 30, 110), OutdoorAmbient = C(90, 40, 140), Brightness = 1.2, ClockTime = 0,
-					FogColor = C(40, 10, 70), FogStart = 250, FogEnd = 1500, ExposureCompensation = 0.2},
+					FogColor = C(40, 10, 70), FogStart = 450, FogEnd = 2200, ExposureCompensation = 0.2},
 				atmo = {Density = 0.35, Offset = 0.2, Color = C(255, 80, 200), Decay = C(80, 20, 140), Glare = 0.5, Haze = 1.5},
 				bloom = {Intensity = 0.8, Size = 32, Threshold = 0.9},
 				cc = {Saturation = 0.25, Contrast = 0.1, TintColor = C(255, 230, 255)},
@@ -5763,6 +6355,7 @@ local function setupRickGun(character)
 
 	local Rig = {type = "Unknown", set = {}, list = {}, stamp = -1, kids = {}, prevLTM = {}, sevGen = {}}
 	local Severed = {}
+	Rig.sevList = {}
 	local Regrowing = {}
 	local SeverImmune = {}
 	local SEVER_HIDE_BIND = "RickPortalSeverHide"
@@ -5805,13 +6398,14 @@ local function setupRickGun(character)
 				local alpha = Severed[part]
 				local v = (type(alpha) == "number") and alpha or 1
 				if Rig.prevLTM[part] == nil then
-					Rig.prevLTM[part] = part.LocalTransparencyModifier
+					-- parte escondida pela travessia do portal (LTM = 1) nao e o valor "normal"
+					Rig.prevLTM[part] = PortalWalk.Hidden[part] and 0 or part.LocalTransparencyModifier
 				end
 				part.LocalTransparencyModifier = v
 				for _, c in ipairs(Rig.kidsOf(part)) do
 					if c.Parent then
 						if Rig.prevLTM[c] == nil then
-							Rig.prevLTM[c] = c.LocalTransparencyModifier
+							Rig.prevLTM[c] = PortalWalk.Hidden[c] and 0 or c.LocalTransparencyModifier
 						end
 						c.LocalTransparencyModifier = v
 					end
@@ -5832,6 +6426,7 @@ local function setupRickGun(character)
 			if part.Parent then Rig.resetLTM(part) end
 		end
 		Severed = {}
+		Rig.sevList = {}
 		Rig.kids = {}
 		Rig.prevLTM = {}
 	end
@@ -6088,6 +6683,7 @@ local function setupRickGun(character)
 		rootPart.AssemblyLinearVelocity = nv
 		PortalWalk.PrevPos = newPos
 
+		State.lastActivity = os.clock()
 		playSound(Config.SoundTeleport, 1.1, rootPart)
 		Z.fala.dizer("tp")
 		if Config.Elastic then
@@ -6338,6 +6934,215 @@ local function setupRickGun(character)
 		pcall(updateOffHand, dt)
 	end))
 
+	-- Mira dos bracos (R6 e R15): em RunService.Stepped, depois que o Animator escreveu
+	-- as animacoes (idle/walk/bundle), o Transform dos Motor6D do braco e sobrescrito.
+	-- Sem mexer em C0: ao desequipar, a animacao original volta sozinha.
+	local ArmAim = {joints = nil, dir = {}}
+	local ARM_PARTS = {
+		right = {"RightUpperArm", "RightLowerArm", "RightHand", "Right Arm"},
+		left = {"LeftUpperArm", "LeftLowerArm", "LeftHand", "Left Arm"},
+	}
+	local DOWN = Vector3.new(0, -1, 0)
+	local FORWARD = Vector3.new(0, 0, -1)
+
+	local function collectArmJoints()
+		local J = {right = {extra = {}}, left = {extra = {}}}
+		for _, d in ipairs(character:GetDescendants()) do
+			if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+				local n = d.Part1.Name
+				for side, names in pairs(ARM_PARTS) do
+					for i, nm in ipairs(names) do
+						if n == nm then
+							if i == 1 or i == 4 then
+								if not J[side].shoulder then J[side].shoulder = d end
+							else
+								table.insert(J[side].extra, d)
+							end
+						end
+					end
+				end
+			end
+		end
+		return J
+	end
+
+	local function restoreArmAim()
+		ArmAim.joints = nil
+		ArmAim.dir = {}
+	end
+
+	local function stopHoldAnim()
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if not animator then return end
+		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+			local nm = string.lower((t.Animation and t.Animation.Name) or t.Name or "")
+			if string.find(nm, "tool", 1, true) then
+				pcall(function() t:Stop(0) end)
+			end
+		end
+	end
+
+	local function clampToCone(d, maxA)
+		local ang = math.acos(math.clamp(d:Dot(FORWARD), -1, 1))
+		if ang <= maxA then return d end
+		local axis = FORWARD:Cross(d)
+		if axis.Magnitude < 1e-4 then return FORWARD end
+		return CFrame.fromAxisAngle(axis.Unit, maxA):VectorToWorldSpace(FORWARD)
+	end
+
+	local function rotationFromDown(d)
+		local axis = DOWN:Cross(d)
+		local dp = DOWN:Dot(d)
+		if axis.Magnitude < 1e-4 then
+			if dp > 0 then return CFrame.new() end
+			return CFrame.Angles(math.pi, 0, 0)
+		end
+		return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+	end
+
+	local function updateArmAim(dt)
+		local A = ArmAim
+		local rHand, lHand = findHandParts()
+
+		-- so o braco que segura a arma mira; o outro segue a animacao normal
+		local side = nil
+		if Config.ArmAim and Z.alive and tool.Parent == character and humanoid.Health > 0 then
+			if OffHand.swapped then
+				if lHand and Severed[lHand] == nil then side = "left" end
+			elseif rHand and Severed[rHand] == nil then
+				side = "right"
+			end
+		end
+		if not side then
+			if A.joints then restoreArmAim() end
+			return
+		end
+		if Config.HideHoldAnim then stopHoldAnim() end
+		if not A.joints then A.joints = collectArmJoints() end
+
+		local j = A.joints[side]
+		local sh = j.shoulder
+		if not (sh and sh.Parent and sh.Part0) then return end
+
+		local maxA = math.rad(Config.ArmAimMaxAngle)
+		local target = clampToCone(sh.Part0.CFrame:VectorToObjectSpace(camera.CFrame.LookVector), maxA)
+		local cur = A.dir[side]
+		if cur then
+			cur = cur:Lerp(target, math.min(1, dt * Config.ArmAimSmooth))
+			cur = (cur.Magnitude > 1e-3) and cur.Unit or target
+		else
+			cur = target
+		end
+		A.dir[side] = cur
+
+		-- pose de descanso do ombro (no braco esquerdo trocado, o C0 original fica em OffHand.sc0)
+		local ref = sh.C0
+		if side == "left" and OffHand.swapped and OffHand.shoulder == sh and OffHand.sc0 then
+			ref = OffHand.sc0
+		end
+		local base = ref - ref.Position
+		sh.Transform = sh.C0:Inverse() * CFrame.new(ref.Position) * rotationFromDown(cur) * base
+		for _, m in ipairs(j.extra) do
+			if m.Parent then m.Transform = CFrame.new() end
+		end
+	end
+
+	-- Membro cortado/regenerando: R6 = animacao congelada; R15 = ragdoll so nos bracos.
+	-- Em Stepped (depois do Animator) o Transform de cada junta do membro vira um
+	-- pendulo amortecido: o membro balanca com a gravidade e com o movimento do corpo.
+	-- Ao terminar a regeneracao (Severed[p] = nil) a animacao normal volta sozinha.
+	function Rig.ragdollStep(e, dt, g, damp, worldOf)
+		local jt = e.j
+		local p0 = jt.Part0
+		local J = (worldOf[p0] or p0.CFrame) * jt.C0
+		local Jpos = J.Position
+		local Jrot = J - Jpos
+		local c1inv = jt.C1:Inverse()
+		local aj = c1inv.Position
+		local len = aj.Magnitude
+		if len < 0.05 then
+			aj = Vector3.new(0, -1, 0)
+			len = 0.5
+		end
+		local a0 = Jrot * aj.Unit
+
+		local d = e.d
+		if not d then
+			local cur = e.p.Position - Jpos
+			d = (cur.Magnitude > 0.05) and cur.Unit or a0
+			e.dv = Vector3.zero
+			e.pp, e.ppp = Jpos, Jpos
+		end
+
+		local acc = (Jpos - 2 * e.pp + e.ppp) / (dt * dt)
+		if acc.Magnitude > 300 then acc = acc.Unit * 300 end
+		e.ppp, e.pp = e.pp, Jpos
+
+		local L = math.max(len * (Config.SeverRagdollLength or 1.6), 0.6)
+		local force = g - acc
+		local perp = force - force:Dot(d) * d
+		local dv = e.dv + perp / L * dt
+		dv = dv * math.max(0, 1 - damp * dt)
+		d = d + dv * dt
+		d = (d.Magnitude > 1e-3) and d.Unit or a0
+		dv = dv - dv:Dot(d) * d
+
+		local maxA = math.rad(Config.SeverRagdollMaxAngle or 110)
+		if math.acos(math.clamp(d:Dot(a0), -1, 1)) > maxA then
+			local ax = a0:Cross(d)
+			if ax.Magnitude > 1e-4 then
+				d = CFrame.fromAxisAngle(ax.Unit, maxA) * a0
+				dv = Vector3.zero
+			end
+		end
+		e.d, e.dv = d, dv
+
+		local axis = a0:Cross(d)
+		local R
+		if axis.Magnitude < 1e-4 then
+			if a0:Dot(d) > 0 then
+				R = CFrame.new()
+			else
+				local pv = (math.abs(a0.X) < 0.9) and Vector3.xAxis or Vector3.yAxis
+				R = CFrame.fromAxisAngle(a0:Cross(pv).Unit, math.pi)
+			end
+		else
+			R = CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(a0:Dot(d), -1, 1)))
+		end
+		local tr = Jrot:Inverse() * R * Jrot
+		jt.Transform = tr
+		worldOf[e.p] = J * tr * c1inv
+	end
+
+	track(RunService.Stepped:Connect(function(_, dt)
+		local list = Rig.sevList
+		if #list == 0 then return end
+		dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 20)
+		local g = Vector3.new(0, -workspace.Gravity, 0) * (Config.SeverRagdollGravity or 0.6)
+		local damp = Config.SeverRagdollDamping or 3
+		local worldOf = {}
+		local i = 1
+		while i <= #list do
+			local e = list[i]
+			if Severed[e.p] == nil or not e.p.Parent or not e.j.Parent then
+				table.remove(list, i)
+			else
+				i = i + 1
+				if e.mode == "ragdoll" then
+					local okR = pcall(Rig.ragdollStep, e, dt, g, damp, worldOf)
+					if not okR then e.j.Transform = CFrame.new() end
+				else
+					-- R6: congela a animacao do membro
+					e.j.Transform = CFrame.new()
+				end
+			end
+		end
+	end))
+
+	track(RunService.Stepped:Connect(function(_, dt)
+		pcall(updateArmAim, dt)
+	end))
+
 	local regrowCounter = 0
 
 	local function bloodBurst(pos, count)
@@ -6571,7 +7376,11 @@ local function setupRickGun(character)
 					sign = (lp.Y > 0) and 1 or -1
 				end
 			end
-			if j and not head and Config.SeverRegrowFitJoints ~= false then
+			-- R15 / Custom: eixo do osso pelas juntas (inalterado).
+			-- R6: o C1 das juntas fica 0.5 stud pra fora do eixo do membro (ombro/quadril),
+			-- o que entortava o osso na diagonal; no R6 usa o eixo Y do proprio membro.
+			local fitAllowed = (Rig.type ~= "R6") or Config.SeverRegrowFitJointsR6 == true
+			if j and not head and fitAllowed and Config.SeverRegrowFitJoints ~= false then
 				local okF, nL, nW, nFix = pcall(fitLimbToJoints, p, j)
 				if okF and nFix then
 					L, W, axisFix, sign = nL, nW, nFix, 1
@@ -6848,11 +7657,13 @@ local function setupRickGun(character)
 
 		local t0 = os.clock()
 		local conn
+		local boneSound, boneSoundPlayed = nil, false
 		local function finish(restore)
 			if conn then
 				conn:Disconnect()
 				conn = nil
 			end
+			if boneSound and boneSound.Parent then boneSound:Destroy() end
 			Regrowing[id] = nil
 			if restore then
 				for _, r in ipairs(recs) do
@@ -6891,6 +7702,19 @@ local function setupRickGun(character)
 			local el = now - t0
 			local t = regrow and ((el - delay) / animTime) or -1
 			if t >= 1 then finish(true) return end
+
+			-- som do osso crescendo: toca uma vez quando a fase do osso comeca
+			if t >= 0 and not boneSoundPlayed then
+				boneSoundPlayed = true
+				if Config.SoundBoneGrow and Config.SoundBoneGrow ~= "" then
+					local anchorP
+					for _, lp in ipairs(list) do
+						if lp.Parent then anchorP = lp break end
+					end
+					boneSound = playSound(Config.SoundBoneGrow, Config.SoundBoneGrowVolume or 1.2, anchorP)
+					if boneSound then pcall(function() Debris:AddItem(boneSound, animTime + 2) end) end
+				end
+			end
 
 			local bleed
 			if t < 0 then
@@ -7174,7 +7998,15 @@ local function setupRickGun(character)
 						end
 					end
 					for _, jn in ipairs(joints) do
-						if jn.m.Parent then
+						if jn.child then
+							if jn.child.Parent then
+								pcall(function()
+									jn.child:ApplyAngularImpulse(Vector3.new(
+										bloodRng:NextNumber(-1, 1), bloodRng:NextNumber(-1, 1), bloodRng:NextNumber(-1, 1))
+										* jn.child.AssemblyMass * 1.6 * f)
+								end)
+							end
+						elseif jn.m.Parent then
 							local rot = CFrame.Angles(
 								bloodRng:NextNumber(-1, 1) * 0.7 * f,
 								bloodRng:NextNumber(-1, 1) * 0.4 * f,
@@ -7187,7 +8019,7 @@ local function setupRickGun(character)
 				task.wait(bloodRng:NextNumber(0.3, 0.7) * (1 + t / T))
 			end
 			for _, jn in ipairs(joints) do
-				if jn.m.Parent then
+				if jn.m and jn.m.Parent then
 					TweenService:Create(jn.m, TweenInfo.new(0.4), {C0 = jn.base}):Play()
 				end
 			end
@@ -7824,10 +8656,11 @@ local function setupRickGun(character)
 			local j = jointOf[p]
 			local c = map[p]
 			if c and j and set[j.Part0] and map[j.Part0] then
+				-- pose real atual (vale tambem p/ Motor6D desativado ou junta sintetica)
+				local poseC0 = j.Part0.CFrame:ToObjectSpace(j.Part1.CFrame) * j.C1
 				local m = Instance.new("Motor6D")
 				m.Name = j.Name
-				-- pose real atual (vale tambem p/ Motor6D desativado ou junta sintetica)
-				m.C0 = j.Part0.CFrame:ToObjectSpace(j.Part1.CFrame) * j.C1
+				m.C0 = poseC0
 				m.C1 = j.C1
 				m.Part0 = map[j.Part0]
 				m.Part1 = c
@@ -7860,13 +8693,14 @@ local function setupRickGun(character)
 
 		local out = toCF.LookVector
 		local v = out * Config.SeverEjectSpeed + Vector3.new(0, 4, 0)
+		local spin = 6
 		for _, p in ipairs(order) do
 			local c = map[p]
 			local j = jointOf[p]
 			if c and not (j and set[j.Part0]) then
 				c.AssemblyLinearVelocity = v
 				c.AssemblyAngularVelocity = Vector3.new(
-					severRng:NextNumber(-6, 6), severRng:NextNumber(-6, 6), severRng:NextNumber(-6, 6))
+					severRng:NextNumber(-spin, spin), severRng:NextNumber(-spin, spin), severRng:NextNumber(-spin, spin))
 			end
 		end
 
@@ -7926,6 +8760,20 @@ local function setupRickGun(character)
 		for _, p in ipairs(order) do
 			Severed[p] = 1
 			Rig.sevGen[p] = (Rig.sevGen[p] or 0) + 1
+			local jr = jointOf[p]
+			if typeof(jr) == "Instance" and jr:IsA("Motor6D") then
+				local mode
+				if Rig.type == "R6" then
+					if Config.SeverFreezeAnimR6 ~= false then mode = "freeze" end
+				elseif Rig.type == "R15" then
+					local n = p.Name
+					if Config.SeverRagdollArmsR15 ~= false and (n == "LeftUpperArm" or n == "LeftLowerArm" or n == "LeftHand"
+						or n == "RightUpperArm" or n == "RightLowerArm" or n == "RightHand") then
+						mode = "ragdoll"
+					end
+				end
+				if mode then Rig.sevList[#Rig.sevList + 1] = {p = p, j = jr, mode = mode} end
+			end
 		end
 		for _, hd in ipairs(handles) do
 			Severed[hd.h] = 1
@@ -8012,10 +8860,6 @@ local function setupRickGun(character)
 		Z.fala.dizer("tiro")
 		playSound(Config.SoundShoot, 0.9, handle)
 		task.spawn(playRecoil)
-		TweenService:Create(crossScale, TweenInfo.new(0.07), {Scale = 1.3}):Play()
-		task.delay(0.07, function()
-			TweenService:Create(crossScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
-		end)
 	end
 
 	local function faceToward(pos)
@@ -8074,10 +8918,6 @@ local function setupRickGun(character)
 
 		playSound(Config.SoundShoot, 0.9, handle)
 		task.spawn(playRecoil)
-		TweenService:Create(crossScale, TweenInfo.new(0.07), {Scale = 1.3}):Play()
-		task.delay(0.07, function()
-			TweenService:Create(crossScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
-		end)
 
 		launchProjectile(muzzlePos, hitPos, function()
 			if myShot ~= shotId or not Z.alive then return end
@@ -8093,11 +8933,7 @@ local function setupRickGun(character)
 				entrance = newPortal(entCF, nil)
 				openRipple(entCF)
 			end)
-			task.delay(Config.PortalDuration, function()
-				if myShot == shotId and Z.alive then
-					closeAllPortals()
-				end
-			end)
+			State.watchIdle(function() return myShot == shotId and Z.alive end, closeAllPortals)
 		end)
 	end
 
@@ -8134,11 +8970,9 @@ local function setupRickGun(character)
 			if slot == 1 then entrance = P else exitP = P end
 			openRipple(cf)
 			disarmed = nil
-			task.delay(Config.PortalDuration, function()
-				if not Z.alive then return end
-				local cur = (slot == 1) and entrance or exitP
-				if cur == P then closeSlot(slot) end
-			end)
+			State.watchIdle(function()
+				return Z.alive and ((slot == 1) and entrance or exitP) == P
+			end, function() closeSlot(slot) end)
 		end)
 	end
 
@@ -8194,11 +9028,7 @@ local function setupRickGun(character)
 			openRipple(cfA)
 			disarmed = nil
 
-			task.delay(Config.PortalDuration, function()
-				if myShot == shotId and Z.alive then
-					closeAllPortals()
-				end
-			end)
+			State.watchIdle(function() return myShot == shotId and Z.alive end, closeAllPortals)
 
 			task.delay(Config.Variant15Delay, function()
 				if myShot ~= shotId or not Z.alive then return end
@@ -8287,11 +9117,7 @@ local function setupRickGun(character)
 			setStatus("Portal aberto para " .. choice.name, true)
 			Z.fala.dizer("dim", { dim = (choice.name:gsub(" %(voltar%)", "")) })
 
-			task.delay(Config.PortalDuration, function()
-				if myShot == shotId and Z.alive then
-					closeAllPortals()
-				end
-			end)
+			State.watchIdle(function() return myShot == shotId and Z.alive end, closeAllPortals)
 		end)
 	end
 
@@ -8335,11 +9161,7 @@ local function setupRickGun(character)
 			setStatus("Portal aberto ate " .. targetPlayer.DisplayName, true)
 			Z.fala.dizer("alvo", { alvo = targetPlayer.DisplayName })
 
-			task.delay(Config.PortalDuration, function()
-				if myShot == shotId and Z.alive then
-					closeAllPortals()
-				end
-			end)
+			State.watchIdle(function() return myShot == shotId and Z.alive end, closeAllPortals)
 		end)
 	end
 
@@ -8421,7 +9243,7 @@ local function setupRickGun(character)
 	track(tool.Equipped:Connect(function()
 		isEquipped = true
 		removeHolster()
-		crosshair.Visible = true
+		aimDot.Visible = true
 		fireBtn.Visible = true
 		closeBtn.Visible = true
 		refreshVariantUI()
@@ -8432,7 +9254,7 @@ local function setupRickGun(character)
 
 	track(tool.Unequipped:Connect(function()
 		isEquipped = false
-		crosshair.Visible = false
+		aimDot.Visible = false
 		fireBtn.Visible = false
 		closeBtn.Visible = false
 		variantMenuOpen = false
@@ -8444,6 +9266,7 @@ local function setupRickGun(character)
 
 	track(humanoid.Died:Connect(function()
 		isEquipped = false
+		aimDot.Visible = false
 		pcall(function() Z.fala.parar() end)
 		closeAllPortals()
 		pcall(releasePortalWalk)
@@ -8508,6 +9331,7 @@ local function setupRickGun(character)
 		pcall(restoreScale)
 		pcall(releasePortalWalk)
 		pcall(restoreOffHand)
+		pcall(restoreArmAim)
 		pcall(releaseSevered)
 		pcall(function() if Z.bloodFolder then Z.bloodFolder:Destroy() end end)
 		pcall(Dim.destroy)

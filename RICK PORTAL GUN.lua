@@ -310,6 +310,10 @@ local Config = {
 	ShipGroundSpeed = 45,                          -- velocidade no modo TERRA
 	ShipGroundTurbo = 2,                            -- multiplicador do turbo no modo TERRA
 	ShipAutoBoard = true,                           -- false = so entra pelo botao PILOTAR / tecla E
+	-- ===== FREIO DE MAO / DRIFT (tecla B, so no modo TERRA) =====
+	ShipDriftGrip = { 2.4, 1.1, 0.45 },             -- aderencia lateral (1/s) em cada clique da alavanca: menor = escorrega mais
+	ShipDriftTurn = { 10, 13, 17 },                 -- rapidez com que o nariz vira no drift em cada clique (yawRate)
+	ShipDriftDust = 2.2,                            -- quanto a poeira sobe com a derrapada
 }
 
 -- Contador de inatividade: o portal fecha se ninguem entrar em PortalDuration segundos.
@@ -1086,19 +1090,571 @@ State.buildTunnel = function(add, cylX, c)
 	-- fenda do cambio no topo do degrau da frente
 	add("ShiftBezel", Vector3.new(0.44, 0.03, 2.5), CFrame.new(0, 5.015, -2.1), LIGHT, METAL)
 	add("ShiftSlot", Vector3.new(0.24, 0.04, 2.3), CFrame.new(0, 5.03, -2.1), BLACK, SMOOTH)
-	add("ShiftCollar", cylX(0.12, 0.32), CFrame.new(0, 5.07, -1.4) * RY, DARK, METAL, 0, "cyl")
+	add("ShiftCollar", cylX(0.12, 0.32), CFrame.new(0, 5.07, -1.4) * RY, DARK, METAL, 0, "cyl", "shift")
 	local s1 = Vector3.new(0, 5.1, -1.4)
 	local s2 = Vector3.new(0, 6.0, -1.1) -- inclinada pra tras, em direcao ao piloto
-	add("ShiftRod", cylX((s2 - s1).Magnitude, 0.14), CFrame.lookAt((s1 + s2) / 2, s2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl")
-	add("ShiftKnob", Vector3.new(0.42, 0.42, 0.42), CFrame.new(s2 + (s2 - s1).Unit * 0.1), BLACK, PLASTIC, 0, "sphere")
+	add("ShiftRod", cylX((s2 - s1).Magnitude, 0.14), CFrame.lookAt((s1 + s2) / 2, s2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "shift")
+	add("ShiftKnob", Vector3.new(0.42, 0.42, 0.42), CFrame.new(s2 + (s2 - s1).Unit * 0.1), BLACK, PLASTIC, 0, "sphere", "shift")
 
-	-- freio de mao no degrau de tras: suporte + alavanca inclinada + cabo em T
-	add("BrakeMount", Vector3.new(0.5, 0.14, 0.7), CFrame.new(0, 4.77, 0.35), DARK, METAL)
-	local b1 = Vector3.new(0, 4.85, 0.05)
-	local b2 = Vector3.new(0, 5.55, 0.95)
-	add("BrakeLever", cylX((b2 - b1).Magnitude, 0.13), CFrame.lookAt((b1 + b2) / 2, b2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl")
-	add("BrakeGrip", cylX(0.55, 0.15), CFrame.new(b2), DARK, PLASTIC, 0, "cyl")
+	-- ===== FREIO DE MAO fiel a serie: fenda comprida no degrau de tras, duas abas (cheeks) em volta da fenda,
+	-- haste fina saindo de dentro da fenda e cabo em T (cilindro com tampas) no topo.
+	-- A dobradica fica DENTRO do degrau (abaixo do topo, y 4.7): a haste sai pela fenda e balanca pra frente/tras.
+	-- Direcao da haste = (0, 0.7, 0.9): NAO mudar (BRAKE_LEAN do HUD e a animacao dependem dela).
+	local bdir = Vector3.new(0, 0.7, 0.9).Unit
+	local b1 = Vector3.new(0, 4.62, 0)
+	local b2 = b1 + bdir * 1.22
+	local SLOT_Z = 0.525 -- centro da fenda no degrau de tras (z -0.4 .. 1.6)
+	add("BrakeBezel", Vector3.new(0.38, 0.03, 1.8), CFrame.new(0, 4.715, SLOT_Z), LIGHT, METAL)
+	add("BrakeSlot", Vector3.new(0.18, 0.04, 1.55), CFrame.new(0, 4.73, SLOT_Z), BLACK, SMOOTH)
+	-- as duas abas em volta da fenda, levemente inclinadas (mais altas atras)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("BrakeCheek", Vector3.new(0.1, 0.26, 1.7), CFrame.new(sd * 0.25, 4.83, SLOT_Z) * CFrame.Angles(math.rad(-5), 0, 0), MID, PLASTIC)
+		add("BrakeCheekTop", Vector3.new(0.06, 0.03, 1.7), CFrame.new(sd * 0.25, 4.83 + 0.145, SLOT_Z) * CFrame.Angles(math.rad(-5), 0, 0), LIGHT, METAL)
+	end
+	-- haste fina + cabo em T com tampas nas pontas (tudo com tag "brake": gira em volta da dobradica)
+	add("BrakeLever", cylX((b2 - b1).Magnitude, 0.12), CFrame.lookAt((b1 + b2) / 2, b2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "brake")
+	add("BrakeGrip", cylX(0.6, 0.17), CFrame.new(b2), DARK, PLASTIC, 0, "cyl", "brake")
+	for _, sd in ipairs({ -1, 1 }) do
+		add("BrakeGripCap", cylX(0.05, 0.21), CFrame.new(b2 + Vector3.new(sd * 0.3, 0, 0)), MID, METAL, 0, "cyl", "brake")
+	end
+	-- marcador invisivel do pivo (a LV.fx tira o centro de rotacao daqui: fixa, sem tag, nao gira)
+	add("BrakePivot", Vector3.new(0.1, 0.1, 0.1), CFrame.new(b1), BLACK, PLASTIC, 1, "sphere")
 	print("[RickPortalGun] tunel central novo carregado")
+end
+
+-- ALAVANCAS DA NAVE: cambio (fenda do tunel), freio de mao (degrau de tras) e o painel desenhado na tela.
+--  * freio de mao: sobe sozinho (3 cliques de catraca) quando a nave pousa (landed) e desce junto com o vidro ao
+--    embarcar. No modo TERRA a tecla B (ou segurar a alavanca no HUD) puxa clique a clique e liga o drift (groundStep).
+--  * cambio: desliza na fenda entre P (parada) / TERRA / VOO. Acompanha a troca de modo (R) e treme se ela for recusada.
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+State.buildShipLevers = function(env)
+	local C, ctx, held, api = env.C, env.ctx, env.held, env.api
+	local SCALE, CANOPY_OPEN, getShip = env.SCALE, env.CANOPY_OPEN, env.getShip
+	local LV = {}
+
+	local SHIFT_DZ = { fly = -1.35, ground = -0.55, P = 0.25 } -- studs em Z (antes da escala): frente -> tras
+	local SHIFT_MIN, SHIFT_MAX = -1.65, 0.28                   -- fim da fenda (a peca nunca sai dela)
+	local SHIFT_SPAN = SHIFT_DZ.P - SHIFT_DZ.fly
+	local BRAKE_INT_DROP = 1.3 -- o interior da nave desce DEP = 1.3 studs (add embrulhado em buildShipSystem): o pivo tem que descer junto
+	local BRAKE_PIV = Vector3.new(0, 4.62 - BRAKE_INT_DROP, 0) -- dobradica da alavanca do freio (espaco da nave, ja com o deslocamento)
+	local BRAKE_A0, BRAKE_A1 = 0.21, -0.59        -- rad em volta do X: solto (deitada) -> puxado (em pe)
+	local BRAKE_LEAN = 0.909                      -- inclinacao original da alavanca (rad, da vertical pra tras)
+	local NOTCH_GAP = 0.14                        -- segundos entre dois cliques da catraca
+
+	-- mola amortecida guardada em S[key]/S[key.."V"]; subpassos pra mola dura ficar estavel.
+	-- lo/hi (opcionais) sao batentes: ao bater, a peca quica de leve em vez de atravessar o fim do curso.
+	local function spring(S, key, goal, dt, k, zeta, lo, hi)
+		local x = S[key]
+		if x == nil then
+			S[key] = goal
+			S[key .. "V"] = 0
+			return goal
+		end
+		local v = S[key .. "V"] or 0
+		if math.abs(goal - x) < 1e-4 and math.abs(v) < 1e-3 then
+			S[key], S[key .. "V"] = goal, 0
+			return goal
+		end
+		local n = math.max(1, math.ceil(dt / 0.008))
+		local h = dt / n
+		local damp = 2 * zeta * math.sqrt(k)
+		for _ = 1, n do
+			v = v + (k * (goal - x) - damp * v) * h
+			x = x + v * h
+			if lo and x < lo then
+				x = lo
+				if v < 0 then v = -v * 0.3 end
+			elseif hi and x > hi then
+				x = hi
+				if v > 0 then v = -v * 0.3 end
+			end
+		end
+		S[key], S[key .. "V"] = x, v
+		return x
+	end
+
+	-- chamada todo frame (Stepped) enquanto a nave existe
+	function LV.fx(S, dt)
+		if not (S.brakeParts and S.shiftParts and S.model and S.model.Parent) then return end
+		dt = math.clamp(dt, 1 / 240, 0.1)
+		local st = S.state
+		local ground = (st == "flying" and S.mode == "ground")
+		local canopy = math.clamp((S.canopyAng or 0) / CANOPY_OPEN, 0, 1)
+
+		-- ===== freio de mao =====
+		-- landed: sobe sozinho (3 cliques) | embarcando: acompanha o vidro fechando | modo TERRA: B puxa | resto: solto
+		-- (a logica da catraca / drift nao mudou: S.brakeNotch continua mandando no groundStep)
+		local follow = nil
+		local want = 0
+		if st == "landed" then
+			want = 3
+		elseif ground then
+			want = (held.brake or held.brakeUi) and 3 or 0
+		elseif st == "boarding" then
+			follow = canopy
+		end
+		local notch = S.brakeNotch or 0
+		if follow then
+			notch = math.floor(follow * 3 + 0.5)
+			S.brakeT = 0
+		elseif want > notch then
+			S.brakeT = (S.brakeT or 0) - dt
+			if S.brakeT <= 0 then
+				notch = notch + 1
+				S.brakeT = NOTCH_GAP
+				S.brakeKick = 1 -- tranco do dente da catraca
+				if C.SoundDial then ctx.playSound(C.SoundDial, 0.6) end
+			end
+		else
+			notch = want -- (logica do drift: solta de uma vez; so a ANIMACAO e que desce devagar)
+			S.brakeT = 0
+		end
+		S.brakeNotch = notch
+
+		-- ===== animacao do freio de mao 3D (refeita) =====
+		-- Estado proprio em S: bp = posicao da haste (0 solta .. 1 puxada), bv = velocidade, bBtn = botao de soltar (0 solto .. 1 apertado).
+		--  puxar : a mao puxa e a catraca trava dente por dente: cada clique empurra a haste e ela assenta no dente com mola
+		--  soltar: espera um instante e a haste cai com gravidade, freando perto do fim
+		--          (a mao segura), batendo no batente com uma quicadinha; se puxar de novo no meio da queda, retoma dali
+		--  a dobradica fica fixa no pe da haste (a haste gira em volta dela, nao do meio)
+		local target = follow or (notch / 3)
+		local bp = S.bp
+		if bp == nil then bp = target end
+		local bv = S.bv or 0
+		local btn = S.bBtn or 0
+		local hold = S.bHold or 0
+		if S.bLastNotch ~= nil and notch > S.bLastNotch and not follow then
+			bv = bv + 1.0 -- tranco do dente da catraca
+		end
+		S.bLastNotch = notch
+		if follow then
+			bp, bv, btn, hold = target, 0, 0, 0
+		elseif target < bp - 1e-3 then
+			-- soltando
+			btn = math.min(1, btn + dt * 16)
+			hold = hold + dt
+			if hold > 0.08 then
+				local lim = math.clamp((bp - target) * 5 + 0.3, 0.3, 2.2) -- freia perto do fim (a mao segura)
+				bv = math.max(bv - 3.2 * dt, -lim)
+				bp = bp + bv * dt
+				if bp <= target then
+					bp = target
+					bv = (bv < -0.6) and (-bv * 0.18) or 0 -- bate no batente e volta um pouquinho
+				end
+			else
+				bv = 0
+			end
+		else
+			-- puxando ou parada no dente
+			btn = math.max(0, btn - dt * 10)
+			hold = 0
+			local k = 420
+			local damp = 2 * 0.45 * math.sqrt(k)
+			local n = math.max(1, math.ceil(dt / 0.008))
+			local h = dt / n
+			for _ = 1, n do
+				bv = bv + (k * (target - bp) - damp * bv) * h
+				bp = bp + bv * h
+			end
+		end
+		bp = math.clamp(bp, -0.06, 1.08)
+		S.bp, S.bv, S.bBtn, S.bHold = bp, bv, btn, hold
+		local vis = bp
+
+		if math.abs(vis - (S.lastBrakePos or 9)) > 1e-4 or math.abs(btn - (S.lastBrakeBtn or 9)) > 1e-4 then
+			S.lastBrakePos, S.lastBrakeBtn = vis, btn
+			local th = BRAKE_A0 + (BRAKE_A1 - BRAKE_A0) * vis
+			if not S.brakePivCF then
+				-- pivo = posicao real do marcador BrakePivot, do jeito que a peca foi colocada na nave
+				for _, e in ipairs(S.parts) do
+					if e.part.Name == "BrakePivot" then S.brakePivCF = CFrame.new(e.rel.Position) break end
+				end
+				S.brakePivCF = S.brakePivCF or CFrame.new(BRAKE_PIV * SCALE)
+			end
+			local piv = S.brakePivCF
+			local rot = piv * CFrame.Angles(th, 0, 0) * piv:Inverse()
+			for _, e in ipairs(S.brakeParts) do
+				e.weld.C0 = rot * e.rel
+			end
+		end
+		pos = math.clamp(vis, 0, 1) -- o painel do HUD continua recebendo 0..1 (HUD nao mudou)
+
+		-- ===== cambio =====
+		local mode = S.mode
+		if st == "shifting" then mode = S.shiftTo or mode end
+		local key = mode
+		if st == "landed" then
+			key = "P"
+		elseif st == "boarding" and canopy > 0.5 then
+			key = "P"
+		elseif st == "landing" and canopy > 0.05 then
+			key = "P"
+		end
+		-- com o piloto no banco, a alavanca so anda 0.2s depois do pedido: a mao direita chega na bola antes
+		local hands = (st == "flying" or st == "shifting")
+		local nowT = os.clock()
+		if key ~= S.keyWant then S.keyWant = key; S.keyWantT = nowT end
+		if S.keyApplied == nil or not hands or nowT - (S.keyWantT or 0) >= 0.2 then S.keyApplied = key end
+		local akey = S.keyApplied
+		if S.lastKey ~= nil and S.lastKey ~= akey then
+			if C.SoundDial then ctx.playSound(C.SoundDial, 0.7) end
+			if hands then S.shiftChT = nowT end
+		end
+		S.lastKey = akey
+
+		local goalZ = SHIFT_DZ[akey] or SHIFT_DZ.ground
+		local z = spring(S, "shiftZ", goalZ, dt, 260, 0.55)
+		local rt = S.refuseT and (os.clock() - S.refuseT) or 9
+		-- braco direito no cambio: esperando a marcha, logo depois de engatar, ou na trepidacao de troca recusada
+		if hands and (key ~= akey or nowT - (S.shiftChT or -9) < 0.55 or rt < 0.45) then
+			S.shiftActT = nowT
+		end
+		if rt < 0.4 then
+			z = z + math.sin(rt * 85) * 0.13 * (1 - rt / 0.4) -- troca recusada: trepida e volta
+		end
+		z = math.clamp(z, SHIFT_MIN, SHIFT_MAX)
+		if math.abs(z - (S.lastShiftZ or 9)) > 1e-4 then
+			S.lastShiftZ = z
+			local m = CFrame.new(0, 0, z * SCALE)
+			for _, e in ipairs(S.shiftParts) do
+				e.weld.C0 = m * e.rel
+			end
+		end
+
+		if LV.hudUpdate then
+			LV.hudUpdate(math.clamp((z - SHIFT_DZ.fly) / SHIFT_SPAN, 0, 1), pos, notch, akey)
+		end
+	end
+
+	-- painel desenhado na tela (mesmo estilo do HUD da nave: Frames, contorno preto e verde do portal).
+	-- Esquerda: cambio visto de cima (fenda + aro de metal + bola). Direita: freio de mao visto de lado com a catraca.
+	-- H = ferramentas do HUD (mk, frame, disc, ink, grad, text, addVP, cores).
+	function LV.buildHud(H)
+		local hud, mk, frame, disc, ink, grad, text = H.hud, H.mk, H.frame, H.disc, H.ink, H.grad, H.text
+		local ACC, INK, BLACK, WHITE, YELLOW, RED = H.ACC, H.INK, H.BLACK, H.WHITE, H.YELLOW, H.RED
+		local DIM = Color3.fromRGB(26, 66, 34)
+		local METAL0, METAL1 = Color3.fromRGB(176, 186, 196), Color3.fromRGB(70, 78, 88)
+		local LEFT = Enum.TextXAlignment.Left
+
+		local root = mk("Frame", { Name = "ShipShifter", BackgroundTransparency = 1, BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -104, 0.5, 0),
+			Size = UDim2.fromOffset(178, 188), Visible = false }, hud)
+		H.addVP(root)
+		LV.hudRoot = root
+
+		-- (sem placa de fundo: o cambio e a alavanca ficam soltos na tela)
+
+		local function label(str, x, y, w, size, col, xa)
+			local t = text(root, str, size, col, x, y, w, size + 4, xa)
+			t.ZIndex = 6
+			t.TextStrokeTransparency = 0 -- sem fundo, o contorno preto garante a leitura
+			t.TextStrokeColor3 = BLACK
+			return t
+		end
+		local function keyChip(str, x)
+			if H.isTouchOnly then return end
+			local k = frame(root, x, 6, 16, 14, WHITE, 0, 4)
+			k.ZIndex = 6
+			ink(k, 1.5)
+			local t = text(k, str, 9, INK, 0, 0, 16, 14)
+			t.ZIndex = 7
+		end
+		label("CÂMBIO", 10, 6, 52, 11, ACC, LEFT)
+		keyChip("R", 62)
+		label("FREIO", 112, 6, 40, 11, ACC, LEFT)
+		keyChip("B", 154)
+
+		-- ---------- cambio: aro de metal + fenda + trilho ----------
+		local bezel = frame(root, 12, 26, 40, 150, METAL0, 0, 20)
+		bezel.ZIndex = 3
+		grad(bezel, METAL0, METAL1, 90)
+		ink(bezel, 2.5)
+		local slot = frame(root, 19, 33, 26, 136, BLACK, 0, 13)
+		slot.ZIndex = 4
+		ink(slot, 2, Color3.fromRGB(24, 30, 36))
+		local rail = frame(root, 30, 40, 4, 122, Color3.fromRGB(36, 44, 52), 0, 2)
+		rail.ZIndex = 5
+
+		-- posicoes (de cima pra baixo = frente -> tras da nave): VOO, TERRA, P
+		local posY = { fly = 56, ground = 103, P = 150 }
+		local names = { fly = "VOO", ground = "TERRA", P = "P" }
+		local dots, labels = {}, {}
+		for _, k in ipairs({ "fly", "ground", "P" }) do
+			local d = disc(root, 61, posY[k], 7, DIM)
+			d.ZIndex = 5
+			ink(d, 1.5)
+			dots[k] = d
+			labels[k] = label(names[k], 68, posY[k] - 8, 34, 11, WHITE, LEFT)
+		end
+
+		-- bola do cambio (vista de cima): sombra, aro de metal, haste e bola preta com brilho
+		local kn = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(32, posY.ground), Size = UDim2.fromOffset(30, 30), ZIndex = 7 }, root)
+		local sh = disc(kn, 16, 19, 26, BLACK, 0.5)
+		sh.ZIndex = 7
+		local collar = disc(kn, 15, 15, 24, WHITE)
+		collar.ZIndex = 8
+		grad(collar, METAL0, METAL1, 90)
+		ink(collar, 2)
+		local rod = frame(kn, 12, 14, 6, 10, Color3.fromRGB(110, 120, 130), 0, 3)
+		rod.ZIndex = 9
+		local ball = disc(kn, 15, 21, 20, Color3.fromRGB(18, 20, 24))
+		ball.ZIndex = 10
+		ink(ball, 2)
+		local spec = disc(kn, 12, 17, 6, WHITE, 0.35)
+		spec.ZIndex = 11
+
+		-- clicar em VOO / TERRA troca de modo (igual a tecla R)
+		local function zone(y, h, target)
+			local b = mk("TextButton", { BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
+				Text = "", Position = UDim2.fromOffset(8, y), Size = UDim2.fromOffset(94, h), ZIndex = 12 }, root)
+			b.MouseButton1Click:Connect(function()
+				local S = getShip()
+				if S and S.state == "flying" and S.mode ~= target then api.toggleMode() end
+			end)
+		end
+		zone(26, 54, "fly")
+		zone(80, 48, "ground")
+
+		-- ---------- freio de mao (lado direito, visto de lado: frente = esquerda) ----------
+		-- Posicoes calculadas na mao (centro + direcao): nao depende de onde a UI gira, entao nao quebra.
+		local PX, PY, LEN, ARC = 120, 148, 44, 58
+		local function leanAt(p) return BRAKE_LEAN + BRAKE_A0 + (BRAKE_A1 - BRAKE_A0) * p end
+
+		local base = frame(root, PX - 20, PY + 4, 40, 12, WHITE, 0, 4)
+		base.ZIndex = 6
+		grad(base, METAL0, METAL1, 90)
+		ink(base, 2)
+
+		-- trilho do arco (pontinhos) entre solto e puxado
+		for n = 0, 12 do
+			local a = leanAt(n / 12)
+			local d = disc(root, PX + ARC * math.sin(a), PY - ARC * math.cos(a), 3, DIM)
+			d.ZIndex = 5
+		end
+
+		-- dentes da catraca: 0 = solto, 1..3 = cliques
+		local ticks = {}
+		for k = 0, 3 do
+			local a = leanAt(k / 3)
+			local t = mk("Frame", { BorderSizePixel = 0, BackgroundColor3 = DIM, AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(PX + ARC * math.sin(a), PY - ARC * math.cos(a)),
+				Size = UDim2.fromOffset(5, 12), Rotation = math.deg(a), ZIndex = 6 }, root)
+			mk("UICorner", { CornerRadius = UDim.new(0, 2) }, t)
+			ink(t, 1.5)
+			ticks[k] = t
+		end
+
+		-- alavanca: haste + empunhadura. Centro = dobradica + direcao * metade do comprimento.
+		local lever = mk("Frame", { BorderSizePixel = 0, BackgroundColor3 = WHITE, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(PX, PY - LEN / 2), Size = UDim2.fromOffset(7, LEN), ZIndex = 7 }, root)
+		mk("UICorner", { CornerRadius = UDim.new(0, 3) }, lever)
+		grad(lever, METAL0, METAL1, 0)
+		ink(lever, 2)
+		local grip = disc(root, PX, PY - LEN, 15, Color3.fromRGB(24, 28, 34))
+		grip.ZIndex = 8
+		ink(grip, 2)
+		local gripShine = disc(grip, 5, 5, 4, WHITE, 0.4)
+		gripShine.ZIndex = 9
+		local hinge = disc(root, PX, PY, 12, WHITE)
+		hinge.ZIndex = 9
+		grad(hinge, METAL0, METAL1, 90)
+		ink(hinge, 2)
+
+		local lastPos = nil
+		local function placeLever(p)
+			local a = leanAt(p)
+			local dx, dy = math.sin(a), -math.cos(a)
+			lever.Rotation = math.deg(a)
+			lever.Position = UDim2.fromOffset(PX + dx * LEN / 2, PY + dy * LEN / 2)
+			grip.Position = UDim2.fromOffset(PX + dx * (LEN + 3), PY + dy * (LEN + 3))
+		end
+		placeLever(0)
+		label("SEGURE", 108, 168, 66, 9, ACC)
+
+		local hold = mk("TextButton", { BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
+			Text = "", Position = UDim2.fromOffset(108, 50), Size = UDim2.fromOffset(68, 120), ZIndex = 12 }, root)
+		local function isPress(i)
+			return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+		end
+		hold.InputBegan:Connect(function(i)
+			if isPress(i) then held.brakeUi = true end
+		end)
+		hold.InputEnded:Connect(function(i)
+			if isPress(i) then held.brakeUi = false end
+		end)
+		hold.MouseLeave:Connect(function() held.brakeUi = false end)
+
+		-- atualizacao (chamada pelo LV.fx): posicao do cambio, angulo da alavanca, luzes da catraca e da marcha
+		local lastKey, lastNotch = nil, nil
+		function LV.hudUpdate(t, pos, notch, key)
+			if not root.Visible then return end
+			kn.Position = UDim2.fromOffset(32, 56 + math.clamp(t, 0, 1) * 94)
+			if lastPos == nil or math.abs(pos - lastPos) > 1e-4 then
+				lastPos = pos
+				placeLever(pos)
+			end
+			if key ~= lastKey then
+				lastKey = key
+				for k, d in pairs(dots) do
+					d.BackgroundColor3 = (k == key) and ACC or DIM
+					labels[k].TextColor3 = (k == key) and ACC or WHITE
+				end
+			end
+			if notch ~= lastNotch then
+				lastNotch = notch
+				for k = 0, 3 do
+					local lit = k >= 1 and k <= notch
+					ticks[k].BackgroundColor3 = lit and ((k == 3) and RED or YELLOW) or DIM
+				end
+				grip.BackgroundColor3 = (notch >= 3) and RED or ((notch > 0) and YELLOW or Color3.fromRGB(24, 28, 34))
+			end
+		end
+	end
+
+	return LV
+end
+
+-- ===== BRACO DIREITO NO CAMBIO E NO FREIO DE MAO =====
+-- Chamado por updateHands (buildShipSystem) depois das maos no volante. Quando o cambio troca de marcha, ou quando o freio de mao
+-- esta sendo segurado (botao do HUD ou tecla B), o braco direito sai do volante, vai ate a bola do cambio / o cabo do freio
+-- (ombro + cotovelo, com o tronco inclinando pra frente se estiver longe) e volta pro volante. A mao esquerda fica no volante.
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+State.armRotFromDown = function(d)
+	local down = Vector3.new(0, -1, 0)
+	local axis = down:Cross(d)
+	local dp = down:Dot(d)
+	if axis.Magnitude < 1e-4 then
+		return dp > 0 and CFrame.new() or CFrame.Angles(math.pi, 0, 0)
+	end
+	return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+end
+
+State.shipArmIK = function(S, jr, pw, held)
+	local sh = jr and jr.shoulder
+	if not (sh and sh.Parent and sh.Part0 and sh.Part1) then return end
+	local now = os.clock()
+	local dt = math.clamp(now - (S.hwClock or now), 0, 0.1)
+	S.hwClock = now
+
+	-- acha a bola do cambio e o cabo do freio (uma vez)
+	if S.hwScan == nil then
+		S.hwScan = true
+		for _, e in ipairs(S.parts) do
+			local n = e.part.Name
+			if n == "ShiftKnob" then S.hwKnob = e elseif n == "BrakeGrip" then S.hwGrip = e end
+		end
+	end
+	local knobE, gripE = S.hwKnob, S.hwGrip
+
+	-- quem esta sendo segurado: freio (HUD/B no modo TERRA, e ate a alavanca terminar de cair) > cambio (trocando de marcha)
+	local ground = S.state == "flying" and S.mode == "ground"
+	local wantB = gripE ~= nil and ((ground and (held.brake or held.brakeUi)) or (S.bBtn or 0) > 0.05)
+	local wantS = knobE ~= nil and not wantB and S.shiftActT ~= nil and (now - S.shiftActT) < 0.25
+	local wb, ws = S.hwB or 0, S.hwS or 0
+	if wantB then wb = math.min(1, wb + dt * 7) else wb = math.max(0, wb - dt * 5) end
+	if wantS then ws = math.min(1, ws + dt * 7) else ws = math.max(0, ws - dt * 5) end
+	S.hwB, S.hwS = wb, ws
+	local w = math.max(wb, ws)
+
+	-- cintura (R15): serve pra inclinar o tronco quando o alvo esta longe
+	local waist = S.hwWaist
+	if waist == nil or (waist and not waist.Parent) then
+		waist = false
+		for _, d in ipairs(sh.Part0:GetChildren()) do
+			if d:IsA("Motor6D") and d.Name == "Waist" and d.Part0 and d.Part1 then waist = d break end
+		end
+		S.hwWaist = waist
+	end
+
+	if w <= 0.001 then
+		if (S.hwLean or 0) > 0 then
+			S.hwLean = 0
+			if waist and waist.Parent then waist.Transform = CFrame.new() end
+		end
+		return
+	end
+	local ez = w * w * (3 - 2 * w) -- peso suavizado 0..1 (volante -> alvo)
+
+	-- alvo: posicao ATUAL da bola do cambio / cabo do freio (as pecas se mexem, a mao acompanha)
+	local pk = knobE and (S.cf * knobE.weld.C0.Position) or nil
+	local pg = gripE and (S.cf * gripE.weld.C0.Position) or nil
+	local tgt
+	if pk and pg then tgt = pk:Lerp(pg, wb / (wb + ws + 1e-6)) else tgt = pg or pk end
+	if not tgt then return end
+
+	-- comprimento do braco (R15: ombro->cotovelo e cotovelo->palma). R6 nao tem cotovelo: braco reto.
+	local elbow, hand
+	for _, m in ipairs(jr.extra) do
+		local n = m.Part1 and m.Part1.Name
+		if n == "RightLowerArm" then elbow = m elseif n == "RightHand" then hand = m end
+	end
+	local L1, L2
+	if elbow and elbow.Part0 == sh.Part1 and elbow.Part1 then
+		L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
+		L2 = elbow.Part1.Size.Y * 0.9
+		if hand and hand.Part0 == elbow.Part1 and hand.Part1 then
+			L2 = (hand.C0.Position - elbow.C1.Position).Magnitude + hand.Part1.Size.Y * 0.4
+		end
+	end
+
+	-- ombro e tronco desta passada (com a inclinacao nova da cintura)
+	local p0w = pw(sh.Part0)
+	local p0n = p0w
+	local lean = S.hwLean or 0
+	if waist and waist.Parent and L1 and waist.Part0 then
+		local lowerCF = pw(waist.Part0)
+		local rotL = lowerCF.Rotation
+		local Wp = lowerCF * waist.C0.Position
+		local function spin(th) -- gira em volta da cintura (frente = -Z do personagem: inclinar pra frente = angulo negativo em X)
+			return CFrame.new(Wp) * rotL * CFrame.Angles(-th, 0, 0) * rotL:Inverse() * CFrame.new(-Wp)
+		end
+		local p0up = spin(lean):Inverse() * p0w -- tronco "em pe" (desfaz a inclinacao que ja esta aplicada)
+		local reach = (L1 + L2) * 0.97
+		local need = 0
+		for i = 0, 10 do
+			local th = i * 0.05
+			need = th
+			if ((spin(th) * p0up) * sh.C0.Position - tgt).Magnitude <= reach then break end
+		end
+		lean = lean + (need * ez - lean) * math.min(1, dt * 10)
+		if lean > 0.002 then waist.Transform = CFrame.Angles(-lean, 0, 0) end
+		S.hwLean = lean
+		p0n = spin(lean) * p0up
+	end
+
+	-- 2 ossos: o cotovelo aponta pra baixo e um pouco pra fora (pole)
+	local P = p0n * sh.C0.Position
+	local toT = tgt - P
+	local dist = toT.Magnitude
+	if dist < 0.05 then return end
+	local dirT = toT / dist
+	local uW, lW = dirT, nil
+	if L1 then
+		local d = math.min(dist, (L1 + L2) * 0.999)
+		local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+		local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+		local pole = p0n:VectorToWorldSpace(Vector3.new(0.45, -1, 0.2))
+		pole = pole - dirT * pole:Dot(dirT)
+		pole = pole.Magnitude > 1e-3 and pole.Unit or Vector3.new(0, -1, 0)
+		local E = P + dirT * a + pole * h
+		uW = (E - P).Unit
+		local lv = (P + dirT * d) - E
+		if lv.Magnitude > 1e-3 then lW = lv.Unit else lW = uW end
+	end
+
+	-- ombro: mistura a pose do volante (ja aplicada por updateHands) com a pose do alvo
+	local base = sh.C0 - sh.C0.Position
+	local B = sh.C0:Inverse() * CFrame.new(sh.C0.Position) * State.armRotFromDown(p0n:VectorToObjectSpace(uW)) * base
+	sh.Transform = sh.Transform:Lerp(B, ez)
+
+	-- cotovelo
+	if elbow and lW then
+		local upperCF = p0n * sh.C0 * B * sh.C1:Inverse()
+		local lLoc = upperCF:VectorToObjectSpace(lW)
+		local eb = elbow.C0:Inverse() * CFrame.new(elbow.C0.Position) * State.armRotFromDown(lLoc) * (elbow.C0 - elbow.C0.Position)
+		elbow.Transform = CFrame.new():Lerp(eb, ez)
+	end
 end
 
 State.buildShipSystem = function(ctx)
@@ -1144,7 +1700,7 @@ State.buildShipSystem = function(ctx)
 	local lastBoard = 0
 	local skyPortals = {}
 	local jobs = {}
-	local held = { up = false, down = false, turbo = false }
+	local held = { up = false, down = false, turbo = false, brake = false, brakeUi = false }
 	local controls = nil
 	local savedCollide = {}
 	local savedJump = nil
@@ -1153,12 +1709,18 @@ State.buildShipSystem = function(ctx)
 	local savedZoom = nil
 	local sinkBound = false
 
+	-- cambio + freio de mao (animacao 3D e painel na tela). Nao cria locals aqui: o limite de locals da funcao esta perto.
+	State.shipLv = State.buildShipLevers({
+		C = C, ctx = ctx, held = held, api = api, SCALE = SCALE, CANOPY_OPEN = CANOPY_OPEN,
+		getShip = function() return ship end,
+	})
+
 	-- ---------------------------------------------------------------
 	-- HUD v2 (estilo Rick and Morty): velocimetro desenhado, botoes com icones desenhados,
 	-- gosma pingando, botao PILOTAR e avisos. Tudo feito de Frames (nenhum asset externo).
 	-- ---------------------------------------------------------------
 	-- (tudo dentro de um bloco: so o que o resto do script usa fica como local da funcao)
-	local pad, btnMode, btnUp, btnDown, btnTurbo, boardBtn, infoLbl, toast
+	local pad, btnUp, btnDown, btnTurbo, boardBtn, infoLbl, toast
 	do
 	local hud = ctx.newGui("RickShipHud", 26)
 	local ACC = C.PortalColor
@@ -1529,18 +2091,13 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	local BLUE = Color3.fromRGB(96, 196, 255)
-	local modeSaucer, modeWheel
-	btnMode = makeBtn(1, "VOAR", "R", BLUE, function(f)
-		modeSaucer = subIcon(f)
-		drawSaucer(modeSaucer, INK, BLUE:Lerp(WHITE, 0.7))
-		modeWheel = subIcon(f)
-		drawWheel(modeWheel, INK, BLUE:Lerp(WHITE, 0.7))
-		modeWheel.Visible = false
-	end, function(t)
-		modeSaucer.Visible = (t ~= "TERRA")
-		modeWheel.Visible = (t == "TERRA")
+	local btnView = makeBtn(1, "VISTA", "V", Color3.fromRGB(96, 196, 255), function(f) -- olho desenhado
+		local ic = subIcon(f)
+		idot(ic, 14, 14, 24, INK)
+		idot(ic, 14, 14, 17, WHITE)
+		idot(ic, 14, 14, 9, INK)
 	end)
+	btnView.MouseButton1Click:Connect(function() api.toggleCloseView() end)
 	local setUpOn, setDownOn, setTurboOn
 	btnUp, setUpOn = makeBtn(2, "SOBE", "ESPAÇO", Color3.fromRGB(92, 255, 92), function(f)
 		drawArrow(subIcon(f), INK)
@@ -1580,7 +2137,6 @@ State.buildShipSystem = function(ctx)
 		setTurboOn(btnTurbo.TextColor3 == ACC)
 	end)
 	btnExit.MouseButton1Click:Connect(function() api.exit() end)
-	btnMode.MouseButton1Click:Connect(function() api.toggleMode() end)
 
 	-- =================================================================
 	-- BOTAO PILOTAR NAVE (adesivo verde com disco voador)
@@ -1620,9 +2176,20 @@ State.buildShipSystem = function(ctx)
 	end
 	boardBtn.MouseButton1Click:Connect(function() api.board() end)
 
+	-- painel do cambio + freio de mao desenhado na tela (ver State.buildShipLevers)
+	do
+		local okLv, errLv = pcall(State.shipLv.buildHud, {
+			hud = hud, mk = mk, frame = frame, disc = disc, ink = ink, grad = grad, text = text, addVP = addVP,
+			ACC = ACC, INK = INK, BLACK = BLACK, WHITE = WHITE, YELLOW = TURBO_COL, RED = RED, isTouchOnly = isTouchOnly,
+		})
+		if not okLv then warnRG("painel do cambio:", errLv) end
+	end
+
 	-- avisos (toast) removidos: a funcao continua existindo pro resto do script, mas nao mostra nada
 	infoLbl:GetPropertyChangedSignal("Visible"):Connect(function()
 		dialRoot.Visible = infoLbl.Visible
+		local lv = State.shipLv
+		if lv and lv.hudRoot then lv.hudRoot.Visible = infoLbl.Visible end
 		modeCap.Visible = infoLbl.Visible
 		if not infoLbl.Visible then altCap.Visible = false end
 	end)
@@ -1794,6 +2361,8 @@ State.buildShipSystem = function(ctx)
 		local S = {
 			model = model, root = root,
 			parts = {}, gearParts = {}, swParts = {}, swCol = {}, swBase = {}, canopyParts = {}, thrParts = {}, emitters = {},
+			shiftParts = {}, brakeParts = {}, -- cambio e freio de mao (animados em State.buildShipLevers)
+			brakeNotch = 0,                   -- cliques da catraca do freio de mao (0..3): no modo TERRA define o drift
 			wheelHubs = {}, -- 1 hub por roda: anima so 3 welds em vez de ~100 pecas
 			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
 			yaw = 0, pitch = 0, roll = 0, yawRate = 0,
@@ -1846,6 +2415,8 @@ State.buildShipSystem = function(ctx)
 			elseif tag == "swcol" then S.swCol[#S.swCol + 1] = e
 			elseif tag == "swbase" then S.swBase[#S.swBase + 1] = e
 			elseif tag == "canopy" then S.canopyParts[#S.canopyParts + 1] = e
+			elseif tag == "shift" then S.shiftParts[#S.shiftParts + 1] = e
+			elseif tag == "brake" then S.brakeParts[#S.brakeParts + 1] = e
 			elseif tag == "thr" then S.thrParts[#S.thrParts + 1] = e end
 			return e
 		end
@@ -2287,6 +2858,11 @@ State.buildShipSystem = function(ctx)
 	local function releaseHands(S)
 		if not S.handsOn then return end
 		S.handsOn = false
+		S.hwB, S.hwS = 0, 0
+		if (S.hwLean or 0) > 0 then
+			S.hwLean = 0
+			if S.hwWaist and S.hwWaist.Parent then S.hwWaist.Transform = CFrame.new() end
+		end
 		S.wheelFit = false
 		if S.wheelCF0 then S.wheelCF = S.wheelCF0 end
 		local J = S.handJ
@@ -2369,6 +2945,8 @@ State.buildShipSystem = function(ctx)
 				end
 			end
 		end
+		-- braco direito: cambio (troca de marcha) e freio de mao (segurado no HUD / tecla B)
+		State.shipArmIK(S, S.handJ.right, pw, held)
 	end
 
 	local function place(S)
@@ -2390,7 +2968,7 @@ State.buildShipSystem = function(ctx)
 				e.weld.C0 = CFrame.new(wpos.X - wpos0.X, 0, wpos.Z - wpos0.Z) * e.rel
 			end
 		end
-		if S.state == "flying" then
+		if S.state == "flying" or S.state == "shifting" then
 			pcall(updateHands, S)
 		elseif S.handsOn then
 			pcall(releaseHands, S)
@@ -2499,9 +3077,14 @@ State.buildShipSystem = function(ctx)
 	-- reaplica a pose dos bracos no Stepped (depois do Animator), alem do passo de render
 	local handConn = RunService.Stepped:Connect(function(_, dt)
 		local S = ship
-		if S and not destroyed and S.state == "flying" then
+		if S and not destroyed and (S.state == "flying" or S.state == "shifting") then
 			local okH, eH = pcall(updateHands, S)
 			if not okH and not S.handErr then S.handErr = true; warnRG("maos no volante:", eH) end
+		end
+		-- cambio + freio de mao (3D e painel na tela)
+		if S and not destroyed and State.shipLv then
+			local okL, eL = pcall(State.shipLv.fx, S, dt)
+			if not okL and not S.leverErr then S.leverErr = true; warnRG("alavancas da nave:", eL) end
 		end
 		-- telas animadas do painel (diagnostico vermelho + velocimetro verde)
 		if S and not destroyed and S.dashFx then
@@ -2593,6 +3176,7 @@ State.buildShipSystem = function(ctx)
 		pad.Visible = false
 		infoLbl.Visible = false
 		held.up, held.down, held.turbo = false, false, false
+		held.brake, held.brakeUi, held.closeView = false, false, false
 		btnTurbo.TextColor3 = Theme.Text
 	end
 
@@ -2703,7 +3287,6 @@ State.buildShipSystem = function(ctx)
 
 	local function refreshHud(S)
 		local fly = S.mode == "fly"
-		btnMode.Text = fly and "TERRA" or "VOAR"
 		btnUp.Visible = fly
 		btnDown.Visible = fly
 	end
@@ -2765,7 +3348,26 @@ State.buildShipSystem = function(ctx)
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
 		local top = GROUND_SPEED * (turbo and GROUND_TURBO or 1)
-		local hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-GROUND_ACCEL * dt))
+		-- DRIFT (freio de mao, tecla B): dl = cliques da catraca (0..3). O nariz vira rapido pra onde voce quer ir,
+		-- mas a velocidade continua escorregando de lado: cada clique tira aderencia lateral (C.ShipDriftGrip)
+		local dl = (S.state == "flying" and S.mode == "ground") and math.clamp(S.brakeNotch or 0, 0, 3) or 0
+		local slip = 0
+		local hv
+		if dl > 0 then
+			local cur = Vector3.new(S.vel.X, 0, S.vel.Z)
+			local fwdD = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
+			local rgtD = Vector3.new(math.cos(S.yaw), 0, -math.sin(S.yaw))
+			local vF, vR = cur:Dot(fwdD), cur:Dot(rgtD)
+			local grip = (C.ShipDriftGrip or { 2.4, 1.1, 0.45 })[dl]
+			local hasIn = dir.Magnitude > 0.05
+			local tgtF = hasIn and top * math.min(dir.Magnitude, 1) or 0
+			vF = vF + (tgtF - vF) * (1 - math.exp(-GROUND_ACCEL * (hasIn and 0.8 or 1.4) * dt)) -- acelera pelo nariz
+			vR = vR * math.exp(-grip * dt) -- a lateral so some devagar = derrapagem
+			slip = math.abs(vR)
+			hv = fwdD * vF + rgtD * vR
+		else
+			hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-GROUND_ACCEL * dt))
+		end
 
 		-- parede na frente (3 raios: centro e as duas laterais do casco)
 		if hv.Magnitude > 0.5 then
@@ -2821,11 +3423,24 @@ State.buildShipSystem = function(ctx)
 		S.vel = hv
 
 		S.turbo = false -- modo carro: sem rastro
-		-- nariz vira pra onde anda
+		-- nariz vira pra onde anda (no drift: pra onde voce comanda, bem mais rapido = yawRate alto)
 		local spd = hv.Magnitude
-		if spd > 3 then
+		if dl > 0 then
+			if dir.Magnitude > 0.05 then
+				local diff = wrapAng(math.atan2(-dir.X, -dir.Z) - S.yaw)
+				local stepYaw = diff * (1 - math.exp(-(C.ShipDriftTurn or { 10, 13, 17 })[dl] * dt))
+				S.yaw = S.yaw + stepYaw
+				S.yawRate = stepYaw / math.max(dt, 1e-3)
+			else
+				S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
+			end
+		elseif spd > 3 then
 			local diff = wrapAng(math.atan2(-hv.X, -hv.Z) - S.yaw)
-			S.yaw = S.yaw + diff * (1 - math.exp(-8 * dt))
+			local stepYaw = diff * (1 - math.exp(-8 * dt))
+			S.yaw = S.yaw + stepYaw
+			S.yawRate = stepYaw / math.max(dt, 1e-3)
+		else
+			S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
 		end
 
 		-- direcao das rodas da frente: apontam pra onde voce quer ir (como volante de carro)
@@ -2862,7 +3477,7 @@ State.buildShipSystem = function(ctx)
 		S.latN = (S.latN or 0) + (latT - (S.latN or 0)) * (1 - math.exp(-10 * dt))
 		S.lonN = (S.lonN or 0) + (lonT - (S.lonN or 0)) * (1 - math.exp(-10 * dt))
 		local tLP = lonT * 0.07   -- ate ~4 graus (nariz sobe ao acelerar)
-		local tLR = latT * 0.12   -- ate ~7 graus (corpo tomba pra fora na curva)
+		local tLR = latT * 0.12 * (1 + 0.5 * dl)   -- ate ~7 graus (corpo tomba pra fora na curva); no drift tomba mais
 		if S.landImpact then S.leanPV = S.leanPV + math.clamp(S.landImpact * 0.008, -0.7, 0) end -- pouso: nariz mergulha e volta
 		local LK, LC = 70, 2 * 0.36 * math.sqrt(70)   -- um pouco mais de balanco que o original
 		S.leanPV = S.leanPV + (LK * (tLP - S.leanP) - LC * S.leanPV) * dt
@@ -2886,7 +3501,14 @@ State.buildShipSystem = function(ctx)
 
 		-- modo TERRA: sem rastro de turbina e sem shake (economiza welds + GC)
 		setThrust(S, 0)
-		if S.dust then S.dust.Rate = (grounded and spd > 4) and math.clamp(spd * 0.6, 0, 40) or 0 end
+		if S.dust then
+			local rate = (grounded and spd > 4) and math.clamp(spd * 0.6, 0, 40) or 0
+			if dl > 0 and rate > 0 then
+				-- drift: mais poeira a cada clique e quanto mais ela escorrega de lado
+				rate = math.clamp(rate * (1 + 0.7 * dl) + slip * (C.ShipDriftDust or 2.2) * dl, 0, 140)
+			end
+			S.dust.Rate = rate
+		end
 		holdChar(S)
 
 		if baseFov then
@@ -3627,7 +4249,7 @@ State.buildShipSystem = function(ctx)
 				pad.Visible = true
 				infoLbl.Visible = true
 				S.state = "flying"
-				toast("WASD/analógico dirigem · R troca TERRA/VOO · ESPAÇO sobe · CTRL desce · SHIFT turbo · F sai", 6)
+				toast("WASD/analógico dirigem · R troca TERRA/VOO · B freio de mão (drift) · ESPAÇO sobe · CTRL desce · SHIFT turbo · F sai", 6)
 			end)
 			if not ok then
 				warnRG("erro ao embarcar na nave:", err)
@@ -3684,12 +4306,29 @@ State.buildShipSystem = function(ctx)
 	end
 
 	-- alterna MODO TERRA <-> MODO VOO
+	-- VISTA DE PERTO: tira o zoom travado (camera fora do casco) e aproxima da cabine pra ver o freio, o cambio e os bancos.
+	-- Aperte V (ou o botao VISTA) de novo pra voltar ao zoom normal.
+	function api.toggleCloseView()
+		if not (ship and ship.state == "flying") then return end
+		held.closeView = not held.closeView
+		pcall(function()
+			if held.closeView then
+				player.CameraMinZoomDistance = 0.6
+				player.CameraMaxZoomDistance = 9 * SCALE
+			else
+				player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, 60 * SCALE)
+				player.CameraMinZoomDistance = 32 * SCALE
+			end
+		end)
+	end
+
 	function api.toggleMode()
 		local S = ship
 		if destroyed or not S or busy or S.state ~= "flying" then return end
 		if S.mode == "ground" then
-			if S.vy < -5 then return end
+			if S.vy < -5 then S.refuseT = os.clock(); return end -- cambio trepida: nao engata no ar
 			busy = true
+			S.shiftTo = "fly"
 			S.state = "shifting"
 			task.spawn(function()
 				local ok, err = pcall(function()
@@ -3729,9 +4368,11 @@ State.buildShipSystem = function(ctx)
 			local ground = groundAt(S.pos, 0)
 			if not ground then
 				toast("Sem chão embaixo pra pousar. Voe até algum lugar com chão!", 3)
+				S.refuseT = os.clock() -- cambio trepida: sem chao nao engata
 				return
 			end
 			busy = true
+			S.shiftTo = "ground"
 			S.state = "shifting"
 			task.spawn(function()
 				local ok, err = pcall(function()
@@ -3847,7 +4488,14 @@ State.buildShipSystem = function(ctx)
 			api.toggleMode()
 		elseif input.KeyCode == Enum.KeyCode.E then
 			if ship and ship.state == "landed" and boardBtn.Visible then api.board() end
+		elseif input.KeyCode == Enum.KeyCode.V then
+			api.toggleCloseView()
+		elseif input.KeyCode == Enum.KeyCode.B then
+			held.brake = true -- freio de mao (drift no modo TERRA): segura pra puxar a catraca clique a clique
 		end
+	end))
+	ctx.track(UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.B then held.brake = false end
 	end))
 
 	return api

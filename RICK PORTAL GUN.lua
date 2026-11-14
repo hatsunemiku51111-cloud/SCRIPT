@@ -96,6 +96,157 @@ local function parentGui(g)
 	return g.Parent ~= nil
 end
 
+-- ===== PASTA ORGANIZADA + UTILIDADES =====
+State.DIR = "RICK_PORTAL_GUN" -- sem espacos: getcustomasset pode falhar com espaco no caminho
+State.filePath = function(sub, name)
+	pcall(function()
+		if makefolder and isfolder then
+			if not isfolder(State.DIR) then makefolder(State.DIR) end
+			if sub and not isfolder(State.DIR .. "/" .. sub) then makefolder(State.DIR .. "/" .. sub) end
+		end
+	end)
+	return State.DIR .. "/" .. (sub and (sub .. "/") or "") .. name
+end
+State.writeIfChanged = function(path, data)
+	local same = false
+	pcall(function() same = isfile(path) and #readfile(path) == #data end)
+	if not same then writefile(path, data) end
+end
+-- apaga arquivos soltos de versoes antigas
+pcall(function()
+	if isfile and delfile then
+		for _, n in ipairs({}) do
+			if isfile(n) then delfile(n) end
+		end
+	end
+end)
+-- roda fn com limite de tempo (evita travar pra sempre em CreateMeshPartAsync etc.)
+State.timed = function(fn, secs)
+	local done, ok, res = false, nil, nil
+	task.spawn(function() ok, res = pcall(fn); done = true end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < secs do task.wait(0.05) end
+	if not done then error("tempo esgotado (" .. secs .. "s)", 0) end
+	if not ok then error(res, 0) end
+	return res
+end
+State.stage = "Iniciando"
+State.setStage = function(txt)
+	State.stage = txt
+	pcall(print, "[RickPortalGun] etapa: " .. txt)
+end
+
+-- ===== TELA DE CARREGAMENTO =====
+do
+	local okL, errL = pcall(function()
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "RickPortalGunLoader"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = 999
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		parentGui(gui)
+
+		local box = Instance.new("Frame")
+		box.AnchorPoint = Vector2.new(0.5, 0)
+		box.Position = UDim2.new(0.5, 0, 0, 24)
+		box.Size = UDim2.fromOffset(250, 62)
+		box.BackgroundColor3 = Color3.fromRGB(8, 16, 10)
+		box.BackgroundTransparency = 0.1
+		box.BorderSizePixel = 0
+		box.Parent = gui
+		local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(0, 14); bc.Parent = box
+		local bs = Instance.new("UIStroke"); bs.Color = Color3.fromRGB(70, 255, 60); bs.Thickness = 1.5; bs.Transparency = 0.4; bs.Parent = box
+
+		local ring = Instance.new("Frame")
+		ring.AnchorPoint = Vector2.new(0, 0.5)
+		ring.Position = UDim2.new(0, 14, 0.5, 0)
+		ring.Size = UDim2.fromOffset(34, 34)
+		ring.BackgroundTransparency = 1
+		ring.Parent = box
+		local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(1, 0); rc.Parent = ring
+		local rs = Instance.new("UIStroke")
+		rs.Color = Color3.fromRGB(70, 255, 60); rs.Thickness = 4
+		rs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		rs.Parent = ring
+		local grad = Instance.new("UIGradient")
+		grad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.6, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		grad.Parent = rs
+
+		local title = Instance.new("TextLabel")
+		title.BackgroundTransparency = 1
+		title.Position = UDim2.new(0, 60, 0, 10)
+		title.Size = UDim2.new(1, -70, 0, 22)
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = 15
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.TextColor3 = Color3.fromRGB(232, 248, 236)
+		title.Text = "Rick Portal Gun"
+		title.Parent = box
+
+		local sub = Instance.new("TextLabel")
+		sub.BackgroundTransparency = 1
+		sub.Position = UDim2.new(0, 60, 0, 32)
+		sub.Size = UDim2.new(1, -70, 0, 20)
+		sub.Font = Enum.Font.Gotham
+		sub.TextSize = 13
+		sub.TextXAlignment = Enum.TextXAlignment.Left
+		sub.TextColor3 = Color3.fromRGB(120, 158, 128)
+		sub.Text = "Carregando"
+		sub.Parent = box
+
+		local t0 = os.clock()
+		local done = false
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if done then return end
+			local t = os.clock() - t0
+			grad.Rotation = (t * 360) % 360
+			local dots = string.rep(".", math.floor(t * 2) % 4)
+			sub.Text = string.format("%s%s  (%ds)", State.stage or "Carregando", dots, math.floor(t))
+			if t - (State.lastStageWarn or 0) > 20 then
+				State.lastStageWarn = t
+				pcall(warn, "[RickPortalGun] ainda na etapa: " .. tostring(State.stage) .. " (" .. math.floor(t) .. "s)")
+			end
+		end)
+
+		State.loader = gui
+		State.hideLoader = function(ok, instant)
+			if done then return end
+			done = true
+			State.hideLoader = function() end
+			pcall(function() conn:Disconnect() end)
+			if instant then pcall(function() gui:Destroy() end) return end
+			pcall(function()
+				title.Text = ok and "Pronta!" or "Falhou"
+				sub.Text = ok and "Pegue a arma na mochila" or "Veja o console (F9)"
+				rs.Color = ok and Color3.fromRGB(70, 255, 60) or Color3.fromRGB(255, 90, 80)
+				grad.Transparency = NumberSequence.new(0)
+			end)
+			task.delay(ok and 2 or 6, function()
+				pcall(function()
+					TweenService:Create(box, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+					for _, d in ipairs(box:GetDescendants()) do
+						if d:IsA("TextLabel") then TweenService:Create(d, TweenInfo.new(0.4), {TextTransparency = 1}):Play() end
+						if d:IsA("UIStroke") then TweenService:Create(d, TweenInfo.new(0.4), {Transparency = 1}):Play() end
+					end
+				end)
+				task.wait(0.5)
+				pcall(function() gui:Destroy() end)
+			end)
+		end
+	end)
+	if not okL then
+		pcall(warn, "[RickPortalGun] loader falhou:", errL)
+		State.hideLoader = function() end
+	end
+end
+
+
 local function buildIgnore(...)
 	local t = {}
 	for i = 1, select("#", ...) do
@@ -332,20 +483,39 @@ end
 
 local AccTemplate, AccAxis, AccHalf, AccTried = nil, nil, 0, false
 
+
+-- Metodo principal: baixa o .rbxm uma vez pra pasta do executor e carrega do disco.
+local function fetchFromDisk(id)
+	assert(writefile and readfile and isfile and getcustomasset, "executor sem writefile/getcustomasset")
+	local path = State.filePath("modelos", tostring(id) .. ".rbxm")
+	for tentativa = 1, 2 do
+		if not isfile(path) then
+			local data = game:HttpGet("https://assetdelivery.roblox.com/v1/asset/?id=" .. tostring(id))
+			assert(type(data) == "string" and #data > 100, "download vazio")
+			writefile(path, data)
+		end
+		local okO, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
+		if okO and type(objs) == "table" and objs[1] then return objs[1] end
+		-- arquivo corrompido: apaga e baixa de novo
+		if delfile then pcall(delfile, path) end
+		if tentativa == 2 then error(okO and "arquivo sem objetos" or tostring(objs)) end
+	end
+end
+
 local function fetchAccessoryModel(id)
 	local lastErr = "desconhecido"
 	for attempt = 1, 3 do
+		-- 1) pasta no workspace (rapido depois da primeira vez)
+		local okD, m = pcall(fetchFromDisk, id)
+		if okD and m then return m end
+		if not okD then lastErr = tostring(m) end
+
+		-- 2) GetObjects direto (InsertService nao funciona no cliente, entao foi removido)
 		local okG, objs = pcall(function()
 			return game:GetObjects("rbxassetid://" .. tostring(id))
 		end)
 		if okG and type(objs) == "table" and objs[1] then return objs[1] end
 		if not okG then lastErr = tostring(objs) end
-
-		local okI, model = pcall(function()
-			return game:GetService("InsertService"):LoadAsset(tonumber(id) or id)
-		end)
-		if okI and model then return model end
-		if not okI then lastErr = tostring(model) end
 
 		if attempt < 3 then task.wait(1) end
 	end
@@ -1845,6 +2015,7 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 end
 
 State.space = { k = 0, visible = false }
+State.setStage("Gerando planetas")
 do
 	local Sp = State.space
 	local Lighting = game:GetService("Lighting")
@@ -1908,9 +2079,15 @@ do
 				end
 			end
 			local data = "version 2.00\n" .. string.pack("<I2BBII", 12, 40, 12, #verts, nf) .. table.concat(verts) .. table.concat(faces)
-			local fname = "RickSphere_v27.mesh"
-			wf(fname, data)
-			local asset = gca(fname)
+			local fname = State.filePath("malhas", "RickSphere_v27.mesh")
+			State.writeIfChanged(fname, data)
+			local okA, asset = pcall(gca, fname)
+			if not (okA and asset and asset ~= "") then
+				local flat = fname:match("([^/]+)$")
+				writefile(flat, data)
+				asset = gca(flat)
+				warn("[Rick] getcustomasset falhou na subpasta; usando arquivo solto " .. flat)
+			end
 			assert(asset and asset ~= "", "getcustomasset vazio")
 			return asset
 		end)
@@ -1953,7 +2130,7 @@ do
 				end
 			end
 
-			local base = AssetService:CreateMeshPartAsync(Content.fromObject(em))
+			local base = State.timed(function() return AssetService:CreateMeshPartAsync(Content.fromObject(em)) end, 12)
 			base.Anchored = true
 			base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
 			pcall(function() base.CollisionFidelity = Enum.CollisionFidelity.Box end)
@@ -1989,9 +2166,15 @@ do
 				string.pack("<III", 4, 5, 6), string.pack("<III", 5, 7, 6),
 			}
 			local data = "version 2.00\n" .. string.pack("<I2BBII", 12, 40, 12, #verts, #faces) .. table.concat(verts) .. table.concat(faces)
-			local fname = "RickDisc_v28.mesh"
-			wf(fname, data)
-			local asset = gca(fname)
+			local fname = State.filePath("malhas", "RickDisc_v28.mesh")
+			State.writeIfChanged(fname, data)
+			local okA, asset = pcall(gca, fname)
+			if not (okA and asset and asset ~= "") then
+				local flat = fname:match("([^/]+)$")
+				writefile(flat, data)
+				asset = gca(flat)
+				warn("[Rick] getcustomasset falhou na subpasta; usando arquivo solto " .. flat)
+			end
 			assert(asset and asset ~= "", "getcustomasset vazio")
 			return asset
 		end)
@@ -2017,7 +2200,7 @@ do
 				tri(tv[2], tv[3], tv[4], uv[2], uv[3], uv[4], nt)
 				tri(bv[1], bv[2], bv[3], uv[1], uv[2], uv[3], nb)
 				tri(bv[2], bv[4], bv[3], uv[2], uv[4], uv[3], nb)
-				local base = AssetService:CreateMeshPartAsync(Content.fromObject(em))
+				local base = State.timed(function() return AssetService:CreateMeshPartAsync(Content.fromObject(em)) end, 12)
 				base.Anchored = true
 				base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
 				pcall(function() base.CollisionFidelity = Enum.CollisionFidelity.Box end)
@@ -2043,7 +2226,7 @@ do
 	Sp.alphaBase = Sp.meshBase
 	if not Sp.alphaBase and Sp.hasMesh and type(Sp.TEX.malha) == "string" and Sp.TEX.malha ~= "" then
 		local okA, mpA = pcall(function()
-			local base = game:GetService("AssetService"):CreateMeshPartAsync(Content.fromUri(Sp.TEX.malha))
+			local base = State.timed(function() return game:GetService("AssetService"):CreateMeshPartAsync(Content.fromUri(Sp.TEX.malha)) end, 12)
 			base.Anchored = true
 			base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
 			return base
@@ -6135,6 +6318,7 @@ local function setupRickGun(character)
 	end
 
 	do
+		State.setStage("Baixando recursos")
 		local pending = 3
 		local function par(fn)
 			task.spawn(function()
@@ -16567,6 +16751,7 @@ local function setupRickGun(character)
 		end)
 	end
 
+	State.setStage("Montando a nave")
 	State.ship = State.buildShipSystem({
 		Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, camera = camera,
 		track = track, newGui = newGui, playSound = playSound, flashAt = flashAt,
@@ -16576,6 +16761,7 @@ local function setupRickGun(character)
 		hasPortals = function() return entrance ~= nil or exitP ~= nil end,
 	})
 
+	State.setStage("Montando a chave")
 	if not pcall(function()
 		State.key = State.buildKeySystem({
 			Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, backpack = backpack,
@@ -16792,6 +16978,9 @@ safeSetup = function(character, attempt)
 		task.delay(2, function() safeSetup(character, attempt + 1) end)
 	elseif scriptAlive and State.cleanup ~= nil then
 		pcall(print, "[RickPortalGun] carregada.")
+		pcall(State.hideLoader, true)
+	else
+		pcall(State.hideLoader, false)
 	end
 end
 
@@ -16806,6 +16995,7 @@ end
 
 genv[CLEANUP_KEY] = function()
 	scriptAlive = false
+	pcall(State.hideLoader, false, true)
 	for _, c in ipairs(rootConns) do
 		pcall(function() c:Disconnect() end)
 	end

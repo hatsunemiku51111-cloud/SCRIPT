@@ -310,6 +310,8 @@ local Config = {
 	ShipGroundSpeed = 45,                          -- velocidade no modo TERRA
 	ShipGroundTurbo = 2,                            -- multiplicador do turbo no modo TERRA
 	ShipAutoBoard = false,                          -- (v20) sem Sit automatico e sem botao PILOTAR: voce so pilota se SENTAR no banco do motorista
+	ShipSpaceStartAlt = 700,                        -- (v20) altitude (Y) onde o ceu comeca a escurecer
+	ShipSpaceFullAlt = 1500,                        -- (v20) altitude onde e espaco total (estrelas + planetas)
 	ShipSolid = true,                               -- (v20) true = a nave e solida quando estacionada (voce nao atravessa o casco)
 	-- ===== FREIO DE MAO / DRIFT (tecla B, so no modo TERRA) =====
 	ShipDriftGrip = { 2.4, 1.1, 0.45 },             -- aderencia lateral (1/s) em cada clique da alavanca: menor = escorrega mais
@@ -1967,6 +1969,616 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 	return tip
 end
 
+-- ===================================================================
+-- ESPACO (v20)
+-- Acima de ShipSpaceStartAlt o ceu fica preto (atmosfera/nuvens somem, estrelas). (v21) Os planetas (lua, Deserto,
+-- Gelo e Neon) ficam PARADOS no mundo (ancorados onde voce saiu da Terra, com parallax de verdade): a Terra e o
+-- proprio mapa la embaixo. Pra entrar numa dimensao e obrigatorio VOAR ate o planeta; dentro da dimensao,
+-- subir alto volta pro espaco ao lado do planeta.
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+-- ===================================================================
+State.space = { k = 0, visible = false }
+do
+	local Sp = State.space
+	local Lighting = game:GetService("Lighting")
+	local TweenService = game:GetService("TweenService")
+	local rng = Random.new(20)
+	Sp.SPACE = Vector3.new(0, 60000, 0)
+	Sp.SCALE = 3.2 -- (v23) multiplicador do tamanho dos planetas (v22 = 1). Esferas acima de 2048 studs usam Scale da mesh
+	local MAT_SMOOTH, MAT_NEON, MAT_ICE = Enum.Material.SmoothPlastic, Enum.Material.Neon, Enum.Material.Ice
+
+	-- ---------- (v21) planetas grandes e detalhados ----------
+	-- Corpo = pecas ANCORADAS estaticas (custo zero por quadro). So camadas leves animam: nuvens, tempestade, aneis, aurora, luas.
+	-- Peca maxima do Roblox = 2048 studs, entao raio do corpo <= ~950 (as capas de brilho ficam sob esse limite).
+	local function newPlanet(name, center, tilt)
+		local m = Instance.new("Model")
+		m.Name = name
+		return { model = m, list = {}, T = CFrame.new(center) * tilt, anims = {}, center = center }
+	end
+
+	local function mkPart(P, cf, size, color, mat, transp, ball)
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = false, false, false, false
+		p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		local cs = Vector3.new(math.clamp(size.X, 0.05, 2048), math.clamp(size.Y, 0.05, 2048), math.clamp(size.Z, 0.05, 2048))
+		p.Size = cs
+		p.Color = color
+		p.Material = mat or MAT_SMOOTH
+		p.Transparency = transp or 0
+		if ball then
+			local m = Instance.new("SpecialMesh")
+			m.MeshType = Enum.MeshType.Sphere
+			if size.X > 2048 or size.Y > 2048 or size.Z > 2048 then m.Scale = Vector3.new(size.X / cs.X, size.Y / cs.Y, size.Z / cs.Z) end -- (v23) planeta gigante
+			m.Parent = p
+		end
+		p.CFrame = cf
+		p.Parent = P.model
+		P.list[#P.list + 1] = { part = p, base = p.Transparency }
+		return p
+	end
+
+	local function newGroup(P)
+		local r = mkPart(P, P.T, Vector3.new(1, 1, 1), Color3.new(), MAT_SMOOTH, 1, false)
+		P.list[#P.list] = nil -- a raiz fica sempre invisivel
+		return r
+	end
+
+	-- g = nil: peca estatica no referencial do planeta; g = grupo: soldada na raiz do grupo (que se mexe)
+	local function put(P, g, lcf, size, color, mat, transp, ball)
+		if not g then return mkPart(P, P.T * lcf, size, color, mat, transp, ball) end
+		local p = mkPart(P, g.CFrame * lcf, size, color, mat, transp, ball)
+		p.Anchored, p.Massless = false, true
+		local w = Instance.new("Weld")
+		w.Part0, w.Part1, w.C0 = g, p, lcf
+		w.Parent = p
+		return p
+	end
+
+	local function sphere(P, g, R, color, mat, transp)
+		return put(P, g, CFrame.new(), Vector3.new(2 * R, 2 * R, 2 * R), color, mat, transp, true)
+	end
+
+	local function surf(dir, dist, yaw)
+		local ref = math.abs(dir.Y) < 0.95 and Vector3.yAxis or Vector3.xAxis
+		local right = ref:Cross(dir).Unit
+		return CFrame.fromMatrix(dir * dist, right, dir) * CFrame.Angles(0, yaw or 0, 0)
+	end
+
+	local function randDir()
+		local z = rng:NextNumber(-1, 1)
+		local a = rng:NextNumber(0, math.pi * 2)
+		local r = math.sqrt(1 - z * z)
+		return Vector3.new(r * math.cos(a), z, r * math.sin(a))
+	end
+
+	-- elipsoide achatado colado na superficie (topo = `lift` acima do raio)
+	local function patch(P, g, R, dir, w, d, h, color, mat, transp, lift)
+		return put(P, g, surf(dir, R - h / 2 + (lift or 0.012 * R), rng:NextNumber(0, math.pi * 2)), Vector3.new(w, h, d), color, mat, transp, true)
+	end
+
+	local function crater(P, g, R, dir, w, dark, light)
+		patch(P, g, R, dir, w, w, 0.05 * R, light, MAT_SMOOTH, 0, 0.014 * R)
+		patch(P, g, R, dir, w * 0.68, w * 0.68, 0.05 * R, dark, MAT_SMOOTH, 0, 0.02 * R)
+	end
+
+	local function ring(P, g, radius, band, thick, n, color, transp, mat)
+		local chord = 2 * radius * math.tan(math.pi / n) * 1.05
+		for i = 0, n - 1 do
+			local a = 2 * math.pi * i / n
+			put(P, g, CFrame.new(math.cos(a) * radius, 0, math.sin(a) * radius) * CFrame.Angles(0, -a - math.pi / 2, 0),
+				Vector3.new(chord, thick, band), color, mat or MAT_NEON, transp, false)
+		end
+	end
+
+	-- anel fino na superficie numa latitude (linhas de grade)
+	local function latRing(P, R, lat, thick, n, color)
+		local rad, y = R * math.cos(lat) * 1.004, R * math.sin(lat) * 1.004
+		local chord = 2 * rad * math.tan(math.pi / n) * 1.05
+		for i = 0, n - 1 do
+			local a = 2 * math.pi * i / n
+			put(P, nil, CFrame.new(math.cos(a) * rad, y, math.sin(a) * rad) * CFrame.Angles(0, -a - math.pi / 2, 0),
+				Vector3.new(chord, thick, thick * 2.2), color, MAT_NEON, 0.1, false)
+		end
+	end
+
+	local function spinner(P, g, rate, around)
+		P.anims[#P.anims + 1] = function(t)
+			g.CFrame = P.T * CFrame.Angles(around == "x" and t * rate or 0, around ~= "x" and t * rate or 0, 0)
+		end
+	end
+
+	-- (v21b) superficie em mosaico: centenas de manchas pequenas que se sobrepoem, coloridas por ruido (nada de blocos grandes)
+	local function fib(n)
+		local pts, ga = {}, math.pi * (3 - math.sqrt(5))
+		for i = 0, n - 1 do
+			local y = 1 - 2 * (i + 0.5) / n
+			local r = math.sqrt(1 - y * y)
+			pts[#pts + 1] = Vector3.new(math.cos(ga * i) * r, y, math.sin(ga * i) * r)
+		end
+		return pts
+	end
+
+	local function fbm(v, seed, f)
+		local x, y, z = v.X * f + seed * 3.1, v.Y * f + seed * 1.7, v.Z * f - seed * 2.3
+		return math.clamp(0.5 + math.noise(x, y, z) * 0.95 + math.noise(x * 2.1, y * 2.1, z * 2.1) * 0.45 + math.noise(x * 4.3, y * 4.3, z * 4.3) * 0.2, 0, 1)
+	end
+
+	-- quantidade de manchas escala com a qualidade grafica (minimo = leve, maximo = bem detalhado)
+	local DENS = (function()
+		local ok, q = pcall(function() return settings().Rendering.QualityLevel.Value end)
+		if not ok or q == 0 then q = 10 end
+		return q <= 3 and 0.4 or (q <= 6 and 0.75 or (q <= 9 and 1.1 or 1.5))
+	end)()
+
+	-- fn(dir) -> color, lift (fracao de R), material, transparencia   (color nil = pula)
+	local function mosaic(P, g, R, n, k, thick, fn)
+		n = math.floor(n * DENS)
+		local s = math.sqrt(4 * math.pi * R * R / n) * (k or 1.5)
+		local h = (thick or 0.035) * R
+		for _, dir in ipairs(fib(n)) do
+			local color, lift, mat, tr = fn(dir)
+			if color then
+				put(P, g, surf(dir, R - h / 2 + (lift or 0) * R, rng:NextNumber(0, 6.28)), Vector3.new(s, h, s * rng:NextNumber(0.85, 1.1)), color, mat or MAT_SMOOTH, tr or 0, true)
+			end
+		end
+	end
+
+	local function lerpN(cols, t) -- gradiente por varios pontos, t 0..1
+		local n = #cols - 1
+		local x = math.clamp(t, 0, 0.9999) * n
+		local i = math.floor(x)
+		return cols[i + 1]:Lerp(cols[i + 2], x - i)
+	end
+
+	-- ---------- Terra (modelo original da v21) ----------
+	-- (v21) as 4 builders abaixo usam um gerador proprio (semente 20, igual a v21) pra reproduzir exatamente o mesmo mapa da v21
+	local V21 = {}
+	local function buildEarth(center, tilt)
+		local R = 950 * Sp.SCALE
+		local P = newPlanet("RickEarth", center, tilt)
+		local saved = rng
+		V21.r = Random.new(20)
+		rng = V21.r
+		sphere(P, nil, R, Color3.fromRGB(28, 84, 190), MAT_SMOOTH)
+		for i = 1, 14 do
+			local dir = randDir()
+			local w = rng:NextNumber(0.22, 0.5) * R
+			local col = (i % 4 == 0) and Color3.fromRGB(150, 128, 78) or Color3.fromRGB(56, 142, 66)
+			patch(P, nil, R, dir, w, w * rng:NextNumber(0.55, 0.9), 0.07 * R, col)
+			patch(P, nil, R, (dir + randDir() * 0.14).Unit, w * 0.4, w * 0.3, 0.05 * R, col)
+		end
+		local ice = Color3.fromRGB(244, 248, 252)
+		patch(P, nil, R, Vector3.yAxis, 0.55 * R, 0.55 * R, 0.08 * R, ice)
+		patch(P, nil, R, -Vector3.yAxis, 0.5 * R, 0.5 * R, 0.08 * R, ice)
+		for _ = 1, 16 do -- nuvens
+			local w = rng:NextNumber(0.2, 0.45) * R
+			patch(P, nil, R, randDir(), w, w * 0.45, 0.025 * R, Color3.new(1, 1, 1), MAT_SMOOTH, 0.3, 0.03 * R)
+		end
+		sphere(P, nil, R * 1.045, Color3.fromRGB(110, 170, 255), MAT_NEON, 0.9) -- brilho da atmosfera
+		rng = saved
+		return P
+	end
+
+	-- ---------- Lua (orbita a Terra) ----------
+	local function buildMoon(center, tilt, def)
+		local R = 300 * Sp.SCALE
+		local P = newPlanet("RickMoon", center, tilt)
+		local g = newGroup(P)
+		sphere(P, g, R, Color3.fromRGB(170, 170, 180), MAT_SMOOTH)
+		local gr = { Color3.fromRGB(120, 120, 132), Color3.fromRGB(170, 170, 180), Color3.fromRGB(205, 205, 212) }
+		mosaic(P, g, R, 420, 1.5, 0.04, function(d) return lerpN(gr, fbm(d, 4, 3)), 0.003 end)
+		for _ = 1, 16 do crater(P, g, R, randDir(), rng:NextNumber(0.1, 0.26) * R, Color3.fromRGB(96, 96, 108), Color3.fromRGB(214, 214, 220)) end
+		local orb = def.orbit
+		P.anims[#P.anims + 1] = function(t)
+			local a = t * 2 * math.pi / orb.period
+			local pos = orb.center + Vector3.new(math.cos(a) * orb.r, math.sin(a * 0.7) * orb.r * 0.12, math.sin(a) * orb.r)
+			g.CFrame = CFrame.new(pos) * CFrame.Angles(0, -a, 0)
+		end
+		return P
+	end
+
+	-- ---------- K-22 Deserto (modelo original da v21) ----------
+	local function buildDesert(center, tilt)
+		local R = 800 * Sp.SCALE
+		local P = newPlanet("RickDesert", center, tilt)
+		local saved = rng
+		rng = V21.r or Random.new(20)
+		for _ = 1, 36 do rng:NextNumber() end -- consome o que a lua da v21 consumia, pra o mapa sair igual
+		sphere(P, nil, R, Color3.fromRGB(214, 150, 86), MAT_SMOOTH)
+		local cols = { Color3.fromRGB(196, 118, 56), Color3.fromRGB(232, 184, 112), Color3.fromRGB(170, 96, 46) }
+		for i = 1, 16 do
+			local w = rng:NextNumber(0.15, 0.4) * R
+			patch(P, nil, R, randDir(), w, w * rng:NextNumber(0.5, 0.9), 0.06 * R, cols[i % 3 + 1])
+		end
+		for _ = 1, 8 do -- crateras
+			local dir = randDir()
+			local w = rng:NextNumber(0.1, 0.18) * R
+			patch(P, nil, R, dir, w, w, 0.05 * R, Color3.fromRGB(120, 70, 36), MAT_SMOOTH, 0, 0.014 * R)
+			patch(P, nil, R, dir, w * 0.6, w * 0.6, 0.05 * R, Color3.fromRGB(232, 184, 112), MAT_SMOOTH, 0, 0.02 * R)
+		end
+		sphere(P, nil, R * 1.04, Color3.fromRGB(255, 190, 120), MAT_NEON, 0.93) -- poeira
+		rng = saved
+		return P
+	end
+
+	-- ---------- G-7 Gelo (modelo original da v21) ----------
+	local function buildIce(center, tilt)
+		local R = 700 * Sp.SCALE
+		local P = newPlanet("RickIce", center, tilt)
+		local saved = rng
+		rng = V21.r or Random.new(20)
+		sphere(P, nil, R, Color3.fromRGB(200, 232, 255), MAT_ICE)
+		for _ = 1, 10 do
+			local w = rng:NextNumber(0.2, 0.45) * R
+			patch(P, nil, R, randDir(), w, w * 0.7, 0.05 * R, Color3.fromRGB(245, 250, 255))
+		end
+		for _ = 1, 14 do -- rachaduras
+			patch(P, nil, R, randDir(), 0.55 * R, 0.014 * R, 0.01 * R, Color3.fromRGB(80, 140, 210), MAT_SMOOTH, 0.1, 0.02 * R)
+		end
+		sphere(P, nil, R * 1.04, Color3.fromRGB(170, 230, 255), MAT_NEON, 0.92)
+		rng = saved
+		return P
+	end
+
+	-- ---------- C-35K Neon (modelo original da v21) ----------
+	local function buildNeon(center, tilt)
+		local R = 750 * Sp.SCALE
+		local P = newPlanet("RickNeon", center, tilt)
+		local saved = rng
+		rng = V21.r or Random.new(20)
+		sphere(P, nil, R, Color3.fromRGB(36, 8, 64), MAT_SMOOTH)
+		local cols = { Color3.fromRGB(255, 0, 200), Color3.fromRGB(0, 255, 240), Color3.fromRGB(150, 255, 40) }
+		for i = 1, 22 do
+			local w = rng:NextNumber(0.1, 0.3) * R
+			patch(P, nil, R, randDir(), w, w * 0.7, 0.04 * R, cols[i % 3 + 1], MAT_NEON)
+		end
+		for i = 1, 12 do -- "rios" de neon
+			patch(P, nil, R, randDir(), 0.9 * R, 0.025 * R, 0.015 * R, cols[i % 3 + 1], MAT_NEON, 0, 0.02 * R)
+		end
+		sphere(P, nil, R * 1.06, Color3.fromRGB(255, 0, 200), MAT_NEON, 0.86)
+		local k = R / 480 -- na v21 o raio era 480; aneis escalam junto
+		local tl = CFrame.Angles(math.rad(22), 0, math.rad(8))
+		local function ring21(radius, band, thick, n, color, transp)
+			local chord = 2 * radius * math.tan(math.pi / n) * 1.04
+			for i = 0, n - 1 do
+				local a = 2 * math.pi * i / n
+				put(P, nil, tl * CFrame.new(math.cos(a) * radius, 0, math.sin(a) * radius) * CFrame.Angles(0, -a - math.pi / 2, 0),
+					Vector3.new(chord, thick, band), color, MAT_NEON, transp, false)
+			end
+		end
+		ring21(1100 * k, 70 * k, 6 * k, 44, Color3.fromRGB(0, 255, 240), 0.25)
+		ring21(980 * k, 34 * k, 4 * k, 40, Color3.fromRGB(255, 0, 200), 0.3)
+		rng = saved
+		return P
+	end
+
+	-- off = posicao do centro na zona do espaco; R = raio (entrar = atravessar a superficie); dim = dimensao
+	local DEFS = {
+		{ build = buildEarth,  off = Vector3.new(0, 0, 0),           tilt = CFrame.Angles(math.rad(23), 0, 0), earth = true, R = 950 * Sp.SCALE, name = "Terra" },
+		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 } },
+		{ build = buildDesert, off = Vector3.new(-24000, 3000, -14000), tilt = CFrame.Angles(math.rad(12), 0, math.rad(6)),  dim = "desert", R = 800 * Sp.SCALE, name = "K-22 Deserto" },
+		{ build = buildIce,    off = Vector3.new(21000, 6000, -27000), tilt = CFrame.Angles(math.rad(-18), 0, 0),         dim = "ice",    R = 700 * Sp.SCALE, name = "G-7 Gelo" },
+		{ build = buildNeon,   off = Vector3.new(6000, -4500, 30000), tilt = CFrame.Angles(0, 0, math.rad(10)),           dim = "neon",   R = 750 * Sp.SCALE, name = "C-35K Neon" },
+	}
+
+	-- ---------- planetas: criar / mostrar / esconder ----------
+	local function ensurePlanets()
+		if Sp.folder then return end
+		local f = Instance.new("Folder")
+		f.Name = "RickSpace"
+		Sp.planets = {}
+		for _, def in ipairs(DEFS) do
+			local ok, P = pcall(def.build, Sp.SPACE + def.off, def.tilt, def)
+			local root, list = P, nil
+			if ok and P then
+				root, list = P.model, P.list
+				root.Parent = f
+				Sp.planets[#Sp.planets + 1] = { root = root, list = list, def = def, P = P }
+			else
+				warn("[Rick] planeta falhou:", root)
+			end
+		end
+		Sp.folder = f
+	end
+
+	local function fade(show)
+		if not Sp.planets then return end
+		for _, pl in ipairs(Sp.planets) do
+			for _, e in ipairs(pl.list) do
+				if e.part.Parent then
+					TweenService:Create(e.part, TweenInfo.new(show and 2.2 or 1.2), { Transparency = show and e.base or 1 }):Play()
+				end
+			end
+		end
+	end
+
+	local function showPlanets(camera)
+		if Sp.visible then return end
+		ensurePlanets()
+		if not Sp.folder then return end
+		Sp.visible = true
+		Sp.shownAt = os.clock()
+		Sp.hideToken = nil
+		for _, pl in ipairs(Sp.planets) do
+			for _, e in ipairs(pl.list) do e.part.Transparency = Sp.instant and e.base or 1 end
+		end
+		Sp.folder.Parent = workspace
+		if Sp.instant then Sp.instant = false else fade(true) end
+	end
+
+	local function hidePlanets(instant)
+		if not Sp.visible then return end
+		Sp.visible = false
+		if instant then
+			if Sp.folder then Sp.folder.Parent = nil end
+			return
+		end
+		fade(false)
+		local token = {}
+		Sp.hideToken = token
+		task.delay(1.4, function()
+			if Sp.hideToken == token and not Sp.visible and Sp.folder then Sp.folder.Parent = nil end
+		end)
+	end
+
+	-- ---------- iluminacao / ceu ----------
+	local function saveLighting()
+		local L = Lighting
+		local a = L:FindFirstChildOfClass("Atmosphere")
+		Sp.saved = {
+			Ambient = L.Ambient, OutdoorAmbient = L.OutdoorAmbient, FogEnd = L.FogEnd, FogStart = L.FogStart,
+			atmo = a, aD = a and a.Density, aH = a and a.Haze, aG = a and a.Glare, skies = {},
+		}
+		Sp.saved.ct, Sp.saved.br = L.ClockTime, L.Brightness
+		local cl = workspace.Terrain:FindFirstChildOfClass("Clouds")
+		if cl then Sp.saved.clouds, Sp.saved.cE = cl, cl.Enabled end
+		for _, c in ipairs(L:GetChildren()) do
+			if c:IsA("Sky") then Sp.saved.skies[#Sp.saved.skies + 1] = c end
+		end
+		Sp.lastK = -1
+	end
+
+	local function setSpaceSky(on)
+		if on == (Sp.spaceSky ~= nil) then return end
+		if on then
+			for _, s in ipairs(Sp.saved.skies) do s.Parent = nil end
+			local at = Sp.saved.atmo
+			if at and at.Parent then at.Parent = nil end
+			local s = Instance.new("Sky")
+			s.Name = "RickSpaceSky"
+			for _, f in ipairs({ "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp" }) do s[f] = "rbxassetid://118061545763280" end
+			s.StarCount = 5000
+			s.CelestialBodiesShown = false
+			s.Parent = Lighting
+			Sp.spaceSky = s
+			local a = Instance.new("Atmosphere") -- preta, Offset 1: esconde qualquer ceu e deixa o fundo preto
+			a.Name = "RickSpaceAtmo"
+			a.Density, a.Offset, a.Glare, a.Haze = 0.02, 1, 0, 0
+			a.Color, a.Decay = Color3.new(0, 0, 0), Color3.new(0, 0, 0)
+			a.Parent = Lighting
+			Sp.spaceAtmo = a
+			Lighting.ClockTime, Lighting.Brightness = 16, 3 -- sol baixo: os planetas ganham lado claro/escuro (parecem esferas, nao imagem chapada)
+		else
+			if Sp.spaceSky then Sp.spaceSky:Destroy() end
+			if Sp.spaceAtmo then Sp.spaceAtmo:Destroy() end
+			Sp.spaceSky, Sp.spaceAtmo = nil, nil
+			local at = Sp.saved and Sp.saved.atmo
+			if at then at.Parent = Lighting end
+			if Sp.saved and Sp.saved.ct then Lighting.ClockTime, Lighting.Brightness = Sp.saved.ct, Sp.saved.br end
+			for _, s in ipairs(Sp.saved.skies) do s.Parent = Lighting end
+		end
+	end
+
+	local function restoreLighting()
+		local sv = Sp.saved
+		if not sv then return end
+		setSpaceSky(false)
+		if sv.clouds and sv.clouds.Parent then sv.clouds.Enabled = sv.cE end
+		Lighting.Ambient, Lighting.OutdoorAmbient = sv.Ambient, sv.OutdoorAmbient
+		Lighting.FogEnd, Lighting.FogStart = sv.FogEnd, sv.FogStart
+		if sv.atmo and sv.atmo.Parent then
+			sv.atmo.Density, sv.atmo.Haze, sv.atmo.Glare = sv.aD, sv.aH, sv.aG
+		end
+		Sp.saved = nil
+	end
+
+	local function applyLighting(k)
+		local sv = Sp.saved
+		if math.abs(k - (Sp.lastK or -1)) < 0.002 then return end
+		Sp.lastK = k
+		Lighting.Ambient = sv.Ambient:Lerp(Color3.fromRGB(45, 50, 80), k)
+		Lighting.OutdoorAmbient = sv.OutdoorAmbient:Lerp(Color3.fromRGB(55, 60, 95), k)
+		Lighting.FogEnd = sv.FogEnd + (1e6 - sv.FogEnd) * k
+		Lighting.FogStart = sv.FogStart * (1 - k)
+		if sv.atmo and sv.atmo.Parent then
+			sv.atmo.Density = sv.aD * (1 - k)
+			sv.atmo.Haze = sv.aH * (1 - k)
+			sv.atmo.Glare = sv.aG * (1 - k)
+		end
+		if sv.clouds and sv.clouds.Parent then sv.clouds.Enabled = sv.cE and k < 0.2 end
+		if Sp.inSpace and k >= 0.3 then setSpaceSky(true) elseif not Sp.inSpace then setSpaceSky(false) end
+	end
+
+	-- ---------- warp: voar ate o planeta = entrar na dimensao ----------
+	local Players = game:GetService("Players")
+
+	local function whiteFlash(color, onPeak)
+		local pg = Players.LocalPlayer and Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		local g, f
+		if pg then
+			g = Instance.new("ScreenGui")
+			g.Name, g.IgnoreGuiInset, g.ResetOnSpawn, g.DisplayOrder = "RickWarp", true, false, 1000
+			f = Instance.new("Frame")
+			f.Size, f.BorderSizePixel, f.BackgroundColor3, f.BackgroundTransparency = UDim2.fromScale(1, 1), 0, color, 1
+			f.Parent = g
+			g.Parent = pg
+			local t1 = TweenService:Create(f, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 0 })
+			t1:Play()
+			t1.Completed:Wait()
+		end
+		pcall(onPeak)
+		task.wait(0.3)
+		if f then
+			local t2 = TweenService:Create(f, TweenInfo.new(1.2), { BackgroundTransparency = 1 })
+			t2:Play()
+			t2.Completed:Wait()
+			g:Destroy()
+		end
+	end
+
+	local function resetSpaceNow()
+		Sp.k = 0
+		if Sp.saved then restoreLighting() end
+		hidePlanets(true)
+	end
+
+	local SPACE = Sp.SPACE -- (v21) o espaco e uma zona separada, bem longe do mundo e das dimensoes; a Terra fica no centro
+	local function inSpaceZone(S) return S and S.pos and S.pos.Y > 30000 end
+
+	local function groundHome()
+		local a = Sp.anchor or Vector3.zero
+		local ay = Sp.anchorY or 50
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		local ch = Players.LocalPlayer and Players.LocalPlayer.Character
+		rp.FilterDescendantsInstances = ch and { ch } or {}
+		local hit = workspace:Raycast(Vector3.new(a.X, ay + 3, a.Z), Vector3.new(0, -6000, 0), rp)
+		return CFrame.new(hit and (hit.Position + Vector3.new(0, 5, 0)) or Vector3.new(a.X, 10, a.Z))
+	end
+
+	local function findDim(id)
+		local Dm = State.Dim
+		if not Dm then return end
+		for _, d in ipairs(Dm.list) do
+			if d.id == id then return d end
+		end
+	end
+
+	local function warp(color, onPeak)
+		if Sp.warping then return end
+		Sp.warping = true
+		task.spawn(function()
+			pcall(whiteFlash, color, onPeak)
+			Sp.warping = false
+		end)
+	end
+
+	-- mundo -> espaco (passou da altitude): aparece perto da Terra, la no espaco
+	local function toSpace(S)
+		warp(Color3.new(1, 1, 1), function()
+			Sp.noEnter = os.clock() + 6
+			Sp.forceFull = true
+			S.pos = SPACE + Vector3.new(0, 0, -(950 * Sp.SCALE + 2600))
+			S.vel = Vector3.new(0, 0, 60)
+			S.yaw = math.pi
+		end)
+	end
+
+	-- Terra (planeta) -> volta pro mundo do jogo, descendo
+	local function toWorld(S)
+		warp(Color3.new(1, 1, 1), function()
+			local a = Sp.anchor or Vector3.zero
+			Sp.noWarp = os.clock() + 10
+			S.pos = Vector3.new(a.X, (Sp.anchorY or 700) + 300, a.Z)
+			S.vel = Vector3.new(0, -80, 0)
+		end)
+	end
+
+	-- espaco -> dimensao (entrou no planeta)
+	local function enterPlanet(S, def)
+		local Dm, dd = State.Dim, findDim(def.dim)
+		if not dd or Sp.warping then return end
+		local building = true
+		task.spawn(function() pcall(Dm.ensure, dd); building = false end)
+		warp(Color3.new(1, 1, 1), function()
+			while building do task.wait() end
+			Dm.home = groundHome()
+			resetSpaceNow()
+			Sp.hold = os.clock() + 2.2
+			S.pos = Dm.arrivalCF(dd).Position + Vector3.new(0, 120, 0)
+			S.vel = Vector3.zero
+		end)
+	end
+
+	-- dimensao -> espaco, ao lado do planeta
+	local function leaveDimension(S, dd)
+		warp(Color3.new(1, 1, 1), function()
+			for _, d in ipairs(DEFS) do
+				if d.dim == dd.id then
+					local away = (-d.off).Unit
+					Sp.k = 0
+					Sp.forceFull = true
+					Sp.hold = os.clock() + 1.5
+					Sp.noEnter = os.clock() + 6
+					S.pos = SPACE + d.off + away * (d.R * 1.15 + 2600)
+					S.vel = away * 120
+					break
+				end
+			end
+		end)
+	end
+
+	-- chamada todo quadro. S = nave (ou nil). Sp.k (0..1) tambem e lido pelo voo (mais rapido no espaco).
+	function Sp.step(S, dt, C, camera)
+		local Dm = State.Dim
+		local cur = Dm and Dm.current
+		if os.clock() < (Sp.hold or 0) then return end -- logo apos um warp: deixa a dimensao/mundo assentar a iluminacao
+		if cur then -- dentro de uma dimensao: nada de espaco; subir (passou do teto) = volta pro espaco ao lado do planeta
+			if Sp.saved or Sp.k > 0 or Sp.visible then resetSpaceNow() end
+			if S and S.pos and S.state == "flying" and not Sp.warping and S.pos.Y > cur.origin.Y + 450 then leaveDimension(S, cur) end
+			return
+		end
+		local a0, a1 = C.ShipSpaceStartAlt or 700, C.ShipSpaceFullAlt or 1500
+		local inSpace = inSpaceZone(S)
+		if Sp.forceFull and inSpace then Sp.forceFull, Sp.k, Sp.instant, Sp.shownAt = false, 1, true, os.clock() - 5 end -- chegou no espaco: tudo ja aparece, sem esperar escurecer/fade
+		local target = 0
+		if inSpace then
+			target = 1
+		elseif S and S.pos then
+			target = math.clamp((S.pos.Y - a0) / math.max(a1 - a0, 1), 0, 1)
+			if target == 0 then Sp.anchor, Sp.anchorY = Vector3.new(S.pos.X, 0, S.pos.Z), S.pos.Y end
+			if S.pos.Y > a1 + 60 and S.state == "flying" and not Sp.warping and os.clock() > (Sp.noWarp or 0) then toSpace(S) end
+		end
+		Sp.k = Sp.k + (target - Sp.k) * (1 - math.exp(-2.5 * dt))
+		if Sp.k < 0.004 and target == 0 then
+			Sp.k = 0
+			if Sp.saved then restoreLighting() end
+			hidePlanets(false)
+			return
+		end
+		if not Sp.anchor and S and S.pos then Sp.anchor, Sp.anchorY = Vector3.new(S.pos.X, 0, S.pos.Z), 50 end
+		if not Sp.saved then saveLighting() end
+		if Sp.inSpace ~= inSpace then Sp.inSpace = inSpace; Sp.lastK = -1 end
+		applyLighting(Sp.k)
+		if inSpace and Sp.k >= 0.65 then showPlanets(camera) elseif not inSpace or Sp.k < 0.5 then hidePlanets(false) end
+		if Sp.visible and Sp.planets then
+			local t = os.clock()
+			local ready = t - (Sp.shownAt or 0) > 2.6
+			local canEnter = inSpace and S.state == "flying" and not Sp.warping and t > (Sp.noEnter or 0) and Sp.k > 0.9
+			for _, pl in ipairs(Sp.planets) do
+				local d = pl.def
+				local c = SPACE + d.off
+				if pl.P then for _, fn in ipairs(pl.P.anims) do fn(t, ready) end end
+				if canEnter and (d.dim or d.earth) and (S.pos - c).Magnitude < d.R * 0.95 then
+					canEnter = false
+					if d.earth then toWorld(S) else enterPlanet(S, d) end
+				end
+			end
+		end
+	end
+
+	-- limpeza total (destroy do script)
+	function State.spaceStop()
+		pcall(function() game:GetService("RunService"):UnbindFromRenderStep("RickSpacePlanets") end)
+		Sp.k = 0
+		restoreLighting()
+		hidePlanets(true)
+		if Sp.folder then Sp.folder:Destroy() end
+		Sp.folder, Sp.planets = nil, nil
+	end
+end
+
 State.buildShipSystem = function(ctx)
 	local Z = ctx.Z
 	local character, humanoid, rootPart, camera = ctx.character, ctx.humanoid, ctx.rootPart, ctx.camera
@@ -3599,7 +4211,7 @@ State.buildShipSystem = function(ctx)
 		if dir.Magnitude > 1 then dir = dir.Unit end
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
-		local top = SPEED * (turbo and TURBO or 1)
+		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3) -- (v23) 4x mais rapido no espaco (planetas ficaram bem mais distantes)
 		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * dt))
 		S.pos = S.pos + S.vel * dt
 
@@ -3620,9 +4232,11 @@ State.buildShipSystem = function(ctx)
 			S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
 		end
 
-		local tPitch = math.clamp(S.vel.Y / SPEED, -1, 1) * 0.4
+		-- (v21) nariz acompanha a direcao real do voo, sem limite de ~23 graus: sobe/desce quase na vertical
+		local tPitch = 0
+		if S.vel.Magnitude > 6 then tPitch = math.clamp(math.atan2(S.vel.Y, hv.Magnitude), -1.45, 1.45) end
 		local tRoll = math.clamp(S.yawRate * 0.18, -0.5, 0.5)
-		S.pitch = S.pitch + (tPitch - S.pitch) * (1 - math.exp(-4 * dt))
+		S.pitch = S.pitch + (tPitch - S.pitch) * (1 - math.exp(-5 * dt))
 		S.roll = S.roll + (tRoll - S.roll) * (1 - math.exp(-5 * dt))
 
 		local spd = S.vel.Magnitude
@@ -3957,8 +4571,11 @@ State.buildShipSystem = function(ctx)
 			boardBtn.Visible = false
 			api.nearShip = false
 			api.padSync(nil)
+			pcall(State.space.step, nil, dt, C, camera)
 			return
 		end
+		local okSp, errSp = pcall(State.space.step, S, dt, C, camera)
+		if not okSp and not State.space.err then State.space.err = true; warnRG("espaco:", errSp) end
 		api.syncSolid(S)
 		if api.canopyBtn then
 			local want = (S.canopyAng > CANOPY_OPEN * 0.5) and "FECHAR" or "ABRIR"
@@ -4992,6 +5609,7 @@ State.buildShipSystem = function(ctx)
 
 	function api.destroy()
 		destroyed = true
+		pcall(State.spaceStop)
 		pcall(function() handConn:Disconnect() end)
 		pcall(function()
 			if inShip() then humanoid.Sit = false end
@@ -6955,6 +7573,7 @@ local function setupRickGun(character)
 	end
 
 	local Dim = { list = {}, current = nil, home = nil }
+	State.Dim = Dim -- (v21) o espaco usa pra entrar/sair das dimensoes voando
 	do
 		local Lighting = game:GetService("Lighting")
 		local TAU = math.pi * 2

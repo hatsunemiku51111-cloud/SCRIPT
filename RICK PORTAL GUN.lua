@@ -1984,8 +1984,286 @@ do
 	local TweenService = game:GetService("TweenService")
 	local rng = Random.new(20)
 	Sp.SPACE = Vector3.new(0, 60000, 0)
-	Sp.SCALE = 3.2 -- (v23) multiplicador do tamanho dos planetas (v22 = 1). Esferas acima de 2048 studs usam Scale da mesh
+	-- (v24) texturas dos planetas (Decals enviados no Creator Hub). Deixe "" num planeta pra usar o visual antigo de pecas.
+	Sp.TEX = {
+		terra   = "rbxassetid://81971895872632",
+		nuvens  = "rbxassetid://139409485801059", -- camada de nuvens da Terra (PNG com transparencia)
+		deserto = "rbxassetid://133215458029546",
+		gelo    = "rbxassetid://94887538555701",
+		neon    = "rbxassetid://103941792770202",
+		lua     = "rbxassetid://124632665944074",
+		-- (v28) Ceu do K-22: planeta (esferica 2:1), nuvens (esferica 2:1, PNG com transparencia), aneis (quadrada, PNG com transparencia), corona dos sois (quadrada, PNG com transparencia)
+		k22planeta = "rbxassetid://135896229724567",
+		k22nuvens  = "rbxassetid://98367817404331",
+		k22aneis   = "rbxassetid://85037729318942",
+		k22corona  = "rbxassetid://135679390547710",
+		k22sol1    = "rbxassetid://115232626144669", -- sol grande (sol_amarelo)
+		k22sol2    = "rbxassetid://124809144154752", -- sol pequeno (sol_vermelho)
+		malha   = "", -- (v25) ID da MALHA de esfera (esfera_planeta.obj importado no Studio). Sem ela, usa o visual antigo de pecas
+	}
+	Sp.MESH_DIAM = 2 -- diametro (studs) da esfera importada: o MeshPart importado deve mostrar Size 2, 2, 2. Se mostrar outro valor, coloque aqui
+	Sp.hasMesh = Sp.TEX.malha ~= nil and Sp.TEX.malha ~= ""
+	-- (v27) SEM malha importada: o script gera a esfera UV sozinho (EditableMesh) e usa nos planetas. Nada pra importar.
+	-- Se os planetas aparecerem invisiveis/por dentro, troque Sp.FLIP para true (inverte o lado das faces).
+	Sp.FLIP = false
+	Sp.meshBase = nil
+	-- (v27c) EXECUTOR: gera o arquivo de malha (.mesh v2) com writefile e carrega com getcustomasset.
+	-- Assim a esfera e uma malha normal (SpecialMesh) e os planetas ficam no TAMANHO ORIGINAL (SCALE 3.2), sem limite de 2048.
+	-- Se a textura sair de cabeca pra baixo: Sp.FLIPV = true. Se o planeta sumir/aparecer por dentro: Sp.FLIP = true.
+	Sp.FLIPV = false
+	if not Sp.hasMesh then
+		local ok, res = pcall(function()
+			local wf = writefile
+			local gca = getcustomasset or getsynasset
+			assert(wf and gca, "executor sem writefile/getcustomasset")
+			local N, M = 48, 96
+			local verts, faces = {}, {}
+			for i = 0, N do
+				local phi = math.pi * i / N
+				local y, r = math.cos(phi), math.sin(phi)
+				for j = 0, M do
+					local th = -2 * math.pi * j / M -- u cresce pra direita vendo de fora (sem espelhar)
+					local x, z = r * math.cos(th), r * math.sin(th)
+					local v = i / N
+					if Sp.FLIPV then v = 1 - v end
+					verts[#verts + 1] = string.pack("<ffffffffBBBBBBBB", x, y, z, x, y, z, j / M, v, 0, 0, 127, 127, 255, 255, 255, 255)
+				end
+			end
+			local function idx(i, j) return i * (M + 1) + j end
+			local nf = 0
+			local function tri(a, b, c)
+				if Sp.FLIP then b, c = c, b end
+				faces[#faces + 1] = string.pack("<III", a, b, c)
+				nf += 1
+			end
+			for i = 0, N - 1 do
+				for j = 0, M - 1 do
+					local A, B, C, D = idx(i, j), idx(i, j + 1), idx(i + 1, j), idx(i + 1, j + 1)
+					if i > 0 then tri(A, C, B) end
+					if i < N - 1 then tri(B, C, D) end
+				end
+			end
+			local data = "version 2.00\n" .. string.pack("<I2BBII", 12, 40, 12, #verts, nf) .. table.concat(verts) .. table.concat(faces)
+			local fname = "RickSphere_v27.mesh"
+			wf(fname, data)
+			local asset = gca(fname)
+			assert(asset and asset ~= "", "getcustomasset vazio")
+			return asset
+		end)
+		if ok and res then
+			Sp.TEX.malha, Sp.hasMesh = res, true
+			print("[Rick] planetas: esfera criada com writefile/getcustomasset - tamanho original")
+		else
+			warn("[Rick] planetas: esfera por arquivo falhou (" .. tostring(res) .. "), tentando EditableMesh")
+		end
+	end
+	if not Sp.hasMesh then
+		local ok, res = pcall(function()
+			local AssetService = game:GetService("AssetService")
+			local em = AssetService:CreateEditableMesh()
+			local N, M = 40, 80 -- aneis x segmentos (6400 triangulos, abaixo do limite de 20k)
+			local V, UV, NR = {}, {}, {}
+			for i = 0, N do
+				local phi = math.pi * i / N
+				local y, r = math.cos(phi), math.sin(phi)
+				V[i], UV[i], NR[i] = {}, {}, {}
+				for j = 0, M do
+					local th = 2 * math.pi * j / M
+					local pos = Vector3.new(r * math.cos(th), y, r * math.sin(th))
+					V[i][j] = em:AddVertex(pos)
+					UV[i][j] = em:AddUV(Vector2.new(j / M, i / N)) -- equirretangular (mapa-mundi) com a emenda duplicada
+					NR[i][j] = em:AddNormal(pos)
+				end
+			end
+			local function tri(a, b, c)
+				if Sp.FLIP then b, c = c, b end
+				local f = em:AddTriangle(V[a[1]][a[2]], V[b[1]][b[2]], V[c[1]][c[2]])
+				em:SetFaceUVs(f, { UV[a[1]][a[2]], UV[b[1]][b[2]], UV[c[1]][c[2]] })
+				em:SetFaceNormals(f, { NR[a[1]][a[2]], NR[b[1]][b[2]], NR[c[1]][c[2]] })
+			end
+			for i = 0, N - 1 do
+				for j = 0, M - 1 do
+					local A, B, C, D = { i, j }, { i, j + 1 }, { i + 1, j }, { i + 1, j + 1 }
+					if i > 0 then tri(A, B, C) end
+					if i < N - 1 then tri(B, D, C) end
+				end
+			end
+			-- (v27b) MeshPart de verdade: SpecialMesh nao renderiza EditableMesh direito (saia um quadrado chapado)
+			local base = AssetService:CreateMeshPartAsync(Content.fromObject(em))
+			base.Anchored = true
+			base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
+			pcall(function() base.CollisionFidelity = Enum.CollisionFidelity.Box end)
+			return base
+		end)
+		if ok and res then
+			Sp.meshBase, Sp.hasMesh = res, true
+			print("[Rick] planetas: esfera gerada no jogo (EditableMesh) - texturas ativas")
+		else
+			warn("[Rick] planetas: nao deu pra gerar a esfera (" .. tostring(res) .. "). Ative 'Allow Mesh & Image APIs' (Permitir APIs de Mesh e Imagem) nas configuracoes do jogo, ou cole um MeshId em Sp.TEX.malha. Por enquanto: esferas lisas.")
+		end
+	end
+	Sp.SCALE = Sp.meshBase and 1.05 or 3.2 -- (v27b) MeshPart tem limite de 2048 studs: com a esfera gerada, o planeta maior fica ~2000 -- (v23) multiplicador do tamanho dos planetas (v22 = 1). Esferas acima de 2048 studs usam Scale da mesh
 	local MAT_SMOOTH, MAT_NEON, MAT_ICE = Enum.Material.SmoothPlastic, Enum.Material.Neon, Enum.Material.Ice
+
+	-- ---------- (v28) disco plano texturizado (aneis do planeta K-22) + helpers de esfera/disco texturizados ----------
+	-- Disco = quad 2x2 de dupla face (quase sem espessura), gerado igual a esfera: arquivo (writefile) ou EditableMesh.
+	Sp.discBase, Sp.discMeshId, Sp.discReady = nil, nil, false
+	local DISC_H = 0.01 -- meia espessura da malha (unidades da malha; o Scale Y de 50 deixa ~0.5 stud)
+	do
+		local ok, res = pcall(function()
+			local wf = writefile
+			local gca = getcustomasset or getsynasset
+			assert(wf and gca, "executor sem writefile/getcustomasset")
+			local h = DISC_H
+			local function vtx(x, y, z, ny, u, v)
+				return string.pack("<ffffffffBBBBBBBB", x, y, z, 0, ny, 0, u, v, 0, 0, 127, 127, 255, 255, 255, 255)
+			end
+			local verts = {
+				vtx(-1, h, -1, 1, 0, 0), vtx(1, h, -1, 1, 1, 0), vtx(-1, h, 1, 1, 0, 1), vtx(1, h, 1, 1, 1, 1),
+				vtx(-1, -h, -1, -1, 0, 0), vtx(1, -h, -1, -1, 1, 0), vtx(-1, -h, 1, -1, 0, 1), vtx(1, -h, 1, -1, 1, 1),
+			}
+			local faces = {
+				string.pack("<III", 0, 2, 1), string.pack("<III", 1, 2, 3),
+				string.pack("<III", 4, 5, 6), string.pack("<III", 5, 7, 6),
+			}
+			local data = "version 2.00\n" .. string.pack("<I2BBII", 12, 40, 12, #verts, #faces) .. table.concat(verts) .. table.concat(faces)
+			local fname = "RickDisc_v28.mesh"
+			wf(fname, data)
+			local asset = gca(fname)
+			assert(asset and asset ~= "", "getcustomasset vazio")
+			return asset
+		end)
+		if ok and res then
+			Sp.discMeshId, Sp.discReady = res, true
+		else
+			local ok2, res2 = pcall(function()
+				local AssetService = game:GetService("AssetService")
+				local em = AssetService:CreateEditableMesh()
+				local h = DISC_H
+				local function V(x, y, z) return em:AddVertex(Vector3.new(x, y, z)) end
+				local function UVp(u, v) return em:AddUV(Vector2.new(u, v)) end
+				local tv = { V(-1, h, -1), V(1, h, -1), V(-1, h, 1), V(1, h, 1) }
+				local bv = { V(-1, -h, -1), V(1, -h, -1), V(-1, -h, 1), V(1, -h, 1) }
+				local uv = { UVp(0, 0), UVp(1, 0), UVp(0, 1), UVp(1, 1) }
+				local nt, nb = em:AddNormal(Vector3.new(0, 1, 0)), em:AddNormal(Vector3.new(0, -1, 0))
+				local function tri(a, b, c, ua, ub, uc, n)
+					local f = em:AddTriangle(a, b, c)
+					em:SetFaceUVs(f, { ua, ub, uc })
+					em:SetFaceNormals(f, { n, n, n })
+				end
+				tri(tv[1], tv[3], tv[2], uv[1], uv[3], uv[2], nt)
+				tri(tv[2], tv[3], tv[4], uv[2], uv[3], uv[4], nt)
+				tri(bv[1], bv[2], bv[3], uv[1], uv[2], uv[3], nb)
+				tri(bv[2], bv[4], bv[3], uv[2], uv[4], uv[3], nb)
+				local base = AssetService:CreateMeshPartAsync(Content.fromObject(em))
+				base.Anchored = true
+				base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
+				pcall(function() base.CollisionFidelity = Enum.CollisionFidelity.Box end)
+				return base
+			end)
+			if ok2 and res2 then
+				Sp.discBase, Sp.discReady = res2, true
+			else
+				warn("[Rick] aneis do K-22: nao deu pra gerar o disco (" .. tostring(res2) .. "). Os aneis ficam no visual antigo.")
+			end
+		end
+	end
+
+	local function setupTexPart(p, cf, transp, mat, color)
+		p.Anchored = true
+		p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = false, false, false, false
+		p.Color = color or Color3.new(1, 1, 1)
+		p.Material = mat or MAT_SMOOTH
+		p.Transparency = transp or 0
+		p.CFrame = cf
+	end
+
+	-- (v27.4) CORRECAO: TextureID de MeshPart/SpecialMesh IGNORA o canal alpha do PNG. Por isso as nuvens viravam uma esfera cinza opaca
+	-- cobrindo o planeta e o disco dos aneis virava um quadrado cinza. Agora:
+	--   * camadas com transparencia (nuvens) usam SurfaceAppearance com AlphaMode = Transparency (so existe em MeshPart);
+	--   * os aneis viram uma peca fina invisivel com SurfaceGui + ImageLabel (ImageLabel respeita o alpha).
+	Sp.alphaBase = Sp.meshBase
+	if not Sp.alphaBase and Sp.hasMesh and type(Sp.TEX.malha) == "string" and Sp.TEX.malha ~= "" then
+		local okA, mpA = pcall(function()
+			local base = game:GetService("AssetService"):CreateMeshPartAsync(Content.fromUri(Sp.TEX.malha))
+			base.Anchored = true
+			base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
+			return base
+		end)
+		if okA and mpA then
+			Sp.alphaBase = mpA
+		else
+			warn("[Rick] K-22: nao deu pra criar MeshPart com alpha (" .. tostring(mpA) .. "). As nuvens do K-22 ficam desligadas (sem elas o planeta aparece normal).")
+		end
+	end
+	Sp.discImgs = {} -- [peca do disco] = { imgs = {ImageLabel...}, base = transparencia }
+
+	-- esfera texturizada solta (centro em cf, raio R). alpha = true: a textura tem transparencia (nuvens) -> exige MeshPart + SurfaceAppearance
+	-- Devolve nil se nao ha malha ou id (quem chama usa o visual antigo)
+	function Sp.texBall(parent, cf, R, id, transp, mat, color, alpha)
+		if not Sp.hasMesh or type(id) ~= "string" or id == "" then return nil end
+		local d = math.min(2 * R, 2048)
+		local p
+		if alpha then
+			if not Sp.alphaBase then return nil end
+			p = Sp.alphaBase:Clone()
+			p.Size = Vector3.new(d, d, d)
+			p.TextureID = ""
+			local sa = Instance.new("SurfaceAppearance")
+			sa.ColorMap = id
+			sa.AlphaMode = Enum.AlphaMode.Transparency
+			sa.Parent = p
+		elseif Sp.meshBase then
+			p = Sp.meshBase:Clone()
+			p.Size = Vector3.new(d, d, d)
+			p.TextureID = id
+		else
+			p = Instance.new("Part")
+			p.Size = Vector3.new(d, d, d)
+			local m = Instance.new("SpecialMesh")
+			m.MeshType = Enum.MeshType.FileMesh
+			m.MeshId = Sp.TEX.malha
+			m.TextureId = id
+			m.Scale = Vector3.new(1, 1, 1) * (2 * R / (Sp.MESH_DIAM or 2))
+			m.Parent = p
+		end
+		setupTexPart(p, cf, transp, mat, color)
+		p.Parent = parent
+		return p
+	end
+
+	-- disco plano com PNG transparente (aneis), raio R, no plano XZ do cf: peca fina invisivel + SurfaceGui nas duas faces.
+	-- A peca fica sempre com Transparency 1; o fade (mostrar/esconder planeta) mexe no ImageTransparency via Sp.discImgs.
+	function Sp.texDisc(parent, cf, R, id, transp, mat, color)
+		if type(id) ~= "string" or id == "" then return nil end
+		local p = Instance.new("Part")
+		p.Size = Vector3.new(2 * R, 0.2, 2 * R)
+		setupTexPart(p, cf, 1, MAT_SMOOTH, color)
+		local imgs = {}
+		for _, face in ipairs({ Enum.NormalId.Top, Enum.NormalId.Bottom }) do
+			local g = Instance.new("SurfaceGui")
+			g.Face = face
+			g.Adornee = p
+			g.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			g.CanvasSize = Vector2.new(1024, 1024)
+			g.LightInfluence = 0
+			g.Brightness = 1
+			g.AlwaysOnTop = false
+			g.ClipsDescendants = false
+			local im = Instance.new("ImageLabel")
+			im.BackgroundTransparency = 1
+			im.BorderSizePixel = 0
+			im.Size = UDim2.fromScale(1, 1)
+			im.Image = id
+			im.ImageTransparency = transp or 0
+			im.Parent = g
+			g.Parent = p
+			imgs[#imgs + 1] = im
+		end
+		Sp.discImgs[p] = { imgs = imgs, base = transp or 0 }
+		p.Parent = parent
+		return p
+	end
 
 	-- ---------- (v21) planetas grandes e detalhados ----------
 	-- Corpo = pecas ANCORADAS estaticas (custo zero por quadro). So camadas leves animam: nuvens, tempestade, aneis, aurora, luas.
@@ -2037,6 +2315,52 @@ do
 
 	local function sphere(P, g, R, color, mat, transp)
 		return put(P, g, CFrame.new(), Vector3.new(2 * R, 2 * R, 2 * R), color, mat, transp, true)
+	end
+
+	-- (v24) planeta = UMA esfera com textura (SpecialMesh.TextureId). spin = rad/s girando no proprio eixo (inclinado pelo tilt)
+	-- (v25) a esfera padrao do Roblox IGNORA textura: usa a malha importada (FileMesh) + TextureId
+	local function texMesh(p, R, id)
+		local m = p:FindFirstChildOfClass("SpecialMesh")
+		if not m then return end
+		m.MeshType = Enum.MeshType.FileMesh
+		m.MeshId = Sp.TEX.malha
+		m.TextureId = id
+		m.Scale = Vector3.new(1, 1, 1) * (2 * R / (Sp.MESH_DIAM or 2))
+	end
+
+	-- (v27b) esfera texturizada como MeshPart (clonada da esfera gerada). g = grupo (soldada) ou nil (estatica)
+	local function mkTexPart(P, g, lcf, R, id, transp, mat)
+		local p = Sp.meshBase:Clone()
+		local d = math.min(2 * R, 2048)
+		p.Size = Vector3.new(d, d, d)
+		p.Color = Color3.new(1, 1, 1)
+		p.Material = mat or MAT_SMOOTH
+		p.Transparency = transp or 0
+		p.TextureID = id
+		if g then
+			p.CFrame = g.CFrame * lcf
+			p.Anchored, p.Massless = false, true
+			local w = Instance.new("Weld")
+			w.Part0, w.Part1, w.C0 = g, p, lcf
+			w.Parent = p
+		else
+			p.CFrame = P.T * lcf
+		end
+		p.Parent = P.model
+		P.list[#P.list + 1] = { part = p, base = p.Transparency }
+		return p
+	end
+
+	local function texSphere(P, R, id, transp, mat, spin)
+		local p
+		if Sp.meshBase then
+			p = mkTexPart(P, nil, CFrame.new(), R, id, transp, mat)
+		else
+			p = put(P, nil, CFrame.new(), Vector3.new(2048, 2048, 2048), Color3.new(1, 1, 1), mat or MAT_SMOOTH, transp or 0, true)
+			texMesh(p, R, id)
+		end
+		if spin then P.anims[#P.anims + 1] = function(t) p.CFrame = P.T * CFrame.Angles(0, t * spin, 0) end end
+		return p
 	end
 
 	local function surf(dir, dist, yaw)
@@ -2131,125 +2455,132 @@ do
 		return cols[i + 1]:Lerp(cols[i + 2], x - i)
 	end
 
-	-- ---------- Terra (modelo original da v21) ----------
-	-- (v21) as 4 builders abaixo usam um gerador proprio (semente 20, igual a v21) pra reproduzir exatamente o mesmo mapa da v21
-	local V21 = {}
+	-- ---------- (v26) planetas: SO textura (esfera de malha + imagem). O visual antigo de pecas foi removido ----------
+	-- Sem o ID da malha (Sp.TEX.malha) ele cai numa esfera lisa de cor unica e avisa no console.
+	Sp.FB = { terra = Color3.fromRGB(40, 100, 200), deserto = Color3.fromRGB(214, 150, 86), gelo = Color3.fromRGB(200, 232, 255), neon = Color3.fromRGB(60, 20, 100), lua = Color3.fromRGB(170, 170, 180) }
+	Sp.body = function(P, R, key, mat, spin)
+		if Sp.hasMesh then return texSphere(P, R, Sp.TEX[key], 0, mat, spin) end
+		return sphere(P, nil, R, Sp.FB[key], mat)
+	end
+
 	local function buildEarth(center, tilt)
 		local R = 950 * Sp.SCALE
 		local P = newPlanet("RickEarth", center, tilt)
-		local saved = rng
-		V21.r = Random.new(20)
-		rng = V21.r
-		sphere(P, nil, R, Color3.fromRGB(28, 84, 190), MAT_SMOOTH)
-		for i = 1, 14 do
-			local dir = randDir()
-			local w = rng:NextNumber(0.22, 0.5) * R
-			local col = (i % 4 == 0) and Color3.fromRGB(150, 128, 78) or Color3.fromRGB(56, 142, 66)
-			patch(P, nil, R, dir, w, w * rng:NextNumber(0.55, 0.9), 0.07 * R, col)
-			patch(P, nil, R, (dir + randDir() * 0.14).Unit, w * 0.4, w * 0.3, 0.05 * R, col)
-		end
-		local ice = Color3.fromRGB(244, 248, 252)
-		patch(P, nil, R, Vector3.yAxis, 0.55 * R, 0.55 * R, 0.08 * R, ice)
-		patch(P, nil, R, -Vector3.yAxis, 0.5 * R, 0.5 * R, 0.08 * R, ice)
-		for _ = 1, 16 do -- nuvens
-			local w = rng:NextNumber(0.2, 0.45) * R
-			patch(P, nil, R, randDir(), w, w * 0.45, 0.025 * R, Color3.new(1, 1, 1), MAT_SMOOTH, 0.3, 0.03 * R)
-		end
+		Sp.body(P, R, "terra", MAT_SMOOTH, 0.004)
+		if Sp.hasMesh then texSphere(P, R * 1.012, Sp.TEX.nuvens, 0.02, MAT_SMOOTH, 0.022) end -- nuvens (PNG com transparencia)
 		sphere(P, nil, R * 1.045, Color3.fromRGB(110, 170, 255), MAT_NEON, 0.9) -- brilho da atmosfera
-		rng = saved
 		return P
 	end
 
-	-- ---------- Lua (orbita a Terra) ----------
+	-- Lua (orbita a Terra)
 	local function buildMoon(center, tilt, def)
 		local R = 300 * Sp.SCALE
 		local P = newPlanet("RickMoon", center, tilt)
 		local g = newGroup(P)
-		sphere(P, g, R, Color3.fromRGB(170, 170, 180), MAT_SMOOTH)
-		local gr = { Color3.fromRGB(120, 120, 132), Color3.fromRGB(170, 170, 180), Color3.fromRGB(205, 205, 212) }
-		mosaic(P, g, R, 420, 1.5, 0.04, function(d) return lerpN(gr, fbm(d, 4, 3)), 0.003 end)
-		for _ = 1, 16 do crater(P, g, R, randDir(), rng:NextNumber(0.1, 0.26) * R, Color3.fromRGB(96, 96, 108), Color3.fromRGB(214, 214, 220)) end
+		if Sp.meshBase then
+			mkTexPart(P, g, CFrame.new(), R, Sp.TEX.lua, 0, MAT_SMOOTH)
+		else
+			local mp = put(P, g, CFrame.new(), Vector3.new(2 * R, 2 * R, 2 * R), Sp.hasMesh and Color3.new(1, 1, 1) or Sp.FB.lua, MAT_SMOOTH, 0, true)
+			if Sp.hasMesh then texMesh(mp, R, Sp.TEX.lua) end
+		end
 		local orb = def.orbit
 		P.anims[#P.anims + 1] = function(t)
 			local a = t * 2 * math.pi / orb.period
-			local pos = orb.center + Vector3.new(math.cos(a) * orb.r, math.sin(a * 0.7) * orb.r * 0.12, math.sin(a) * orb.r)
+			local pos = Sp.SPACE + orb.center + Vector3.new(math.cos(a) * orb.r, math.sin(a * 0.7) * orb.r * 0.12, math.sin(a) * orb.r)
 			g.CFrame = CFrame.new(pos) * CFrame.Angles(0, -a, 0)
 		end
 		return P
 	end
 
-	-- ---------- K-22 Deserto (modelo original da v21) ----------
 	local function buildDesert(center, tilt)
 		local R = 800 * Sp.SCALE
 		local P = newPlanet("RickDesert", center, tilt)
-		local saved = rng
-		rng = V21.r or Random.new(20)
-		for _ = 1, 36 do rng:NextNumber() end -- consome o que a lua da v21 consumia, pra o mapa sair igual
-		sphere(P, nil, R, Color3.fromRGB(214, 150, 86), MAT_SMOOTH)
-		local cols = { Color3.fromRGB(196, 118, 56), Color3.fromRGB(232, 184, 112), Color3.fromRGB(170, 96, 46) }
-		for i = 1, 16 do
-			local w = rng:NextNumber(0.15, 0.4) * R
-			patch(P, nil, R, randDir(), w, w * rng:NextNumber(0.5, 0.9), 0.06 * R, cols[i % 3 + 1])
-		end
-		for _ = 1, 8 do -- crateras
-			local dir = randDir()
-			local w = rng:NextNumber(0.1, 0.18) * R
-			patch(P, nil, R, dir, w, w, 0.05 * R, Color3.fromRGB(120, 70, 36), MAT_SMOOTH, 0, 0.014 * R)
-			patch(P, nil, R, dir, w * 0.6, w * 0.6, 0.05 * R, Color3.fromRGB(232, 184, 112), MAT_SMOOTH, 0, 0.02 * R)
-		end
+		Sp.body(P, R, "deserto", MAT_SMOOTH, 0.004)
 		sphere(P, nil, R * 1.04, Color3.fromRGB(255, 190, 120), MAT_NEON, 0.93) -- poeira
-		rng = saved
+		-- (v27g) os 2 sois + mini planeta com aneis (Saturno) do ceu da dimensao, agora tambem no espaco, bem longe do planeta
+		-- posicoes em coordenadas do MUNDO relativas ao centro do planeta, no campo de visao de quem chega pela Terra:
+		-- d = direcao Terra > deserto, rgt = direita da camera, upv = cima da camera
+		local d = (center - Sp.SPACE).Unit
+		local rgt = d:Cross(Vector3.yAxis).Unit
+		local upv = rgt:Cross(d)
+		local function wcf(woff, rot) return P.T:Inverse() * (CFrame.new(center + woff) * (rot or CFrame.new())) end
+		local function cball(lcf, r, color, mat, transp)
+			local p
+			if Sp.meshBase then
+				p = mkTexPart(P, nil, lcf, r, "", transp, mat)
+			else
+				p = put(P, nil, lcf, Vector3.new(2 * r, 2 * r, 2 * r), color, mat, transp, true)
+				if Sp.hasMesh then texMesh(p, r, "") end
+			end
+			p.Color = color
+			return p
+		end
+		local function sunAt(lcf, r, col, halo)
+			cball(lcf, r, col, MAT_NEON, 0)
+			for i = 1, 3 do cball(lcf, r * (1.3 + i * 0.45), halo, MAT_NEON, 0.9 + i * 0.03) end
+		end
+		-- (v27.6) a lua grande do ceu da dimensao do deserto, agora orbitando o planeta Deserto no espaco
+		local mRad, mOrb = R * 0.2, R * 2.3
+		local dMoon = Sp.texBall(P.model, P.T, mRad, Sp.TEX.lua, 0, MAT_SMOOTH)
+		if dMoon then
+			P.list[#P.list + 1] = { part = dMoon, base = dMoon.Transparency }
+			P.anims[#P.anims + 1] = function(t)
+				local a = t * 0.04 + 0.8
+				dMoon.CFrame = P.T * CFrame.Angles(0.22, 0, 0) * CFrame.new(math.cos(a) * mOrb, 0, math.sin(a) * mOrb) * CFrame.Angles(0, t * 0.012, 0)
+			end
+		else
+			cball(CFrame.Angles(0.22, 0, 0) * CFrame.new(mOrb, 0, 0), mRad, Color3.fromRGB(205, 196, 190), MAT_SMOOTH, 0)
+		end
 		return P
 	end
 
-	-- ---------- G-7 Gelo (modelo original da v21) ----------
 	local function buildIce(center, tilt)
 		local R = 700 * Sp.SCALE
 		local P = newPlanet("RickIce", center, tilt)
-		local saved = rng
-		rng = V21.r or Random.new(20)
-		sphere(P, nil, R, Color3.fromRGB(200, 232, 255), MAT_ICE)
-		for _ = 1, 10 do
-			local w = rng:NextNumber(0.2, 0.45) * R
-			patch(P, nil, R, randDir(), w, w * 0.7, 0.05 * R, Color3.fromRGB(245, 250, 255))
-		end
-		for _ = 1, 14 do -- rachaduras
-			patch(P, nil, R, randDir(), 0.55 * R, 0.014 * R, 0.01 * R, Color3.fromRGB(80, 140, 210), MAT_SMOOTH, 0.1, 0.02 * R)
-		end
+		Sp.body(P, R, "gelo", MAT_SMOOTH, 0.004)
 		sphere(P, nil, R * 1.04, Color3.fromRGB(170, 230, 255), MAT_NEON, 0.92)
-		rng = saved
 		return P
 	end
 
-	-- ---------- C-35K Neon (modelo original da v21) ----------
 	local function buildNeon(center, tilt)
 		local R = 750 * Sp.SCALE
 		local P = newPlanet("RickNeon", center, tilt)
-		local saved = rng
-		rng = V21.r or Random.new(20)
-		sphere(P, nil, R, Color3.fromRGB(36, 8, 64), MAT_SMOOTH)
-		local cols = { Color3.fromRGB(255, 0, 200), Color3.fromRGB(0, 255, 240), Color3.fromRGB(150, 255, 40) }
-		for i = 1, 22 do
-			local w = rng:NextNumber(0.1, 0.3) * R
-			patch(P, nil, R, randDir(), w, w * 0.7, 0.04 * R, cols[i % 3 + 1], MAT_NEON)
+		Sp.body(P, R, "neon", MAT_SMOOTH, 0.004)
+		if Sp.hasMesh then
+			-- (v27f) 2a camada de raios (mesma textura, meio transparente) girando ao contrario + atmosfera fina
+			texSphere(P, R * 1.006, Sp.TEX.neon, 0.5, MAT_SMOOTH, -0.014)
+			local atm = texSphere(P, R * 1.035, "", 0.9, MAT_SMOOTH, nil)
+			atm.Color = Color3.fromRGB(140, 90, 255)
 		end
-		for i = 1, 12 do -- "rios" de neon
-			patch(P, nil, R, randDir(), 0.9 * R, 0.025 * R, 0.015 * R, cols[i % 3 + 1], MAT_NEON, 0, 0.02 * R)
-		end
-		sphere(P, nil, R * 1.06, Color3.fromRGB(255, 0, 200), MAT_NEON, 0.86)
-		local k = R / 480 -- na v21 o raio era 480; aneis escalam junto
+		local k = R / 480 -- aneis escalam com o raio
 		local tl = CFrame.Angles(math.rad(22), 0, math.rad(8))
-		local function ring21(radius, band, thick, n, color, transp)
-			local chord = 2 * radius * math.tan(math.pi / n) * 1.04
+		-- (v27f) aneis tracejados e finos, cada um girando pra um lado (um anel liso girando nao da pra ver)
+		local function ringSeg(radius, band, thick, n, color, transp, dashEvery, spd)
+			local g = newGroup(P)
+			g.CFrame = P.T * tl
+			local chord = 2 * radius * math.tan(math.pi / n) * 0.92
 			for i = 0, n - 1 do
-				local a = 2 * math.pi * i / n
-				put(P, nil, tl * CFrame.new(math.cos(a) * radius, 0, math.sin(a) * radius) * CFrame.Angles(0, -a - math.pi / 2, 0),
-					Vector3.new(chord, thick, band), color, MAT_NEON, transp, false)
+				if i % dashEvery ~= 0 then
+					local a = 2 * math.pi * i / n
+					put(P, g, CFrame.new(math.cos(a) * radius, 0, math.sin(a) * radius) * CFrame.Angles(0, -a - math.pi / 2, 0),
+						Vector3.new(chord, thick, band), color, MAT_NEON, transp, false)
+				end
+			end
+			P.anims[#P.anims + 1] = function(t) g.CFrame = P.T * tl * CFrame.Angles(0, t * spd, 0) end
+		end
+		ringSeg(1100 * k, 45 * k, 4 * k, 44, Color3.fromRGB(0, 255, 240), 0.2, 3, 0.05)
+		ringSeg(980 * k, 28 * k, 3 * k, 44, Color3.fromRGB(255, 0, 200), 0.25, 4, -0.08)
+		ringSeg(1230 * k, 14 * k, 2 * k, 48, Color3.fromRGB(160, 120, 255), 0.5, 2, 0.03)
+		-- (v27f) duas luas neon pequenas orbitando
+		local function moonN(orbitR, mr, color, spd, ph, inc)
+			local g = newGroup(P)
+			sphere(P, g, mr, color, MAT_NEON)
+			P.anims[#P.anims + 1] = function(t)
+				g.CFrame = P.T * CFrame.Angles(inc, 0, 0) * CFrame.Angles(0, t * spd + ph, 0) * CFrame.new(orbitR, 0, 0)
 			end
 		end
-		ring21(1100 * k, 70 * k, 6 * k, 44, Color3.fromRGB(0, 255, 240), 0.25)
-		ring21(980 * k, 34 * k, 4 * k, 40, Color3.fromRGB(255, 0, 200), 0.3)
-		rng = saved
+		moonN(R * 2.75, R * 0.04, Color3.fromRGB(255, 0, 200), 0.03, 0, 0.35)
+		moonN(R * 3.1, R * 0.028, Color3.fromRGB(0, 255, 240), 0.05, 2, -0.25)
 		return P
 	end
 
@@ -2288,6 +2619,12 @@ do
 			for _, e in ipairs(pl.list) do
 				if e.part.Parent then
 					TweenService:Create(e.part, TweenInfo.new(show and 2.2 or 1.2), { Transparency = show and e.base or 1 }):Play()
+					local di = Sp.discImgs and Sp.discImgs[e.part]
+					if di then
+						for _, im in ipairs(di.imgs) do
+							TweenService:Create(im, TweenInfo.new(show and 2.2 or 1.2), { ImageTransparency = show and di.base or 1 }):Play()
+						end
+					end
 				end
 			end
 		end
@@ -2301,7 +2638,11 @@ do
 		Sp.shownAt = os.clock()
 		Sp.hideToken = nil
 		for _, pl in ipairs(Sp.planets) do
-			for _, e in ipairs(pl.list) do e.part.Transparency = Sp.instant and e.base or 1 end
+			for _, e in ipairs(pl.list) do
+				e.part.Transparency = Sp.instant and e.base or 1
+				local di = Sp.discImgs and Sp.discImgs[e.part]
+				if di then for _, im in ipairs(di.imgs) do im.ImageTransparency = Sp.instant and di.base or 1 end end
+			end
 		end
 		Sp.folder.Parent = workspace
 		if Sp.instant then Sp.instant = false else fade(true) end
@@ -7704,23 +8045,32 @@ local function setupRickGun(character)
 				end
 			end
 
-			-- ===== SOL LISTRADO =====
-			local SR, SY, SZ = 200, 210, 1000
-			local nBars = 34
+			-- ===== SOL LISTRADO (v27f: maior, degrade amarelo > laranja > rosa, montanhas na frente) =====
+			local SR, SY, SZ = 330, 250, 1000
+			local nBars = 40
 			local full = 2 * SR / nBars
 			for k = 0, nBars - 1 do
 				local t = k / (nBars - 1)
-				local th = full * ((t < 0.4) and 1 or (1 - (t - 0.4) / 0.6 * 0.85))
+				local th = full * ((t < 0.3) and 1 or (1 - (t - 0.3) / 0.7 * 0.88))
 				local y = SY + SR - k * full - full / 2
 				local dy = y - SY
 				local chord = 2 * sqrt(max(SR * SR - dy * dy, 0))
-				if chord > 1 then
+				if chord > 1 and y > th / 2 then
 					local col
-					if t < 0.5 then col = YEL:Lerp(ORA, t * 2) else col = ORA:Lerp(MAG, (t - 0.5) * 2) end
+					if t < 0.45 then col = C(255, 215, 70):Lerp(C(255, 120, 60), t / 0.45) else col = C(255, 120, 60):Lerp(C(255, 35, 170), (t - 0.45) / 0.55) end
 					neon(V3(chord, th, 4), O + V3(0, y, SZ), col)
 				end
 			end
-			ball(model, 560, O + V3(0, SY, SZ + 20), ORA, M.Neon, {shadow = false, trans = 0.9})
+			ball(model, SR * 2.5, O + V3(0, SY, SZ + 20), ORA, M.Neon, {shadow = false, trans = 0.92})
+			-- duas montanhas grandes na frente do sol (como na referencia)
+			for _, mx in ipairs({-190, 170}) do
+				local s = 380
+				local h = s * 0.7071
+				mk(model, V3(s, s, 30), CF(O + V3(mx, 0, 940)) * ANG(0, 0, pi / 4), C(16, 6, 38), M.SmoothPlastic, {shadow = false})
+				local col = (mx < 0) and CYA or MAG
+				neon(V3(s, 1.2, 1.2), CF(O + V3(mx + h / 2, h / 2, 923)) * ANG(0, 0, -pi / 4), col)
+				neon(V3(s, 1.2, 1.2), CF(O + V3(mx - h / 2, h / 2, 923)) * ANG(0, 0, pi / 4), col)
+			end
 
 			-- montanhas com contorno neon
 			for i = -6, 6 do
@@ -10466,40 +10816,55 @@ local function setupRickGun(character)
 			end)
 
 			section("ceu", function()
+				local Sp = State.space
+				local TX = Sp.TEX
 				local suns = {}
-				local function sun(x, y, z, d, col, haloCol)
+				local skyAnim = {}
+				-- (v28) tex = textura esferica da superficie (opcional); tint/sgn = cor dos raios e sentido de giro
+				local function sun(x, y, z, d, col, haloCol, tex, tint, sgn)
 					local pos = W(x, y, z)
-					local core = ball(model, d, pos, col, NEON, {shadow = false})
+					local core = Sp.texBall(model, CF(pos), d / 2, tex, 0, NEON)
+					local plasma = nil
+					if core then
+						plasma = Sp.texBall(model, CF(pos), d / 2 * 1.012, tex, 0.5, NEON) -- camada de plasma, gira ao contrario
+					else
+						core = ball(model, d, pos, col, NEON, {shadow = false})
+					end
 					local halos = {}
 					for i = 1, 3 do
 						halos[i] = ball(model, d * (1.3 + i * 0.45), pos, haloCol, NEON, {shadow = false, trans = 0.9 + i * 0.03})
 					end
-					suns[#suns + 1] = {core = core, halos = halos, d = d, ph = rnd(0, TAU), pos = pos}
-				end
-				sun(-430, 310, 820, 190, C(255, 214, 140), C(255, 170, 90))
-				sun(330, 230, 860, 90, C(255, 120, 90), C(255, 80, 60))
-
-				local pc = W(20, 400, 760)
-				local pr = 95
-				local PF = CF(pc) * ANG(0.32, 0, -0.38)
-				ball(model, pr * 2, pc, C(226, 128, 140), SMOOTH, {shadow = false})
-				ball(model, pr * 2.08, pc, C(255, 160, 120), NEON, {shadow = false, trans = 0.84})
-				for i = 1, 7 do
-					local yy = (i - 4) * pr * 0.23
-					local rr = sqrt(max(pr * pr - yy * yy, 1)) * 1.008
-					mk(model, V3(1.6, rr * 2, rr * 2), PF * CF(0, yy, 0) * ANG(0, 0, pi / 2), (i % 2 == 0) and C(186, 88, 110) or C(244, 176, 150), SMOOTH, {cyl = true, shadow = false})
-				end
-				for _, rg in ipairs({ {1.55, 0.22, C(238, 196, 156), 0.25}, {1.98, 0.14, C(208, 142, 122), 0.4} }) do
-					local R, w = pr * rg[1], pr * rg[2]
-					local N = 48
-					for k = 1, N do
-						local a = k / N * TAU
-						mk(model, V3(w, 0.9, TAU * R / N * 1.08), PF * ANG(0, a, 0) * CF(R, 0, 0), rg[3], SMOOTH, {trans = rg[4], shadow = false})
+					-- corona: 2 leques de raios (billboard) girando em sentidos opostos
+					local rays = nil
+					if type(TX.k22corona) == "string" and TX.k22corona ~= "" then
+						local anchor = mk(model, V3(1, 1, 1), CF(pos), C(255, 255, 255), SMOOTH, {trans = 1, shadow = false})
+						local D1 = 6.2 * d
+						local bb = new("BillboardGui", {
+							Adornee = anchor, Size = UDim2.new(D1, 0, D1, 0), LightInfluence = 0, AlwaysOnTop = false, MaxDistance = 1e9,
+						}, anchor)
+						rays = {}
+						for k, def in ipairs({ { 1, 0.62, 0.026 }, { 4.4 / 6.2, 0.42, -0.016 } }) do
+							rays[k] = {
+								a = def[2], spd = def[3],
+								gui = new("ImageLabel", {
+									BackgroundTransparency = 1, BorderSizePixel = 0, Image = TX.k22corona,
+									AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+									Size = UDim2.fromScale(def[1], def[1]), ImageColor3 = tint,
+									ImageTransparency = 1 - def[2], Rotation = 0,
+								}, bb),
+							}
+						end
 					end
+					suns[#suns + 1] = {core = core, plasma = plasma, halos = halos, d = d, ph = rnd(0, TAU), pos = pos, rays = rays, sgn = sgn}
 				end
-
+				local FAR, BIG = 2.4, 1.8 -- (v27g) distancia x2.4 (bem mais longe) e tamanho x1.8 (parecem menores que antes, mas ainda grandes)
 				local mc, mr = W(470, 330, 480), 36
-				ball(model, mr * 2, mc, C(205, 196, 190), SMOOTH, {shadow = false})
+				local bigMoon = Sp.texBall(model, CF(mc), mr, TX.lua, 0, SMOOTH)
+				if bigMoon then
+					skyAnim[#skyAnim + 1] = function(t) bigMoon.CFrame = CF(mc) * ANG(0, t * 0.012, 0) end
+				else
+					ball(model, mr * 2, mc, C(205, 196, 190), SMOOTH, {shadow = false})
+				end
 				local toPl = (W(0, 5, -30) - mc).Unit
 				local made = 0
 				for _ = 1, 40 do
@@ -10509,7 +10874,7 @@ local function setupRickGun(character)
 						made = made + 1
 						local cr = rnd(2.5, 7)
 						local p = mc + v * (mr - 0.2)
-						mk(model, V3(0.8, cr * 2, cr * 2), CFrame.lookAt(p, p + v) * ANG(0, pi / 2, 0), C(150, 142, 138), SMOOTH, {cyl = true, shadow = false})
+						if not bigMoon then mk(model, V3(0.8, cr * 2, cr * 2), CFrame.lookAt(p, p + v) * ANG(0, pi / 2, 0), C(150, 142, 138), SMOOTH, {cyl = true, shadow = false}) end
 					end
 				end
 
@@ -10521,27 +10886,18 @@ local function setupRickGun(character)
 							h.Size = V3(k, k, k)
 							h.Transparency = clamp01(0.9 + i * 0.03 + 0.03 * (1 - p))
 						end
+						if s.plasma then -- superficie gira, plasma gira ao contrario
+							s.core.CFrame = CF(s.pos) * ANG(0, t * 0.045 * s.sgn, 0)
+							s.plasma.CFrame = CF(s.pos) * ANG(1.1, 0, 0) * ANG(0, -t * 0.07 * s.sgn, 0)
+						end
+						if s.rays then
+							for _, rr in ipairs(s.rays) do
+								rr.gui.Rotation = math.deg(s.sgn * t * rr.spd)
+								rr.gui.ImageTransparency = clamp01(1 - rr.a * (0.8 + 0.2 * p))
+							end
+						end
 					end
-				end)
-			end)
-
-			section("cabeca", function()
-				local pos = W(-560, 330, 1000)
-				local home = CFrame.lookAt(pos, W(0, 5, -30))
-				local g, part = group(home)
-				local skin, dark = C(236, 186, 150), C(196, 140, 112)
-				part(V3(140, 170, 150), CF(0, 0, 0), skin, SMOOTH, {ellipsoid = true, shadow = false})
-				part(V3(18, 30, 22), CF(0, -6, -72), dark, SMOOTH, {ellipsoid = true, shadow = false})
-				part(V3(52, 14, 10), CF(0, -52, -58), C(120, 30, 34), SMOOTH, {ellipsoid = true, shadow = false})
-				part(V3(46, 5, 6), CF(0, -49, -60), C(245, 240, 230), SMOOTH, {shadow = false})
-				for _, sd in ipairs({-1, 1}) do
-					part(V3(34, 40, 18), CF(sd * 30, 22, -60), C(250, 250, 250), SMOOTH, {ellipsoid = true, shadow = false})
-					part(V3(14, 16, 8), CF(sd * 27, 20, -69), C(20, 14, 12), SMOOTH, {ellipsoid = true, shadow = false})
-					part(V3(38, 7, 9), CF(sd * 30, 48, -56) * ANG(0, 0, sd * 0.25), C(80, 50, 40), SMOOTH, {shadow = false})
-					part(V3(14, 32, 20), CF(sd * 71, 0, 0), dark, SMOOTH, {ellipsoid = true, shadow = false})
-				end
-				onUpdate(function(t, dt, lp)
-					g:PivotTo(home * CF(0, sin(t * 0.25) * 10, 0) * ANG(sin(t * 0.17) * 0.05, sin(t * 0.1) * 0.55, sin(t * 0.13) * 0.06))
+					for _, fn in ipairs(skyAnim) do fn(t) end
 				end)
 			end)
 
@@ -11513,7 +11869,7 @@ local function setupRickGun(character)
 
 			section("vento", function()
 				local devils = {}
-				local defs = { {-120, 200, 100, 80, 0.11, 0.07, 3.2, 1.1}, {170, 40, 60, 80, 0.09, 0.13, 4.0, 0.8}, {40, 370, 90, 50, 0.08, 0.1, 2.6, 1.3} }
+				local defs = {} -- (v27.5) tornados removidos a pedido
 				-- TORNADOS REFEITOS: funil alto de camadas translucidas (denso embaixo, rarefeito no topo) com
 				-- tufos de areia girando, nuvem escura no topo com relampagos, anel de poeira no chao, jato de
 				-- particulas na base, detritos (tabuas, pedras, mato) subindo em espiral e funil inclinado na
@@ -12920,7 +13276,7 @@ local function setupRickGun(character)
 			{
 				id = "desert", name = "K-22 Deserto", info = "Dois sois, verme de areia, TV interdimensional e segredos escondidos.", build = buildDesert, stars = 0,
 				light = {Ambient = C(128, 86, 62), OutdoorAmbient = C(170, 118, 84), Brightness = 2.6, ClockTime = 16.6,
-					FogColor = C(238, 168, 112), FogStart = 280, FogEnd = 2600, ExposureCompensation = 0.15,
+					FogColor = C(238, 168, 112), FogStart = 280, FogEnd = 4800, ExposureCompensation = 0.15,
 					ColorShift_Top = C(255, 196, 130)},
 				atmo = {Density = 0.34, Offset = 0.12, Color = C(255, 176, 100), Decay = C(255, 118, 64), Glare = 1.2, Haze = 2.2},
 				bloom = {Intensity = 0.55, Size = 30, Threshold = 0.92},

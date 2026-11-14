@@ -6134,9 +6134,27 @@ local function setupRickGun(character)
 		return
 	end
 
-	loadAccessoryTemplate()
-	pcall(State.loadKeyTemplate)
-	resolvePortalImage()
+	do
+		local pending = 3
+		local function par(fn)
+			task.spawn(function()
+				local okL, errL = pcall(fn)
+				if not okL then warnRG("erro ao carregar recurso:", errL) end
+				pending = pending - 1
+			end)
+		end
+		par(loadAccessoryTemplate)
+		par(State.loadKeyTemplate)
+		par(resolvePortalImage)
+		local t0 = os.clock()
+		while pending > 0 and os.clock() - t0 < 8 do task.wait(0.05) end
+		if pending > 0 then warnRG("recursos demoraram; seguindo com o visual simples por enquanto.") end
+		if not AccTemplate then makePlaceholderHandle() end
+		if not State.keyTemplate then
+			State.keyTried = true
+			State.keyTemplate = State.makeFallbackKey()
+		end
+	end
 
 	if not scriptAlive or not character.Parent or (player.Character and player.Character ~= character) then return end
 
@@ -16762,11 +16780,18 @@ local function setupRickGun(character)
 	end
 end
 
-safeSetup = function(character)
+safeSetup = function(character, attempt)
+	attempt = attempt or 1
 	if not scriptAlive then return end
 	local okS, err = pcall(setupRickGun, character)
 	if not okS then
 		warnRG("erro ao montar a Rick Portal Gun:", err)
+	end
+	if scriptAlive and State.cleanup == nil and attempt < 4 and character.Parent and player.Character == character then
+		warnRG("a Rick Portal Gun não terminou de carregar; tentando de novo (" .. attempt .. "/3)...")
+		task.delay(2, function() safeSetup(character, attempt + 1) end)
+	elseif scriptAlive and State.cleanup ~= nil then
+		pcall(print, "[RickPortalGun] carregada.")
 	end
 end
 

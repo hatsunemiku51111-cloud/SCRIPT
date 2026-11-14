@@ -1,4 +1,3 @@
--- ===== CAMADA UNIVERSAL (compatibilidade com qualquer jogo/executor) =====
 local __ok, __err = xpcall(function()
 if not task then
 	task = {
@@ -40,7 +39,7 @@ local STEP_NAME = "RickPortalGunStep"
 
 local scriptAlive = true
 local State = { cleanup = nil, rebuilds = 0 }
--- ganchos do Morty (Bar do Rick): State.morty = { onPortal, onShot, onTeleport }
+
 State.morty = nil
 State.mortyEvent = function(name, ...)
 	local m = State.morty
@@ -234,9 +233,9 @@ local Config = {
 	PortalBoingDuration = 1.3,
 	PortalBoingFrequency = 3.2,
 	PortalBoingDamping = 2.6,
-	PortalBoingJelly = 0.7,      -- gelatina: quanto X e Y balancam em oposicao (0 = desliga, volta ao pulso uniforme)
-	PortalBoingJellyFreq = 1.45, -- a gelatina balanca mais rapido que o pulso
-	PortalBoingCascade = 0.06,   -- segundos de atraso entre as camadas (borda -> centro); 0 = tudo junto
+	PortalBoingJelly = 0.7,
+	PortalBoingJellyFreq = 1.45,
+	PortalBoingCascade = 0.06,
 	PortalBoingEnter = -0.3,
 	PortalBoingExit = 0.4,
 
@@ -255,7 +254,7 @@ local Config = {
 	SoundShoot = "rbxassetid://74562584385247",
 	SoundInvalid = "rbxassetid://132281440773764",
 	SoundDial = "rbxassetid://6042053626",
-	SoundKeyEquip = "rbxassetid://9113849492", -- som ao equipar a Chave da Nave
+	SoundKeyEquip = "rbxassetid://9113849492",
 	SoundBoneGrow = "rbxassetid://84312631986360",
 	SoundBoneGrowVolume = 0.5,
 
@@ -277,50 +276,46 @@ local Config = {
 	AccessoryGrip = Vector3.new(0, -0.6, -0.4),
 	AccessoryExtraRotation = Vector3.new(-90, 180, 0),
 
-	-- ===== CHAVE DA NAVE (item no inventario) =====
-	KeyToolName = "Chave da Nave",                  -- nome do item no inventario
-	KeyAccessoryId = 71337506344769,                -- acessorio do catalogo usado como visual da chave
-	KeyLength = 1.6,                                -- tamanho da chave na mao (studs, lado mais comprido)
-	KeyGrip = Vector3.new(0, 0, 0),                 -- posicao na mao (se ficar torta/afastada, ajuste aqui)
-	KeyRotation = Vector3.new(0, 0, 0),             -- rotacao na mao em graus (X, Y, Z)
-	KeyCooldown = 0.9,                              -- tempo minimo entre usos
-	KeySlotOffsetX = -142,                          -- posicao do mini slot (o da arma fica em -98)
-	KeyIcon = "🔑",                                 -- icone de reserva do slot (enquanto a miniatura carrega)
+	KeyToolName = "Chave da Nave",
+	KeyAccessoryId = 71337506344769,
+	KeyLength = 1.6,
+	KeyGrip = Vector3.new(0, 0, 0),
+	KeyRotation = Vector3.new(0, 0, 0),
+	KeyCooldown = 0.9,
+	KeySlotOffsetX = -142,
+	KeyIcon = "🔑",
 
-	-- ===== NAVE DO RICK =====
-	ShipScale = 1,                                  -- tamanho da nave (1 = ~24 studs de diametro)
-	ShipSpeed = 95,                                 -- velocidade normal (studs/s)
-	ShipTurbo = 2.6,                                -- multiplicador do turbo (SHIFT / botao TURBO)
-	ShipAccel = 2.6,                                -- quao rapido acelera/freia
-	ShipTurnRate = 5,                               -- quao rapido o nariz vira
-	ShipPortalSize = Vector3.new(70, 70, 0.2),      -- tamanho do portal gigante no ceu
-	ShipPortalHeight = 130,                         -- altura do portal acima do ponto de pouso
-	ShipLandDistance = 26,                          -- distancia da nave ate voce quando pousa
-	ShipArriveStartSpeed = 240,                     -- chegada: velocidade ao sair do portal (studs/s)
-	ShipArriveEndSpeed = 44,                        -- chegada: velocidade ao tocar o chao
-	ShipArriveDrive = 46,                           -- chegada: quanto ela anda no chao ate parar perto de voce
-	ShipArrivePortalSize = Vector3.new(46, 46, 0.2),-- chegada: tamanho do portal em pe
-	ShipLeaveRollDist = 38,                         -- saida: quantos studs ela anda no chao acelerando antes de decolar
-	ShipLeaveRollSpeed = 85,                        -- saida: velocidade ao fim da corrida no chao (studs/s)
-	ShipLeaveEndSpeed = 210,                        -- saida: velocidade ao entrar no portal (studs/s)
-	ShipLeavePortalSize = Vector3.new(46, 46, 0.2), -- saida: tamanho do portal em pe que ela atira
-	ShipDescentTime = 4.2,                          -- tempo da descida
-	ShipSeatHeight = 1.5,                           -- ajuste fino: altura do boneco sentado (sobe/desce se ficar torto)
-	ShipBoardRadius = 8,                            -- andar ate esse raio do centro da nave = entra sozinho
-	ShipGroundSpeed = 45,                          -- velocidade no modo TERRA
-	ShipGroundTurbo = 2,                            -- multiplicador do turbo no modo TERRA
-	ShipAutoBoard = false,                          -- (v20) sem Sit automatico e sem botao PILOTAR: voce so pilota se SENTAR no banco do motorista
-	ShipSpaceStartAlt = 700,                        -- (v20) altitude (Y) onde o ceu comeca a escurecer
-	ShipSpaceFullAlt = 1500,                        -- (v20) altitude onde e espaco total (estrelas + planetas)
-	ShipSolid = true,                               -- (v20) true = a nave e solida quando estacionada (voce nao atravessa o casco)
-	-- ===== FREIO DE MAO / DRIFT (tecla B, so no modo TERRA) =====
-	ShipDriftGrip = { 2.4, 1.1, 0.45 },             -- aderencia lateral (1/s) em cada clique da alavanca: menor = escorrega mais
-	ShipDriftTurn = { 10, 13, 17 },                 -- rapidez com que o nariz vira no drift em cada clique (yawRate)
-	ShipDriftDust = 2.2,                            -- quanto a poeira sobe com a derrapada
+	ShipScale = 1,
+	ShipSpeed = 95,
+	ShipTurbo = 2.6,
+	ShipAccel = 2.6,
+	ShipTurnRate = 5,
+	ShipPortalSize = Vector3.new(70, 70, 0.2),
+	ShipPortalHeight = 130,
+	ShipLandDistance = 26,
+	ShipArriveStartSpeed = 240,
+	ShipArriveEndSpeed = 44,
+	ShipArriveDrive = 46,
+	ShipArrivePortalSize = Vector3.new(46, 46, 0.2),
+	ShipLeaveRollDist = 38,
+	ShipLeaveRollSpeed = 85,
+	ShipLeaveEndSpeed = 210,
+	ShipLeavePortalSize = Vector3.new(46, 46, 0.2),
+	ShipDescentTime = 4.2,
+	ShipSeatHeight = 1.5,
+	ShipBoardRadius = 8,
+	ShipGroundSpeed = 45,
+	ShipGroundTurbo = 2,
+	ShipAutoBoard = false,
+	ShipSpaceStartAlt = 700,
+	ShipSpaceFullAlt = 1500,
+	ShipSolid = true,
+
+	ShipDriftGrip = { 2.4, 1.1, 0.45 },
+	ShipDriftTurn = { 10, 13, 17 },
+	ShipDriftDust = 2.2,
 }
 
--- Contador de inatividade: o portal fecha se ninguem entrar em PortalDuration segundos.
--- Cada travessia (State.lastActivity) reinicia a contagem.
 State.lastActivity = os.clock()
 State.watchIdle = function(isValid, onExpire)
 	State.lastActivity = os.clock()
@@ -503,15 +498,12 @@ local function glassGradient(parent)
 	return g
 end
 
--- ===== ANIMACOES DE UI (aplicadas automaticamente a todas as telas do script) =====
--- hover/clique em botoes, "pop" ao aparecer, foco de caixas de texto, pulso de texto e de botoes
 local UIAnim = {}
 do
 	local BACK, QUAD = Enum.EasingStyle.Back, Enum.EasingStyle.Quad
 	local OUT, IN = Enum.EasingDirection.Out, Enum.EasingDirection.In
 	local running = setmetatable({}, { __mode = "k" })
 
-	-- uma UIScale por objeto (as ja existentes sao reaproveitadas); o tween anterior e cancelado
 	function UIAnim.getScale(o)
 		local s = o:FindFirstChildOfClass("UIScale")
 		if not s then
@@ -532,7 +524,6 @@ do
 		return tw
 	end
 
-	-- bate e volta (ex.: botao FIRE ao atirar)
 	function UIAnim.pulse(o, amt)
 		if not o or not o.Parent then return end
 		UIAnim.scaleTo(o, amt or 1.12, 0.08, QUAD)
@@ -541,7 +532,6 @@ do
 		end)
 	end
 
-	-- aparece crescendo (com fade do fundo)
 	function UIAnim.pop(o, from)
 		if not o or not o.Parent then return end
 		UIAnim.getScale(o).Scale = from or 0.8
@@ -553,7 +543,6 @@ do
 		end
 	end
 
-	-- pulso sempre que o texto do label muda
 	function UIAnim.watchText(l)
 		local last = l.Text
 		l:GetPropertyChangedSignal("Text"):Connect(function()
@@ -577,7 +566,7 @@ do
 			if o.Visible then UIAnim.pop(o) end
 		end)
 		if o:IsA("GuiButton") then
-			if hasOwnScale(o) then return end -- esse botao ja tem hover/clique proprio
+			if hasOwnScale(o) then return end
 			o.MouseEnter:Connect(function() UIAnim.scaleTo(o, 1.06, 0.18) end)
 			o.MouseLeave:Connect(function() UIAnim.scaleTo(o, 1, 0.15, QUAD) end)
 			o.MouseButton1Down:Connect(function() UIAnim.scaleTo(o, 0.92, 0.07, QUAD) end)
@@ -603,11 +592,10 @@ do
 		end
 	end
 
-	-- liga as animacoes em tudo que existe (e que for criado depois) dentro de uma ScreenGui
 	function UIAnim.attach(root)
 		if root.Name == "RickPortalGunFlash" then return end
 		local function go(o)
-			-- defer: espera o codigo terminar de montar o elemento (ex.: UIScale propria) antes de decidir
+
 			task.defer(function()
 				if o.Parent then pcall(setup, o) end
 			end)
@@ -631,19 +619,6 @@ local function buildGun(container, withLight)
 	return ah, { Handle = ah, Custom = true }
 end
 
--- ===================================================================
--- NAVE DO RICK (chamada pela CHAVE DA NAVE, item do inventario)
--- Usar a chave -> portal gigante no ceu -> a nave sai dele e pousa na sua frente
--- -> voce entra, senta no banco do piloto e voa pra onde quiser.
--- Usar a chave de novo (com a nave estacionada) abre um portal no ceu e a nave vai embora.
--- Fica fora do setupRickGun pra nao estourar o limite de locals de la.
--- ===================================================================
--- ===================================================================
--- TELAS DO PAINEL DA NAVE (SurfaceGui animado)
--- Direita (vermelha): diagnostico rolando igual um painel de verdade.
--- Esquerda, na frente do piloto (verde): status do velocimetro animado.
--- Fica fora do buildShipSystem pra nao estourar o limite de locals/upvalues de la.
--- ===================================================================
 State.makeDashScreens = function(S, partRed, partGreen, env)
 	local GREEN = env.green
 	local RED = Color3.fromRGB(255, 64, 56)
@@ -698,7 +673,6 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 		return bg
 	end
 
-	-- ---------- VERDE: velocimetro ----------
 	local sp = backdrop(mkGui(partGreen), GREEN)
 	lbl(sp, "VELOCIDADE", 14, GREEN, 10, 6, 150, 18, TL)
 	local stLbl = lbl(sp, "PARADA", 14, GREEN, 190, 6, 180, 18, TR)
@@ -716,7 +690,6 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 	lbl(sp, "VMAX", 12, GREEN, 330, 156, 40, 16, TR)
 	local sweep = box(sp, GREEN, -20, 0, 5, 180, 0.82)
 
-	-- ---------- VERMELHO: diagnostico rolando ----------
 	local dg = backdrop(mkGui(partRed), RED)
 	local dot = box(dg, RED, 10, 9, 10, 10, 0)
 	lbl(dg, "DIAGNOSTICO DA NAVE", 14, RED, 26, 6, 240, 18, TL)
@@ -744,7 +717,7 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 	for i = 1, NL do
 		local t, c = newLine()
 		local l = lbl(logF, t, 13, c, 0, (i - 1) * LH, 252, LH, TL)
-		l.TextTransparency = 0.65 * ((NL - i) / (NL - 1)) ^ 1.5 -- linhas de cima apagam, as de baixo acendem
+		l.TextTransparency = 0.65 * ((NL - i) / (NL - 1)) ^ 1.5
 		lines[i] = l
 	end
 	local NB = 6
@@ -758,7 +731,6 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 	local scanFill = box(dg, RED, 8, 154, 0, 14, 0.15)
 	local scanTxt = lbl(dg, "SCAN 0%", 11, WHITE, 8, 154, 364, 14, TC)
 
-	-- ---------- animacao (chamada todo frame pelo loop da nave) ----------
 	local camera, SPEED, TURBO = env.camera, env.SPEED, env.TURBO
 	local GSPEED, GTURBO = env.GROUND_SPEED, env.GROUND_TURBO
 	local st = { t = 0, spd = 0, peak = 0, peakT = 0, scroll = 0, barT = 0, scan = 0,
@@ -767,11 +739,10 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 		if dt <= 0 then return end
 		dt = math.min(dt, 0.1)
 		local pos = S.cf.Position
-		if (camera.CFrame.Position - pos).Magnitude > 150 then st.lastPos = nil; return end -- longe: nao gasta
+		if (camera.CFrame.Position - pos).Magnitude > 150 then st.lastPos = nil; return end
 		st.t = st.t + dt
 		local t = st.t
 
-		-- velocidade: usa o mesmo numero do velocimetro da tela (VEL) quando voando; senao mede o deslocamento
 		local info = env.info
 		local txt = (S.state == "flying" and info and info.Parent) and info.Text or nil
 		local inst, turbo = 0, false
@@ -787,7 +758,6 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 		local vmax = fly and (SPEED * TURBO) or (GSPEED * GTURBO)
 		local frac = math.clamp(st.spd / vmax, 0, 1)
 
-		-- verde
 		local lit = frac * NSEG
 		for i = 1, NSEG do
 			segs[i].BackgroundTransparency = 0.88 * (1 - math.clamp(lit - (i - 1), 0, 1))
@@ -813,7 +783,6 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 		if pct ~= st.pct then st.pct = pct; pctLbl.Text = "POTENCIA " .. pct .. "%" end
 		sweep.Position = UDim2.fromOffset((t * 150) % 440 - 30, 0)
 
-		-- vermelho: log rolando pra cima, como um painel de verdade
 		st.scroll = st.scroll + dt * 22
 		if st.scroll >= LH then
 			st.scroll = st.scroll - LH
@@ -847,31 +816,25 @@ State.makeDashScreens = function(S, partRed, partGreen, env)
 	end
 end
 
--- TANQUE / BARRIL atras dos bancos (fiel ao da nave do Rick da serie)
--- Corpo cilindrico com tampas abauladas, 2 cintas largas com abas de fixacao embaixo,
--- suporte em X com placa retangular no topo, valvula e manometro.
--- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
 State.buildTank = function(add, cylX, c)
 	local TANK, DARK, MID, BLACK, GLOW = c.TANK, c.DARK, c.MID, c.BLACK, c.GLOW
 	local METAL, SMOOTH = c.METAL, c.SMOOTH
-	local CX, CY, CZ, R, HL = 0, 5.1, 4.6, 1.15, 3.1 -- centro, raio, meio-comprimento do corpo reto
+	local CX, CY, CZ, R, HL = 0, 5.1, 4.6, 1.15, 3.1
 	local STRAP = Color3.fromRGB(96, 104, 100)
 	local RY = CFrame.Angles(0, 0, math.rad(90))
 
 	add("Tank", cylX(HL * 2, R * 2), CFrame.new(CX, CY, CZ), TANK, METAL, 0, "cyl")
 	for _, sx in ipairs({ -1, 1 }) do
-		-- tampa abaulada (elipsoide achatado) + aro de junta
+
 		add("TankDome", Vector3.new(1.2, R * 2, R * 2), CFrame.new(sx * HL, CY, CZ), TANK, METAL, 0, "sphere")
 		add("TankSeam", cylX(0.12, R * 2 + 0.1), CFrame.new(sx * (HL - 0.05), CY, CZ), STRAP, METAL, 0, "cyl")
 
-		-- cinta larga com borda levantada
 		local x = sx * 2.0
 		add("TankStrap", cylX(0.7, R * 2 + 0.14), CFrame.new(x, CY, CZ), STRAP, METAL, 0, "cyl")
 		for _, e in ipairs({ -1, 1 }) do
 			add("TankStrapRim", cylX(0.09, R * 2 + 0.24), CFrame.new(x + e * 0.31, CY, CZ), DARK, METAL, 0, "cyl")
 		end
 
-		-- abas de fixacao embaixo da cinta (dos dois lados) com parafuso
 		for _, sz in ipairs({ -1, 1 }) do
 			local a = sz * math.rad(135)
 			local ny, nz = math.cos(a), math.sin(a)
@@ -882,7 +845,6 @@ State.buildTank = function(add, cylX, c)
 		end
 	end
 
-	-- suporte em X no topo: placa retangular + 4 pernas diagonais ate 4 pinos
 	local TOPY = CY + R
 	add("TankPlate", Vector3.new(0.95, 0.1, 0.65), CFrame.new(CX, TOPY + 0.03, CZ), MID, METAL)
 	add("TankPlateIn", Vector3.new(0.7, 0.04, 0.4), CFrame.new(CX, TOPY + 0.1, CZ), DARK, SMOOTH)
@@ -896,35 +858,28 @@ State.buildTank = function(add, cylX, c)
 		end
 	end
 
-	-- valvula/manipulo no topo, perto da ponta esquerda
 	add("TankValveBase", cylX(0.1, 0.55), CFrame.new(-2.85, TOPY + 0.02, CZ) * RY, DARK, METAL, 0, "cyl")
 	add("TankValveStem", cylX(0.35, 0.22), CFrame.new(-2.85, TOPY + 0.22, CZ) * RY, MID, METAL, 0, "cyl")
 	add("TankValve", Vector3.new(0.5, 0.5, 0.5), CFrame.new(-2.85, TOPY + 0.5, CZ), MID, METAL, 0, "sphere")
 
-	-- manometro na ponta direita
 	add("TankGauge", cylX(0.12, 0.7), CFrame.new(3.68, CY, CZ), BLACK, SMOOTH, 0, "cyl")
 	add("TankGaugeLed", Vector3.new(0.06, 0.2, 0.2), CFrame.new(3.76, CY, CZ), GLOW, SMOOTH)
 end
 
--- PAINEL DA NAVE fiel a serie: pilar central com 5 mostradores, 2 saidas de ar redondas,
--- caixa com tubo do lado do piloto, alavanca-bomba em T do outro lado, alavanquinha no topo do pilar.
--- dashBase(rad) = CFrame de cada segmento do painel curvo (+rad = lado esquerdo do piloto, -X).
--- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
 State.buildDash = function(add, cylX, c, dashBase)
 	local LIGHT, MID, DARK, BLACK, PLATE = c.LIGHT, c.MID, c.DARK, c.BLACK, c.PLATE
 	local METAL, SMOOTH = c.METAL, c.SMOOTH
-	local FACE = 1.175 -- face do painel virada pro piloto (z local do segmento)
-	local RZ = CFrame.Angles(0, math.pi / 2, 0) -- cilindro: eixo X -> eixo Z (aponta pro piloto)
-	local RY = CFrame.Angles(0, 0, math.pi / 2) -- cilindro: eixo X -> eixo Y
+	local FACE = 1.175
+	local RZ = CFrame.Angles(0, math.pi / 2, 0)
+	local RY = CFrame.Angles(0, 0, math.pi / 2)
 	local function D(deg, x, y, z)
 		return dashBase(math.rad(deg)) * CFrame.new(x, y, z)
 	end
 
-	-- ===== pilar central (topo arredondado) =====
 	add("PillarBody", Vector3.new(1.4, 1.9, 0.5), D(0, 0, -0.05, FACE + 0.25), LIGHT, METAL)
 	add("PillarArch", cylX(0.5, 1.4), D(0, 0, 0.9, FACE + 0.25) * RZ, LIGHT, METAL, 0, "cyl")
 	add("PillarFoot", Vector3.new(1.55, 0.2, 0.62), D(0, 0, -0.92, FACE + 0.31), MID, METAL)
-	-- 5 mostradores: 1 grande em cima + 4 embaixo (2x2)
+
 	local gz = FACE + 0.5
 	local gauges = { { 0, 0.98, 0.58 }, { -0.34, 0.4, 0.42 }, { 0.34, 0.4, 0.42 }, { -0.34, -0.18, 0.42 }, { 0.34, -0.18, 0.42 } }
 	for i, g in ipairs(gauges) do
@@ -934,12 +889,11 @@ State.buildDash = function(add, cylX, c, dashBase)
 		add("GaugeNeedle", Vector3.new(gd * 0.4, 0.035, 0.02),
 			D(0, gx, gy, gz + 0.085) * CFrame.Angles(0, 0, math.rad(35 + i * 25)) * CFrame.new(gd * 0.17, 0, 0), PLATE, SMOOTH)
 	end
-	-- alavanquinha em cima do pilar
+
 	add("LeverBase", cylX(0.1, 0.34), D(0, 0, 1.62, FACE + 0.25) * RY, DARK, METAL, 0, "cyl")
 	add("LeverStick", cylX(0.6, 0.09), D(0, 0, 1.95, FACE + 0.25) * RY, MID, METAL, 0, "cyl")
 	add("LeverKnob", Vector3.new(0.2, 0.2, 0.2), D(0, 0, 2.28, FACE + 0.25), BLACK, SMOOTH, 0, "sphere")
 
-	-- ===== saidas de ar redondas com aletas, uma de cada lado do pilar =====
 	for _, sg in ipairs({ -1, 1 }) do
 		local vr = sg * 31
 		add("VentRim", cylX(0.05, 0.8), D(vr, 0, 0.35, FACE + 0.025) * RZ, MID, METAL, 0, "cyl")
@@ -949,7 +903,6 @@ State.buildDash = function(add, cylX, c, dashBase)
 		end
 	end
 
-	-- ===== caixa do lado do piloto (-X): placa, 2 botoes, janelinha, alca e tubo que dobra =====
 	local bd = 17.8
 	add("DashBox", Vector3.new(0.8, 0.9, 0.35), D(bd, 0, -0.2, FACE + 0.175), LIGHT, METAL)
 	add("DashBoxPlate", Vector3.new(0.6, 0.66, 0.04), D(bd, 0, -0.22, FACE + 0.36), MID, METAL)
@@ -966,7 +919,6 @@ State.buildDash = function(add, cylX, c, dashBase)
 	add("DashPipeH", cylX(0.3, 0.09), D(bd, 0.15, -0.96, FACE + 0.18), MID, METAL, 0, "cyl")
 	add("DashPipeCap", cylX(0.16, 0.2), D(bd, 0.36, -0.96, FACE + 0.18), DARK, METAL, 0, "cyl")
 
-	-- ===== alavanca-bomba em T do lado direito (+X), inclinada pro piloto =====
 	local pb = dashBase(math.rad(-17.8))
 	local dir = Vector3.new(0.35, 0.85, 0.40).Unit
 	local p0 = Vector3.new(0, -0.45, FACE + 0.15)
@@ -982,16 +934,12 @@ State.buildDash = function(add, cylX, c, dashBase)
 	print("[RickPortalGun] painel novo (pilar, bomba, caixa) carregado")
 end
 
--- VOLANTE fiel a serie: aro grosso, 3 raios (esquerda, direita, embaixo), cubo com tampa,
--- coluna vertical grossa com flange no chao e 2 pedais.
--- Tags: swheel = gira com a direcao | swcol = acompanha o volante sem girar |
--- swbase = so acompanha em X/Z (a flange fica no chao).
 State.buildWheel = function(add, cylX, c, wc, wcPos)
 	local MID, DARK, BLACK = c.MID, c.DARK, c.BLACK
 	local METAL, SMOOTH, PLASTIC = c.METAL, c.SMOOTH, c.PLASTIC
 	local RZ = CFrame.Angles(0, math.pi / 2, 0)
 	local RY = CFrame.Angles(0, 0, math.pi / 2)
-	local RW, nW = 0.95, 20 -- raio do aro (as maos seguram em +-RW) e segmentos do aro
+	local RW, nW = 0.95, 20
 
 	for k = 0, nW - 1 do
 		local a = 2 * math.pi * k / nW
@@ -1006,14 +954,12 @@ State.buildWheel = function(add, cylX, c, wc, wcPos)
 	add("WheelHubDisc", cylX(0.06, 0.3), wc * CFrame.new(0, 0, 0.25) * RZ, DARK, METAL, 0, "cyl", "swheel")
 	add("WheelHub", Vector3.new(0.62, 0.62, 0.62), wc, MID, METAL, 0, "sphere", "swcol")
 
-	-- coluna vertical (desce um pouco alem do piso pra nunca aparecer vao)
 	local colLen = 3.4
 	add("WheelColumn", cylX(colLen, 0.46), CFrame.new(wcPos.X, wcPos.Y - colLen / 2, wcPos.Z) * RY, MID, METAL, 0, "cyl", "swcol")
 	add("WheelCollar", cylX(0.14, 0.62), CFrame.new(wcPos.X, wcPos.Y - 0.5, wcPos.Z) * RY, DARK, METAL, 0, "cyl", "swcol")
 	add("WheelBase", cylX(0.1, 1.05), CFrame.new(wcPos.X, 3.95, wcPos.Z) * RY, DARK, METAL, 0, "cyl", "swbase")
 	add("WheelBaseCone", cylX(0.3, 0.72), CFrame.new(wcPos.X, 4.1, wcPos.Z) * RY, MID, METAL, 0, "cyl", "swbase")
 
-	-- pedais: um de cada lado do pe da coluna; acompanham o volante em X/Z (tag swbase)
 	for _, sx in ipairs({ -1, 1 }) do
 		local px = wcPos.X + sx * 0.68
 		local p1 = Vector3.new(px, 4.0, wcPos.Z - 1.5)
@@ -1025,18 +971,15 @@ State.buildWheel = function(add, cylX, c, wc, wcPos)
 	print("[RickPortalGun] volante novo (3 raios, coluna, pedais) carregado")
 end
 
--- BANCOS fieis a serie: almofada grossa com frente arredondada e rolos laterais sobre uma chapa curva (esqui),
--- encosto de bordas arredondadas, tira de metal atras com 3 furos e apoio de cabeca separado.
--- Mantem o topo da almofada em y 4.5 e a face do encosto em z ~1.7 (o boneco senta nessas medidas).
 State.buildSeats = function(add, cylX, c)
 	local SEATC, SEATC2, DARK, MID, GLOW = c.SEATC, c.SEATC2, c.DARK, c.MID, c.GLOW
 	local PLASTIC, METAL, SMOOTH = c.PLASTIC, c.METAL, c.SMOOTH
-	local RZ = CFrame.Angles(0, math.pi / 2, 0) -- cilindro: eixo X -> Z
-	local RY = CFrame.Angles(0, 0, math.pi / 2) -- cilindro: eixo X -> Y
+	local RZ = CFrame.Angles(0, math.pi / 2, 0)
+	local RY = CFrame.Angles(0, 0, math.pi / 2)
 	local tilt = CFrame.Angles(math.rad(10), 0, 0)
 	for _, sx in ipairs({ -1, 1 }) do
 		local x = sx * 2.3
-		-- base
+
 		add("SeatSkid", Vector3.new(2.5, 0.1, 3.1), CFrame.new(x, 3.95, 0.45), MID, METAL)
 		add("SeatSkidRoll", cylX(2.5, 0.16), CFrame.new(x, 3.97, -1.1), MID, METAL, 0, "cyl")
 		add("SeatBase", Vector3.new(2.3, 0.5, 2.25), CFrame.new(x, 4.25, 0.525), SEATC, PLASTIC)
@@ -1045,7 +988,6 @@ State.buildSeats = function(add, cylX, c)
 			add("SeatBolster", cylX(2.2, 0.5), CFrame.new(x + sd * 1.25, 4.7, 0.5) * RZ, SEATC2, PLASTIC, 0, "cyl")
 		end
 
-		-- encosto de bordas arredondadas
 		local BK = CFrame.new(x, 6.1, 2.0) * tilt
 		add("SeatBack", Vector3.new(1.9, 2.9, 0.5), BK, SEATC, PLASTIC)
 		for _, sd in ipairs({ -1, 1 }) do
@@ -1054,13 +996,11 @@ State.buildSeats = function(add, cylX, c)
 		add("SeatBackTop", cylX(1.9, 0.55), BK * CFrame.new(0, 1.45, 0), SEATC, PLASTIC, 0, "cyl")
 		add("SeatLumbar", Vector3.new(1.5, 0.55, 0.1), BK * CFrame.new(0, -0.5, -0.27), SEATC2, PLASTIC)
 
-		-- tira de metal atras (do encosto ate o apoio de cabeca) com 3 furos
 		add("SeatStrap", Vector3.new(0.5, 4.2, 0.1), BK * CFrame.new(0, 0.5, 0.3), MID, METAL)
 		for _, hy in ipairs({ 1.55, 1.3, 1.05 }) do
 			add("SeatStrapHole", cylX(0.04, 0.11), BK * CFrame.new(0, hy, 0.36) * RZ, DARK, SMOOTH, 0, "cyl")
 		end
 
-		-- apoio de cabeca separado do encosto
 		local HD = BK * CFrame.new(0, 2.3, 0)
 		add("SeatHead", Vector3.new(1.1, 0.9, 0.5), HD, SEATC2, PLASTIC)
 		for _, sd in ipairs({ -1, 1 }) do
@@ -1072,8 +1012,6 @@ State.buildSeats = function(add, cylX, c)
 	print("[RickPortalGun] bancos novos carregados")
 end
 
--- TUNEL CENTRAL fiel a serie: bloco com bordas arredondadas em 2 degraus, ligado ao pe do pilar,
--- fenda do cambio no topo com a alavanca, e freio de mao deitado no degrau de tras.
 State.buildTunnel = function(add, cylX, c)
 	local MID, DARK, BLACK, LIGHT = c.MID, c.DARK, c.BLACK, c.LIGHT
 	local METAL, PLASTIC, SMOOTH = c.METAL, c.PLASTIC, c.SMOOTH
@@ -1081,71 +1019,59 @@ State.buildTunnel = function(add, cylX, c)
 	local RY = CFrame.Angles(0, 0, math.pi / 2)
 
 	add("TunnelSkirt", Vector3.new(1.75, 0.12, 5.55), CFrame.new(0, 3.96, -1.075), DARK, METAL)
-	-- degrau da frente (alto, encosta no pilar): z -3.75 .. -0.4
+
 	add("TunnelFront", Vector3.new(1.5, 1.1, 3.35), CFrame.new(0, 4.45, -2.075), MID, PLASTIC)
-	-- degrau de tras (baixo): z -0.4 .. 1.6
+
 	add("TunnelRear", Vector3.new(1.5, 0.8, 2.0), CFrame.new(0, 4.3, 0.6), MID, PLASTIC)
 	for _, sd in ipairs({ -1, 1 }) do
 		add("TunnelFrontRoll", cylX(3.35, 0.4), CFrame.new(sd * 0.55, 4.8, -2.075) * RZ, MID, PLASTIC, 0, "cyl")
 		add("TunnelRearRoll", cylX(2.0, 0.4), CFrame.new(sd * 0.55, 4.5, 0.6) * RZ, MID, PLASTIC, 0, "cyl")
 	end
 
-	-- fenda do cambio no topo do degrau da frente
 	add("ShiftBezel", Vector3.new(0.44, 0.03, 2.5), CFrame.new(0, 5.015, -2.1), LIGHT, METAL)
 	add("ShiftSlot", Vector3.new(0.24, 0.04, 2.3), CFrame.new(0, 5.03, -2.1), BLACK, SMOOTH)
 	add("ShiftCollar", cylX(0.12, 0.32), CFrame.new(0, 5.07, -1.4) * RY, DARK, METAL, 0, "cyl", "shift")
 	local s1 = Vector3.new(0, 5.1, -1.4)
-	local s2 = Vector3.new(0, 6.0, -1.1) -- inclinada pra tras, em direcao ao piloto
+	local s2 = Vector3.new(0, 6.0, -1.1)
 	add("ShiftRod", cylX((s2 - s1).Magnitude, 0.14), CFrame.lookAt((s1 + s2) / 2, s2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "shift")
 	add("ShiftKnob", Vector3.new(0.42, 0.42, 0.42), CFrame.new(s2 + (s2 - s1).Unit * 0.1), BLACK, PLASTIC, 0, "sphere", "shift")
 
-	-- ===== FREIO DE MAO fiel a serie: fenda comprida no degrau de tras, duas abas (cheeks) em volta da fenda,
-	-- haste fina saindo de dentro da fenda e cabo em T (cilindro com tampas) no topo.
-	-- A dobradica fica DENTRO do degrau (abaixo do topo, y 4.7): a haste sai pela fenda e balanca pra frente/tras.
-	-- Direcao da haste = (0, 0.7, 0.9): NAO mudar (BRAKE_LEAN do HUD e a animacao dependem dela).
 	local bdir = Vector3.new(0, 0.7, 0.9).Unit
 	local b1 = Vector3.new(0, 4.62, 0)
 	local b2 = b1 + bdir * 1.22
-	local SLOT_Z = 0.525 -- centro da fenda no degrau de tras (z -0.4 .. 1.6)
+	local SLOT_Z = 0.525
 	add("BrakeBezel", Vector3.new(0.38, 0.03, 1.8), CFrame.new(0, 4.715, SLOT_Z), LIGHT, METAL)
 	add("BrakeSlot", Vector3.new(0.18, 0.04, 1.55), CFrame.new(0, 4.73, SLOT_Z), BLACK, SMOOTH)
-	-- as duas abas em volta da fenda, levemente inclinadas (mais altas atras)
+
 	for _, sd in ipairs({ -1, 1 }) do
 		add("BrakeCheek", Vector3.new(0.1, 0.26, 1.7), CFrame.new(sd * 0.25, 4.83, SLOT_Z) * CFrame.Angles(math.rad(-5), 0, 0), MID, PLASTIC)
 		add("BrakeCheekTop", Vector3.new(0.06, 0.03, 1.7), CFrame.new(sd * 0.25, 4.83 + 0.145, SLOT_Z) * CFrame.Angles(math.rad(-5), 0, 0), LIGHT, METAL)
 	end
-	-- haste fina + cabo em T com tampas nas pontas (tudo com tag "brake": gira em volta da dobradica)
+
 	add("BrakeLever", cylX((b2 - b1).Magnitude, 0.12), CFrame.lookAt((b1 + b2) / 2, b2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "brake")
 	add("BrakeGrip", cylX(0.6, 0.17), CFrame.new(b2), DARK, PLASTIC, 0, "cyl", "brake")
 	for _, sd in ipairs({ -1, 1 }) do
 		add("BrakeGripCap", cylX(0.05, 0.21), CFrame.new(b2 + Vector3.new(sd * 0.3, 0, 0)), MID, METAL, 0, "cyl", "brake")
 	end
-	-- marcador invisivel do pivo (a LV.fx tira o centro de rotacao daqui: fixa, sem tag, nao gira)
+
 	add("BrakePivot", Vector3.new(0.1, 0.1, 0.1), CFrame.new(b1), BLACK, PLASTIC, 1, "sphere")
 	print("[RickPortalGun] tunel central novo carregado")
 end
 
--- ALAVANCAS DA NAVE: cambio (fenda do tunel), freio de mao (degrau de tras) e o painel desenhado na tela.
---  * freio de mao: sobe sozinho (3 cliques de catraca) quando a nave pousa (landed) e desce junto com o vidro ao
---    embarcar. No modo TERRA a tecla B (ou segurar a alavanca no HUD) puxa clique a clique e liga o drift (groundStep).
---  * cambio: desliza na fenda entre P (parada) / TERRA / VOO. Acompanha a troca de modo (R) e treme se ela for recusada.
--- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
 State.buildShipLevers = function(env)
 	local C, ctx, held, api = env.C, env.ctx, env.held, env.api
 	local SCALE, CANOPY_OPEN, getShip = env.SCALE, env.CANOPY_OPEN, env.getShip
 	local LV = {}
 
-	local SHIFT_DZ = { fly = -1.35, ground = -0.55, P = 0.25 } -- studs em Z (antes da escala): frente -> tras
-	local SHIFT_MIN, SHIFT_MAX = -1.65, 0.28                   -- fim da fenda (a peca nunca sai dela)
+	local SHIFT_DZ = { fly = -1.35, ground = -0.55, P = 0.25 }
+	local SHIFT_MIN, SHIFT_MAX = -1.65, 0.28
 	local SHIFT_SPAN = SHIFT_DZ.P - SHIFT_DZ.fly
-	local BRAKE_INT_DROP = 1.3 -- o interior da nave desce DEP = 1.3 studs (add embrulhado em buildShipSystem): o pivo tem que descer junto
-	local BRAKE_PIV = Vector3.new(0, 4.62 - BRAKE_INT_DROP, 0) -- dobradica da alavanca do freio (espaco da nave, ja com o deslocamento)
-	local BRAKE_A0, BRAKE_A1 = 0.21, -0.59        -- rad em volta do X: solto (deitada) -> puxado (em pe)
-	local BRAKE_LEAN = 0.909                      -- inclinacao original da alavanca (rad, da vertical pra tras)
-	local NOTCH_GAP = 0.14                        -- segundos entre dois cliques da catraca
+	local BRAKE_INT_DROP = 1.3
+	local BRAKE_PIV = Vector3.new(0, 4.62 - BRAKE_INT_DROP, 0)
+	local BRAKE_A0, BRAKE_A1 = 0.21, -0.59
+	local BRAKE_LEAN = 0.909
+	local NOTCH_GAP = 0.14
 
-	-- mola amortecida guardada em S[key]/S[key.."V"]; subpassos pra mola dura ficar estavel.
-	-- lo/hi (opcionais) sao batentes: ao bater, a peca quica de leve em vez de atravessar o fim do curso.
 	local function spring(S, key, goal, dt, k, zeta, lo, hi)
 		local x = S[key]
 		if x == nil then
@@ -1176,7 +1102,6 @@ State.buildShipLevers = function(env)
 		return x
 	end
 
-	-- chamada todo frame (Stepped) enquanto a nave existe
 	function LV.fx(S, dt)
 		if not (S.brakeParts and S.shiftParts and S.model and S.model.Parent) then return end
 		dt = math.clamp(dt, 1 / 240, 0.1)
@@ -1184,9 +1109,6 @@ State.buildShipLevers = function(env)
 		local ground = (st == "flying" and S.mode == "ground")
 		local canopy = math.clamp((S.canopyAng or 0) / CANOPY_OPEN, 0, 1)
 
-		-- ===== freio de mao =====
-		-- landed: sobe sozinho (3 cliques) | embarcando: acompanha o vidro fechando | modo TERRA: B puxa | resto: solto
-		-- (a logica da catraca / drift nao mudou: S.brakeNotch continua mandando no groundStep)
 		local follow = nil
 		local want = 0
 		if st == "landed" then
@@ -1205,21 +1127,15 @@ State.buildShipLevers = function(env)
 			if S.brakeT <= 0 then
 				notch = notch + 1
 				S.brakeT = NOTCH_GAP
-				S.brakeKick = 1 -- tranco do dente da catraca
+				S.brakeKick = 1
 				if C.SoundDial then ctx.playSound(C.SoundDial, 0.6) end
 			end
 		else
-			notch = want -- (logica do drift: solta de uma vez; so a ANIMACAO e que desce devagar)
+			notch = want
 			S.brakeT = 0
 		end
 		S.brakeNotch = notch
 
-		-- ===== animacao do freio de mao 3D (refeita) =====
-		-- Estado proprio em S: bp = posicao da haste (0 solta .. 1 puxada), bv = velocidade, bBtn = botao de soltar (0 solto .. 1 apertado).
-		--  puxar : a mao puxa e a catraca trava dente por dente: cada clique empurra a haste e ela assenta no dente com mola
-		--  soltar: espera um instante e a haste cai com gravidade, freando perto do fim
-		--          (a mao segura), batendo no batente com uma quicadinha; se puxar de novo no meio da queda, retoma dali
-		--  a dobradica fica fixa no pe da haste (a haste gira em volta dela, nao do meio)
 		local target = follow or (notch / 3)
 		local bp = S.bp
 		if bp == nil then bp = target end
@@ -1227,28 +1143,28 @@ State.buildShipLevers = function(env)
 		local btn = S.bBtn or 0
 		local hold = S.bHold or 0
 		if S.bLastNotch ~= nil and notch > S.bLastNotch and not follow then
-			bv = bv + 1.0 -- tranco do dente da catraca
+			bv = bv + 1.0
 		end
 		S.bLastNotch = notch
 		if follow then
 			bp, bv, btn, hold = target, 0, 0, 0
 		elseif target < bp - 1e-3 then
-			-- soltando
+
 			btn = math.min(1, btn + dt * 16)
 			hold = hold + dt
 			if hold > 0.08 then
-				local lim = math.clamp((bp - target) * 5 + 0.3, 0.3, 2.2) -- freia perto do fim (a mao segura)
+				local lim = math.clamp((bp - target) * 5 + 0.3, 0.3, 2.2)
 				bv = math.max(bv - 3.2 * dt, -lim)
 				bp = bp + bv * dt
 				if bp <= target then
 					bp = target
-					bv = (bv < -0.6) and (-bv * 0.18) or 0 -- bate no batente e volta um pouquinho
+					bv = (bv < -0.6) and (-bv * 0.18) or 0
 				end
 			else
 				bv = 0
 			end
 		else
-			-- puxando ou parada no dente
+
 			btn = math.max(0, btn - dt * 10)
 			hold = 0
 			local k = 420
@@ -1268,7 +1184,7 @@ State.buildShipLevers = function(env)
 			S.lastBrakePos, S.lastBrakeBtn = vis, btn
 			local th = BRAKE_A0 + (BRAKE_A1 - BRAKE_A0) * vis
 			if not S.brakePivCF then
-				-- pivo = posicao real do marcador BrakePivot, do jeito que a peca foi colocada na nave
+
 				for _, e in ipairs(S.parts) do
 					if e.part.Name == "BrakePivot" then S.brakePivCF = CFrame.new(e.rel.Position) break end
 				end
@@ -1280,9 +1196,8 @@ State.buildShipLevers = function(env)
 				e.weld.C0 = rot * e.rel
 			end
 		end
-		pos = math.clamp(vis, 0, 1) -- o painel do HUD continua recebendo 0..1 (HUD nao mudou)
+		pos = math.clamp(vis, 0, 1)
 
-		-- ===== cambio =====
 		local mode = S.mode
 		if st == "shifting" then mode = S.shiftTo or mode end
 		local key = mode
@@ -1293,7 +1208,7 @@ State.buildShipLevers = function(env)
 		elseif st == "landing" and canopy > 0.05 then
 			key = "P"
 		end
-		-- com o piloto no banco, a alavanca so anda 0.2s depois do pedido: a mao direita chega na bola antes
+
 		local hands = (st == "flying" or st == "shifting")
 		local nowT = os.clock()
 		if key ~= S.keyWant then S.keyWant = key; S.keyWantT = nowT end
@@ -1308,12 +1223,12 @@ State.buildShipLevers = function(env)
 		local goalZ = SHIFT_DZ[akey] or SHIFT_DZ.ground
 		local z = spring(S, "shiftZ", goalZ, dt, 260, 0.55)
 		local rt = S.refuseT and (os.clock() - S.refuseT) or 9
-		-- braco direito no cambio: esperando a marcha, logo depois de engatar, ou na trepidacao de troca recusada
+
 		if hands and (key ~= akey or nowT - (S.shiftChT or -9) < 0.55 or rt < 0.45) then
 			S.shiftActT = nowT
 		end
 		if rt < 0.4 then
-			z = z + math.sin(rt * 85) * 0.13 * (1 - rt / 0.4) -- troca recusada: trepida e volta
+			z = z + math.sin(rt * 85) * 0.13 * (1 - rt / 0.4)
 		end
 		z = math.clamp(z, SHIFT_MIN, SHIFT_MAX)
 		if math.abs(z - (S.lastShiftZ or 9)) > 1e-4 then
@@ -1329,9 +1244,6 @@ State.buildShipLevers = function(env)
 		end
 	end
 
-	-- painel desenhado na tela (mesmo estilo do HUD da nave: Frames, contorno preto e verde do portal).
-	-- Esquerda: cambio visto de cima (fenda + aro de metal + bola). Direita: freio de mao visto de lado com a catraca.
-	-- H = ferramentas do HUD (mk, frame, disc, ink, grad, text, addVP, cores).
 	function LV.buildHud(H)
 		local hud, mk, frame, disc, ink, grad, text = H.hud, H.mk, H.frame, H.disc, H.ink, H.grad, H.text
 		local ACC, INK, BLACK, WHITE, YELLOW, RED = H.ACC, H.INK, H.BLACK, H.WHITE, H.YELLOW, H.RED
@@ -1345,12 +1257,10 @@ State.buildShipLevers = function(env)
 		H.addVP(root)
 		LV.hudRoot = root
 
-		-- (sem placa de fundo: o cambio e a alavanca ficam soltos na tela)
-
 		local function label(str, x, y, w, size, col, xa)
 			local t = text(root, str, size, col, x, y, w, size + 4, xa)
 			t.ZIndex = 6
-			t.TextStrokeTransparency = 0 -- sem fundo, o contorno preto garante a leitura
+			t.TextStrokeTransparency = 0
 			t.TextStrokeColor3 = BLACK
 			return t
 		end
@@ -1365,7 +1275,6 @@ State.buildShipLevers = function(env)
 		keyChip("R", 62)
 		keyChip("B", 154)
 
-		-- ---------- cambio: aro de metal + fenda + trilho ----------
 		local bezel = frame(root, 12, 26, 40, 150, METAL0, 0, 20)
 		bezel.ZIndex = 3
 		grad(bezel, METAL0, METAL1, 90)
@@ -1376,7 +1285,6 @@ State.buildShipLevers = function(env)
 		local rail = frame(root, 30, 40, 4, 122, Color3.fromRGB(36, 44, 52), 0, 2)
 		rail.ZIndex = 5
 
-		-- posicoes (de cima pra baixo = frente -> tras da nave): VOO, TERRA, P
 		local posY = { fly = 56, ground = 103, P = 150 }
 		local names = { fly = "VOO", ground = "TERRA", P = "P" }
 		local dots, labels = {}, {}
@@ -1388,7 +1296,6 @@ State.buildShipLevers = function(env)
 			labels[k] = label(names[k], 68, posY[k] - 8, 34, 11, WHITE, LEFT)
 		end
 
-		-- bola do cambio (vista de cima): sombra, aro de metal, haste e bola preta com brilho
 		local kn = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromOffset(32, posY.ground), Size = UDim2.fromOffset(30, 30), ZIndex = 7 }, root)
 		local sh = disc(kn, 16, 19, 26, BLACK, 0.5)
@@ -1405,7 +1312,6 @@ State.buildShipLevers = function(env)
 		local spec = disc(kn, 12, 17, 6, WHITE, 0.35)
 		spec.ZIndex = 11
 
-		-- clicar em VOO / TERRA troca de modo (igual a tecla R)
 		local function zone(y, h, target)
 			local b = mk("TextButton", { BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
 				Text = "", Position = UDim2.fromOffset(8, y), Size = UDim2.fromOffset(94, h), ZIndex = 12 }, root)
@@ -1417,8 +1323,6 @@ State.buildShipLevers = function(env)
 		zone(26, 54, "fly")
 		zone(80, 48, "ground")
 
-		-- ---------- freio de mao (lado direito, visto de lado: frente = esquerda) ----------
-		-- Posicoes calculadas na mao (centro + direcao): nao depende de onde a UI gira, entao nao quebra.
 		local PX, PY, LEN, ARC = 120, 148, 44, 58
 		local function leanAt(p) return BRAKE_LEAN + BRAKE_A0 + (BRAKE_A1 - BRAKE_A0) * p end
 
@@ -1427,14 +1331,12 @@ State.buildShipLevers = function(env)
 		grad(base, METAL0, METAL1, 90)
 		ink(base, 2)
 
-		-- trilho do arco (pontinhos) entre solto e puxado
 		for n = 0, 12 do
 			local a = leanAt(n / 12)
 			local d = disc(root, PX + ARC * math.sin(a), PY - ARC * math.cos(a), 3, DIM)
 			d.ZIndex = 5
 		end
 
-		-- dentes da catraca: 0 = solto, 1..3 = cliques
 		local ticks = {}
 		for k = 0, 3 do
 			local a = leanAt(k / 3)
@@ -1446,7 +1348,6 @@ State.buildShipLevers = function(env)
 			ticks[k] = t
 		end
 
-		-- alavanca: haste + empunhadura. Centro = dobradica + direcao * metade do comprimento.
 		local lever = mk("Frame", { BorderSizePixel = 0, BackgroundColor3 = WHITE, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromOffset(PX, PY - LEN / 2), Size = UDim2.fromOffset(7, LEN), ZIndex = 7 }, root)
 		mk("UICorner", { CornerRadius = UDim.new(0, 3) }, lever)
@@ -1485,7 +1386,6 @@ State.buildShipLevers = function(env)
 		end)
 		hold.MouseLeave:Connect(function() held.brakeUi = false end)
 
-		-- atualizacao (chamada pelo LV.fx): posicao do cambio, angulo da alavanca, luzes da catraca e da marcha
 		local lastKey, lastNotch = nil, nil
 		function LV.hudUpdate(t, pos, notch, key)
 			if not root.Visible then return end
@@ -1515,11 +1415,6 @@ State.buildShipLevers = function(env)
 	return LV
 end
 
--- ===== BRACO DIREITO NO CAMBIO E NO FREIO DE MAO =====
--- Chamado por updateHands (buildShipSystem) depois das maos no volante. Quando o cambio troca de marcha, ou quando o freio de mao
--- esta sendo segurado (botao do HUD ou tecla B), o braco direito sai do volante, vai ate a bola do cambio / o cabo do freio
--- (ombro + cotovelo, com o tronco inclinando pra frente se estiver longe) e volta pro volante. A mao esquerda fica no volante.
--- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
 State.armRotFromDown = function(d)
 	local down = Vector3.new(0, -1, 0)
 	local axis = down:Cross(d)
@@ -1537,7 +1432,6 @@ State.shipArmIK = function(S, jr, pw, held)
 	local dt = math.clamp(now - (S.hwClock or now), 0, 0.1)
 	S.hwClock = now
 
-	-- acha a bola do cambio e o cabo do freio (uma vez)
 	if S.hwScan == nil then
 		S.hwScan = true
 		for _, e in ipairs(S.parts) do
@@ -1547,7 +1441,6 @@ State.shipArmIK = function(S, jr, pw, held)
 	end
 	local knobE, gripE = S.hwKnob, S.hwGrip
 
-	-- quem esta sendo segurado: freio (HUD/B no modo TERRA, e ate a alavanca terminar de cair) > cambio (trocando de marcha)
 	local ground = S.state == "flying" and S.mode == "ground"
 	local wantB = gripE ~= nil and ((ground and (held.brake or held.brakeUi)) or (S.bBtn or 0) > 0.05)
 	local wantS = knobE ~= nil and not wantB and S.shiftActT ~= nil and (now - S.shiftActT) < 0.25
@@ -1557,7 +1450,6 @@ State.shipArmIK = function(S, jr, pw, held)
 	S.hwB, S.hwS = wb, ws
 	local w = math.max(wb, ws)
 
-	-- cintura (R15): serve pra inclinar o tronco quando o alvo esta longe
 	local waist = S.hwWaist
 	if waist == nil or (waist and not waist.Parent) then
 		waist = false
@@ -1574,16 +1466,14 @@ State.shipArmIK = function(S, jr, pw, held)
 		end
 		return
 	end
-	local ez = w * w * (3 - 2 * w) -- peso suavizado 0..1 (volante -> alvo)
+	local ez = w * w * (3 - 2 * w)
 
-	-- alvo: posicao ATUAL da bola do cambio / cabo do freio (as pecas se mexem, a mao acompanha)
 	local pk = knobE and (S.cf * knobE.weld.C0.Position) or nil
 	local pg = gripE and (S.cf * gripE.weld.C0.Position) or nil
 	local tgt
 	if pk and pg then tgt = pk:Lerp(pg, wb / (wb + ws + 1e-6)) else tgt = pg or pk end
 	if not tgt then return end
 
-	-- comprimento do braco (R15: ombro->cotovelo e cotovelo->palma). R6 nao tem cotovelo: braco reto.
 	local elbow, hand
 	for _, m in ipairs(jr.extra) do
 		local n = m.Part1 and m.Part1.Name
@@ -1598,7 +1488,6 @@ State.shipArmIK = function(S, jr, pw, held)
 		end
 	end
 
-	-- ombro e tronco desta passada (com a inclinacao nova da cintura)
 	local p0w = pw(sh.Part0)
 	local p0n = p0w
 	local lean = S.hwLean or 0
@@ -1606,10 +1495,10 @@ State.shipArmIK = function(S, jr, pw, held)
 		local lowerCF = pw(waist.Part0)
 		local rotL = lowerCF.Rotation
 		local Wp = lowerCF * waist.C0.Position
-		local function spin(th) -- gira em volta da cintura (frente = -Z do personagem: inclinar pra frente = angulo negativo em X)
+		local function spin(th)
 			return CFrame.new(Wp) * rotL * CFrame.Angles(-th, 0, 0) * rotL:Inverse() * CFrame.new(-Wp)
 		end
-		local p0up = spin(lean):Inverse() * p0w -- tronco "em pe" (desfaz a inclinacao que ja esta aplicada)
+		local p0up = spin(lean):Inverse() * p0w
 		local reach = (L1 + L2) * 0.97
 		local need = 0
 		for i = 0, 10 do
@@ -1623,7 +1512,6 @@ State.shipArmIK = function(S, jr, pw, held)
 		p0n = spin(lean) * p0up
 	end
 
-	-- 2 ossos: o cotovelo aponta pra baixo e um pouco pra fora (pole)
 	local P = p0n * sh.C0.Position
 	local toT = tgt - P
 	local dist = toT.Magnitude
@@ -1643,12 +1531,10 @@ State.shipArmIK = function(S, jr, pw, held)
 		if lv.Magnitude > 1e-3 then lW = lv.Unit else lW = uW end
 	end
 
-	-- ombro: mistura a pose do volante (ja aplicada por updateHands) com a pose do alvo
 	local base = sh.C0 - sh.C0.Position
 	local B = sh.C0:Inverse() * CFrame.new(sh.C0.Position) * State.armRotFromDown(p0n:VectorToObjectSpace(uW)) * base
 	sh.Transform = sh.Transform:Lerp(B, ez)
 
-	-- cotovelo
 	if elbow and lW then
 		local upperCF = p0n * sh.C0 * B * sh.C1:Inverse()
 		local lLoc = upperCF:VectorToObjectSpace(lW)
@@ -1657,9 +1543,6 @@ State.shipArmIK = function(S, jr, pw, held)
 	end
 end
 
--- ===== PORTINHA DE TRAS + BRACO MECANICO COM CANHAO (saida da nave) =====
--- A placa traseira do casco abre (dobradica na borda de baixo), um braco telescopico sai da baia, mira no portal e atira.
--- Chamado por runDismiss. Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
 State.shipRearInit = function(S)
 	if S.rg ~= nil then return S.rg end
 	local rg = { arm = {}, door = {} }
@@ -1671,8 +1554,8 @@ State.shipRearInit = function(S)
 	if not (rg.plate and rg.arm.RGBase and rg.arm.RGGlow) then S.rg = false; return false end
 	rg.sc = rg.plate.part.Size.Z / 3.4
 	rg.half = rg.plate.part.Size.Z / 2
-	rg.H = rg.plate.rel * CFrame.new(0, 0, -rg.half) -- dobradica: borda de baixo da placa
-	-- sentido da abertura: a borda de cima tem que ir pra FORA (normal da placa)
+	rg.H = rg.plate.rel * CFrame.new(0, 0, -rg.half)
+
 	local freeL = Vector3.new(0, 0, 2 * rg.half)
 	local d = (rg.H * CFrame.Angles(0.3, 0, 0)) * freeL - rg.H * freeL
 	rg.sgn = (d:Dot(rg.plate.rel.UpVector) >= 0) and 1 or -1
@@ -1687,9 +1570,6 @@ State.shipRearDoor = function(S, ang)
 	for _, e in ipairs(rg.door) do e.weld.C0 = m * e.rel end
 end
 
--- Canhao da nave (visual Cidadela, alto detalhe): carcaca octogonal em 2 estagios, capsula de vidro com nucleo e aneis giratorios,
--- conduites de fluido, bateria, aletas, bobinas, 6 petalas com brilho interno, lente, luzes e faiscas. ~90 pecas.
--- Fica fora do builder da nave pra nao estourar o limite de locals de la. Posicionado por State.shipRearArm.
 State.buildRearArmDetail = function(add, cylX, c0, col)
 	local METAL, SMOOTH, NEON = col.METAL, col.SMOOTH, col.NEON
 	local GUN, STEEL = Color3.fromRGB(30, 36, 44), Color3.fromRGB(96, 108, 122)
@@ -1698,7 +1578,7 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 	local one = Vector3.new(1, 1, 1)
 	local spec = {}
 	State.rearSpec = spec
-	-- f = distancia a frente do pulso, x = direita, y = cima (tudo multiplicado pela escala do braco)
+
 	local function box(name, f, x, y, sx, sy, sz, color, mat, rot)
 		local sp = { name = name, f = f, x = x, y = y, sx = sx, sy = sy, sz = sz, rot = rot }
 		spec[#spec + 1] = sp
@@ -1715,13 +1595,12 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 		add(name, shape == "cyl" and cylX(1, 1) or one, c0, color, mat, 1, shape, "rarm")
 	end
 
-	-- colar de ligacao com o pulso + parafusos
 	cylZ("RGCollar", 0.12, 0, 0, 0.16, 1.05, GUN, METAL)
 	for i = 0, 5 do
 		local th = math.rad(60 * i)
 		cylZ("RGBolt" .. i, 0.21, -0.46 * math.sin(th), 0.46 * math.cos(th), 0.04, 0.11, LIGHT, METAL)
 	end
-	-- carcaca octogonal: estagio A (escuro/aco, com faixas de energia nas diagonais) e estagio B (claro)
+
 	for i = 0, 7 do
 		local th = math.rad(45 * i)
 		box("RGHouseA" .. i, 0.45, -0.44 * math.sin(th), 0.44 * math.cos(th), 0.38, 0.1, 0.5, i % 2 == 0 and GUN or STEEL, METAL, CFrame.Angles(0, 0, th))
@@ -1731,26 +1610,26 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 		local th = math.rad(45 + 90 * (i - 1))
 		box("RGStripA" .. i, 0.45, -0.505 * math.sin(th), 0.505 * math.cos(th), 0.12, 0.03, 0.4, GLOW, NEON, CFrame.Angles(0, 0, th))
 	end
-	-- aletas de resfriamento em cima do estagio A
+
 	for i = 1, 4 do
 		box("RGFin" .. i, 0.28 + 0.1 * (i - 1), 0, 0.62, 0.5, 0.24, 0.05, STEEL, METAL)
 	end
-	-- conduites laterais com fluido + abracadeiras
+
 	for i, s in ipairs({ -1, 1 }) do
 		cylZ("RGPipe" .. i, 0.72, s * 0.58, 0, 1.0, 0.12, GREEND, NEON)
 		cylZ("RGClampA" .. i, 0.45, s * 0.58, 0, 0.07, 0.19, STEEL, METAL)
 		cylZ("RGClampB" .. i, 0.95, s * 0.58, 0, 0.07, 0.19, STEEL, METAL)
 	end
-	-- bateria embaixo, com faixas brilhantes
+
 	cylZ("RGBatt", 0.75, 0, -0.62, 0.9, 0.38, GUN, METAL)
 	cylZ("RGBand1", 0.5, 0, -0.62, 0.05, 0.4, GLOW, NEON)
 	cylZ("RGBand2", 0.95, 0, -0.62, 0.05, 0.4, GLOW, NEON)
-	-- capsula de vidro em cima do estagio B (o nucleo e os aneis giram la dentro)
+
 	box("RGCapBase", 0.97, 0, 0.45, 0.5, 0.08, 0.6, STEEL, METAL)
 	cylZ("RGGlass", 0.97, 0, 0.78, 0.6, 0.55, Color3.fromRGB(176, 236, 214), Enum.Material.Glass).tr = 0.5
 	cylZ("RGCapA", 0.65, 0, 0.78, 0.08, 0.62, STEEL, METAL)
 	cylZ("RGCapB", 1.29, 0, 0.78, 0.08, 0.62, STEEL, METAL)
-	-- cano: colares escalonados, bobinas, anel da boca, lente, trilho e mira
+
 	cylZ("RGCol1", 1.75, 0, 0, 0.45, 0.7, STEEL, METAL)
 	cylZ("RGCol2", 2.2, 0, 0, 0.3, 0.6, GUN, METAL)
 	cylZ("RGCoilA", 2.45, 0, 0, 0.07, 0.66, GREEND, NEON)
@@ -1761,7 +1640,6 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 	box("RGRail", 2.05, 0, 0.43, 0.06, 0.06, 1.3, STEEL, METAL)
 	box("RGSight", 1.6, 0, 0.53, 0.05, 0.2, 0.4, GUN, METAL)
 
-	-- pecas animadas (posicionadas a cada quadro em shipRearArm)
 	dyn("RGCore", GLOW, NEON, "sphere")
 	dyn("RGRingA", GLOW, NEON, "cyl")
 	dyn("RGRingB", GREEND, NEON, "cyl")
@@ -1770,7 +1648,7 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 		dyn("RGPetal" .. i, i % 2 == 0 and LIGHT or STEEL, METAL, nil)
 		dyn("RGPetalG" .. i, GLOW, NEON, nil)
 	end
-	-- pistoes, colares, cubos do cotovelo e cabos no braco
+
 	dyn("RGPistonU", STEEL, METAL, "cyl")
 	dyn("RGPistonF", STEEL, METAL, "cyl")
 	dyn("RGWristRing", GLOW, NEON, "cyl")
@@ -1786,8 +1664,6 @@ State.buildRearArmDetail = function(add, cylX, c0, col)
 	dyn("RGCable2", GUN, SMOOTH, "cyl")
 end
 
--- ext 0..1 = braco saindo; g 0..1 = mirando (antebraco inclina pra frente, cano gira pra aimShip, petalas abrem, nucleo carrega); kick = recuo do tiro
--- devolve a boca do canhao no espaco da nave
 State.shipRearArm = function(S, ext, g, aimShip, kick)
 	local rg = State.shipRearInit(S)
 	if not rg then return nil end
@@ -1797,7 +1673,7 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 	local B = rg.plate.rel
 	local n = B.UpVector
 	local u = ext * ext * (3 - 2 * ext)
-	local k = 0.12 + 0.88 * u -- braco telescopico: cresce pra fora da baia
+	local k = 0.12 + 0.88 * u
 	local out = Vector3.new(B.Position.X, 0, B.Position.Z)
 	out = out.Magnitude > 1e-3 and out.Unit or Vector3.new(0, 0, 1)
 	local dirU = (Vector3.new(0, 0.95, 0) + out * 0.3).Unit
@@ -1839,12 +1715,12 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 
 	local spec = State.rearSpec
 	if spec and A.RGCore then
-		local det = vis and ext > 0.25 -- detalhes finos so aparecem quando o braco ja saiu o bastante
+		local det = vis and ext > 0.25
 		local q = sc * k
 		local now = os.clock()
 		local dt = math.min(now - (rg.t0 or now), 0.1)
 		rg.t0 = now
-		rg.ph = (rg.ph or 0) + dt * (2.2 + 7 * g + kick * 6) -- aneis giram mais rapido ao mirar/atirar
+		rg.ph = (rg.ph or 0) + dt * (2.2 + 7 * g + kick * 6)
 		local ph = rg.ph
 		local upv = math.abs(d3.Y) > 0.98 and Vector3.xAxis or Vector3.yAxis
 		local HF = CFrame.lookAt(W, W + d3, upv)
@@ -1866,14 +1742,14 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 			local sp = spec[i]
 			setp(A[sp.name], sp.sx * q, sp.sy * q, sp.sz * q, HF * CFrame.new(sp.x * q, sp.y * q, -sp.f * q) * (sp.rot or CFrame.new()), sp.tr)
 		end
-		-- nucleo dentro da capsula, entre dois aneis inclinados que giram
+
 		local bob = math.sin(now * 3) * 0.03
 		local dc = 0.24 + 0.16 * g + 0.12 * kick
 		putd("RGCore", 0.97, 0, 0.78 + bob, dc, dc, dc)
 		putd("RGRingA", 0.97, 0, 0.78 + bob, 0.04, 0.46, 0.46, CFrame.Angles(0, ph, 0) * CFrame.Angles(math.rad(35), 0, math.rad(90)))
 		putd("RGRingB", 0.97, 0, 0.78 + bob, 0.04, 0.36, 0.36, CFrame.Angles(0, -ph * 1.3, 0) * CFrame.Angles(math.rad(-40), 0, math.rad(90)))
 		putd("RGLamp", 1.6, 0, 0.66, 0.09, 0.09, 0.09, nil, (math.sin(now * 8) > 0) and 0 or 0.7)
-		-- 6 petalas na ponta com brilho por dentro: fechadas em repouso, abrem ao mirar, abrem mais no tiro
+
 		local al = 0.06 + g * 0.6 + kick * 0.3
 		for i = 1, 6 do
 			local th = (i - 1) * math.pi / 3 + math.pi / 6
@@ -1881,7 +1757,7 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 			setp(A["RGPetal" .. i], 0.26 * q, 0.04 * q, 0.65 * q, cf)
 			setp(A["RGPetalG" .. i], 0.08 * q, 0.02 * q, 0.5 * q, cf * CFrame.new(0, -0.03 * q, 0))
 		end
-		-- braco: pistoes, colares, cubos no cotovelo, cabos, anel no pulso
+
 		local X = Vector3.xAxis
 		local sideV = X * (0.5 * sc)
 		local ud, fd = (E - S0), (W - E)
@@ -1906,7 +1782,6 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 		segd(A.RGCable2, E:Lerp(W, 0.1) + pv * (0.4 * sc) - X * (0.14 * sc), E:Lerp(W, 0.9) + pv * (0.4 * sc) - X * (0.14 * sc), 0.09 * sc)
 	end
 
-	-- luzes, faiscas do nucleo e vapor/faiscas verdes na boca (criados uma vez)
 	if not rg.fxTried then
 		rg.fxTried = true
 		pcall(function()
@@ -1969,14 +1844,6 @@ State.shipRearArm = function(S, ext, g, aimShip, kick)
 	return tip
 end
 
--- ===================================================================
--- ESPACO (v20)
--- Acima de ShipSpaceStartAlt o ceu fica preto (atmosfera/nuvens somem, estrelas). (v21) Os planetas (lua, Deserto,
--- Gelo e Neon) ficam PARADOS no mundo (ancorados onde voce saiu da Terra, com parallax de verdade): a Terra e o
--- proprio mapa la embaixo. Pra entrar numa dimensao e obrigatorio VOAR ate o planeta; dentro da dimensao,
--- subir alto volta pro espaco ao lado do planeta.
--- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
--- ===================================================================
 State.space = { k = 0, visible = false }
 do
 	local Sp = State.space
@@ -1984,32 +1851,29 @@ do
 	local TweenService = game:GetService("TweenService")
 	local rng = Random.new(20)
 	Sp.SPACE = Vector3.new(0, 60000, 0)
-	-- (v24) texturas dos planetas (Decals enviados no Creator Hub). Deixe "" num planeta pra usar o visual antigo de pecas.
+
 	Sp.TEX = {
 		terra   = "rbxassetid://81971895872632",
-		nuvens  = "rbxassetid://139409485801059", -- camada de nuvens da Terra (PNG com transparencia)
+		nuvens  = "rbxassetid://139409485801059",
 		deserto = "rbxassetid://133215458029546",
 		gelo    = "rbxassetid://94887538555701",
 		neon    = "rbxassetid://103941792770202",
 		lua     = "rbxassetid://124632665944074",
-		-- (v28) Ceu do K-22: planeta (esferica 2:1), nuvens (esferica 2:1, PNG com transparencia), aneis (quadrada, PNG com transparencia), corona dos sois (quadrada, PNG com transparencia)
+
 		k22planeta = "rbxassetid://135896229724567",
 		k22nuvens  = "rbxassetid://98367817404331",
 		k22aneis   = "rbxassetid://85037729318942",
 		k22corona  = "rbxassetid://135679390547710",
-		k22sol1    = "rbxassetid://115232626144669", -- sol grande (sol_amarelo)
-		k22sol2    = "rbxassetid://124809144154752", -- sol pequeno (sol_vermelho)
-		malha   = "", -- (v25) ID da MALHA de esfera (esfera_planeta.obj importado no Studio). Sem ela, usa o visual antigo de pecas
+		k22sol1    = "rbxassetid://115232626144669",
+		k22sol2    = "rbxassetid://124809144154752",
+		malha   = "",
 	}
-	Sp.MESH_DIAM = 2 -- diametro (studs) da esfera importada: o MeshPart importado deve mostrar Size 2, 2, 2. Se mostrar outro valor, coloque aqui
+	Sp.MESH_DIAM = 2
 	Sp.hasMesh = Sp.TEX.malha ~= nil and Sp.TEX.malha ~= ""
-	-- (v27) SEM malha importada: o script gera a esfera UV sozinho (EditableMesh) e usa nos planetas. Nada pra importar.
-	-- Se os planetas aparecerem invisiveis/por dentro, troque Sp.FLIP para true (inverte o lado das faces).
+
 	Sp.FLIP = false
 	Sp.meshBase = nil
-	-- (v27c) EXECUTOR: gera o arquivo de malha (.mesh v2) com writefile e carrega com getcustomasset.
-	-- Assim a esfera e uma malha normal (SpecialMesh) e os planetas ficam no TAMANHO ORIGINAL (SCALE 3.2), sem limite de 2048.
-	-- Se a textura sair de cabeca pra baixo: Sp.FLIPV = true. Se o planeta sumir/aparecer por dentro: Sp.FLIP = true.
+
 	Sp.FLIPV = false
 	if not Sp.hasMesh then
 		local ok, res = pcall(function()
@@ -2022,7 +1886,7 @@ do
 				local phi = math.pi * i / N
 				local y, r = math.cos(phi), math.sin(phi)
 				for j = 0, M do
-					local th = -2 * math.pi * j / M -- u cresce pra direita vendo de fora (sem espelhar)
+					local th = -2 * math.pi * j / M
 					local x, z = r * math.cos(th), r * math.sin(th)
 					local v = i / N
 					if Sp.FLIPV then v = 1 - v end
@@ -2061,7 +1925,7 @@ do
 		local ok, res = pcall(function()
 			local AssetService = game:GetService("AssetService")
 			local em = AssetService:CreateEditableMesh()
-			local N, M = 40, 80 -- aneis x segmentos (6400 triangulos, abaixo do limite de 20k)
+			local N, M = 40, 80
 			local V, UV, NR = {}, {}, {}
 			for i = 0, N do
 				local phi = math.pi * i / N
@@ -2071,7 +1935,7 @@ do
 					local th = 2 * math.pi * j / M
 					local pos = Vector3.new(r * math.cos(th), y, r * math.sin(th))
 					V[i][j] = em:AddVertex(pos)
-					UV[i][j] = em:AddUV(Vector2.new(j / M, i / N)) -- equirretangular (mapa-mundi) com a emenda duplicada
+					UV[i][j] = em:AddUV(Vector2.new(j / M, i / N))
 					NR[i][j] = em:AddNormal(pos)
 				end
 			end
@@ -2088,7 +1952,7 @@ do
 					if i < N - 1 then tri(B, D, C) end
 				end
 			end
-			-- (v27b) MeshPart de verdade: SpecialMesh nao renderiza EditableMesh direito (saia um quadrado chapado)
+
 			local base = AssetService:CreateMeshPartAsync(Content.fromObject(em))
 			base.Anchored = true
 			base.CanCollide, base.CanQuery, base.CanTouch, base.CastShadow = false, false, false, false
@@ -2102,13 +1966,11 @@ do
 			warn("[Rick] planetas: nao deu pra gerar a esfera (" .. tostring(res) .. "). Ative 'Allow Mesh & Image APIs' (Permitir APIs de Mesh e Imagem) nas configuracoes do jogo, ou cole um MeshId em Sp.TEX.malha. Por enquanto: esferas lisas.")
 		end
 	end
-	Sp.SCALE = Sp.meshBase and 1.05 or 3.2 -- (v27b) MeshPart tem limite de 2048 studs: com a esfera gerada, o planeta maior fica ~2000 -- (v23) multiplicador do tamanho dos planetas (v22 = 1). Esferas acima de 2048 studs usam Scale da mesh
+	Sp.SCALE = Sp.meshBase and 1.05 or 3.2
 	local MAT_SMOOTH, MAT_NEON, MAT_ICE = Enum.Material.SmoothPlastic, Enum.Material.Neon, Enum.Material.Ice
 
-	-- ---------- (v28) disco plano texturizado (aneis do planeta K-22) + helpers de esfera/disco texturizados ----------
-	-- Disco = quad 2x2 de dupla face (quase sem espessura), gerado igual a esfera: arquivo (writefile) ou EditableMesh.
 	Sp.discBase, Sp.discMeshId, Sp.discReady = nil, nil, false
-	local DISC_H = 0.01 -- meia espessura da malha (unidades da malha; o Scale Y de 50 deixa ~0.5 stud)
+	local DISC_H = 0.01
 	do
 		local ok, res = pcall(function()
 			local wf = writefile
@@ -2178,10 +2040,6 @@ do
 		p.CFrame = cf
 	end
 
-	-- (v27.4) CORRECAO: TextureID de MeshPart/SpecialMesh IGNORA o canal alpha do PNG. Por isso as nuvens viravam uma esfera cinza opaca
-	-- cobrindo o planeta e o disco dos aneis virava um quadrado cinza. Agora:
-	--   * camadas com transparencia (nuvens) usam SurfaceAppearance com AlphaMode = Transparency (so existe em MeshPart);
-	--   * os aneis viram uma peca fina invisivel com SurfaceGui + ImageLabel (ImageLabel respeita o alpha).
 	Sp.alphaBase = Sp.meshBase
 	if not Sp.alphaBase and Sp.hasMesh and type(Sp.TEX.malha) == "string" and Sp.TEX.malha ~= "" then
 		local okA, mpA = pcall(function()
@@ -2196,10 +2054,8 @@ do
 			warn("[Rick] K-22: nao deu pra criar MeshPart com alpha (" .. tostring(mpA) .. "). As nuvens do K-22 ficam desligadas (sem elas o planeta aparece normal).")
 		end
 	end
-	Sp.discImgs = {} -- [peca do disco] = { imgs = {ImageLabel...}, base = transparencia }
+	Sp.discImgs = {}
 
-	-- esfera texturizada solta (centro em cf, raio R). alpha = true: a textura tem transparencia (nuvens) -> exige MeshPart + SurfaceAppearance
-	-- Devolve nil se nao ha malha ou id (quem chama usa o visual antigo)
 	function Sp.texBall(parent, cf, R, id, transp, mat, color, alpha)
 		if not Sp.hasMesh or type(id) ~= "string" or id == "" then return nil end
 		local d = math.min(2 * R, 2048)
@@ -2232,8 +2088,6 @@ do
 		return p
 	end
 
-	-- disco plano com PNG transparente (aneis), raio R, no plano XZ do cf: peca fina invisivel + SurfaceGui nas duas faces.
-	-- A peca fica sempre com Transparency 1; o fade (mostrar/esconder planeta) mexe no ImageTransparency via Sp.discImgs.
 	function Sp.texDisc(parent, cf, R, id, transp, mat, color)
 		if type(id) ~= "string" or id == "" then return nil end
 		local p = Instance.new("Part")
@@ -2265,9 +2119,6 @@ do
 		return p
 	end
 
-	-- ---------- (v21) planetas grandes e detalhados ----------
-	-- Corpo = pecas ANCORADAS estaticas (custo zero por quadro). So camadas leves animam: nuvens, tempestade, aneis, aurora, luas.
-	-- Peca maxima do Roblox = 2048 studs, entao raio do corpo <= ~950 (as capas de brilho ficam sob esse limite).
 	local function newPlanet(name, center, tilt)
 		local m = Instance.new("Model")
 		m.Name = name
@@ -2287,7 +2138,7 @@ do
 		if ball then
 			local m = Instance.new("SpecialMesh")
 			m.MeshType = Enum.MeshType.Sphere
-			if size.X > 2048 or size.Y > 2048 or size.Z > 2048 then m.Scale = Vector3.new(size.X / cs.X, size.Y / cs.Y, size.Z / cs.Z) end -- (v23) planeta gigante
+			if size.X > 2048 or size.Y > 2048 or size.Z > 2048 then m.Scale = Vector3.new(size.X / cs.X, size.Y / cs.Y, size.Z / cs.Z) end
 			m.Parent = p
 		end
 		p.CFrame = cf
@@ -2298,11 +2149,10 @@ do
 
 	local function newGroup(P)
 		local r = mkPart(P, P.T, Vector3.new(1, 1, 1), Color3.new(), MAT_SMOOTH, 1, false)
-		P.list[#P.list] = nil -- a raiz fica sempre invisivel
+		P.list[#P.list] = nil
 		return r
 	end
 
-	-- g = nil: peca estatica no referencial do planeta; g = grupo: soldada na raiz do grupo (que se mexe)
 	local function put(P, g, lcf, size, color, mat, transp, ball)
 		if not g then return mkPart(P, P.T * lcf, size, color, mat, transp, ball) end
 		local p = mkPart(P, g.CFrame * lcf, size, color, mat, transp, ball)
@@ -2317,8 +2167,6 @@ do
 		return put(P, g, CFrame.new(), Vector3.new(2 * R, 2 * R, 2 * R), color, mat, transp, true)
 	end
 
-	-- (v24) planeta = UMA esfera com textura (SpecialMesh.TextureId). spin = rad/s girando no proprio eixo (inclinado pelo tilt)
-	-- (v25) a esfera padrao do Roblox IGNORA textura: usa a malha importada (FileMesh) + TextureId
 	local function texMesh(p, R, id)
 		local m = p:FindFirstChildOfClass("SpecialMesh")
 		if not m then return end
@@ -2328,7 +2176,6 @@ do
 		m.Scale = Vector3.new(1, 1, 1) * (2 * R / (Sp.MESH_DIAM or 2))
 	end
 
-	-- (v27b) esfera texturizada como MeshPart (clonada da esfera gerada). g = grupo (soldada) ou nil (estatica)
 	local function mkTexPart(P, g, lcf, R, id, transp, mat)
 		local p = Sp.meshBase:Clone()
 		local d = math.min(2 * R, 2048)
@@ -2376,7 +2223,6 @@ do
 		return Vector3.new(r * math.cos(a), z, r * math.sin(a))
 	end
 
-	-- elipsoide achatado colado na superficie (topo = `lift` acima do raio)
 	local function patch(P, g, R, dir, w, d, h, color, mat, transp, lift)
 		return put(P, g, surf(dir, R - h / 2 + (lift or 0.012 * R), rng:NextNumber(0, math.pi * 2)), Vector3.new(w, h, d), color, mat, transp, true)
 	end
@@ -2395,7 +2241,6 @@ do
 		end
 	end
 
-	-- anel fino na superficie numa latitude (linhas de grade)
 	local function latRing(P, R, lat, thick, n, color)
 		local rad, y = R * math.cos(lat) * 1.004, R * math.sin(lat) * 1.004
 		local chord = 2 * rad * math.tan(math.pi / n) * 1.05
@@ -2412,7 +2257,6 @@ do
 		end
 	end
 
-	-- (v21b) superficie em mosaico: centenas de manchas pequenas que se sobrepoem, coloridas por ruido (nada de blocos grandes)
 	local function fib(n)
 		local pts, ga = {}, math.pi * (3 - math.sqrt(5))
 		for i = 0, n - 1 do
@@ -2428,14 +2272,12 @@ do
 		return math.clamp(0.5 + math.noise(x, y, z) * 0.95 + math.noise(x * 2.1, y * 2.1, z * 2.1) * 0.45 + math.noise(x * 4.3, y * 4.3, z * 4.3) * 0.2, 0, 1)
 	end
 
-	-- quantidade de manchas escala com a qualidade grafica (minimo = leve, maximo = bem detalhado)
 	local DENS = (function()
 		local ok, q = pcall(function() return settings().Rendering.QualityLevel.Value end)
 		if not ok or q == 0 then q = 10 end
 		return q <= 3 and 0.4 or (q <= 6 and 0.75 or (q <= 9 and 1.1 or 1.5))
 	end)()
 
-	-- fn(dir) -> color, lift (fracao de R), material, transparencia   (color nil = pula)
 	local function mosaic(P, g, R, n, k, thick, fn)
 		n = math.floor(n * DENS)
 		local s = math.sqrt(4 * math.pi * R * R / n) * (k or 1.5)
@@ -2448,15 +2290,13 @@ do
 		end
 	end
 
-	local function lerpN(cols, t) -- gradiente por varios pontos, t 0..1
+	local function lerpN(cols, t)
 		local n = #cols - 1
 		local x = math.clamp(t, 0, 0.9999) * n
 		local i = math.floor(x)
 		return cols[i + 1]:Lerp(cols[i + 2], x - i)
 	end
 
-	-- ---------- (v26) planetas: SO textura (esfera de malha + imagem). O visual antigo de pecas foi removido ----------
-	-- Sem o ID da malha (Sp.TEX.malha) ele cai numa esfera lisa de cor unica e avisa no console.
 	Sp.FB = { terra = Color3.fromRGB(40, 100, 200), deserto = Color3.fromRGB(214, 150, 86), gelo = Color3.fromRGB(200, 232, 255), neon = Color3.fromRGB(60, 20, 100), lua = Color3.fromRGB(170, 170, 180) }
 	Sp.body = function(P, R, key, mat, spin)
 		if Sp.hasMesh then return texSphere(P, R, Sp.TEX[key], 0, mat, spin) end
@@ -2467,12 +2307,11 @@ do
 		local R = 950 * Sp.SCALE
 		local P = newPlanet("RickEarth", center, tilt)
 		Sp.body(P, R, "terra", MAT_SMOOTH, 0.004)
-		if Sp.hasMesh then texSphere(P, R * 1.012, Sp.TEX.nuvens, 0.02, MAT_SMOOTH, 0.022) end -- nuvens (PNG com transparencia)
-		sphere(P, nil, R * 1.045, Color3.fromRGB(110, 170, 255), MAT_NEON, 0.9) -- brilho da atmosfera
+		if Sp.hasMesh then texSphere(P, R * 1.012, Sp.TEX.nuvens, 0.02, MAT_SMOOTH, 0.022) end
+		sphere(P, nil, R * 1.045, Color3.fromRGB(110, 170, 255), MAT_NEON, 0.9)
 		return P
 	end
 
-	-- Lua (orbita a Terra)
 	local function buildMoon(center, tilt, def)
 		local R = 300 * Sp.SCALE
 		local P = newPlanet("RickMoon", center, tilt)
@@ -2496,10 +2335,8 @@ do
 		local R = 800 * Sp.SCALE
 		local P = newPlanet("RickDesert", center, tilt)
 		Sp.body(P, R, "deserto", MAT_SMOOTH, 0.004)
-		sphere(P, nil, R * 1.04, Color3.fromRGB(255, 190, 120), MAT_NEON, 0.93) -- poeira
-		-- (v27g) os 2 sois + mini planeta com aneis (Saturno) do ceu da dimensao, agora tambem no espaco, bem longe do planeta
-		-- posicoes em coordenadas do MUNDO relativas ao centro do planeta, no campo de visao de quem chega pela Terra:
-		-- d = direcao Terra > deserto, rgt = direita da camera, upv = cima da camera
+		sphere(P, nil, R * 1.04, Color3.fromRGB(255, 190, 120), MAT_NEON, 0.93)
+
 		local d = (center - Sp.SPACE).Unit
 		local rgt = d:Cross(Vector3.yAxis).Unit
 		local upv = rgt:Cross(d)
@@ -2519,7 +2356,7 @@ do
 			cball(lcf, r, col, MAT_NEON, 0)
 			for i = 1, 3 do cball(lcf, r * (1.3 + i * 0.45), halo, MAT_NEON, 0.9 + i * 0.03) end
 		end
-		-- (v27.6) a lua grande do ceu da dimensao do deserto, agora orbitando o planeta Deserto no espaco
+
 		local mRad, mOrb = R * 0.2, R * 2.3
 		local dMoon = Sp.texBall(P.model, P.T, mRad, Sp.TEX.lua, 0, MAT_SMOOTH)
 		if dMoon then
@@ -2547,14 +2384,14 @@ do
 		local P = newPlanet("RickNeon", center, tilt)
 		Sp.body(P, R, "neon", MAT_SMOOTH, 0.004)
 		if Sp.hasMesh then
-			-- (v27f) 2a camada de raios (mesma textura, meio transparente) girando ao contrario + atmosfera fina
+
 			texSphere(P, R * 1.006, Sp.TEX.neon, 0.5, MAT_SMOOTH, -0.014)
 			local atm = texSphere(P, R * 1.035, "", 0.9, MAT_SMOOTH, nil)
 			atm.Color = Color3.fromRGB(140, 90, 255)
 		end
-		local k = R / 480 -- aneis escalam com o raio
+		local k = R / 480
 		local tl = CFrame.Angles(math.rad(22), 0, math.rad(8))
-		-- (v27f) aneis tracejados e finos, cada um girando pra um lado (um anel liso girando nao da pra ver)
+
 		local function ringSeg(radius, band, thick, n, color, transp, dashEvery, spd)
 			local g = newGroup(P)
 			g.CFrame = P.T * tl
@@ -2571,7 +2408,7 @@ do
 		ringSeg(1100 * k, 45 * k, 4 * k, 44, Color3.fromRGB(0, 255, 240), 0.2, 3, 0.05)
 		ringSeg(980 * k, 28 * k, 3 * k, 44, Color3.fromRGB(255, 0, 200), 0.25, 4, -0.08)
 		ringSeg(1230 * k, 14 * k, 2 * k, 48, Color3.fromRGB(160, 120, 255), 0.5, 2, 0.03)
-		-- (v27f) duas luas neon pequenas orbitando
+
 		local function moonN(orbitR, mr, color, spd, ph, inc)
 			local g = newGroup(P)
 			sphere(P, g, mr, color, MAT_NEON)
@@ -2584,7 +2421,6 @@ do
 		return P
 	end
 
-	-- off = posicao do centro na zona do espaco; R = raio (entrar = atravessar a superficie); dim = dimensao
 	local DEFS = {
 		{ build = buildEarth,  off = Vector3.new(0, 0, 0),           tilt = CFrame.Angles(math.rad(23), 0, 0), earth = true, R = 950 * Sp.SCALE, name = "Terra" },
 		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 } },
@@ -2593,7 +2429,6 @@ do
 		{ build = buildNeon,   off = Vector3.new(6000, -4500, 30000), tilt = CFrame.Angles(0, 0, math.rad(10)),           dim = "neon",   R = 750 * Sp.SCALE, name = "C-35K Neon" },
 	}
 
-	-- ---------- planetas: criar / mostrar / esconder ----------
 	local function ensurePlanets()
 		if Sp.folder then return end
 		local f = Instance.new("Folder")
@@ -2663,7 +2498,6 @@ do
 		end)
 	end
 
-	-- ---------- iluminacao / ceu ----------
 	local function saveLighting()
 		local L = Lighting
 		local a = L:FindFirstChildOfClass("Atmosphere")
@@ -2693,13 +2527,13 @@ do
 			s.CelestialBodiesShown = false
 			s.Parent = Lighting
 			Sp.spaceSky = s
-			local a = Instance.new("Atmosphere") -- preta, Offset 1: esconde qualquer ceu e deixa o fundo preto
+			local a = Instance.new("Atmosphere")
 			a.Name = "RickSpaceAtmo"
 			a.Density, a.Offset, a.Glare, a.Haze = 0.02, 1, 0, 0
 			a.Color, a.Decay = Color3.new(0, 0, 0), Color3.new(0, 0, 0)
 			a.Parent = Lighting
 			Sp.spaceAtmo = a
-			Lighting.ClockTime, Lighting.Brightness = 16, 3 -- sol baixo: os planetas ganham lado claro/escuro (parecem esferas, nao imagem chapada)
+			Lighting.ClockTime, Lighting.Brightness = 16, 3
 		else
 			if Sp.spaceSky then Sp.spaceSky:Destroy() end
 			if Sp.spaceAtmo then Sp.spaceAtmo:Destroy() end
@@ -2741,7 +2575,6 @@ do
 		if Sp.inSpace and k >= 0.3 then setSpaceSky(true) elseif not Sp.inSpace then setSpaceSky(false) end
 	end
 
-	-- ---------- warp: voar ate o planeta = entrar na dimensao ----------
 	local Players = game:GetService("Players")
 
 	local function whiteFlash(color, onPeak)
@@ -2774,7 +2607,7 @@ do
 		hidePlanets(true)
 	end
 
-	local SPACE = Sp.SPACE -- (v21) o espaco e uma zona separada, bem longe do mundo e das dimensoes; a Terra fica no centro
+	local SPACE = Sp.SPACE
 	local function inSpaceZone(S) return S and S.pos and S.pos.Y > 30000 end
 
 	local function groundHome()
@@ -2805,7 +2638,6 @@ do
 		end)
 	end
 
-	-- mundo -> espaco (passou da altitude): aparece perto da Terra, la no espaco
 	local function toSpace(S)
 		warp(Color3.new(1, 1, 1), function()
 			Sp.noEnter = os.clock() + 6
@@ -2816,7 +2648,6 @@ do
 		end)
 	end
 
-	-- Terra (planeta) -> volta pro mundo do jogo, descendo
 	local function toWorld(S)
 		warp(Color3.new(1, 1, 1), function()
 			local a = Sp.anchor or Vector3.zero
@@ -2826,7 +2657,6 @@ do
 		end)
 	end
 
-	-- espaco -> dimensao (entrou no planeta)
 	local function enterPlanet(S, def)
 		local Dm, dd = State.Dim, findDim(def.dim)
 		if not dd or Sp.warping then return end
@@ -2842,7 +2672,6 @@ do
 		end)
 	end
 
-	-- dimensao -> espaco, ao lado do planeta
 	local function leaveDimension(S, dd)
 		warp(Color3.new(1, 1, 1), function()
 			for _, d in ipairs(DEFS) do
@@ -2860,19 +2689,18 @@ do
 		end)
 	end
 
-	-- chamada todo quadro. S = nave (ou nil). Sp.k (0..1) tambem e lido pelo voo (mais rapido no espaco).
 	function Sp.step(S, dt, C, camera)
 		local Dm = State.Dim
 		local cur = Dm and Dm.current
-		if os.clock() < (Sp.hold or 0) then return end -- logo apos um warp: deixa a dimensao/mundo assentar a iluminacao
-		if cur then -- dentro de uma dimensao: nada de espaco; subir (passou do teto) = volta pro espaco ao lado do planeta
+		if os.clock() < (Sp.hold or 0) then return end
+		if cur then
 			if Sp.saved or Sp.k > 0 or Sp.visible then resetSpaceNow() end
 			if S and S.pos and S.state == "flying" and not Sp.warping and S.pos.Y > cur.origin.Y + 450 then leaveDimension(S, cur) end
 			return
 		end
 		local a0, a1 = C.ShipSpaceStartAlt or 700, C.ShipSpaceFullAlt or 1500
 		local inSpace = inSpaceZone(S)
-		if Sp.forceFull and inSpace then Sp.forceFull, Sp.k, Sp.instant, Sp.shownAt = false, 1, true, os.clock() - 5 end -- chegou no espaco: tudo ja aparece, sem esperar escurecer/fade
+		if Sp.forceFull and inSpace then Sp.forceFull, Sp.k, Sp.instant, Sp.shownAt = false, 1, true, os.clock() - 5 end
 		local target = 0
 		if inSpace then
 			target = 1
@@ -2909,7 +2737,6 @@ do
 		end
 	end
 
-	-- limpeza total (destroy do script)
 	function State.spaceStop()
 		pcall(function() game:GetService("RunService"):UnbindFromRenderStep("RickSpacePlanets") end)
 		Sp.k = 0
@@ -2938,23 +2765,23 @@ State.buildShipSystem = function(ctx)
 	local SEAT_H = C.ShipSeatHeight or 1.5
 	local BOARD_R = (C.ShipBoardRadius or 8) * SCALE
 	local AUTO_BOARD = C.ShipAutoBoard ~= false
-	local LEG_H = 5.0 * SCALE                 -- centro da nave ate o chao com as rodas abaixadas
-	local CANOPY_OPEN = 1                       -- 0 = vidro fechado, 1 = aberto (progresso da animacao)
-	local CANOPY_ANGLE = math.rad(105)          -- quanto o vidro tomba pra tras ao abrir (graus)
-	local CANOPY_HINGE = Vector3.new(0, 3.8, 6.85) * SCALE -- dobradica: base traseira da cupula (nave aponta pra -Z)
+	local LEG_H = 5.0 * SCALE
+	local CANOPY_OPEN = 1
+	local CANOPY_ANGLE = math.rad(105)
+	local CANOPY_HINGE = Vector3.new(0, 3.8, 6.85) * SCALE
 	local GEAR_TRAVEL = 3.0 * SCALE
-	local SEAT_REL = CFrame.new(-2.3 * SCALE, (4.5 - 1.3) * SCALE + SEAT_H, 0.9 * SCALE) -- banco esquerdo (motorista)
+	local SEAT_REL = CFrame.new(-2.3 * SCALE, (4.5 - 1.3) * SCALE + SEAT_H, 0.9 * SCALE)
 	local STEP_ID = "RickShipStep"
 	local GROUND_SPEED = C.ShipGroundSpeed or 45
 	local GROUND_TURBO = C.ShipGroundTurbo or 2
 	local GROUND_ACCEL = 3.2
-	local STEP_UP = 3.5 * SCALE   -- degrau maximo que a nave sobe sozinha no modo terra
-	-- suspensao das rodas (mola + amortecedor)
-	local SUSP_BUMP = 1.8 * SCALE   -- curso maximo de compressao (roda sobe pro casco)
-	local SUSP_DROOP = 1.3 * SCALE  -- curso maximo de extensao (roda desce quando o chao some)
-	local SUSP_K = 145              -- dureza da mola
-	local SUSP_ZETA = 0.27          -- amortecimento (menor = quica mais)
-	local SUSP_LOAD = 0.9 * SCALE   -- quanto cada roda comprime/estica com curva, aceleracao e freada
+	local STEP_UP = 3.5 * SCALE
+
+	local SUSP_BUMP = 1.8 * SCALE
+	local SUSP_DROOP = 1.3 * SCALE
+	local SUSP_K = 145
+	local SUSP_ZETA = 0.27
+	local SUSP_LOAD = 0.9 * SCALE
 
 	local api = {}
 	local ship = nil
@@ -2972,17 +2799,11 @@ State.buildShipSystem = function(ctx)
 	local savedZoom = nil
 	local sinkBound = false
 
-	-- cambio + freio de mao (animacao 3D e painel na tela). Nao cria locals aqui: o limite de locals da funcao esta perto.
 	State.shipLv = State.buildShipLevers({
 		C = C, ctx = ctx, held = held, api = api, SCALE = SCALE, CANOPY_OPEN = CANOPY_OPEN,
 		getShip = function() return ship end,
 	})
 
-	-- ---------------------------------------------------------------
-	-- HUD v2 (estilo Rick and Morty): velocimetro desenhado, botoes com icones desenhados,
-	-- gosma pingando, botao PILOTAR e avisos. Tudo feito de Frames (nenhum asset externo).
-	-- ---------------------------------------------------------------
-	-- (tudo dentro de um bloco: so o que o resto do script usa fica como local da funcao)
 	local pad, btnUp, btnDown, btnTurbo, boardBtn, infoLbl, toast
 	do
 	local hud = ctx.newGui("RickShipHud", 26)
@@ -2996,7 +2817,6 @@ State.buildShipSystem = function(ctx)
 	local FONT = Enum.Font.FredokaOne
 	local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
-	-- ---------- helpers ----------
 	local function mk(class, props, parent)
 		local o = Instance.new(class)
 		for k, v in pairs(props) do o[k] = v end
@@ -3041,7 +2861,6 @@ State.buildShipSystem = function(ctx)
 		}, parent)
 	end
 
-	-- escala por tamanho de tela (celular x PC). A UIAnimScale vem primeiro pra animacao automatica nao pisar na minha
 	local vpScales = {}
 	local function vpFactor()
 		local s = hud.AbsoluteSize
@@ -3054,7 +2873,6 @@ State.buildShipSystem = function(ctx)
 		vpScales[#vpScales + 1] = s
 	end
 
-	-- ---------- icones desenhados (grade 28x28, posicoes em escala) ----------
 	local function ibar(parent, cx, cy, w, h, rot, col)
 		local f = mk("Frame", {
 			BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = col or INK,
@@ -3075,17 +2893,17 @@ State.buildShipSystem = function(ctx)
 		return mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1) }, parent)
 	end
-	local function drawArrow(f, col) -- seta pra cima (propulsor)
+	local function drawArrow(f, col)
 		ibar(f, 14, 17, 5.5, 14, 0, col)
 		ibar(f, 10.4, 8.8, 5.5, 11, 45, col)
 		ibar(f, 17.6, 8.8, 5.5, 11, -45, col)
 	end
-	local function drawBolt(f, col) -- raio (turbo)
+	local function drawBolt(f, col)
 		ibar(f, 15.5, 8.5, 5.5, 14.5, 33, col)
 		ibar(f, 14, 14.2, 12, 4.6, 0, col)
 		ibar(f, 11.5, 19.5, 5.5, 13, 27, col)
 	end
-	local function drawSaucer(f, col, hi) -- disco voador (modo VOO)
+	local function drawSaucer(f, col, hi)
 		idot(f, 14, 11, 11, col)
 		idot(f, 12, 9.5, 3.2, hi)
 		local body = ibar(f, 14, 16.5, 26, 9, 0, col)
@@ -3096,7 +2914,7 @@ State.buildShipSystem = function(ctx)
 		ibar(f, 9, 23, 3, 4, 20, col)
 		ibar(f, 19, 23, 3, 4, -20, col)
 	end
-	local function drawWheel(f, col, hi) -- roda (modo TERRA)
+	local function drawWheel(f, col, hi)
 		idot(f, 14, 14, 25, col)
 		idot(f, 14, 14, 15, hi)
 		ibar(f, 14, 14, 3, 15, 0, col)
@@ -3105,7 +2923,7 @@ State.buildShipSystem = function(ctx)
 		ibar(f, 14, 14, 3, 15, -45, col)
 		idot(f, 14, 14, 6, col)
 	end
-	local function drawExit(f, col) -- porta + seta saindo
+	local function drawExit(f, col)
 		local door = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(9 / 28, 14 / 28), Size = UDim2.fromScale(13 / 28, 20 / 28) }, f)
 		mk("UIStroke", { Color = col, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, door)
@@ -3115,9 +2933,6 @@ State.buildShipSystem = function(ctx)
 		ibar(f, 22.2, 16.8, 4, 8, 45, col)
 	end
 
-	-- =================================================================
-	-- VELOCIMETRO (lado esquerdo, acima do analogico)
-	-- =================================================================
 	local dialRoot = mk("Frame", { Name = "ShipDial", BackgroundTransparency = 1, BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.085, 0, 0.4, 0), Size = UDim2.fromOffset(340, 190),
 		Visible = false }, hud)
@@ -3134,17 +2949,16 @@ State.buildShipSystem = function(ctx)
 		turboGlow.Visible = false
 		TweenService:Create(turboGlow, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 			{ BackgroundTransparency = 0.8 }):Play()
-		disc(dial, 68, 75, 136, BLACK, 0.55)                       -- sombra
-		local rim = disc(dial, 68, 68, 136, WHITE)                 -- aro de aco
+		disc(dial, 68, 75, 136, BLACK, 0.55)
+		local rim = disc(dial, 68, 68, 136, WHITE)
 		grad(rim, Color3.fromRGB(150, 164, 180), Color3.fromRGB(52, 60, 72), 90)
 		ink(rim, 4)
 		local bevel = disc(dial, 68, 68, 124, Color3.fromRGB(22, 26, 32))
 		ink(bevel, 2)
-		local face = disc(dial, 68, 68, 114, WHITE)                -- mostrador
+		local face = disc(dial, 68, 68, 114, WHITE)
 		grad(face, Color3.fromRGB(26, 62, 34), Color3.fromRGB(6, 16, 10), 90)
 		ink(face, 2, ACC, 0.55)
 
-		-- mini portal girando no fundo do mostrador
 		local sw = disc(dial, 68, 93, 52, WHITE, 0.4)
 		local swg = mk("UIGradient", {
 			Color = ColorSequence.new({
@@ -3154,7 +2968,6 @@ State.buildShipSystem = function(ctx)
 		ink(sw, 2, ACC, 0.35)
 		TweenService:Create(swg, TweenInfo.new(2.4, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 360 }):Play()
 
-		-- marcas da escala (240 graus)
 		for k = 0, N do
 			local ang = -120 + 240 * k / N
 			local rad = math.rad(ang)
@@ -3170,7 +2983,6 @@ State.buildShipSystem = function(ctx)
 			ticks[k] = t
 		end
 
-		-- agulha (caixa centrada no eixo: gira certinho em qualquer pivo)
 		needleBox = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromOffset(68, 68), Size = UDim2.fromOffset(10, 108), Rotation = -120, ZIndex = 5 }, dial)
 		local blade = frame(needleBox, 2.5, 8, 5, 62, RED, 0, 2)
@@ -3187,13 +2999,12 @@ State.buildShipSystem = function(ctx)
 		local unit = text(dial, "studs/s", 9, ACC, 28, 103, 80, 12)
 		unit.Font = Enum.Font.GothamBold
 
-		local shine = frame(dial, 20, 14, 70, 26, WHITE, 0.88, 13)  -- reflexo do vidro
+		local shine = frame(dial, 20, 14, 70, 26, WHITE, 0.88, 13)
 		shine.Rotation = -28
 		shine.ZIndex = 8
 	end
 
-	-- capsula de altitude (esquerda) e de modo (direita), meio escondidas atras do mostrador
-	local altCap = frame(hud, 12, 48, 84, 30, WHITE, 0, 15) -- canto superior esquerdo (abaixo do menu do Roblox)
+	local altCap = frame(hud, 12, 48, 84, 30, WHITE, 0, 15)
 	altCap.Name = "AltCap"
 	altCap.ZIndex = 2
 	altCap.Visible = false
@@ -3204,7 +3015,7 @@ State.buildShipSystem = function(ctx)
 	text(altChip, "ALT", 10, INK, 0, 0, 28, 14)
 	local altNum = text(altCap, "0", 17, WHITE, 36, 0, 40, 30)
 
-	local modeCap = frame(hud, 0, 48, 92, 30, WHITE, 0, 15) -- canto superior direito, na mesma altura do ALT
+	local modeCap = frame(hud, 0, 48, 92, 30, WHITE, 0, 15)
 	modeCap.Name = "ModeCap"
 	modeCap.AnchorPoint = Vector2.new(1, 0)
 	modeCap.Position = UDim2.new(1, -12, 0, 48)
@@ -3222,7 +3033,6 @@ State.buildShipSystem = function(ctx)
 	miniHolder.Position = UDim2.fromOffset(8, 4)
 	local modeName = text(modeCap, "VOO", 15, WHITE, 34, 0, 54, 30)
 
-	-- adesivo TURBO!
 	local sticker = frame(dialRoot, 118, 152, 104, 30, TURBO_COL, 0, 10)
 	sticker.ZIndex = 9
 	sticker.Rotation = -3
@@ -3230,7 +3040,6 @@ State.buildShipSystem = function(ctx)
 	ink(sticker, 3)
 	text(sticker, "TURBO!", 18, INK, 0, 0, 104, 30)
 
-	-- ---------- atualizacao do velocimetro ----------
 	local tickCache = -999
 	local function paintTicks(a, fly, turbo)
 		local level = (a > 0.015) and math.floor(a * N + 0.5) or -1
@@ -3250,8 +3059,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- o resto do script escreve "VOO   VEL 95   ALT 130   TURBO" / "TERRA   VEL 45" nesse label
-	-- (invisivel); aqui vira agulha, numeros e capsulas
 	infoLbl = mk("TextLabel", { Name = "Info", BackgroundTransparency = 1, TextTransparency = 1,
 		Size = UDim2.fromOffset(0, 0), Text = "", Visible = false }, hud)
 	local function updateDial()
@@ -3278,9 +3085,6 @@ State.buildShipSystem = function(ctx)
 	infoLbl:GetPropertyChangedSignal("Text"):Connect(updateDial)
 	paintTicks(0, true, false)
 
-	-- =================================================================
-	-- BOTOES DE VOO (lado direito): cada um com icone desenhado da funcao
-	-- =================================================================
 	pad = mk("Frame", { Name = "FlightPad", BackgroundTransparency = 1, BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(70, 0),
 		AutomaticSize = Enum.AutomaticSize.Y, Visible = false }, hud)
@@ -3288,13 +3092,11 @@ State.buildShipSystem = function(ctx)
 	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8),
 		HorizontalAlignment = Enum.HorizontalAlignment.Center }, pad)
 
-	-- Text/TextColor3 do botao continuam sendo lidos/escritos pelo resto do script (VOAR/TERRA,
-	-- TURBO ligado); o que aparece sao o rotulo e o icone desenhados aqui
 	local function makeBtn(i, label, hint, col, draw, onText)
 		local b = mk("TextButton", { Name = "Btn" .. i, LayoutOrder = i, Size = UDim2.fromOffset(60, 66),
 			BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false, Text = label, TextTransparency = 1,
 			TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 5 }, pad)
-		local sc = mk("UIScale", { Name = "BtnScale" }, b) -- escala propria: hover generico nao mexe aqui
+		local sc = mk("UIScale", { Name = "BtnScale" }, b)
 		local glow = frame(b, -6, -6, 72, 78, col, 1, 20)
 		glow.ZIndex = 1
 		local lip = frame(b, 0, 6, 60, 60, col:Lerp(BLACK, 0.5), 0, 15)
@@ -3354,7 +3156,7 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	local btnCanopy = makeBtn(0, "VIDRO", "G", Color3.fromRGB(150, 230, 200), function(f) -- cupula de vidro desenhada
+	local btnCanopy = makeBtn(0, "VIDRO", "G", Color3.fromRGB(150, 230, 200), function(f)
 		local ic = subIcon(f)
 		idot(ic, 14, 14, 24, INK)
 		idot(ic, 14, 14, 18, Color3.fromRGB(190, 255, 230))
@@ -3364,7 +3166,7 @@ State.buildShipSystem = function(ctx)
 	api.canopyBtn = btnCanopy
 	btnCanopy.Text = "ABRIR"
 	btnCanopy.MouseButton1Click:Connect(function() api.toggleCanopy() end)
-	local btnView = makeBtn(1, "VISTA", "V", Color3.fromRGB(96, 196, 255), function(f) -- olho desenhado
+	local btnView = makeBtn(1, "VISTA", "V", Color3.fromRGB(96, 196, 255), function(f)
 		local ic = subIcon(f)
 		idot(ic, 14, 14, 24, INK)
 		idot(ic, 14, 14, 17, WHITE)
@@ -3405,20 +3207,17 @@ State.buildShipSystem = function(ctx)
 		held.turbo = not held.turbo
 		btnTurbo.TextColor3 = held.turbo and ACC or Theme.Text
 	end)
-	-- o resto do script tambem mexe na cor do botao (ex.: desliga o turbo ao sair): acompanha
+
 	btnTurbo:GetPropertyChangedSignal("TextColor3"):Connect(function()
 		setTurboOn(btnTurbo.TextColor3 == ACC)
 	end)
 	btnExit.MouseButton1Click:Connect(function() api.exit() end)
 
-	-- =================================================================
-	-- BOTAO PILOTAR NAVE (adesivo verde com disco voador)
-	-- =================================================================
 	boardBtn = mk("TextButton", { Name = "BoardBtn", AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -118), Size = UDim2.fromOffset(262, 70), BackgroundTransparency = 1,
 		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 5, Visible = false }, hud)
 	addVP(boardBtn)
-	mk("UIScale", { Name = "Small", Scale = 0.7 }, boardBtn) -- botao PILOTAR mais compacto
+	mk("UIScale", { Name = "Small", Scale = 0.7 }, boardBtn)
 	do
 		local lip = frame(boardBtn, 0, 6, 262, 64, Color3.fromRGB(30, 120, 34), 0, 18)
 		lip.ZIndex = 2
@@ -3448,9 +3247,8 @@ State.buildShipSystem = function(ctx)
 		TweenService:Create(face, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 			{ Position = UDim2.fromOffset(0, -3) }):Play()
 	end
-	boardBtn.MouseButton1Click:Connect(function() api.toggleCanopy() end) -- (v20) botao do VIDRO (abre/fecha)
+	boardBtn.MouseButton1Click:Connect(function() api.toggleCanopy() end)
 
-	-- painel do cambio + freio de mao desenhado na tela (ver State.buildShipLevers)
 	do
 		local okLv, errLv = pcall(State.shipLv.buildHud, {
 			hud = hud, mk = mk, frame = frame, disc = disc, ink = ink, grad = grad, text = text, addVP = addVP,
@@ -3459,7 +3257,6 @@ State.buildShipSystem = function(ctx)
 		if not okLv then warnRG("painel do cambio:", errLv) end
 	end
 
-	-- avisos (toast) removidos: a funcao continua existindo pro resto do script, mas nao mostra nada
 	infoLbl:GetPropertyChangedSignal("Visible"):Connect(function()
 		dialRoot.Visible = infoLbl.Visible
 		local lv = State.shipLv
@@ -3475,11 +3272,6 @@ State.buildShipSystem = function(ctx)
 	api.toast = toast
 	end
 
-	-- ---------------------------------------------------------------
-	-- Utilidades
-	-- ---------------------------------------------------------------
-	-- animate: roda fn(easedAlpha, rawAlpha) todo frame (no passo de render, antes da camera)
-	-- por "dur" segundos. Devolve true se terminou, false se foi interrompida.
 	local function animate(dur, fn, style, dir)
 		if destroyed or not Z.alive then return false end
 		local job = {
@@ -3506,7 +3298,6 @@ State.buildShipSystem = function(ctx)
 		return (a + math.pi) % (math.pi * 2) - math.pi
 	end
 
-	-- CFrame de um portal horizontal (a face da frente aponta pra baixo)
 	local function skyCF(pos, rightHint)
 		local r = Vector3.new(rightHint.X, 0, rightHint.Z)
 		if r.Magnitude < 0.01 then r = Vector3.xAxis end
@@ -3515,7 +3306,6 @@ State.buildShipSystem = function(ctx)
 		return CFrame.fromMatrix(pos, r, vz:Cross(r), vz)
 	end
 
-	-- RaycastParams reaproveitado (evita alocar tabela/params a cada frame no modo TERRA)
 	local shipRayParams = RaycastParams.new()
 	shipRayParams.FilterType = Enum.RaycastFilterType.Exclude
 	shipRayParams.IgnoreWater = true
@@ -3531,7 +3321,7 @@ State.buildShipSystem = function(ctx)
 
 	local function castDir(origin, vec)
 		rebuildShipIgnore()
-		-- pula partes quase transparentes (igual castSolid) sem recriar params
+
 		for _ = 1, 8 do
 			local result = workspace:Raycast(origin, vec, shipRayParams)
 			if not result then return nil end
@@ -3546,8 +3336,6 @@ State.buildShipSystem = function(ctx)
 		return nil
 	end
 
-	-- devolve posicao e normal do chao abaixo de pos (comecando fromAbove acima)
-	-- raio encurtado (~150 studs) em vez de 4000+ — suficiente pro relevo da nave
 	local function groundAt(pos, fromAbove)
 		local above = math.min(fromAbove or 6, 30)
 		local down = above + 120
@@ -3556,7 +3344,7 @@ State.buildShipSystem = function(ctx)
 		return nil
 	end
 
-	local skyInfo = setmetatable({}, { __mode = "k" }) -- model -> { model, size, opened } no formato que o wobblePortal da arma espera
+	local skyInfo = setmetatable({}, { __mode = "k" })
 
 	local function openSky(cf, size)
 		local oldSize, oldGoo = C.PortalSize, C.GooDrips
@@ -3578,7 +3366,6 @@ State.buildShipSystem = function(ctx)
 		if model then task.spawn(ctx.closePortal, model) end
 	end
 
-	-- boing de gelatina + rajada de faiscas do portal da arma, agora quando a nave atravessa o portal do ceu
 	local function wobbleSky(model, isExit)
 		local P = model and skyInfo[model]
 		if not P or not model.Parent or not ctx.wobblePortal then return end
@@ -3612,16 +3399,10 @@ State.buildShipSystem = function(ctx)
 		Debris:AddItem(p, 3)
 	end
 
-	-- ---------------------------------------------------------------
-	-- Modelo da nave (todo procedural, nenhum asset externo)
-	-- Eixo: -Z = frente, +Y = cima
-	-- ---------------------------------------------------------------
 	local function buildShip()
 		local model = Instance.new("Model")
 		model.Name = "RickShip"
 
-		-- Peca raiz ancorada: so ela se mexe por frame. O resto fica soldado nela
-		-- (Weld), e so as partes animadas (rodas, cupula, turbinas) mexem no C0.
 		local root = Instance.new("Part")
 		root.Name = "Root"
 		root.Anchored = true
@@ -3635,10 +3416,10 @@ State.buildShipSystem = function(ctx)
 		local S = {
 			model = model, root = root,
 			parts = {}, gearParts = {}, swParts = {}, swCol = {}, swBase = {}, canopyParts = {}, thrParts = {}, emitters = {},
-			shiftParts = {}, brakeParts = {}, -- cambio e freio de mao (animados em State.buildShipLevers)
-			rdoorParts = {}, rarmParts = {},  -- portinha de tras + braco com canhao (State.shipRearDoor / State.shipRearArm)
-			brakeNotch = 0,                   -- cliques da catraca do freio de mao (0..3): no modo TERRA define o drift
-			wheelHubs = {}, -- 1 hub por roda: anima so 3 welds em vez de ~100 pecas
+			shiftParts = {}, brakeParts = {},
+			rdoorParts = {}, rarmParts = {},
+			brakeNotch = 0,
+			wheelHubs = {},
 			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
 			yaw = 0, pitch = 0, roll = 0, yawRate = 0,
 			gear = 1, canopyAng = 0, state = "arriving", infoT = 0, shaking = false,
@@ -3647,12 +3428,12 @@ State.buildShipSystem = function(ctx)
 			leanP = 0, leanPV = 0, leanR = 0, leanRV = 0, latN = 0, lonN = 0,
 			steer = 0, lastSteer = 0,
 			trails = {}, turbo = false, tk = 0,
-			lamps = {}, -- farois (lente + SpotLight), pra ligar/desligar
-			suspAcc = 0, -- acumulador pra rodar suspensao a ~30 Hz
+			lamps = {},
+			suspAcc = 0,
 		}
 
-		local RZ = CFrame.Angles(0, math.rad(90), 0) -- cilindro: eixo X -> eixo Z da nave
-		local RY = CFrame.Angles(0, 0, math.rad(90)) -- cilindro: eixo X -> vertical
+		local RZ = CFrame.Angles(0, math.rad(90), 0)
+		local RY = CFrame.Angles(0, 0, math.rad(90))
 		local function cylX(len, diam) return Vector3.new(len, diam, diam) end
 		local METAL, PLASTIC, SMOOTH, NEON = Enum.Material.Metal, Enum.Material.Plastic, Enum.Material.SmoothPlastic, Enum.Material.Neon
 
@@ -3717,7 +3498,6 @@ State.buildShipSystem = function(ctx)
 		local TANK = Color3.fromRGB(134, 144, 138)
 		local GLOW = C.PortalColor
 
-		-- ===== CASCO: saucer achatado =====
 		local N, R_BOT, R_TOP, BOT_Y, TOP_Y = 10, 11.0, 7.2, 0.35, 3.75
 		for i = 1, N do
 			local t = (i - 0.5) / N
@@ -3727,7 +3507,7 @@ State.buildShipSystem = function(ctx)
 			if i < 7 then
 				add("HullLayer" .. i, cylX(lh, r * 2), CFrame.new(0, y, 0) * RY, HULL, METAL, 0, "cyl")
 			else
-				-- camadas de cima viram ANEL (poco da cabine): o interior fica fundo, abaixo do aro do vidro
+
 				local nSeg, rIn = 32, 6.6
 				local thick = r - rIn + 0.1
 				local rm = (r + rIn) / 2 - 0.05
@@ -3738,7 +3518,7 @@ State.buildShipSystem = function(ctx)
 				end
 			end
 		end
-		-- forro escuro do poco (parede interna do chao ate o aro)
+
 		do
 			local nSeg, rW = 32, 6.56
 			local chord = 2 * rW * math.tan(math.pi / nSeg) + 0.05
@@ -3752,12 +3532,11 @@ State.buildShipSystem = function(ctx)
 		add("UnderPlate", cylX(0.4, 20), CFrame.new(0, -0.55, 0) * RY, BELLY, METAL, 0, "cyl")
 		local belly = add("Belly", Vector3.new(15, 6, 15), CFrame.new(0, -0.7, 0), BELLY, METAL, 0, "sphere")
 
-		-- paineis radiais (frisos) + placas com puxador nas 8 faces do casco
 		do
 			local dR, dY = R_BOT - R_TOP, TOP_Y - BOT_Y
 			local L = math.sqrt(dR * dR + dY * dY)
 			local slope = math.atan2(dY, dR)
-			local nR, nY = dY / L, dR / L -- normal (radial, vertical)
+			local nR, nY = dY / L, dR / L
 			local rMid, yMid = (R_BOT + R_TOP) / 2, (BOT_Y + TOP_Y) / 2
 			for k = 0, 7 do
 				local aSeam = math.rad(22.5 + 45 * k)
@@ -3770,7 +3549,7 @@ State.buildShipSystem = function(ctx)
 				add("Plate", Vector3.new(4.2, 0.16, 3.4), base, PLATE, METAL, 0, nil, k == 4 and "rdoor" or nil)
 				add("PlateHandle", Vector3.new(1.4, 0.2, 0.22), base * CFrame.new(0, 0.16, 1.05), DARK, METAL, 0, nil, k == 4 and "rdoor" or nil)
 				if k == 4 then
-					-- placa de tras = PORTINHA (abre na saida da nave): baia escura por baixo + braco mecanico com canhao (escondido)
+
 					add("BayInner", Vector3.new(3.9, 0.04, 3.1), base * CFrame.new(0, -0.03, 0), BLACK, SMOOTH)
 					local c0 = CFrame.new(base.Position)
 					add("RGBase", Vector3.new(1, 1, 1), c0, DARK, METAL, 1, "sphere", "rarm")
@@ -3787,7 +3566,6 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- aro da cabine + parafusos
 		do
 			local nR, RR = 24, 7.0
 			for k = 0, nR - 1 do
@@ -3800,12 +3578,10 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- ===== CUPULA DE VIDRO + ARCO (sobem/descem juntos) =====
-		-- meia-cupula (hemisferio) feita de paineis finos de vidro: sem a metade de baixo, nao parece uma bola
 		do
-			local ax, ay, az = 6.7, 5.95, 6.85   -- semi-eixos (az/ay batem com o arco abaixo)
+			local ax, ay, az = 6.7, 5.95, 6.85
 			local nLon, nLat = 20, 5
-			local phiMax = math.rad(75)            -- acima disso entra a tampa do topo
+			local phiMax = math.rad(75)
 			local function surf(th, ph)
 				return Vector3.new(ax * math.cos(ph) * math.cos(th), ay * math.sin(ph), az * math.cos(ph) * math.sin(th))
 			end
@@ -3840,29 +3616,26 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- ===== INTERIOR =====
-		-- tudo daqui ate o tanque desce DEP studs: interior fundo, nao rente ao aro
 		local DEP = 1.3
 		local addOrig = add
 		add = function(name, size, rel, ...)
 			return addOrig(name, size, CFrame.new(0, -DEP, 0) * rel, ...)
 		end
 		add("Floor", cylX(0.12, 13.2), CFrame.new(0, 3.84, 0) * RY, DARK, SMOOTH, 0, "cyl")
-		-- bancos e tunel central (ver State.buildSeats / State.buildTunnel)
+
 		local okSeat, errSeat = pcall(State.buildSeats, add, cylX, { SEATC = SEATC, SEATC2 = SEATC2, DARK = DARK, MID = MID, GLOW = GLOW, PLASTIC = PLASTIC, METAL = METAL, SMOOTH = SMOOTH })
 		if not okSeat then warnRG("bancos:", errSeat) end
 		local okTun, errTun = pcall(State.buildTunnel, add, cylX, { MID = MID, DARK = DARK, BLACK = BLACK, LIGHT = FLANGE, METAL = METAL, PLASTIC = PLASTIC, SMOOTH = SMOOTH })
 		if not okTun then warnRG("tunel:", errTun) end
 
-		-- painel curvo: segue o aro da cabine por DENTRO (nao sai da nave), baixo e inclinado pro piloto
 		do
 			local dashTilt = CFrame.Angles(math.rad(-14), 0, 0)
-			local DR, DY, nD, span = 5.425, 4.25, 11, math.rad(116) -- corpo fundo: da frente do painel (raio 4.25) ate a parede do poco
-			-- painel mais alto: a borda de fora sobe ate a quina de cima do aro do vidro (topo do aro: y 4.275)
+			local DR, DY, nD, span = 5.425, 4.25, 11, math.rad(116)
+
 			local DH, DUP = 2.0, 0.64
 			local TOP = DH / 2
 			local da = span / (nD - 1)
-			local chord = 2 * (DR + 1.2) * math.tan(da / 2) + 0.04 -- largura no raio externo: fecha as cunhas entre os segmentos
+			local chord = 2 * (DR + 1.2) * math.tan(da / 2) + 0.04
 			local function dashBase(rad)
 				return CFrame.new(0, DUP, 0) * CFrame.Angles(0, rad, 0) * CFrame.new(0, DY, -DR) * dashTilt
 			end
@@ -3871,13 +3644,12 @@ State.buildShipSystem = function(ctx)
 				add("Dash", Vector3.new(chord, DH, 2.35), base, MID, METAL)
 				add("DashTrim", cylX(2 * (DR - 1.1) * math.tan(da / 2) + 0.08, 0.2), base * CFrame.new(0, TOP - 0.02, 1.1), DARK, METAL, 0, "cyl")
 			end
-			-- telas na parede de baixo do painel (a face que olha pro piloto), nao em cima.
-			-- Rotacao 180 graus em Y: frente da peca (-Z) = pro piloto (+Z do painel), topo da tela = pra cima
+
 			local SCR = CFrame.Angles(0, math.pi, 0)
 			local function screen(name, deg)
 				return add(name, Vector3.new(1.9, 0.9, 0.06), dashBase(math.rad(deg)) * CFrame.new(0, 0.2, 1.175 + 0.1) * SCR, BLACK, SMOOTH).part
 			end
-			-- sa<0 fica no lado direito da nave (+X): diagnostico vermelho; sa>0 fica na frente do piloto (lado esquerdo): velocimetro verde
+
 			local partRed = screen("ScreenL", -50)
 			local partGreen = screen("ScreenR", 50)
 			local okS, errS = pcall(State.makeDashScreens, S, partRed, partGreen, {
@@ -3889,7 +3661,6 @@ State.buildShipSystem = function(ctx)
 			if not okD then warnRG("painel:", errD) end
 		end
 
-		-- volante de 3 raios + coluna vertical com flange + pedais (ver State.buildWheel)
 		do
 			local wcPos = Vector3.new(-2.3, 6.7, -1.2)
 			local wcRot = CFrame.Angles(math.rad(-35), 0, 0)
@@ -3900,13 +3671,11 @@ State.buildShipSystem = function(ctx)
 			if not okW then warnRG("volante:", errW) end
 		end
 
-		-- tanque / barril atras dos bancos
 		State.buildTank(add, cylX, { TANK = TANK, DARK = DARK, MID = MID, BLACK = BLACK, GLOW = GLOW, METAL = METAL, SMOOTH = SMOOTH })
 		add = addOrig
 
-		-- ===== FAROIS (pods redondos na frente do casco, abaixo do vidro), KNOBS, ANTENA =====
 		for _, sx in ipairs({ -1, 1 }) do
-			-- cabeca do farol: cilindro apontando pra frente (-Z), levemente aberto pra fora, encaixado no casco
+
 			local head = CFrame.new(sx * 3.9, 2.5, -8.5) * CFrame.Angles(0, -sx * math.rad(8), 0)
 			add("LampMount", cylX(1.8, 1.2), head * CFrame.new(0, 0, 1.4) * RZ, DARK, METAL, 0, "cyl")
 			add("LampHousing", cylX(1.3, 1.9), head * RZ, THR, METAL, 0, "cyl")
@@ -3915,7 +3684,7 @@ State.buildShipSystem = function(ctx)
 			add("LampTopKnob", cylX(0.35, 0.6), head * CFrame.new(0, 1.0, 0.15) * RY, MID, METAL, 0, "cyl")
 			local lens = add("LampLens", cylX(0.14, 1.55), head * CFrame.new(0, 0, -0.74) * RZ, Color3.fromRGB(255, 246, 200), NEON, 0, "cyl")
 			local sl = Instance.new("SpotLight")
-			sl.Face = Enum.NormalId.Right -- cilindro girado: +X local = frente da nave (-Z)
+			sl.Face = Enum.NormalId.Right
 			sl.Angle = 50
 			sl.Range = 70
 			sl.Brightness = 2.5
@@ -3928,7 +3697,6 @@ State.buildShipSystem = function(ctx)
 		add("AntRod", cylX(3.2, 0.14), CFrame.new(5.0, 6.1, 5.2) * RY, MID, METAL, 0, "cyl")
 		add("AntTip", Vector3.new(0.4, 0.4, 0.4), CFrame.new(5.0, 7.8, 5.2), Color3.fromRGB(255, 90, 70), NEON, 0, "sphere")
 
-		-- ===== TURBINAS (lata cilindrica + bocal + mangueira sanfonada) =====
 		local function addThruster(sx)
 			local cf0 = CFrame.new(sx * 9.5, 2.9, 1.0) * CFrame.Angles(0, math.rad(8) * sx, 0)
 			local function sub(z, extra) return cf0 * CFrame.new(0, 0, z) * (extra or CFrame.new()) end
@@ -3943,7 +3711,6 @@ State.buildShipSystem = function(ctx)
 			add("NozC", cylX(0.6, 2.5), sub(5.15, RZ), DARK, METAL, 0, "cyl", "thr")
 			local g = add("NozGlow", cylX(0.15, 1.9), sub(5.5, RZ), GLOW, NEON, 0, "cyl", "thr")
 
-			-- rastro (Trail) em vez de particulas: so aparece no modo voo; muda no turbo (setThrust)
 			local a0 = Instance.new("Attachment")
 			a0.Position = Vector3.new(0, 0.95 * SCALE, 0)
 			a0.Parent = g.part
@@ -3984,7 +3751,6 @@ State.buildShipSystem = function(ctx)
 			addHose(sx)
 		end
 
-		-- ===== EMBAIXO: grades de ventilacao + RODAS DE MONSTER TRUCK (4 rodas: pneu com garras em V + aro cromado) =====
 		for _, sx in ipairs({ -1, 1 }) do
 			add("Vent", Vector3.new(2.6, 0.1, 3.2), CFrame.new(sx * 8.6, -0.78, 0), DARK, METAL)
 			for _, z in ipairs({ -1.0, -0.35, 0.3, 0.95 }) do
@@ -3996,8 +3762,6 @@ State.buildShipSystem = function(ctx)
 		local CHROME_D = Color3.fromRGB(58, 62, 68)
 		local TIRE_D = Color3.fromRGB(28, 30, 34)
 
-		-- Hub invisivel por roda: todas as pecas do pneu soldam nele.
-		-- place() anima so o weld do hub (3 welds) em vez de ~100 pecas.
 		local function makeWheelHub(id, x, y, z, wr)
 			local hubPart = Instance.new("Part")
 			hubPart.Name = "WheelHub" .. id
@@ -4023,7 +3787,6 @@ State.buildShipSystem = function(ctx)
 			return e
 		end
 
-		-- peca visual da roda: soldada no hub (nao no root) — C0 fixo, nunca reescrito por frame
 		local function addSpin(hubE, name, size, loc, color, material, shape, refl)
 			local p = Instance.new("Part")
 			p.Name = name
@@ -4052,13 +3815,12 @@ State.buildShipSystem = function(ctx)
 			w.Parent = p
 			p.Parent = model
 			if refl then p.Reflectance = refl end
-			-- entra em parts so pro snap inicial; NAO em gearParts (nao reescreve C0)
+
 			local e = { part = p, weld = w, rel = locS, tag = nil, baseT = 0, parentHub = hubE }
 			S.parts[#S.parts + 1] = e
 			return e
 		end
 
-		-- side: -1 = roda da esquerda (face de fora no -X), 1 = direita
 		local function monsterWheel(tag, id, side, x, y, z, len, diam)
 			local wr = diam / 2 * SCALE
 			S.wheels[id] = { rel = Vector3.new(x, y, z) * SCALE, r = wr, x = 0, v = 0, lastX = 0 }
@@ -4067,7 +3829,6 @@ State.buildShipSystem = function(ctx)
 				return addSpin(hubE, name, size, loc, color, material, shape, refl)
 			end
 
-			-- pneu: carcaca + garras largas em V (chevron), igual pneu de monster truck
 			local lugH = diam * 0.12
 			local coreD = diam - 2 * lugH
 			sp("Tire" .. tag, cylX(len, coreD), CFrame.new(), TIRE, SMOOTH, "cyl")
@@ -4081,8 +3842,6 @@ State.buildShipSystem = function(ctx)
 				end
 			end
 
-			-- aro cromado + anel beadlock + 6 furos + tampa do cubo (cromada)
-			-- side = 0: roda central, com aro nos dois lados
 			local sides = (side == 0) and { -1, 1 } or { side }
 			local rimD = diam * 0.5
 			if side == 0 then
@@ -4101,15 +3860,10 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- 3 rodas, como no original: 2 na frente (id 1 esq, 2 dir) + 1 atras no meio (id 3).
-		-- centro y = -5 + raio (o pneu toca o chao em LEG_H)
 		monsterWheel("FL", 1, -1, -5.4, -2.7, -4.6, 2.0, 4.6)
 		monsterWheel("FR", 2, 1, 5.4, -2.7, -4.6, 2.0, 4.6)
 		monsterWheel("RC", 3, 0, 0, -2.6, 6.8, 2.4, 4.8)
 
-		-- (luz verde da barriga removida: so os farois iluminam)
-
-		-- poeira levantada pelas rodas no modo terra
 		local ds = add("DustSrc", Vector3.new(9, 0.1, 6), CFrame.new(0, -4.6, 3), BLACK, SMOOTH, 1)
 		local dust = Instance.new("ParticleEmitter")
 		dust.Texture = "rbxasset://textures/particles/smoke_main.dds"
@@ -4124,15 +3878,13 @@ State.buildShipSystem = function(ctx)
 		dust.Parent = ds.part
 		S.dust = dust
 
-		-- ===== (v20) COLISAO: casco, piso, painel, bancos e turbinas sao solidos; vidro so fechado =====
-		-- ligado/desligado por api.syncSolid (so com a nave estacionada). Nada muda no visual.
 		S.solidParts, S.domeSolid = {}, {}
 		local SOLID_NAME = { WellLining = true, Floor = true, Flange = true, FlangeRim = true, UnderPlate = true, Rim = true,
 			Dash = true, SeatBase = true, SeatBaseLip = true, SeatBack = true, SeatSkid = true, ThrBody = true }
 		for _, e in ipairs(S.parts) do
 			local nm = e.part.Name
 			if e.parentHub then
-				-- pecas das rodas (aro, pneu...) ficam sem colisao
+
 			elseif nm == "DomePane" or nm == "DomeCap" then
 				S.domeSolid[#S.domeSolid + 1] = e.part
 			elseif SOLID_NAME[nm] or nm:sub(1, 9) == "HullLayer" or nm:sub(1, 8) == "HullRing" then
@@ -4140,8 +3892,6 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- (v20) VIDRO LEVE: uma peca-eixo invisivel soldada na raiz; todas as pecas do vidro soldam nela.
-		-- Abrir/fechar passa a mexer em 1 weld por quadro em vez de uma por peca (era isso que dava a queda de FPS).
 		do
 			local hub = Instance.new("Part")
 			hub.Name = "CanopyHub"
@@ -4166,7 +3916,6 @@ State.buildShipSystem = function(ctx)
 		return S
 	end
 
-	-- ===== maos no volante (braco reto apontando pra empunhadura; gira junto com o volante) =====
 	local function armJoints()
 		local J = { right = { extra = {} }, left = { extra = {} } }
 		local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
@@ -4223,7 +3972,7 @@ State.buildShipSystem = function(ctx)
 			S.handJ = armJoints()
 		end
 		S.handsOn = true
-		-- posicao "prevista" do corpo preso ao banco (o personagem so e movido depois; sem isso as maos atrasam 1 frame)
+
 		local seatW = S.cf * SEAT_REL
 		local rootInv = rootPart.CFrame:Inverse()
 		local function pw(part) return seatW * (rootInv * part.CFrame) end
@@ -4254,7 +4003,7 @@ State.buildShipSystem = function(ctx)
 		end
 		local wcw = S.cf * S.wheelCF * CFrame.Angles(0, 0, S.wheelAng or 0)
 		local R = S.wheelR or 0.95
-		-- personagem olha pra -Z da nave: mao direita no lado +X do volante, esquerda no -X
+
 		local grips = {
 			right = wcw * CFrame.new(R, 0, 0).Position,
 			left = wcw * CFrame.new(-R, 0, 0).Position,
@@ -4276,7 +4025,7 @@ State.buildShipSystem = function(ctx)
 				end
 			end
 		end
-		-- braco direito: cambio (troca de marcha) e freio de mao (segurado no HUD / tecla B)
+
 		State.shipArmIK(S, S.handJ.right, pw, held)
 	end
 
@@ -4312,12 +4061,12 @@ State.buildShipSystem = function(ctx)
 			local gs = (1 - S.gear) * GEAR_TRAVEL
 			for _, e in ipairs(S.gearParts) do
 				if e.isHub then
-					-- so o hub gira/esterça/sobe; as dezenas de pecas do pneu ja estao soldadas nele
+
 					local off = (S.wheels[e.wid] and S.wheels[e.wid].x or 0) * S.gear
 					local st = (e.wid == 1 or e.wid == 2) and (S.steer or 0) * S.gear or 0
 					e.weld.C0 = CFrame.new(0, gs + off, 0) * e.rel * CFrame.Angles(0, st, 0) * CFrame.Angles(-S.spinDist / e.wr, 0, 0)
 				else
-					-- pecas de gear que nao sao hub (ex.: Peg)
+
 					local c = CFrame.new(0, gs, 0) * e.rel
 					if e.wr then c = c * CFrame.Angles(-S.spinDist / e.wr, 0, 0) end
 					e.weld.C0 = c
@@ -4327,12 +4076,11 @@ State.buildShipSystem = function(ctx)
 		if S.lastCa ~= S.canopyAng then
 			S.lastCa = S.canopyAng
 			local frac = math.clamp(S.canopyAng / CANOPY_OPEN, 0, 1)
-			-- o vidro gira em torno da dobradica traseira (eixo X): a frente sobe e tomba pra tras.
-			-- fechar = mesma conta com frac voltando a 0 (animacao ao contrario). Sem fade de transparencia.
+
 			local hinge = CFrame.new(CANOPY_HINGE)
 			local swing = hinge * CFrame.Angles(frac * CANOPY_ANGLE, 0, 0) * hinge:Inverse()
 			if S.canopyHub then
-				-- (v20) so 1 weld mexe por quadro (antes eram ~150): acaba a queda de FPS ao abrir/fechar o vidro
+
 				S.canopyHub.weld.C0 = swing
 			else
 				for _, e in ipairs(S.canopyParts) do
@@ -4342,12 +4090,11 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- posiciona tudo de uma vez (evita 1 frame das pecas na origem ao criar)
 	local function snap(S)
 		place(S)
 		for _, e in ipairs(S.parts) do
 			if e.parentHub then
-				-- peca visual da roda: CFrame = world hub * loc local
+
 				e.part.CFrame = e.parentHub.part.CFrame * e.weld.C0
 			else
 				e.part.CFrame = S.cf * e.weld.C0
@@ -4355,7 +4102,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- turbinas tremem em velocidade alta
 	local function shake(S, amp)
 		if amp < 0.01 then
 			if S.shaking then
@@ -4370,13 +4116,11 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- rastro das turbinas: so no modo VOO (e nas animacoes de chegada/saida/troca de modo).
-	-- No modo TERRA (carro) nao tem nada. Turbo = rastro mais longo, largo e quente (laranja).
 	local function setThrust(S, t)
 		local st = S.state
 		local on = t > 0.02 and (S.mode == "fly" or st == "arriving" or st == "leaving" or st == "shifting")
 		if not on then
-			-- modo TERRA / desligado: so garante trails off, sem alocar ColorSequence
+
 			if S.tk and S.tk ~= 0 then S.tk = 0 end
 			for _, tr in ipairs(S.trails) do
 				if tr.Enabled then tr.Enabled = false end
@@ -4409,19 +4153,18 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- reaplica a pose dos bracos no Stepped (depois do Animator), alem do passo de render
 	local handConn = RunService.Stepped:Connect(function(_, dt)
 		local S = ship
 		if S and not destroyed and (S.state == "flying" or S.state == "shifting") then
 			local okH, eH = pcall(updateHands, S)
 			if not okH and not S.handErr then S.handErr = true; warnRG("maos no volante:", eH) end
 		end
-		-- cambio + freio de mao (3D e painel na tela)
+
 		if S and not destroyed and State.shipLv then
 			local okL, eL = pcall(State.shipLv.fx, S, dt)
 			if not okL and not S.leverErr then S.leverErr = true; warnRG("alavancas da nave:", eL) end
 		end
-		-- telas animadas do painel (diagnostico vermelho + velocimetro verde)
+
 		if S and not destroyed and S.dashFx then
 			local okD, eD = pcall(S.dashFx, S, dt)
 			if not okD and not S.dashErr then S.dashErr = true; warnRG("telas do painel:", eD) end
@@ -4445,9 +4188,6 @@ State.buildShipSystem = function(ctx)
 		return destroyed or not Z.alive or ship ~= S
 	end
 
-	-- ---------------------------------------------------------------
-	-- Personagem preso ao banco
-	-- ---------------------------------------------------------------
 	local function holdChar(S)
 		rootPart.CFrame = S.cf * SEAT_REL
 		rootPart.AssemblyLinearVelocity = Vector3.zero
@@ -4515,9 +4255,6 @@ State.buildShipSystem = function(ctx)
 		btnTurbo.TextColor3 = Theme.Text
 	end
 
-	-- ---------------------------------------------------------------
-	-- Entrada de controle
-	-- ---------------------------------------------------------------
 	local function getMove()
 		if controls == nil then
 			controls = false
@@ -4552,7 +4289,7 @@ State.buildShipSystem = function(ctx)
 		if dir.Magnitude > 1 then dir = dir.Unit end
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
-		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3) -- (v23) 4x mais rapido no espaco (planetas ficaram bem mais distantes)
+		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3)
 		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * dt))
 		S.pos = S.pos + S.vel * dt
 
@@ -4562,7 +4299,6 @@ State.buildShipSystem = function(ctx)
 			S.vel = Vector3.new(S.vel.X, math.max(S.vel.Y, 0), S.vel.Z)
 		end
 
-		-- vira o nariz pra direcao do movimento
 		local hv = Vector3.new(S.vel.X, 0, S.vel.Z)
 		if hv.Magnitude > 6 then
 			local diff = wrapAng(math.atan2(-hv.X, -hv.Z) - S.yaw)
@@ -4573,7 +4309,6 @@ State.buildShipSystem = function(ctx)
 			S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
 		end
 
-		-- (v21) nariz acompanha a direcao real do voo, sem limite de ~23 graus: sobe/desce quase na vertical
 		local tPitch = 0
 		if S.vel.Magnitude > 6 then tPitch = math.clamp(math.atan2(S.vel.Y, hv.Magnitude), -1.45, 1.45) end
 		local tRoll = math.clamp(S.yawRate * 0.18, -0.5, 0.5)
@@ -4602,8 +4337,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- movimento livre durante a troca de modo: a nave segue o controle e a inercia
-	-- (altura fica por conta da animacao de quem chamou)
 	function api.glide(S, dt)
 		local typing = UserInputService:GetFocusedTextBox() ~= nil
 		local mv = getMove()
@@ -4628,8 +4361,6 @@ State.buildShipSystem = function(ctx)
 		btnDown.Visible = fly
 	end
 
-	-- suspensao: cada roda e uma mola+amortecedor que segue o chao embaixo dela.
-	-- degrau/buraco/pouso fazem a roda subir/descer e balancar ate assentar.
 	local function suspStep(S, dt, grounded, spd, top)
 		local damp = 2 * SUSP_ZETA * math.sqrt(SUSP_K)
 		local impact = S.landImpact
@@ -4639,22 +4370,21 @@ State.buildShipSystem = function(ctx)
 		local h = dt / n
 		for id, w in pairs(S.wheels) do
 			local center = S.cf * CFrame.new(w.rel)
-			local u = -SUSP_DROOP -- no ar / sem chao: a roda fica pendurada
+			local u = -SUSP_DROOP
 			if grounded then
 				local g = groundAt(center.Position, 6 * SCALE)
 				if g then
 					u = math.clamp(g.Y - (center.Position.Y - w.r), -SUSP_DROOP, SUSP_BUMP)
 				end
-				-- trepidacao leve da estrada, proporcional a velocidade
+
 				u = u + math.noise(S.spinDist * 0.4, id * 7.3) * 0.12 * SCALE * rough
-				-- transferencia de carga: na curva a roda de fora comprime e a de dentro estica;
-				-- acelerando a de tras comprime, freando as da frente comprimem
+
 				local sx = (w.rel.X > 0.1) and 1 or ((w.rel.X < -0.1) and -1 or 0)
 				local sz = (w.rel.Z > 0) and 1 or -1
 				u = u + (-sx * (S.latN or 0) + sz * (S.lonN or 0)) * SUSP_LOAD
 				u = math.clamp(u, -SUSP_DROOP, SUSP_BUMP)
 			end
-			if impact then w.v = w.v + math.clamp(-impact * 0.35, 0, 18) end -- pancada do pouso
+			if impact then w.v = w.v + math.clamp(-impact * 0.35, 0, 18) end
 			for _ = 1, n do
 				w.v = w.v + (SUSP_K * (u - w.x) - damp * w.v) * h
 				w.x = w.x + w.v * h
@@ -4673,7 +4403,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- MODO TERRA: a nave anda pelo chao, rodas abaixadas, segue o relevo e nao atravessa paredes
 	local function groundStep(S, dt)
 		local typing = UserInputService:GetFocusedTextBox() ~= nil
 		local mv = getMove()
@@ -4685,8 +4414,7 @@ State.buildShipSystem = function(ctx)
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
 		local top = GROUND_SPEED * (turbo and GROUND_TURBO or 1)
-		-- DRIFT (freio de mao, tecla B): dl = cliques da catraca (0..3). O nariz vira rapido pra onde voce quer ir,
-		-- mas a velocidade continua escorregando de lado: cada clique tira aderencia lateral (C.ShipDriftGrip)
+
 		local dl = (S.state == "flying" and S.mode == "ground") and math.clamp(S.brakeNotch or 0, 0, 3) or 0
 		local slip = 0
 		local hv
@@ -4698,15 +4426,14 @@ State.buildShipSystem = function(ctx)
 			local grip = (C.ShipDriftGrip or { 2.4, 1.1, 0.45 })[dl]
 			local hasIn = dir.Magnitude > 0.05
 			local tgtF = hasIn and top * math.min(dir.Magnitude, 1) or 0
-			vF = vF + (tgtF - vF) * (1 - math.exp(-GROUND_ACCEL * (hasIn and 0.8 or 1.4) * dt)) -- acelera pelo nariz
-			vR = vR * math.exp(-grip * dt) -- a lateral so some devagar = derrapagem
+			vF = vF + (tgtF - vF) * (1 - math.exp(-GROUND_ACCEL * (hasIn and 0.8 or 1.4) * dt))
+			vR = vR * math.exp(-grip * dt)
 			slip = math.abs(vR)
 			hv = fwdD * vF + rgtD * vR
 		else
 			hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-GROUND_ACCEL * dt))
 		end
 
-		-- parede na frente (3 raios: centro e as duas laterais do casco)
 		if hv.Magnitude > 0.5 then
 			local mDir = hv.Unit
 			local lat = Vector3.new(-mDir.Z, 0, mDir.X)
@@ -4718,7 +4445,7 @@ State.buildShipSystem = function(ctx)
 					if n.Magnitude > 0.01 then
 						n = n.Unit
 						local into = hv:Dot(n)
-						if into < 0 then hv = hv - n * into end -- desliza ao longo da parede
+						if into < 0 then hv = hv - n * into end
 					end
 					break
 				end
@@ -4730,7 +4457,7 @@ State.buildShipSystem = function(ctx)
 		local targetY = nil
 		if g then
 			targetY = g.Y + LEG_H
-			if targetY - S.pos.Y > STEP_UP then -- degrau alto demais: nao sobe
+			if targetY - S.pos.Y > STEP_UP then
 				hv = Vector3.zero
 				posN = S.pos
 				g, gn = groundAt(S.pos, 6 * SCALE)
@@ -4759,8 +4486,8 @@ State.buildShipSystem = function(ctx)
 		S.pos = Vector3.new(posN.X, y, posN.Z)
 		S.vel = hv
 
-		S.turbo = false -- modo carro: sem rastro
-		-- nariz vira pra onde anda (no drift: pra onde voce comanda, bem mais rapido = yawRate alto)
+		S.turbo = false
+
 		local spd = hv.Magnitude
 		if dl > 0 then
 			if dir.Magnitude > 0.05 then
@@ -4780,8 +4507,6 @@ State.buildShipSystem = function(ctx)
 			S.yawRate = S.yawRate * (1 - math.min(1, 8 * dt))
 		end
 
-		-- direcao das rodas da frente: apontam pra onde voce quer ir (como volante de carro)
-		-- 0.66 rad (~38 graus) = angulo maximo; 12 = rapidez com que as rodas viram
 		do
 			local ref = (spd > 3) and hv or dir
 			local tgt = 0
@@ -4792,7 +4517,6 @@ State.buildShipSystem = function(ctx)
 			S.steer = (S.steer or 0) + (tgt - (S.steer or 0)) * (1 - math.exp(-12 * dt))
 		end
 
-		-- inclina com o relevo
 		local tPitch, tRoll = 0, 0
 		if grounded and gn then
 			local f = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
@@ -4803,20 +4527,19 @@ State.buildShipSystem = function(ctx)
 		S.pitch = S.pitch + (tPitch - S.pitch) * (1 - math.exp(-6 * dt))
 		S.roll = S.roll + (tRoll - S.roll) * (1 - math.exp(-6 * dt))
 
-		-- peso da nave: acelerar levanta o nariz, frear baixa, curva inclina pro lado de fora (mola + amortecedor)
 		local fwd = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
 		local rgt = Vector3.new(math.cos(S.yaw), 0, -math.sin(S.yaw))
 		local acc = (hv - (S.prevHv or hv)) / math.max(dt, 1 / 120)
 		S.prevHv = hv
-		-- inercia normalizada (-1..1): curva = lateral, acelerar/frear = longitudinal
+
 		local latT = grounded and math.clamp(acc:Dot(rgt) / 150, -1, 1) or 0
 		local lonT = grounded and math.clamp(acc:Dot(fwd) / 150, -1, 1) or 0
 		S.latN = (S.latN or 0) + (latT - (S.latN or 0)) * (1 - math.exp(-10 * dt))
 		S.lonN = (S.lonN or 0) + (lonT - (S.lonN or 0)) * (1 - math.exp(-10 * dt))
-		local tLP = lonT * 0.07   -- ate ~4 graus (nariz sobe ao acelerar)
-		local tLR = latT * 0.12 * (1 + 0.5 * dl)   -- ate ~7 graus (corpo tomba pra fora na curva); no drift tomba mais
-		if S.landImpact then S.leanPV = S.leanPV + math.clamp(S.landImpact * 0.008, -0.7, 0) end -- pouso: nariz mergulha e volta
-		local LK, LC = 70, 2 * 0.36 * math.sqrt(70)   -- um pouco mais de balanco que o original
+		local tLP = lonT * 0.07
+		local tLR = latT * 0.12 * (1 + 0.5 * dl)
+		if S.landImpact then S.leanPV = S.leanPV + math.clamp(S.landImpact * 0.008, -0.7, 0) end
+		local LK, LC = 70, 2 * 0.36 * math.sqrt(70)
 		S.leanPV = S.leanPV + (LK * (tLP - S.leanP) - LC * S.leanPV) * dt
 		S.leanP = S.leanP + S.leanPV * dt
 		S.leanRV = S.leanRV + (LK * (tLR - S.leanR) - LC * S.leanRV) * dt
@@ -4824,7 +4547,6 @@ State.buildShipSystem = function(ctx)
 
 		S.cf = CFrame.new(S.pos) * CFrame.Angles(0, S.yaw, 0) * CFrame.Angles(S.pitch + S.leanP, 0, S.roll + S.leanR)
 
-		-- suspensao a ~30 Hz (nao precisa do custo de 3 raycasts a 60+)
 		S.suspAcc = (S.suspAcc or 0) + dt
 		if S.suspAcc >= (1 / 30) then
 			local sdt = S.suspAcc
@@ -4832,16 +4554,14 @@ State.buildShipSystem = function(ctx)
 			suspStep(S, sdt, grounded, spd, top)
 		end
 
-		-- rodas giram conforme a distancia andada
 		S.spinDist = S.spinDist + hv:Dot(fwd) * dt
 		place(S)
 
-		-- modo TERRA: sem rastro de turbina e sem shake (economiza welds + GC)
 		setThrust(S, 0)
 		if S.dust then
 			local rate = (grounded and spd > 4) and math.clamp(spd * 0.6, 0, 40) or 0
 			if dl > 0 and rate > 0 then
-				-- drift: mais poeira a cada clique e quanto mais ela escorrega de lado
+
 				rate = math.clamp(rate * (1 + 0.7 * dl) + slip * (C.ShipDriftDust or 2.2) * dl, 0, 140)
 			end
 			S.dust.Rate = rate
@@ -4860,9 +4580,7 @@ State.buildShipSystem = function(ctx)
 	end
 
 	local function proximity(S)
-		-- (v20) NAO existe mais Sit automatico nem botao PILOTAR.
-		-- Voce anda ate o banco do MOTORISTA (esquerdo) e senta nele; ai o vidro fecha sozinho.
-		-- O botao na tela agora e o do VIDRO (G): aparece perto da nave.
+
 		if busy or humanoid.Health <= 0 then
 			api.nearShip = false
 			return
@@ -4878,7 +4596,7 @@ State.buildShipSystem = function(ctx)
 			if not onSeat then S.needLeave = false end
 			return
 		end
-		-- em cima da almofada do banco do motorista (x -2.3, z 0.5; topo da almofada y 3.2 no espaco da nave)
+
 		if math.abs(rel.X + 2.3 * SCALE) < 1.0 * SCALE and math.abs(rel.Z - 0.525 * SCALE) < 1.0 * SCALE
 			and rel.Y > (3.2 + 2.0) * SCALE and rel.Y < (3.2 + 5.0) * SCALE then
 			api.board(true)
@@ -4929,20 +4647,15 @@ State.buildShipSystem = function(ctx)
 		else
 			api.nearShip = false
 		end
-		boardBtn.Visible = false -- (v20) o botao PILOTAR/VIDRO de baixo foi removido: o VIDRO agora fica no painel da direita, acima de VISTA
+		boardBtn.Visible = false
 		api.padSync(S)
 	end
 
-	-- ---------------------------------------------------------------
-	-- Sequencias: chegada, saida, pouso
-	-- ---------------------------------------------------------------
-	-- ---- chegada: portal em pe, saida em alta velocidade, curva descendo, pouso e anda ate voce ----
 	local function smooth01(x)
 		x = math.clamp(x, 0, 1)
 		return x * x * (3 - 2 * x)
 	end
 
-	-- spline Catmull-Rom com tabela de distancia (anda a velocidade controlada ao longo do caminho)
 	local function buildPath(pts, perSeg)
 		local n = #pts
 		local function cr(i, u)
@@ -4980,7 +4693,6 @@ State.buildShipSystem = function(ctx)
 		return pos[lo]:Lerp(pos[hi], f)
 	end
 
-	-- um frame de "carro": segue o chao, inclina, peso, suspensao e giro das rodas
 	local function rollFrame(S, dt, newXZ, yawGoal)
 		local old = S.pos
 		local hv = Vector3.new(newXZ.X - old.X, 0, newXZ.Z - old.Z) / math.max(dt, 1 / 240)
@@ -5034,21 +4746,19 @@ State.buildShipSystem = function(ctx)
 		if S.dust then S.dust.Rate = (grounded and hv.Magnitude > 4) and math.clamp(hv.Magnitude * 0.7, 0, 46) or 0 end
 	end
 
-	-- ---- variacoes da chegada: rota (portal + caminho) e final (derrapada etc.), sorteadas sem repetir a anterior ----
-	-- coordenadas {a, b, altura} relativas ao ponto de pouso T (a = pra tras do pouso, b = pro lado); o lado e espelhado ao acaso
 	local ROUTES = {
-		{ nome = "volta larga" }, -- a base
-		{ nome = "volta ampla", k = 1.2, hs = 1.25 }, -- laco maior e mais alto
-		{ nome = "volta fechada", k = 0.88, hs = 0.85 }, -- laco um pouco menor e mais baixo
-		{ nome = "volta alta", k = 1.0, hs = 1.4 }, -- mesmo laco, mais alto
+		{ nome = "volta larga" },
+		{ nome = "volta ampla", k = 1.2, hs = 1.25 },
+		{ nome = "volta fechada", k = 0.88, hs = 0.85 },
+		{ nome = "volta alta", k = 1.0, hs = 1.4 },
 	}
-	-- o laco e um arco circular (raio constante) que sobe, contorna e entra alinhado na reta do pouso: nenhuma curva fechada no final
+
 	local ROUTE_PORTAL = { -50, -70, 56 }
 	local LOOP_R = 70
-	local LOOP_H = { 64, 68, 72, 72, 68, 62, 54, 44, 34, 22 } -- altura a cada 30 graus do arco (0..270)
+	local LOOP_H = { 64, 68, 72, 72, 68, 62, 54, 44, 34, 22 }
 	local function loopMid(R, hs)
 		local function Y(v) return 8 + (v - 8) * hs end
-		-- sobe reto em direcao a +b e entra no arco (centro em (-50-R, R): o fundo do arco cai exatamente no eixo do pouso)
+
 		local mid = {
 			{ -50, -48 + (R + 48) / 3, Y(60) },
 			{ -50, -48 + 2 * (R + 48) / 3, Y(62) },
@@ -5065,9 +4775,9 @@ State.buildShipSystem = function(ctx)
 		mid[#mid + 1] = { -80, 0, Y(15) }
 		return mid
 	end
-	-- final: ang = quanto o nariz gira na derrapada (rad), dust = poeira, kick = balanco da carroceria, brake = onde freia de repente
+
 	local ENDINGS = {
-		-- speedK = quanto mais rapido a nave toca o chao (derrapar so faz sentido com velocidade); driveK = quanto mais ela rola ate parar
+
 		{ nome = "reta", w = 3, speedK = 1, driveK = 1 },
 		{ nome = "derrapada leve", w = 2, speedK = 2.0, driveK = 1.7, ang = 0.38, rise = 0.18, pow = 1.6, dust = 30, kick = 0.9 },
 		{ nome = "derrapada forte", w = 1, speedK = 2.6, driveK = 2.1, ang = 0.85, rise = 0.12, pow = 1.3, dust = 60, kick = 1.8, burst = true },
@@ -5091,7 +4801,6 @@ State.buildShipSystem = function(ctx)
 		return (last == 1) and 2 or 1
 	end
 
-	-- giro do nariz da derrapada (rad, sem o sinal do lado); a = 0..1 linear
 	local function endingYaw(ev, a)
 		if ev.swing then return ev.ang * math.sin(a * math.pi * 2) * (1 - a) end
 		if ev.ang then return ev.ang * smooth01(a / ev.rise) * (math.max(1 - a, 0) ^ ev.pow) end
@@ -5105,7 +4814,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- farois: apagados no voo, acendem (piscando) ao pousar
 	local LAMP_ON = Color3.fromRGB(255, 246, 200)
 	local LAMP_OFF = Color3.fromRGB(110, 108, 96)
 	local function lampsSet(S, on)
@@ -5119,12 +4827,10 @@ State.buildShipSystem = function(ctx)
 	end
 
 	local function runSummon(plan)
-		-- direcao final (nariz) = pra voce; r = direita
+
 		local h = Vector3.new(-math.sin(plan.yaw), 0, -math.cos(plan.yaw))
 		local r = h:Cross(Vector3.yAxis)
 
-		-- quanto ela anda no chao: encurta se faltar chao ou tiver parede atras do ponto de parada
-		-- final sorteado ja aqui: ele define a velocidade de toque e quanto a nave rola ate parar
 		local endIdx = (C.ShipArriveEnding and ENDINGS[C.ShipArriveEnding]) and C.ShipArriveEnding or pickWeighted(ENDINGS, lastEnding)
 		lastEnding = endIdx
 		local ev = ENDINGS[endIdx]
@@ -5146,13 +4852,11 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
-		-- lado aleatorio (espelha o caminho)
 		local sd = (math.random() < 0.5) and 1 or -1
 		local function W(a, b, y)
 			return T + h * (a * SCALE) + r * (b * sd * SCALE) + Vector3.yAxis * (y * SCALE)
 		end
 
-		-- portal EM PE, de frente pra onde a nave vai sair
 		local exitDir = r * sd
 		local routeIdx = (C.ShipArriveRoute and ROUTES[C.ShipArriveRoute]) and C.ShipArriveRoute or pickWeighted(ROUTES, lastRoute)
 		lastRoute = routeIdx
@@ -5166,8 +4870,6 @@ State.buildShipSystem = function(ctx)
 			return
 		end
 
-		-- caminho: sai do portal, sobe um pouco, faz uma volta larga descendo e alinha pro pouso
-		-- miolo da volta escalado pela rota (k = tamanho, hs = altura); comeco e final do pouso iguais em todas
 		local function mkPts(r)
 			local list = { W(ROUTE_PORTAL[1], ROUTE_PORTAL[2] - 14, ROUTE_PORTAL[3]), W(ROUTE_PORTAL[1], ROUTE_PORTAL[2] + 22, ROUTE_PORTAL[3] + 1) }
 			for _, m in ipairs(loopMid(LOOP_R * (r.k or 1), r.hs or 1)) do
@@ -5182,8 +4884,8 @@ State.buildShipSystem = function(ctx)
 		local _, _, refTotal = buildPath(mkPts(ROUTES[1]), 28)
 		local vS0 = (C.ShipArriveStartSpeed or 240) * SCALE
 		local vE0 = (C.ShipArriveEndSpeed or 44) * SCALE
-		local vE = vE0 * (ev.speedK or 1) -- velocidade ao tocar o chao (maior nas derrapadas)
-		-- mesma duracao da rota base; rota maior/menor (ou toque mais rapido) so ajusta a velocidade inicial
+		local vE = vE0 * (ev.speedK or 1)
+
 		local flightT = 2 * refTotal / (vS0 + vE0)
 		local vS = math.max(2 * total / flightT - vE, vE * 1.3)
 		flightT = 2 * total / (vS + vE)
@@ -5201,7 +4903,6 @@ State.buildShipSystem = function(ctx)
 		S.model.Parent = workspace
 		ship = S
 
-		-- direcao do caminho numa janela larga (w): bem mais suave que olhar so 4 studs pra cada lado
 		local function tanAt(d, w)
 			local t = pathAt(pos, len, total, d + w) - pathAt(pos, len, total, d - w)
 			if t.Magnitude < 1e-3 then return S.cf.LookVector end
@@ -5220,10 +4921,9 @@ State.buildShipSystem = function(ctx)
 			local f = dist / total
 			local speed = vS + (vE - vS) * a
 			local p = pathAt(pos, len, total, dist)
-			local win = 9 * SCALE + speed * 0.05 -- janela larga = direcao sem tremor
+			local win = 9 * SCALE + speed * 0.05
 			local tan = tanAt(dist, win)
 
-			-- nariz acompanha a trajetoria, mirando um pouquinho a frente pra nao ficar atrasado na curva (sem derrapar de lado)
 			local tanLead = tanAt(dist + speed * 0.1, win)
 			local yawGoal = math.atan2(-tanLead.X, -tanLead.Z)
 			S.yaw = S.yaw + wrapAng(yawGoal - S.yaw) * (1 - math.exp(-8 * dt))
@@ -5232,12 +4932,11 @@ State.buildShipSystem = function(ctx)
 			local pitchGoal = math.atan2(tanLead.Y, hm) + 0.17 * flare
 			S.pitch = S.pitch + (pitchGoal - S.pitch) * (1 - math.exp(-5 * dt))
 
-			-- inclina ANTES da curva (olha a curvatura do caminho mais a frente), como um aviao: rola pra dentro, depois vira
 			local look = 22 * SCALE + speed * 0.12
 			local tanFar = tanAt(dist + look, win)
 			local yawFar = math.atan2(-tanFar.X, -tanFar.Z)
 			local yawNear = math.atan2(-tan.X, -tan.Z)
-			local turn = wrapAng(yawFar - yawNear) / look * speed -- giro previsto (rad/s)
+			local turn = wrapAng(yawFar - yawNear) / look * speed
 			local bank = math.clamp(turn * 0.38, -0.85, 0.85) * (1 - flare)
 			S.roll = S.roll + (bank - S.roll) * (1 - math.exp(-4.5 * dt))
 			local barrel = -sd * math.pi * 2 * smooth01((f - 0.16) / 0.15)
@@ -5255,8 +4954,8 @@ State.buildShipSystem = function(ctx)
 			if not boomed and dist > 14 * SCALE then
 				boomed = true
 				ctx.flashAt(portalPos, 4)
-				ctx.playSound(C.SoundTeleport, 1.1) -- mesmo som de quando voce atravessa um portal da arma
-				wobbleSky(portal, true)             -- saida: portal balanca como o de saida da arma
+				ctx.playSound(C.SoundTeleport, 1.1)
+				wobbleSky(portal, true)
 			end
 			if not portalClosed and dist > 90 * SCALE then
 				portalClosed = true
@@ -5272,7 +4971,6 @@ State.buildShipSystem = function(ctx)
 		shake(S, 0)
 		S.turbo = false
 
-		-- toque no chao: rodas amassam, nariz mergulha, poeira nas 4 rodas
 		S.gear = 1
 		S.pos = T
 		S.yaw = math.atan2(-h.X, -h.Z)
@@ -5294,7 +4992,6 @@ State.buildShipSystem = function(ctx)
 			end
 		end)
 
-		-- anda ate voce freando suave (a velocidade inicial = a do toque, sem tranco)
 		local dsd = (math.random() < 0.5) and 1 or -1
 		local brakeK = ev.brake and (ev.brake + 0.5 * (1 - ev.brake)) or 1
 		local driveT
@@ -5305,7 +5002,7 @@ State.buildShipSystem = function(ctx)
 		end
 		local function distFrac(a, e)
 			if not ev.brake then return e end
-			-- velocidade constante ate 'brake', depois freia ate parar
+
 			if a <= ev.brake then return a / brakeK end
 			local u = a - ev.brake
 			return (ev.brake + u - 0.5 * u * u / (1 - ev.brake)) / brakeK
@@ -5322,14 +5019,14 @@ State.buildShipSystem = function(ctx)
 			rollFrame(S, dt, q, yawGoal + dsd * endingYaw(ev, a))
 
 			if ev.kick then
-				-- nariz vira pra um lado, a carroceria inclina pro outro
+
 				if not kick1 and a >= 0.05 then kick1 = true; S.leanRV = S.leanRV - dsd * ev.kick end
 				if ev.swing and not kick2 and a >= 0.5 then kick2 = true; S.leanRV = S.leanRV + dsd * ev.kick * 2 end
 			end
 			if ev.burst and not burst and a >= 0.06 then burst = true; wheelDust(S) end
 			if ev.brake and not braked and a >= ev.brake then
 				braked = true
-				S.leanPV = S.leanPV - 0.8 -- nariz mergulha
+				S.leanPV = S.leanPV - 0.8
 				wheelDust(S)
 			end
 			if S.dust and ev.dust then
@@ -5342,7 +5039,6 @@ State.buildShipSystem = function(ctx)
 		end, ev.brake and Enum.EasingStyle.Linear or Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		if gone(S) then return end
 
-		-- assenta a suspensao parado
 		local stop = Vector3.new(S.pos.X, 0, S.pos.Z)
 		lastClk = os.clock()
 		animate(0.8, function()
@@ -5367,10 +5063,9 @@ State.buildShipSystem = function(ctx)
 
 	local function runDismiss(S, plan)
 		S.state = "leaving"
-		local h = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw)) -- nariz da nave
+		local h = Vector3.new(-math.sin(S.yaw), 0, -math.cos(S.yaw))
 		local up = Vector3.yAxis
 
-		-- 1) fecha o vidro
 		local ca0 = S.canopyAng
 		animate(0.9, function(e)
 			S.canopyAng = ca0 * (1 - e)
@@ -5380,14 +5075,13 @@ State.buildShipSystem = function(ctx)
 		task.wait(0.15)
 		if gone(S) then return end
 
-		-- 2) acelera no chao por ~60 studs (para antes se tiver parede)
 		local P = S.pos
 		local roll = 60
 		do
 			local hit = castDir(P + Vector3.new(0, 1.5 * SCALE, 0), h * (roll + 16 * SCALE))
 			if hit then roll = math.clamp((hit.Position - P).Magnitude - 16 * SCALE, 6, roll) end
 		end
-		-- 1.5) portinha de tras abre, braco mecanico com canhao sai, mira e ATIRA o portal; recolhe e a saida continua
+
 		local earlyCF, earlyPortal
 		do
 			local pEnd = P + h * (roll + 215 * SCALE) + up * (84 * SCALE)
@@ -5395,14 +5089,14 @@ State.buildShipSystem = function(ctx)
 			local cf0 = CFrame.lookAt(pEnd, pEnd + tn)
 			local okRG, errRG = pcall(function()
 				if not State.shipRearInit(S) then return end
-				-- portinha abre
+
 				animate(0.55, function(e) State.shipRearDoor(S, 2.0 * e); place(S) end)
 				if gone(S) then return end
-				-- braco sai da baia
+
 				local muz = State.shipRearArm(S, 0, 0, nil, 0)
 				animate(0.6, function(e) muz = State.shipRearArm(S, e, 0, nil, 0); place(S) end)
 				if gone(S) then return end
-				-- mira no ponto do portal
+
 				local aim = nil
 				animate(0.45, function(e)
 					aim = S.cf:VectorToObjectSpace((cf0.Position - S.cf * muz))
@@ -5410,7 +5104,7 @@ State.buildShipSystem = function(ctx)
 					place(S)
 				end)
 				if gone(S) then return end
-				-- tiro: a bola verde voa ate o ponto e o portal abre quando ela chega
+
 				local startW = S.cf * muz
 				ctx.playSound(C.SoundShoot, 0.9)
 				ctx.flashAt(startW, 1.6)
@@ -5436,7 +5130,7 @@ State.buildShipSystem = function(ctx)
 				orb.Parent = workspace
 				animate(0.55, function(_, a)
 					orb.Position = startW:Lerp(cf0.Position, a)
-					State.shipRearArm(S, 1, 1, aim, math.max(0, 1 - a * 6)) -- recuo do tiro
+					State.shipRearArm(S, 1, 1, aim, math.max(0, 1 - a * 6))
 					place(S)
 				end, Enum.EasingStyle.Linear, Enum.EasingDirection.In)
 				orb:Destroy()
@@ -5444,7 +5138,7 @@ State.buildShipSystem = function(ctx)
 				earlyPortal = openSky(cf0, C.ShipLeavePortalSize or Vector3.new(46, 46, 0.2))
 				earlyCF = cf0
 				ctx.flashAt(cf0.Position, 4)
-				-- recolhe o braco e fecha a portinha enquanto o portal abre
+
 				animate(0.5, function(e) State.shipRearArm(S, 1 - e, 1 - e, aim, 0); place(S) end)
 				State.shipRearArm(S, 0, 0, nil, 0)
 				if gone(S) then return end
@@ -5478,11 +5172,10 @@ State.buildShipSystem = function(ctx)
 		end, Enum.EasingStyle.Linear, Enum.EasingDirection.In)
 		if gone(S) then return end
 
-		-- 3) decola, o portal abre na frente e ela entra nele
 		local P2 = S.pos
 		local function W(a, y) return P2 + h * (a * SCALE) + up * (y * SCALE) end
 		local pts = { P2, W(10, 0.2), W(28, 2.5), W(55, 11), W(90, 28), W(135, 50), W(180, 70), W(215, 84) }
-		if earlyCF then pts[#pts] = earlyCF.Position end -- o caminho termina no portal que o canhao abriu
+		if earlyCF then pts[#pts] = earlyCF.Position end
 		local pos, len, total = buildPath(pts, 24)
 		local vE = 200 * SCALE
 		local flightT = 2 * total / (v1 + vE)
@@ -5529,7 +5222,6 @@ State.buildShipSystem = function(ctx)
 			setThrust(S, math.clamp(0.7 + 0.3 * a, 0.3, 1))
 			shake(S, math.clamp((speed - 100 * SCALE) / 150, 0, 1) * 0.2 * SCALE)
 
-			-- o portal abre na frente assim que ela sobe (ja aberto quando ela chega)
 			if not portal and f >= 0.08 then
 				portal = openSky(portalCF, C.ShipLeavePortalSize or Vector3.new(46, 46, 0.2))
 			end
@@ -5542,9 +5234,8 @@ State.buildShipSystem = function(ctx)
 			return
 		end
 
-		-- atravessa o portal e some
 		ctx.playSound(C.SoundTeleport, 1.1)
-		wobbleSky(portal, false) -- entrada: portal balanca como o de entrada da arma
+		wobbleSky(portal, false)
 		local passDist = 46 * SCALE
 		animate(passDist / vE, function(_, a)
 			local p = portalPos + endTan * (passDist * a)
@@ -5561,9 +5252,6 @@ State.buildShipSystem = function(ctx)
 		closeSky(portal)
 	end
 
-	-- ---------------------------------------------------------------
-	-- API publica
-	-- ---------------------------------------------------------------
 	api.inShip = inShip
 
 	local function mkPlan(t)
@@ -5574,7 +5262,6 @@ State.buildShipSystem = function(ctx)
 		return t
 	end
 
-	-- devolve nil se nao pode agora; senao um plano (ponto do portal no ceu)
 	function api.plan()
 		if destroyed or busy or inShip() then return nil end
 		if ship then
@@ -5603,7 +5290,7 @@ State.buildShipSystem = function(ctx)
 		return mkPlan({
 			mode = "summon",
 			landPos = landPos,
-			yaw = math.atan2(flat.X, flat.Z), -- nariz virado pra voce
+			yaw = math.atan2(flat.X, flat.Z),
 			portalCF = skyCF(landPos + Vector3.new(0, PORTAL_H, 0), Vector3.new(-flat.Z, 0, flat.X)),
 		})
 	end
@@ -5661,7 +5348,6 @@ State.buildShipSystem = function(ctx)
 				end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 				if gone(S) then return end
 
-				-- sentou -> o vidro fecha sozinho (de onde estiver: aberto, meio aberto ou ja fechado)
 				local ca0 = S.canopyAng
 				animate(0.6, function(e)
 					S.canopyAng = ca0 * (1 - e)
@@ -5682,7 +5368,7 @@ State.buildShipSystem = function(ctx)
 				pcall(function()
 					savedZoom = { player.CameraMinZoomDistance, player.CameraMaxZoomDistance }
 					player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, 60 * SCALE)
-					player.CameraMinZoomDistance = 32 * SCALE -- camera fora do casco
+					player.CameraMinZoomDistance = 32 * SCALE
 				end)
 				bindSink()
 				pad.Visible = true
@@ -5700,7 +5386,6 @@ State.buildShipSystem = function(ctx)
 		end)
 	end
 
-	-- voo -> chao: a nave desce, as rodas aparecem de novo (mostra que pousou)
 	local function descend(S, ground, keep)
 		local startPos = S.pos
 		local endPos = Vector3.new(startPos.X, ground.Y + LEG_H, startPos.Z)
@@ -5712,7 +5397,7 @@ State.buildShipSystem = function(ctx)
 
 		animate(dur, function(e, a)
 			if keep then
-				-- continua andando/voando enquanto desce; o chao e reavaliado a cada frame
+
 				local now = os.clock()
 				local dtg = math.min(now - lastT, 0.1)
 				lastT = now
@@ -5744,9 +5429,6 @@ State.buildShipSystem = function(ctx)
 		return true
 	end
 
-	-- alterna MODO TERRA <-> MODO VOO
-	-- VISTA DE PERTO: tira o zoom travado (camera fora do casco) e aproxima da cabine pra ver o freio, o cambio e os bancos.
-	-- Aperte V (ou o botao VISTA) de novo pra voltar ao zoom normal.
 	function api.toggleCloseView()
 		if not (ship and ship.state == "flying") then return end
 		held.closeView = not held.closeView
@@ -5765,7 +5447,7 @@ State.buildShipSystem = function(ctx)
 		local S = ship
 		if destroyed or not S or busy or S.state ~= "flying" then return end
 		if S.mode == "ground" then
-			if S.vy < -5 then S.refuseT = os.clock(); return end -- cambio trepida: nao engata no ar
+			if S.vy < -5 then S.refuseT = os.clock(); return end
 			busy = true
 			S.shiftTo = "fly"
 			S.state = "shifting"
@@ -5777,11 +5459,11 @@ State.buildShipSystem = function(ctx)
 					if S.dust then S.dust.Rate = 0 end
 					dustAt(S.pos - Vector3.new(0, LEG_H, 0))
 					animate(1.1, function(e)
-						S.gear = 1 - e -- rodas encolhem pra dentro
+						S.gear = 1 - e
 						local now = os.clock()
 						local dtg = math.min(now - lastT, 0.1)
 						lastT = now
-						api.glide(S, dtg) -- segue andando (mantem velocidade e controle)
+						api.glide(S, dtg)
 						S.pos = Vector3.new(S.pos.X, y0 + 7 * SCALE * e, S.pos.Z)
 						S.pitch = p0 * (1 - e)
 						S.roll = r0 * (1 - e)
@@ -5807,7 +5489,7 @@ State.buildShipSystem = function(ctx)
 			local ground = groundAt(S.pos, 0)
 			if not ground then
 				toast("Sem chão embaixo pra pousar. Voe até algum lugar com chão!", 3)
-				S.refuseT = os.clock() -- cambio trepida: sem chao nao engata
+				S.refuseT = os.clock()
 				return
 			end
 			busy = true
@@ -5831,8 +5513,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- (v20) liga/desliga a colisao da nave. So com a nave estacionada (landed); em voo/chegada/saida fica tudo sem colisao.
-	-- O vidro so e solido quando 100% fechado e com voce fora da cabine (fechar com voce dentro nao te empurra).
 	function api.syncSolid(S)
 		if C.ShipSolid == false or not S.solidParts then return end
 		local on = S.state == "landed"
@@ -5856,7 +5536,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- (v20) painel da direita: pilotando = todos os botoes; estacionado perto da nave = so o botao VIDRO
 	function api.padSync(S)
 		local flyingNow = S ~= nil and (S.state == "flying" or S.state == "shifting")
 		local show = flyingNow or (S ~= nil and S.state == "landed" and api.nearShip == true)
@@ -5869,7 +5548,6 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
-	-- (v20) abre/fecha o vidro quando quiser (tecla G / botao na tela), parado ou pilotando
 	function api.toggleCanopy()
 		local S = ship
 		if destroyed or not S or S.canopyBusy then return end
@@ -5891,7 +5569,6 @@ State.buildShipSystem = function(ctx)
 		end)
 	end
 
-	-- sair: no modo TERRA o vidro abre e voce desce; no modo VOO a nave pousa primeiro
 	function api.exit()
 		local S = ship
 		if destroyed or not S or busy or S.state ~= "flying" then return end
@@ -5919,7 +5596,6 @@ State.buildShipSystem = function(ctx)
 				infoLbl.Visible = false
 				if baseFov then camera.FieldOfView = baseFov end
 
-				-- (v20) SAIR so levanta do banco: o vidro NAO abre sozinho (use G) e a nave fica onde esta
 				if gone(S) then return end
 				local standCF = S.cf * CFrame.new(-2.3 * SCALE, 5.9 * SCALE, -1.8 * SCALE)
 				restoreChar()
@@ -5927,7 +5603,7 @@ State.buildShipSystem = function(ctx)
 				rootPart.AssemblyLinearVelocity = Vector3.zero
 				humanoid.Sit = false
 				pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-				S.needLeave = true -- so senta de novo depois que voce sair de cima do banco
+				S.needLeave = true
 				lastBoard = os.clock() + 1.5
 				S.state = "landed"
 			end)
@@ -5965,9 +5641,6 @@ State.buildShipSystem = function(ctx)
 		skyPortals = {}
 	end
 
-	-- ---------------------------------------------------------------
-	-- Liga tudo
-	-- ---------------------------------------------------------------
 	pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
 	RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, step)
 
@@ -5982,7 +5655,7 @@ State.buildShipSystem = function(ctx)
 		elseif input.KeyCode == Enum.KeyCode.V then
 			api.toggleCloseView()
 		elseif input.KeyCode == Enum.KeyCode.B then
-			held.brake = true -- freio de mao (drift no modo TERRA): segura pra puxar a catraca clique a clique
+			held.brake = true
 		end
 	end))
 	ctx.track(UserInputService.InputEnded:Connect(function(input)
@@ -5992,14 +5665,6 @@ State.buildShipSystem = function(ctx)
 	return api
 end
 
-
--- ===================================================================
--- CHAVE DA NAVE
--- Item (Tool) no inventario + mini slot na tela. Usar = chama a nave
--- (portal no ceu, nave desce e pousa) ou, com a nave estacionada,
--- manda ela embora (portal no ceu, nave sobe e some).
--- Fica fora do setupRickGun pra nao estourar o limite de locals de la.
--- ===================================================================
 State.keyTemplate, State.keyAxis, State.keyTried = nil, Vector3.zAxis, false
 
 State.makeFallbackKey = function()
@@ -6031,8 +5696,8 @@ State.makeFallbackKey = function()
 		w.Parent = p
 		p.Parent = h
 	end
-	piece(Vector3.new(0.7, 0.7, 0.7), Vector3.new(0, 0, -L / 2), Enum.PartType.Ball) -- cabeca (argola)
-	piece(Vector3.new(0.5, 0.2, 0.2), Vector3.new(0.3, 0, L / 2 - 0.1))                 -- dentes
+	piece(Vector3.new(0.7, 0.7, 0.7), Vector3.new(0, 0, -L / 2), Enum.PartType.Ball)
+	piece(Vector3.new(0.5, 0.2, 0.2), Vector3.new(0.3, 0, L / 2 - 0.1))
 	piece(Vector3.new(0.4, 0.2, 0.2), Vector3.new(0.25, 0, L / 2 - 0.4))
 	State.keyAxis = Vector3.zAxis
 	return h
@@ -6057,7 +5722,7 @@ State.loadKeyTemplate = function()
 				for _, d in ipairs(c:GetDescendants()) do
 					if d:IsA("Attachment") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Script")
 						or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound")
-						-- chave normal: sem nenhum efeito saindo dela
+
 						or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke")
 						or d:IsA("Sparkles") or d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") or d:IsA("Highlight") then
 						d:Destroy()
@@ -6102,14 +5767,12 @@ State.buildKeySystem = function(ctx)
 	local NAME = C.KeyToolName or "Chave da Nave"
 	local api = {}
 
-	-- limpa copias antigas
 	for _, v in ipairs(backpack:GetChildren()) do
 		if v.Name == NAME then pcall(function() v:Destroy() end) end
 	end
 	local oldInChar = character:FindFirstChild(NAME)
 	if oldInChar then pcall(function() oldInChar:Destroy() end) end
 
-	-- ---------- item ----------
 	local tpl = State.loadKeyTemplate()
 	local tool = Instance.new("Tool")
 	tool.Name = NAME
@@ -6131,7 +5794,6 @@ State.buildKeySystem = function(ctx)
 		* CFrame.Angles(math.rad(e.X), math.rad(e.Y), math.rad(e.Z))
 	pcall(function() tool.Parent = backpack end)
 
-	-- ---------- mini slot na tela (igual ao da portal gun) ----------
 	local gui = ctx.newGui("RickKeyHotbar", 1)
 	local frame = Instance.new("Frame")
 	frame.Name = "KeySlotFrame"
@@ -6162,7 +5824,6 @@ State.buildKeySystem = function(ctx)
 	slotIcon.TextSize = 18
 	slotIcon.Parent = slotBtn
 
-	-- miniatura do acessorio do catalogo (troca o emoji quando carregar)
 	if C.KeyAccessoryId then
 		local img = Instance.new("ImageLabel")
 		img.Name = "KeyThumb"
@@ -6214,7 +5875,6 @@ State.buildKeySystem = function(ctx)
 		end)
 	end)
 
-	-- ---------- uso da chave ----------
 	local lastUse = 0
 	local function use()
 		if not Z.alive or humanoid.Health <= 0 then return end
@@ -6238,7 +5898,7 @@ State.buildKeySystem = function(ctx)
 		State.mortyEvent("onShot", from)
 		pcall(UIAnim.pulse, slotBtn, 1.2)
 		ctx.playSound(C.SoundShoot, 0.9, handle)
-		-- sem disparo: a nave e chamada direto, sem projetil saindo da chave
+
 		if not Z.alive then return end
 		sh.execute(plan)
 	end
@@ -6256,7 +5916,6 @@ State.buildKeySystem = function(ctx)
 		selectedFrame.Visible = false
 	end))
 
-	-- mantem a chave no inventario
 	task.spawn(function()
 		while Z.alive and character.Parent do
 			task.wait(0.5)
@@ -6274,7 +5933,6 @@ State.buildKeySystem = function(ctx)
 	end
 	return api
 end
-
 
 local function setupRickGun(character)
 	if not scriptAlive then return end
@@ -6339,9 +5997,6 @@ local function setupRickGun(character)
 		return g
 	end
 
-
-	-- ===== FALAS (mesmo sistema do Kamehameha: texto letra por letra sobre a cabeca) =====
-	-- {nome} = nome do seu boneco (DisplayName). Pra fixar outro nome: Config.FalaNome = "Fulano"
 	do
 		local okF, F = pcall(function()
 			local TextService = game:GetService("TextService")
@@ -6356,10 +6011,9 @@ local function setupRickGun(character)
 				nervoso = { cor = Color3.fromRGB(255, 220, 80), vel = 0.028, tremor = 0.18, pulso = 0.015 },
 				animado = { cor = Color3.fromRGB(110, 235, 255), vel = 0.026, tremor = 0.1, pulso = 0.02 },
 			}
-			-- 1 = suave (padrao), 0 = sem tremor/pulso, 2 = mais intenso (estilo Kamehameha)
+
 			local K = Config.FalaIntensidade or 1
 
-			-- { texto, emocao, intensidade(1-3) }   placeholders: {nome} {dim} {alvo}
 			local FALAS = {
 				equip = {
 					{ "Wubba lubba dub dub!", "grito", 1 },
@@ -6418,11 +6072,9 @@ local function setupRickGun(character)
 					{ "Calma, {nome}. Respira. Tenta de novo.", "erro", 1 },
 				},
 			}
-			-- chance de falar em cada situacao (1 = sempre)
+
 			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1 }
 
-			-- fabrica de falantes: cada um tem sua cabeca (getHead), suas falas/chances e seu proprio balao.
-			-- O falante do jogador e o padrao; o Morty cria o dele com Z.fala.criar(...)
 			local function criarFalante(getHead, FALAS, CHANCE, vivo, altura, maxDist)
 			local S = { gui = nil, caixa = nil, token = 0, ultimo = {}, t = 0 }
 
@@ -6610,7 +6262,6 @@ local function setupRickGun(character)
 				end)
 			end
 
-			-- dizer("tiro") / dizer("dim", { dim = "Nome" }) / dizer("alvo", { alvo = "Fulano" })
 			local function dizer(cat, vars)
 				if not ATIVO or not vivo() then return end
 				local lista = FALAS[cat]
@@ -6670,7 +6321,7 @@ local function setupRickGun(character)
 		local okS, sound = pcall(function()
 			local s = Instance.new("Sound")
 			s.SoundId = id
-			s.Volume = 0.5 -- volume global de todos os sons do script
+			s.Volume = 0.5
 			s.Parent = (parent and parent.Parent) and parent or SoundService
 			s:Play()
 			Debris:AddItem(s, 5)
@@ -7914,7 +7565,7 @@ local function setupRickGun(character)
 	end
 
 	local Dim = { list = {}, current = nil, home = nil }
-	State.Dim = Dim -- (v21) o espaco usa pra entrar/sair das dimensoes voando
+	State.Dim = Dim
 	do
 		local Lighting = game:GetService("Lighting")
 		local TAU = math.pi * 2
@@ -7990,7 +7641,6 @@ local function setupRickGun(character)
 			return part
 		end
 
-		-- Musicas do jukebox do Bar do Rick: cole aqui os IDs, ex: "rbxassetid://123456". Vazio = so luzes.
 		local BAR_SONGS = {}
 
 		local function buildNeon(model, O, r)
@@ -8012,7 +7662,6 @@ local function setupRickGun(character)
 				return mk(model, size, cf, col, M.Neon, o)
 			end
 
-			-- ===== CHAO, GRADE E AVENIDA =====
 			mk(model, V3(2400, 2, 2400), O + V3(0, -1, 0), DARK, M.SmoothPlastic, {solid = true, refl = 0.15})
 			for i = -24, 24 do
 				local o = i * 50
@@ -8027,13 +7676,11 @@ local function setupRickGun(character)
 				dashes[#dashes + 1] = neon(V3(1, 0.12, 14), O + V3(0, 0.17, -560 + i * 35), CYA)
 			end
 
-			-- plataforma de chegada
 			column(model, 0.2, 42, O + V3(0, 0.19, -30), MAG, M.Neon, {shadow = false})
 			column(model, 0.24, 39, O + V3(0, 0.2, -30), DARK, M.SmoothPlastic, {shadow = false})
 			local pad = column(model, 0.2, 36, O + V3(0, 0.25, -30), CYA, M.Neon, {shadow = false, trans = 0.5})
 			glow(pad, CYA, 2, 40)
 
-			-- postes de luz
 			for i = 0, 21 do
 				local z = -330 + i * 65
 				for _, s in ipairs({-1, 1}) do
@@ -8045,7 +7692,6 @@ local function setupRickGun(character)
 				end
 			end
 
-			-- ===== SOL LISTRADO (v27f: maior, degrade amarelo > laranja > rosa, montanhas na frente) =====
 			local SR, SY, SZ = 330, 250, 1000
 			local nBars = 40
 			local full = 2 * SR / nBars
@@ -8062,7 +7708,7 @@ local function setupRickGun(character)
 				end
 			end
 			ball(model, SR * 2.5, O + V3(0, SY, SZ + 20), ORA, M.Neon, {shadow = false, trans = 0.92})
-			-- duas montanhas grandes na frente do sol (como na referencia)
+
 			for _, mx in ipairs({-190, 170}) do
 				local s = 380
 				local h = s * 0.7071
@@ -8072,7 +7718,6 @@ local function setupRickGun(character)
 				neon(V3(s, 1.2, 1.2), CF(O + V3(mx - h / 2, h / 2, 923)) * ANG(0, 0, pi / 4), col)
 			end
 
-			-- montanhas com contorno neon
 			for i = -6, 6 do
 				local x = i * 165 + rnd(-40, 40)
 				local s = rnd(140, 320)
@@ -8083,7 +7728,6 @@ local function setupRickGun(character)
 				neon(V3(s, 1.2, 1.2), CF(O + V3(x - h / 2, h / 2, 913)) * ANG(0, 0, pi / 4), col)
 			end
 
-			-- skyline distante (silhueta)
 			for i = 1, 70 do
 				local a = i / 70 * pi * 2 + rnd(-0.05, 0.05)
 				local d = rnd(760, 1050)
@@ -8093,7 +7737,6 @@ local function setupRickGun(character)
 				neon(V3(w + 0.4, 1.2, w + 0.4), O + V3(x, h, z), pick2())
 			end
 
-			-- ===== PREDIOS =====
 			local beacons, beams, signs, nB = {}, {}, {}, 0
 			local SIGN_TEXT = {"WUBBA LUBBA\nDUB DUB", "GET\nSCHWIFTY", "BAR DO\nRICK", "C-35K", "PORTAL\nZONE", "PICKLE\nRICK", "NEON\nCITY"}
 
@@ -8205,7 +7848,6 @@ local function setupRickGun(character)
 			end
 			for _, b in ipairs(beams) do updBeam(b, 0) end
 
-			-- ===== ANEIS GIRATORIOS SOBRE A AVENIDA =====
 			local rings = {}
 			for ri2, rz in ipairs({250, 520}) do
 				local segs = {}
@@ -8223,7 +7865,6 @@ local function setupRickGun(character)
 			end
 			for _, rg in ipairs(rings) do updRing(rg, 0) end
 
-			-- ===== CARROS VOADORES (design novo: cupe esportivo com spoiler, faixas neon e propulsores) =====
 			local cars = {}
 			local function attach(root, rel, size, col, mat, o)
 				local p = mk(model, size, root.CFrame * rel, col, mat, o)
@@ -8250,33 +7891,33 @@ local function setupRickGun(character)
 				local body = mk(model, V3(4.6, 0.9, 10.4), cf, paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
 				c.body, c.last = body, z
 				local function P(rel, size, color, mat, o) return attach(body, rel, size, color, mat, o or {shadow = false}) end
-				-- capo inclinado e traseira
+
 				P(CF(0, 0.5, 4.9) * ANG(0.2, 0, 0), V3(4.4, 0.4, 3.2), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
 				P(CF(0, 0.5, -4.2) * ANG(0.1, 0, 0), V3(4.4, 0.4, 2.6), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
-				-- cabine de vidro, teto e para-brisa
+
 				P(CF(0, 0.9, -0.6), V3(3.5, 0.8, 4.4), glass, M.Glass, {shadow = false, trans = 0.35})
 				P(CF(0, 1.38, -0.8), V3(3.3, 0.14, 3.4), paint, M.SmoothPlastic, {shadow = false, refl = 0.4})
 				P(CF(0, 0.95, 1.9) * ANG(0.65, 0, 0), V3(3.4, 0.12, 1.9), glass, M.Glass, {shadow = false, trans = 0.3})
-				-- aerofolio
+
 				for _, sx in ipairs({-1, 1}) do
 					P(CF(sx * 1.4, 0.8, -4.6), V3(0.22, 0.9, 0.3), paint, M.SmoothPlastic)
 					P(CF(sx * 2.4, 1.3, -4.9), V3(0.14, 0.5, 1.4), paint, M.SmoothPlastic)
 				end
 				P(CF(0, 1.3, -4.9), V3(4.8, 0.16, 1.4), paint, M.SmoothPlastic, {shadow = false, refl = 0.3})
 				P(CF(0, 1.3, -5.62), V3(4.8, 0.12, 0.12), col, M.Neon)
-				-- faixas laterais e luz por baixo
+
 				for _, sx in ipairs({-1, 1}) do
 					P(CF(sx * 2.34, -0.3, 0), V3(0.12, 0.16, 9.4), col, M.Neon)
 					P(CF(sx * 2.34, 0.15, 0), V3(0.1, 0.1, 9.4), col2, M.Neon)
 				end
 				P(CF(0, -0.55, 0), V3(3.8, 0.12, 8.8), col, M.Neon, {shadow = false, trans = 0.35})
-				-- farois, DRL e lanterna
+
 				for _, sx in ipairs({-1, 1}) do
 					P(CF(sx * 1.55, 0.15, 5.22), V3(1.0, 0.26, 0.16), C(230, 250, 255), M.Neon)
 				end
 				P(CF(0, 0.05, 5.22), V3(3.0, 0.1, 0.14), col, M.Neon)
 				P(CF(0, 0.3, -5.22), V3(4.2, 0.22, 0.14), C(255, 50, 70), M.Neon)
-				-- propulsores
+
 				for _, sx in ipairs({-1, 1}) do
 					P(CF(sx * 1.2, 0, -5.5) * ANG(0, pi / 2, 0), V3(0.9, 1.1, 1.1), C(30, 20, 50), M.SmoothPlastic, {shadow = false, cyl = true})
 					P(CF(sx * 1.2, 0, -6.05) * ANG(0, pi / 2, 0), V3(0.2, 0.9, 0.9), col2, M.Neon, {shadow = false, cyl = true})
@@ -8310,7 +7951,6 @@ local function setupRickGun(character)
 				c.body.CFrame = cf
 			end
 
-			-- ===== BAR DO RICK (predio com porta, interior, jukebox e luzes) =====
 			local party = {on = false, ang = 0}
 			local updBar = (function()
 				local GRN = C(110, 255, 120)
@@ -8322,14 +7962,12 @@ local function setupRickGun(character)
 					return mk(model, size, O + pos, WALL, M.SmoothPlastic, {solid = true})
 				end
 
-				-- estrutura
 				mk(model, V3(W, 0.25, D), O + V3(mx, 0.125, cz), C(34, 18, 46), M.SmoothPlastic, {solid = true, refl = 0.12})
 				wall(V3(T, H, D), V3(BX1 - T / 2, H / 2, cz))
 				wall(V3(W, H, T), V3(mx, H / 2, BZ0 + T / 2))
 				wall(V3(W, H, T), V3(mx, H / 2, BZ1 - T / 2))
 				wall(V3(W + 1, 1.5, D + 1), V3(mx, H + 0.75, cz))
 
-				-- parede da frente (porta + vitrines)
 				local fx = BX0 + T / 2
 				local DOORW, DOORH = 9, 11
 				local function frontPiece(za, zb)
@@ -8346,14 +7984,12 @@ local function setupRickGun(character)
 				frontPiece(cz + DOORW / 2, BZ1 - T)
 				wall(V3(T, H - DOORH, DOORW), V3(fx, DOORH + (H - DOORH) / 2, cz))
 
-				-- moldura da porta e porta aberta
 				neon(V3(0.4, DOORH, 0.4), O + V3(BX0 - 0.1, DOORH / 2, cz - DOORW / 2), GRN)
 				neon(V3(0.4, DOORH, 0.4), O + V3(BX0 - 0.1, DOORH / 2, cz + DOORW / 2), GRN)
 				neon(V3(0.4, 0.4, DOORW + 0.4), O + V3(BX0 - 0.1, DOORH + 0.2, cz), GRN)
 				mk(model, V3(4.4, 10.6, 0.35), O + V3(BX0 + T + 2.4, 5.4, cz - DOORW / 2 + 0.4), C(120, 210, 255), M.Glass, {trans = 0.5, shadow = false})
 				neon(V3(4.4, 0.2, 0.45), O + V3(BX0 + T + 2.4, 10.7, cz - DOORW / 2 + 0.4), GRN)
 
-				-- neon externo (cantos e borda do telhado)
 				for _, zz in ipairs({BZ0 - 0.1, BZ1 + 0.1}) do
 					neon(V3(0.6, H, 0.6), O + V3(BX0 - 0.1, H / 2, zz), GRN)
 					neon(V3(0.6, H, 0.6), O + V3(BX1 + 0.1, H / 2, zz), GRN)
@@ -8363,7 +7999,6 @@ local function setupRickGun(character)
 					neon(V3(0.5, 0.5, D + 1.4), O + V3(xx, H + 1.6, cz), MAG)
 				end
 
-				-- letreiro externo
 				local function signGui(part, face, text, color)
 					local gui = Instance.new("SurfaceGui")
 					gui.Face = face
@@ -8389,7 +8024,6 @@ local function setupRickGun(character)
 				neon(V3(0.9, 9.5, 0.5), O + V3(BX0 - 0.9, 17.5, cz + 20), MAG)
 				signGui(sp, Enum.NormalId.Left, "BAR DO RICK", GRN)
 
-				-- portal verde girando no telhado
 				local PR, pcx, pcy = 9, BX0 + 12, H + 1.5 + 11
 				mk(model, V3(0.5, PR * 2 - 2, PR * 2 - 2), CF(O + V3(pcx, pcy, cz)), GRN, M.Neon, {cyl = true, trans = 0.55, shadow = false})
 				local psegs = {}
@@ -8404,7 +8038,6 @@ local function setupRickGun(character)
 				end
 				updPortal(0)
 
-				-- banquinhos sentaveis (aperte E perto do banquinho; mova ou pule pra levantar)
 				local sitting = false
 				local function sittable(pos, face)
 					local seat = mk(model, V3(2.2, 0.3, 2.2), CFrame.lookAt(O + pos, O + pos + face), DARK, M.SmoothPlastic, {trans = 1, shadow = false})
@@ -8449,8 +8082,6 @@ local function setupRickGun(character)
 					return seat
 				end
 
-				-- ===== INTERIOR =====
-				-- balcao
 				local top = neon(V3(3.2, 0.3, 28.4), O + V3(97, 4.15, cz), GRN, {trans = 0.2})
 				glow(top, GRN, 1.2, 28)
 				mk(model, V3(3, 4, 28), O + V3(97, 2, cz), C(28, 14, 60), M.SmoothPlastic, {solid = true, refl = 0.2})
@@ -8462,7 +8093,7 @@ local function setupRickGun(character)
 					column(model, 0.7, 2.6, O + V3(93.3, 2.6, sz), C(200, 30, 150), M.SmoothPlastic, {shadow = false})
 					sittable(V3(93.3, 2.8, sz), V3(1, 0, 0))
 				end
-				-- prateleiras com garrafas bonitas (3 formatos, vidro + liquido neon, rotulo e tampa)
+
 				neon(V3(0.2, 8, 26), O + V3(BX1 - T - 0.2, 8.4, cz), VIO, {trans = 0.55})
 				local bottleCols = {GRN, MAG, CYA, YEL}
 				local DKP = C(20, 10, 40)
@@ -8500,9 +8131,6 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- copo: tumbler com liquido em 3 camadas, espuma, gelo, canudo listrado com dobra, rodela de lima e aro neon.
-				-- dyn = true: pecas soldadas num root invisivel (pra animar); sem dyn: pecas fixas de decoracao.
-				-- par/sc: pai das pecas e escala (usado no item do inventario: Handle solto dentro do Tool).
 				local function cup(b, liq, dyn, par, sc)
 					sc = sc or 1
 					par = par or model
@@ -8544,8 +8172,7 @@ local function setupRickGun(character)
 					CY(0.05, 0.1, 0.9, glassC, M.Glass, {trans = 0.35})
 					CY(0.95, 1.7, 1.3, glassC, M.Glass, {trans = 0.6})
 					info.rim = CY(1.82, 0.05, 1.36, liq, M.Neon, {trans = 0.25})
-				
-					-- liquido em 3 camadas + espuma
+
 					local Y0, HT = 0.12, 1.4
 					info.Y0, info.HT = Y0, HT
 					local layers, acc = {}, 0
@@ -8557,22 +8184,21 @@ local function setupRickGun(character)
 						acc = acc + len
 					end
 					local foam = CY(Y0 + HT + 0.04, 0.1, 1.12, liq:Lerp(WHT, 0.6), M.Neon, {trans = 0.3})
-				
-					-- gelo
+
 					P(CF(0.2, 1.0, 0.1) * ANG(0.5, 0.4, 0.2), V3(0.4, 0.4, 0.4), WHT, M.Glass, {trans = 0.4}, "ice")
 					P(CF(-0.2, 0.8, -0.15) * ANG(0.2, 0.7, 0.5), V3(0.35, 0.35, 0.35), WHT, M.Glass, {trans = 0.4}, "ice")
 					P(CF(0.05, 1.2, -0.25) * ANG(0.9, 0.1, 0.6), V3(0.32, 0.32, 0.32), WHT, M.Glass, {trans = 0.4}, "ice")
-					-- canudo listrado com dobra
+
 					local strawRel = CF(0.2, 1.3, 0) * ANG(0, 0, -0.2)
 					P(strawRel, V3(0.1, 2.3, 0.1), WHT, M.SmoothPlastic, {}, "straw")
 					for _, off in ipairs({-0.6, 0.1, 0.8}) do
 						P(strawRel * CF(0, off, 0), V3(0.11, 0.28, 0.11), MAG, M.Neon, {}, "straw")
 					end
 					P(strawRel * CF(-0.1, 1.2, 0) * ANG(0, 0, 0.9), V3(0.1, 0.45, 0.1), WHT, M.SmoothPlastic, {}, "straw")
-					-- rodela de lima na borda
+
 					P(CF(-0.58, 1.78, 0) * ANG(0, 0, 0.5), V3(0.1, 0.95, 0.95), C(130, 255, 90), M.Neon, {cyl = true, trans = 0.15}, "lime")
 					P(CF(-0.58, 1.78, 0) * ANG(0, 0, 0.5), V3(0.12, 0.78, 0.78), C(235, 255, 160), M.Neon, {cyl = true, trans = 0.2}, "lime")
-				
+
 					if dyn then
 						info.light = glow(root, liq, held and 0.6 or 1.0, held and 7 or 14)
 						local function EM(part, props)
@@ -8593,7 +8219,7 @@ local function setupRickGun(character)
 						info.spark = EM(root, {Lifetime = NumberRange.new(0.5, 1.1), Speed = NumberRange.new(3, 7), SpreadAngle = Vector2.new(180, 180), Acceleration = V3(0, -6, 0)})
 						local fw = foam:FindFirstChildOfClass("Weld")
 						for _, L in ipairs(layers) do L.w = L.p:FindFirstChildOfClass("Weld") end
-						-- enche o copo (k de 0 a 1): so as camadas que ja foram atingidas aparecem
+
 						info.fill = function(k)
 							local h = HT * math.clamp(k, 0, 1)
 							for _, L in ipairs(layers) do
@@ -8611,7 +8237,7 @@ local function setupRickGun(character)
 							bubW.C0 = CF(0, (Y0 + h) * sc, 0)
 						end
 						if held then
-							-- item do inventario: copo cheio e completo, Handle solto (sem ancora)
+
 							info.fill(1)
 							root.Anchored = false
 							root.Name = "Handle"
@@ -8629,7 +8255,6 @@ local function setupRickGun(character)
 					cup(O + V3(97.8, 4.3, cz + dz), bottleCols[r:NextInteger(1, #bottleCols)])
 				end
 
-				-- letreiro interno (afastado da parede, dentro do vao entre jukebox e prateleiras)
 				local fl = mk(model, V3(20, 5, 0.5), O + V3(92, 15, BZ0 + T + 0.9), C(8, 4, 20), M.SmoothPlastic, {shadow = false})
 				for _, px in ipairs({-8, 8}) do
 					mk(model, V3(0.3, 0.3, 0.9), O + V3(92 + px, 15, BZ0 + T + 0.45), C(40, 20, 70), M.SmoothPlastic, {shadow = false})
@@ -8641,7 +8266,6 @@ local function setupRickGun(character)
 				signGui(fl, Enum.NormalId.Front, "PORTAL FLUID", GRN)
 				signGui(fl, Enum.NormalId.Back, "PORTAL FLUID", GRN)
 
-				-- mesas e banquinhos
 				for _, tb in ipairs({{68, 12}, {68, 48}, {86, 46}, {88, 14}}) do
 					local tx, tz = tb[1], tb[2]
 					column(model, 0.2, 2.4, O + V3(tx, 0.35, tz), C(30, 20, 60), M.SmoothPlastic, {shadow = false})
@@ -8656,7 +8280,6 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- pista de danca
 				local tiles = {}
 				for i = 0, 3 do
 					for j = 0, 4 do
@@ -8664,7 +8287,6 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- luzes do teto e globo de espelhos
 				local ceil = {}
 				for i, cx in ipairs({70, 80, 90, 100}) do
 					local p = neon(V3(0.8, 0.4, 40), O + V3(cx, H - 0.3, cz), MAG)
@@ -8674,7 +8296,6 @@ local function setupRickGun(character)
 				local discoBall = ball(model, 3.6, O + V3(74.6, H - 4.4, cz + 0.5), C(215, 215, 235), M.Metal, {shadow = false, refl = 0.6})
 				local discoLight = glow(discoBall, CYA, 1.2, 35)
 
-				-- ===== BARMAN (robo original) + DRINKS =====
 				local GREET = {
 					"A-aw geez, bem-vindo ao Bar do Rick! Senta ai que eu preparo algo.",
 					"Opa, cliente novo! O Rick disse pra eu nao deixar ninguem tocar no fluido de portal... mas toma um.",
@@ -8693,10 +8314,9 @@ local function setupRickGun(character)
 					{name = "Sol Neon", liquid = YEL, fx = "sol", desc = "Arco-íris ondulante"},
 				}
 				local BXp = V3(100.0, 0, cz - 3)
-				local MS = 1.4 -- escala do Morty (R6 padrao = 5 studs)
+				local MS = 1.4
 				local BASE = CF(O + BXp + V3(0, 3 * MS + 0.15, 0)) * ANG(0, pi / 2, 0)
 
-				-- ===== MORTY (rig R6 montado por partes; roupa e acessorios carregados por ID) =====
 				local MR = (function()
 					local SKIN, MYEL, MBLU = C(250, 208, 160), C(255, 214, 52), C(44, 84, 168)
 					local rig = Instance.new("Model")
@@ -8755,7 +8375,6 @@ local function setupRickGun(character)
 						CFrame.new(-1 * MS, -1 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
 						CFrame.new(-0.5 * MS, 1 * MS, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0))
 
-					-- attachments padrao do R6 (acessorios encaixam por nome)
 					local rigAtt = {}
 					local function AT(part, name, pos)
 						local at = Instance.new("Attachment")
@@ -8785,10 +8404,8 @@ local function setupRickGun(character)
 					hum.Parent = rig
 					rig.PrimaryPart = root
 
-					-- pano de limpeza na mao esquerda (fica invisivel ate o Morty limpar o balcao)
 					local rag = attach(lArm, CF(0, -1 * MS - 0.05, 0), V3(1.0, 0.3, 0.9), C(190, 205, 230), M.SmoothPlastic, {shadow = false, trans = 1})
 
-					-- shaker na mao direita (mesmo do barman antigo)
 					local shRel = CF(0, -1 * MS - 0.3, 0) * ANG(0, 0, pi / 2)
 					local shk = attach(rArm, shRel, V3(1.5, 0.8, 0.8), C(190, 200, 220), M.Metal, {shadow = false, cyl = true})
 					attach(rArm, shRel, V3(0.3, 0.9, 0.9), GRN, M.Neon, {shadow = false, cyl = true})
@@ -8804,7 +8421,6 @@ local function setupRickGun(character)
 					shEm.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
 					shEm.Parent = shk
 
-					-- roupa (Shirt/Pants) e acessorios: carregados em segundo plano pra nao travar a construcao
 					local function clothing(cls, prop, id)
 						local obj = fetchAccessoryModel(id)
 						local item
@@ -8878,7 +8494,6 @@ local function setupRickGun(character)
 						h.Parent = rig
 					end
 
-					-- IK simples dos bracos: aponta o braço (ombro -> mao) na direcao de um ponto do mundo; alcance fixo (len)
 					local function mkIK(joint, sx, len)
 						local c1 = joint.C1
 						local sL = V3(sx * MS, 0.5 * MS, 0)
@@ -8896,8 +8511,8 @@ local function setupRickGun(character)
 					end
 					task.spawn(clothing, "Shirt", "ShirtTemplate", "70540651523892")
 					task.spawn(clothing, "Pants", "PantsTemplate", "88425125226234")
-					task.spawn(dress, "78898300239369") -- acessorio de cabeca
-					task.spawn(dress, "139792469671352") -- acessorio de pescoco
+					task.spawn(dress, "78898300239369")
+					task.spawn(dress, "139792469671352")
 
 					return {
 						root = root, torso = torso, head = head, neck = neck, rShoulder = rShoulder,
@@ -8909,9 +8524,7 @@ local function setupRickGun(character)
 					}
 				end)()
 				local torso, head = MR.torso, MR.head
-				-- ===== drink: Morty pega o copo com a mao esquerda enquanto balanca o shaker com a direita, poe no balcao,
-				-- enche com jato, guarnicao, desliza ate voce. Voce clica no copo e ele vira item (Tool) no inventario;
-				-- ao beber o copo quebra e some do inventario. =====
+
 				local DR = (function()
 					local D = {}
 					local WHT = C(255, 255, 255)
@@ -8943,11 +8556,11 @@ local function setupRickGun(character)
 							pcall(function() rg:Destroy() end)
 						end)
 					end
-					-- ponto do mundo onde a mao esquerda fica com o braco apontando na direcao d (espaco do tronco)
+
 					local function handPoint(d)
 						return MR.root.CFrame:PointToWorldSpace(V3(-MS, 0.5 * MS, 0) + d * MR.lLen)
 					end
-				
+
 					function D.shakeFx(on, col)
 						local em = MR.shakeEm
 						if on then
@@ -8957,9 +8570,9 @@ local function setupRickGun(character)
 							em.Rate = 0
 						end
 					end
-				
+
 					function D.make(liq)
-						-- posicao do copo no balcao = onde a mao esquerda chega com o braco esticado pra frente
+
 						local sL = V3(-MS, 0.5 * MS, 0)
 						local hy = (O.Y + 4.3 + 0.95) - BASE.Position.Y
 						local dy = (hy - sL.Y) / MR.lLen
@@ -8967,7 +8580,7 @@ local function setupRickGun(character)
 						local dz = -math.sqrt(math.max(0.01, 1 - dx * dx - dy * dy))
 						local dP = V3(dx, dy, dz)
 						local base = BASE:PointToWorldSpace(sL + dP * MR.lLen) - V3(0, 0.95, 0)
-				
+
 						local parts, info = cup(base + V3(0, -500, 0), liq, true)
 						local root = info.root
 						local extras = {}
@@ -8981,8 +8594,7 @@ local function setupRickGun(character)
 							for _, p in ipairs(parts) do pcall(function() p:Destroy() end) end
 							for _, p in ipairs(extras) do pcall(function() p:Destroy() end) end
 						end
-				
-						-- 1) braco esquerdo pega o copo atras/embaixo do balcao, leva em arco e poe no balcao
+
 						function dk.fetch()
 							local d0 = V3(0, -1, 0)
 							local d1 = V3(-0.1, -0.78, 0.62).Unit
@@ -8992,7 +8604,7 @@ local function setupRickGun(character)
 								MR.lWant = hp
 								place(hp - V3(0, 0.95, 0), 0, 0, 0)
 							end
-							info.spark:Emit(10) -- o copo aparece na mao
+							info.spark:Emit(10)
 							run(0.15, function()
 								local hp = handPoint(d1)
 								MR.lWant = hp
@@ -9004,14 +8616,13 @@ local function setupRickGun(character)
 								MR.lWant = hp
 								place(hp - V3(0, 0.95, 0), 0, 0, sin(e * pi * 2) * 0.08)
 							end)
-							place(base, 0, 0, 0) -- larga o copo no balcao
+							place(base, 0, 0, 0)
 							ring(base + V3(0, 0.1, 0), liq, 3)
 							info.spark:Emit(8)
 							run(0.4, function(k) MR.lWant = handPoint(dP:Lerp(d0, ease(k)).Unit) end)
 							MR.lWant = nil
 						end
-				
-						-- 2) shaker (mao direita) fica por cima do copo e o jato de liquido enche em camadas
+
 						function dk.pour()
 							MR.rWant = base + V3(0, 2.9, 0)
 							run(0.45, function() end)
@@ -9044,9 +8655,7 @@ local function setupRickGun(character)
 							for _, bd in ipairs(beads) do pcall(function() bd:Destroy() end) end
 							MR.rWant = nil
 						end
-				
-						-- 3) o Morty poe o gelo (um por um), o canudo e a lima no copo com a mao esquerda
-						-- (a mao pega atras do balcao, leva em arco ate cima do copo e solta)
+
 						function dk.garnish()
 							local G = info.groups
 							local d0 = V3(0, -1, 0)
@@ -9057,7 +8666,7 @@ local function setupRickGun(character)
 								for _, e in ipairs(list) do sum = sum + e.rest.Position end
 								return sum / #list
 							end
-							-- off = onde (em relacao ao copo) fica o centro do grupo; o root do copo esta sem rotacao
+
 							local function shift(list, ctr, off, spin)
 								for _, e in ipairs(list) do
 									e.p.Transparency = e.tr
@@ -9067,17 +8676,17 @@ local function setupRickGun(character)
 							end
 							local function carry(list, dropT, spin)
 								local ctr = center(list)
-								-- volta a mao pro ponto de pegar
+
 								if dc ~= d0 then
 									local from = dc
 									run(0.2, function(k) MR.lWant = handPoint(from:Lerp(d0, ease(k)).Unit) end)
 									dc = d0
 								end
-								-- o item aparece na mao
+
 								MR.lWant = handPoint(d0)
 								shift(list, ctr, handPoint(d0) - base)
 								info.spark:Emit(6)
-								-- leva em arco ate cima do copo
+
 								run(0.35, function(k)
 									local e = ease(k)
 									local d = (d0:Lerp(dA, e) + V3(0, 0.4 * sin(e * pi), 0)).Unit
@@ -9086,7 +8695,7 @@ local function setupRickGun(character)
 									shift(list, ctr, hp - base)
 								end)
 								dc = dA
-								-- solta: cai (ou desce, no caso do canudo) ate o lugar dentro do copo
+
 								local from = handPoint(dA) - base
 								run(dropT, function(k)
 									MR.lWant = handPoint(dA)
@@ -9102,7 +8711,7 @@ local function setupRickGun(character)
 							for _, e in ipairs(G.ice) do carry({e}, 0.18, nil) end
 							carry(G.straw, 0.4, nil)
 							carry(G.lime, 0.25, true)
-							-- braco volta pra posicao de descanso
+
 							run(0.3, function(k) MR.lWant = handPoint(dA:Lerp(d0, ease(k)).Unit) end)
 							MR.lWant = nil
 							for _, g in pairs(G) do
@@ -9114,12 +8723,10 @@ local function setupRickGun(character)
 							info.spark:Emit(14)
 						end
 
-						-- 4) o Morty empurra o copo pelo balcao ate voce: o braco da o empurrao (mao do lado oposto ao destino)
-						-- e depois o copo continua deslizando sozinho, girando e com rastro de faiscas
 						function dk.slide(zc)
 							local to = O + V3(96.2, 4.3, zc)
 							local dzs = to.Z - base.Z
-							-- destino pro lado esquerdo do Morty (+Z do mundo): empurra com a mao direita; senao, com a esquerda
+
 							local rightHand = dzs > 0
 							local side = rightHand and -1 or 1
 							local hy = base.Y + 0.95
@@ -9129,14 +8736,14 @@ local function setupRickGun(character)
 							end
 							local restPt = handPoint(V3(0, -1, 0))
 							local W = contact(base) + V3(0, 0.4, side * 1.0)
-							-- 1) braco vai pro lado do copo
+
 							if rightHand then
 								aim(W)
 								run(0.5, function() end)
 							else
 								run(0.3, function(k) MR.lWant = restPt:Lerp(W, ease(k)) end)
 							end
-							-- 2) empurrao + deslize
+
 							local T = math.clamp(0.8 + math.abs(dzs) * 0.045, 0.9, 1.5)
 							info.spark.Rate = 40
 							local released, relK, lastHand = false, 0, W
@@ -9163,7 +8770,6 @@ local function setupRickGun(character)
 							ring(cur + V3(0, 0.1, 0), liq, 4)
 						end
 
-						-- 5) copo levita pulsando e espera o clique do jogador (devolve true se clicou)
 						function dk.offer(timeout)
 							local hit = attach(root, CF(0, 1.0, 0), V3(2.4, 3.4, 2.4), WHT, M.SmoothPlastic, {shadow = false, trans = 1})
 							hit.CanQuery = true
@@ -9215,8 +8821,7 @@ local function setupRickGun(character)
 							info.spark.Rate = 0
 							return clicked
 						end
-				
-						-- 6a) clicou: copo voa ate o jogador e vira item (o Tool e criado por D.giveTool)
+
 						function dk.take(hrp)
 							local from = cur + V3(0, 0.6, 0)
 							local to = hrp and (hrp.Position + V3(0, 1.4, 0)) or (from + V3(0, 3, 0))
@@ -9229,8 +8834,7 @@ local function setupRickGun(character)
 							ring(to, liq, 5)
 							task.delay(0.8, dk.wipe)
 						end
-				
-						-- 6b) ninguem clicou: copo evapora
+
 						function dk.expire()
 							info.spark:Emit(30)
 							ring(cur + V3(0, 0.5, 0), liq, 4)
@@ -9238,8 +8842,7 @@ local function setupRickGun(character)
 						end
 						return dk
 					end
-				
-					-- item no inventario: copo cheio. Clicar (equipado) = beber; o copo quebra e o item some.
+
 					function D.giveTool(fl, onDrink)
 						local liq = fl.liquid
 						local sc = 0.55
@@ -9263,7 +8866,7 @@ local function setupRickGun(character)
 							local fired = false
 							run(1.1, function(k)
 								local e = ease(math.min(1, k / 0.8))
-								-- inclina o copo pra boca e sobe ate o rosto
+
 								tool.Grip = gripPos * ANG(-2.0 * e, 0, 0) * CFrame.new(0, -1.0 * e, -0.5 * e)
 								info.fill(1 - math.clamp((k - 0.4) / 0.5, 0, 1))
 								if k > 0.45 and not fired then
@@ -9271,7 +8874,7 @@ local function setupRickGun(character)
 									if onDrink then task.spawn(onDrink) end
 								end
 							end, function() return tool.Parent ~= nil end)
-							-- quebra: cacos de vidro, gotas e faiscas; o item some do inventario
+
 							local pos = handle.Position
 							local fxp = Instance.new("Part")
 							fxp.Anchored, fxp.CanCollide, fxp.CanQuery, fxp.CanTouch = true, false, false, false
@@ -9331,7 +8934,6 @@ local function setupRickGun(character)
 					return D
 				end)()
 
-				-- balao de fala
 				local bubble = Instance.new("BillboardGui")
 				bubble.Adornee = head
 				bubble.Size = UDim2.fromOffset(300, 64)
@@ -9368,7 +8970,6 @@ local function setupRickGun(character)
 					end)
 				end
 
-				-- falas do Morty: mesmo sistema do script (texto letra por letra sobre a cabeca), com falas e cores proprias
 				local MFALAS = {
 					greet = {
 						{ "A-aw geez, bem-vindo ao Bar do Rick, {nome}! Senta aí que eu preparo algo.", "nervoso", 1 },
@@ -9450,7 +9051,7 @@ local function setupRickGun(character)
 						model.Destroying:Connect(function() pcall(MF.destruir) end)
 					end
 				end)
-				-- diz("categoria", {vars}): usa o sistema de falas; se ele nao carregou, cai no balao antigo
+
 				local function diz(cat, vars)
 					if MF then MF.dizer(cat, vars) return end
 					local lista = MFALAS[cat]
@@ -9461,7 +9062,6 @@ local function setupRickGun(character)
 					say(txt, 4)
 				end
 
-				-- ===== efeitos de bebida (um por sabor) + menu de sabores (o Morty pergunta, voce escolhe nos botoes) =====
 				local drinkEffect, askFlavor
 				do
 					local Lighting = game:GetService("Lighting")
@@ -9469,7 +9069,6 @@ local function setupRickGun(character)
 					local fxCur = nil
 					State.drinkStop = function() if fxCur then fxCur.stop() end end
 
-					-- n ondas suaves: alterna a transparencia entre lo e hi
 					local function bands(n, lo, hi)
 						local pts = {}
 						for i = 0, n * 2 do
@@ -9492,7 +9091,6 @@ local function setupRickGun(character)
 						end
 						fxCur = fx
 
-						-- cria uma instancia que e destruida sozinha quando o efeito termina
 						local function new(class, parent, props)
 							local inst = Instance.new(class)
 							for k, v in pairs(props or {}) do inst[k] = v end
@@ -9516,7 +9114,6 @@ local function setupRickGun(character)
 							return g
 						end
 
-						-- camada de tela cheia com gradiente (BackgroundTransparency = 1 - intensidade)
 						local function layer(rot, seq, color)
 							local f = new("Frame", getOverlay(), {
 								Size = UDim2.fromScale(1, 1),
@@ -9528,7 +9125,6 @@ local function setupRickGun(character)
 							return f, gr
 						end
 
-						-- inclinacao da camera (roll), aplicada depois do script de camera do Roblox
 						local roll, rollBound = 0, false
 						local function useRoll()
 							if rollBound then return end
@@ -9546,7 +9142,6 @@ local function setupRickGun(character)
 
 						local FX = {}
 
-						-- Fluido de Portal: tela verde com ondas (faixas ondulando, aneis se expandindo, camera balancando)
 						FX.portal = function()
 							local cc = new("ColorCorrectionEffect", Lighting)
 							local bb = new("BlurEffect", Lighting, { Size = 0 })
@@ -9594,7 +9189,6 @@ local function setupRickGun(character)
 							end, function(e, k) return 4 * k * sin(e * 1.6) end
 						end
 
-						-- Synthwave Sour: neon rosa pulsando no ritmo, bordas magenta/ciano e linhas de scan
 						FX.synth = function()
 							local cc = new("ColorCorrectionEffect", Lighting)
 							local bloom = new("BloomEffect", Lighting, { Intensity = 0, Size = 30, Threshold = 0.8 })
@@ -9615,7 +9209,6 @@ local function setupRickGun(character)
 							end, function(e, k) return 3.5 * k * beat end
 						end
 
-						-- Cyan Dream: camera lenta (movimento, gravidade e som desaceleram) + visual onirico ciano
 						FX.cyan = function()
 							local cc = new("ColorCorrectionEffect", Lighting)
 							local bloom = new("BloomEffect", Lighting, { Intensity = 0, Size = 24, Threshold = 0.9 })
@@ -9639,15 +9232,15 @@ local function setupRickGun(character)
 									if usePower then hum.JumpPower = jp0 end
 								end
 							end)
-							-- som mais grave (efeito no master do SoundService); se nao existir, so ignora
+
 							local okP, pitch = pcall(function()
 								return new("PitchShiftSoundEffect", SoundService, { Octave = 1 })
 							end)
 
-							local S = 0.4 -- fator de tempo (0.4 = 40% da velocidade)
+							local S = 0.4
 							return function(e, k)
 								local s = 1 - (1 - S) * k
-								workspace.Gravity = g0 * s * s -- v*s e g*s^2: mesma altura de pulo, so que em camera lenta
+								workspace.Gravity = g0 * s * s
 								if hum and hum.Parent and ws0 then
 									hum.WalkSpeed = ws0 * s
 									if usePower then hum.JumpPower = jp0 * s end
@@ -9663,7 +9256,6 @@ local function setupRickGun(character)
 							end, function(e, k) return 6 * k * sin(e * 0.8) end
 						end
 
-						-- Sol Neon: o efeito original (arco-iris ondulando)
 						FX.sol = function()
 							local cc = new("ColorCorrectionEffect", Lighting)
 							local bb = new("BlurEffect", Lighting, { Size = 0 })
@@ -9704,7 +9296,6 @@ local function setupRickGun(character)
 						end)
 					end
 
-					-- ===== menu de sabores: botoes na tela; devolve o sabor escolhido (ou nil se cancelar/afastar/demorar) =====
 					local menuGui, menuPick, menuFrame
 					local menuItems = {}
 
@@ -9713,7 +9304,6 @@ local function setupRickGun(character)
 						g.Enabled = false
 						menuItems = {}
 
-						-- sem fundo: so a pergunta e os botoes flutuando no lado esquerdo
 						local frame = Instance.new("Frame")
 						frame.Name = "Menu"
 						frame.AnchorPoint = Vector2.new(0, 0.5)
@@ -9750,14 +9340,12 @@ local function setupRickGun(character)
 							return l
 						end
 
-						-- pergunta do Morty
 						local q = label(frame, "Morty: o que vai ser, viajante?", 19, Enum.Font.GothamBlack, GRN,
 							UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 0))
 						q.TextWrapped = true
 						q.AutomaticSize = Enum.AutomaticSize.Y
 						q.LayoutOrder = 1
 
-						-- botao 3D: sombra/base escura embaixo + face com gradiente e brilho; flutua e afunda ao clicar
 						local H3, DEPTH = 52, 7
 						local function make3D(order, base, accent, onClick)
 							local wrap = Instance.new("Frame")
@@ -9829,7 +9417,6 @@ local function setupRickGun(character)
 						menuGui = g
 					end
 
-					-- flutuacao dos botoes (chamada a cada frame enquanto o menu esta aberto)
 					local function animMenu(t)
 						for _, it in ipairs(menuItems) do
 							local off = it.down and 5 or (2 + 3 * math.sin(t * 2 + it.ph))
@@ -9839,12 +9426,11 @@ local function setupRickGun(character)
 						end
 					end
 
-
 					askFlavor = function()
 						if not (menuGui and menuGui.Parent) then buildMenu() end
 						if not menuGui then return nil end
 						menuPick = nil
-						-- entrada: o menu desliza da esquerda e os botoes crescem um apos o outro
+
 						if menuFrame then
 							menuFrame.Position = UDim2.new(0, -320, 0.5, 0)
 							TweenService:Create(menuFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, 14, 0.5, 0)}):Play()
@@ -9868,7 +9454,7 @@ local function setupRickGun(character)
 						end
 						local pick = menuPick
 						menuPick = nil
-						-- saida: o botao escolhido da um pulso e o menu desliza pra fora
+
 						if menuGui then
 							if menuFrame and Z.alive and menuGui.Parent then
 								if pick ~= nil then
@@ -9887,17 +9473,15 @@ local function setupRickGun(character)
 					end
 				end
 
-
 				local busy, shaking, pouring, pp = false, false, false, nil
 
-				-- ===== comportamento do Morty: anda atras do balcao, faz tarefas e volta pro posto quando alguem senta ou pede =====
 				local BHV = {atPost = true, callPost = false, serving = false, nextTask = os.clock() + 5}
 				local POST_X, POST_Z, POST_YAW = BASE.Position.X, BASE.Position.Z, pi / 2
 				MR.px, MR.pz, MR.yaw, MR.walking, MR.speedF = POST_X, POST_Z, POST_YAW, false, 1
 				do
 					local function angDiff(a, b) return (a - b + pi) % (2 * pi) - pi end
 					local function ez(k) return k * k * (3 - 2 * k) end
-					-- o model so recebe Parent no fim da construcao da dimensao: antes disso conta como vivo
+
 					local bornAt, seen = os.clock(), false
 					local function alive()
 						if model.Parent then seen = true return true end
@@ -9912,7 +9496,7 @@ local function setupRickGun(character)
 							pcall(function() MR.rag.Transparency = 1 end)
 						end
 					end
-					-- executa fn(k) por dur segundos; devolve false se algo interromper (alguem sentou, pediu drink...)
+
 					local function step(dur, fn)
 						local t0 = os.clock()
 						while true do
@@ -9932,7 +9516,7 @@ local function setupRickGun(character)
 						end
 						MR.yaw = yaw
 					end
-					-- force = true: ignora interrupcoes (usado pra voltar ao posto)
+
 					local function walkTo(x, z, speed, force)
 						BHV.atPost = false
 						MR.speedF = speed / 5.5
@@ -9965,7 +9549,6 @@ local function setupRickGun(character)
 						return MR.root.CFrame:PointToWorldSpace(V3(-MS, 0.5 * MS, 0) + V3(0, -1, 0) * MR.lLen)
 					end
 
-					-- tarefa 1: limpar o balcao com um pano
 					local function tWipe()
 						local z = O.Z + cz + (math.random() * 18 - 9)
 						local ok = walkTo(POST_X, z, 5.2)
@@ -9982,7 +9565,6 @@ local function setupRickGun(character)
 						return ok
 					end
 
-					-- tarefa 2: arrumar as garrafas da prateleira (levanta, gira o rotulo pra frente e devolve)
 					local bottleCache
 					local function loadBottles()
 						if bottleCache then return bottleCache end
@@ -10044,7 +9626,6 @@ local function setupRickGun(character)
 						return ok
 					end
 
-					-- tarefa 3: conferir o shaker (levanta na frente do rosto e chacoalha)
 					local function tShaker()
 						local z = O.Z + cz + (math.random() * 14 - 7)
 						local ok = walkTo(POST_X, z, 5.2)
@@ -10066,7 +9647,7 @@ local function setupRickGun(character)
 						while alive() do
 							RunService.Heartbeat:Wait()
 							if BHV.serving then
-								-- o drink assume os bracos
+
 							elseif BHV.callPost or sitting then
 								if not BHV.atPost then goPost(BHV.callPost and 7.5 or 6.5) end
 								if sitting and BHV.atPost and not busy then
@@ -10075,7 +9656,7 @@ local function setupRickGun(character)
 										diz("sentou")
 									end
 									waiting = true
-									-- esperando o pedido: mao esquerda apoiada no balcao, tamborilando
+
 									MR.lWant = V3(O.X + 97.75, O.Y + 4.42, MR.pz + MS + 0.25 * sin(os.clock() * 6))
 								end
 								BHV.nextTask = os.clock() + 6
@@ -10105,7 +9686,7 @@ local function setupRickGun(character)
 					busy = true
 					if pp then pp.Enabled = false end
 					task.spawn(function()
-						-- se o Morty estiver longe do balcao, ele volta antes de preparar
+
 						BHV.callPost = true
 						if not BHV.atPost then diz("javou") end
 						local tw = os.clock()
@@ -10136,7 +9717,7 @@ local function setupRickGun(character)
 						local dk
 						local ok, err = pcall(function()
 							dk = DR.make(fl.liquid)
-							dk.fetch() -- mao esquerda pega o copo e poe no balcao enquanto a direita balanca o shaker
+							dk.fetch()
 							task.wait(0.4)
 							shaking = false
 							DR.shakeFx(false)
@@ -10192,7 +9773,7 @@ local function setupRickGun(character)
 					local wa = MR.walkAmt
 					local sw = sin(MR.walkPh) * 0.65 * wa
 					local bob = sin(t * 1.6) * 0.06 * (1 - wa) + math.abs(sin(MR.walkPh)) * 0.12 * wa
-					-- susto/reacao: pulinho, tremedeira e bracos pra cima (MR.startle = {t0, dur, amp})
+
 					local su, suK, hop, shake = MR.startle, 0, 0, 0
 					if su then
 						local se = os.clock() - su.t0
@@ -10252,7 +9833,6 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- ===== reacoes do Morty: susto com portal dentro do bar + comentarios ao usar a arma e ao atravessar um portal =====
 				do
 					local function insideBar(p)
 						return p.X > O.X + BX0 + 1 and p.X < O.X + BX1 and p.Z > O.Z + BZ0 and p.Z < O.Z + BZ1 and p.Y < O.Y + H
@@ -10262,7 +9842,6 @@ local function setupRickGun(character)
 						return rp ~= nil and (p - rp).Magnitude <= d
 					end
 
-					-- fala na hora (interrompe a fala atual), sem o limite de 1.5s do diz()
 					local function dizAgora(cat)
 						local lista = MFALAS[cat]
 						if not lista or not MF then return end
@@ -10275,7 +9854,6 @@ local function setupRickGun(character)
 					local lastReact, lastScare = 0, 0
 					local hooks = {}
 
-					-- portal aberto dentro do bar: o Morty se assusta
 					function hooks.onPortal(pos)
 						if not Z.alive or not insideBar(pos) then return end
 						local now = os.clock()
@@ -10285,7 +9863,6 @@ local function setupRickGun(character)
 						dizAgora("susto")
 					end
 
-					-- tiro da arma por perto: comentario + sustinho leve
 					function hooks.onShot(pos)
 						if not Z.alive then return end
 						local now = os.clock()
@@ -10296,7 +9873,6 @@ local function setupRickGun(character)
 						dizAgora("arma")
 					end
 
-					-- jogador atravessou um portal (saida ou chegada perto do Morty)
 					function hooks.onTeleport(fromPos, toPos)
 						if not Z.alive then return end
 						local now = os.clock()
@@ -10312,8 +9888,6 @@ local function setupRickGun(character)
 					end)
 				end
 
-
-				-- jukebox
 				local jx, jz = 80, BZ0 + T + 1.6
 				local jb = mk(model, V3(6, 9, 3), O + V3(jx, 4.5, jz), C(40, 14, 80), M.SmoothPlastic, {solid = true, refl = 0.3})
 				mk(model, V3(3, 6, 6), CF(O + V3(jx, 9, jz)) * ANG(0, pi / 2, 0), C(40, 14, 80), M.SmoothPlastic, {cyl = true, shadow = false, refl = 0.3})
@@ -10381,7 +9955,6 @@ local function setupRickGun(character)
 				end
 			end)()
 
-			-- ===== MONOTRILHO SUSPENSO =====
 			local updTrain = (function()
 				local BY, L0, L1 = 128, -750, 1150
 				local mid = (L0 + L1) / 2
@@ -10435,8 +10008,6 @@ local function setupRickGun(character)
 				end
 			end)()
 
-
-			-- ===== CUBOS FLUTUANTES =====
 			local cubes = {}
 			for i = 1, 22 do
 				local s = rnd(4, 10)
@@ -10445,7 +10016,6 @@ local function setupRickGun(character)
 				cubes[i] = {p = p, base = base, sp = rnd(0.3, 1), ph = rnd(0, 6.28)}
 			end
 
-			-- particulas de poeira neon sobre a avenida
 			emitterBox(model, V3(300, 2, 900), O + V3(0, 3, 300), {
 				Rate = 140, Lifetime = NumberRange.new(5, 9), Speed = NumberRange.new(2, 5),
 				SpreadAngle = Vector2.new(30, 30), EmissionDirection = Enum.NormalId.Top,
@@ -10820,13 +10390,13 @@ local function setupRickGun(character)
 				local TX = Sp.TEX
 				local suns = {}
 				local skyAnim = {}
-				-- (v28) tex = textura esferica da superficie (opcional); tint/sgn = cor dos raios e sentido de giro
+
 				local function sun(x, y, z, d, col, haloCol, tex, tint, sgn)
 					local pos = W(x, y, z)
 					local core = Sp.texBall(model, CF(pos), d / 2, tex, 0, NEON)
 					local plasma = nil
 					if core then
-						plasma = Sp.texBall(model, CF(pos), d / 2 * 1.012, tex, 0.5, NEON) -- camada de plasma, gira ao contrario
+						plasma = Sp.texBall(model, CF(pos), d / 2 * 1.012, tex, 0.5, NEON)
 					else
 						core = ball(model, d, pos, col, NEON, {shadow = false})
 					end
@@ -10834,7 +10404,7 @@ local function setupRickGun(character)
 					for i = 1, 3 do
 						halos[i] = ball(model, d * (1.3 + i * 0.45), pos, haloCol, NEON, {shadow = false, trans = 0.9 + i * 0.03})
 					end
-					-- corona: 2 leques de raios (billboard) girando em sentidos opostos
+
 					local rays = nil
 					if type(TX.k22corona) == "string" and TX.k22corona ~= "" then
 						local anchor = mk(model, V3(1, 1, 1), CF(pos), C(255, 255, 255), SMOOTH, {trans = 1, shadow = false})
@@ -10857,7 +10427,7 @@ local function setupRickGun(character)
 					end
 					suns[#suns + 1] = {core = core, plasma = plasma, halos = halos, d = d, ph = rnd(0, TAU), pos = pos, rays = rays, sgn = sgn}
 				end
-				local FAR, BIG = 2.4, 1.8 -- (v27g) distancia x2.4 (bem mais longe) e tamanho x1.8 (parecem menores que antes, mas ainda grandes)
+				local FAR, BIG = 2.4, 1.8
 				local mc, mr = W(470, 330, 480), 36
 				local bigMoon = Sp.texBall(model, CF(mc), mr, TX.lua, 0, SMOOTH)
 				if bigMoon then
@@ -10886,7 +10456,7 @@ local function setupRickGun(character)
 							h.Size = V3(k, k, k)
 							h.Transparency = clamp01(0.9 + i * 0.03 + 0.03 * (1 - p))
 						end
-						if s.plasma then -- superficie gira, plasma gira ao contrario
+						if s.plasma then
 							s.core.CFrame = CF(s.pos) * ANG(0, t * 0.045 * s.sgn, 0)
 							s.plasma.CFrame = CF(s.pos) * ANG(1.1, 0, 0) * ANG(0, -t * 0.07 * s.sgn, 0)
 						end
@@ -10941,8 +10511,6 @@ local function setupRickGun(character)
 				local WINGCOLS = { C(214, 118, 84), C(232, 150, 96), C(190, 96, 110) }
 				local FORM = { {0, 0, 0}, {-8, 0.6, 9}, {8, 0.6, 9}, {-16, 1.2, 18}, {16, 1.2, 18}, {0, 1, 20} }
 
-				-- pterossauro alienigena: corpo, pescoco, bico, crista, olhos brilhantes, cauda com leme
-				-- e asas de 2 articulacoes (ombro + cotovelo) com osso na borda e membrana
 				local function makePtero(s, bodyCol, wingCol)
 					local g, part = group(CF(W(0, -400, 0)))
 					local bone = C(70, 44, 58)
@@ -10994,7 +10562,6 @@ local function setupRickGun(character)
 					return P
 				end
 
-				-- bando em formacao em V, voando em circulo, inclinando nas curvas
 				local function flock(cx, cz, R, y, w, n, s)
 					local members = {}
 					for i = 1, n do members[i] = makePtero(s * rnd(0.9, 1.15), pick(BODYCOLS), pick(WINGCOLS)) end
@@ -11017,7 +10584,6 @@ local function setupRickGun(character)
 				flock(120, 330, 170, 150, -0.12, 4, 1.15)
 				flock(-250, 90, 90, 85, 0.2, 3, 0.9)
 
-				-- manta gigante: desliza bem alto, com brilho embaixo e asas ondulando devagar
 				do
 					local g, part = group(CF(W(0, -400, 0)))
 					local dark, belly = C(62, 48, 72), C(120, 255, 235)
@@ -11053,8 +10619,7 @@ local function setupRickGun(character)
 						end
 					end
 				end
-				-- BICHOS VOADORES EXTRAS: pterossauros de areia (asas articuladas, alternam bater e planar)
-				-- + bando de andorinhas de areia em formacao em V.
+
 				local SKIN, SKIN2, MEMB, BEAK = C(86, 54, 62), C(118, 72, 74), C(214, 132, 98), C(214, 192, 160)
 				local pteros = {}
 				for i = 1, 6 do
@@ -11077,7 +10642,6 @@ local function setupRickGun(character)
 					P(V3(0.35, 0.35, 4.5), 0, -0.1, 5.4, SKIN, SMOOTH, {ellipsoid = true, shadow = false})
 					P(V3(1.5, 0.12, 1.8), 0, -0.1, 7.8, MEMB, SMOOTH, {shadow = false, trans = 0.1})
 
-					-- asas: braco interno + braco externo (cotovelo), cada um com membrana
 					local wings = {}
 					for k, sd in ipairs({-1, 1}) do
 						local stash = CF(W(0, -400, 0))
@@ -11110,7 +10674,7 @@ local function setupRickGun(character)
 					for _, gl in ipairs(pteros) do
 						local sc = gl.sc
 						local a = t * gl.w + gl.ph
-						local k = 0.5 + 0.5 * sin(t * 0.4 + gl.ph * 2) -- 0 = planando, 1 = batendo asa
+						local k = 0.5 + 0.5 * sin(t * 0.4 + gl.ph * 2)
 						local y = gl.y + sin(t * 0.5 + gl.ph) * 6 + k * 5
 						local pos = W(gl.cx + cos(a) * gl.R, y, gl.cz + sin(a) * gl.R)
 						local sgn = (gl.w > 0) and 1 or -1
@@ -11130,7 +10694,7 @@ local function setupRickGun(character)
 							wg.memB.CFrame = el * CF(sd * 3 * sc, 0, 1.4 * sc)
 						end
 					end
-					-- bando de andorinhas em V
+
 					local fa = t * 0.07
 					local lp = W(cos(fa) * 320, 255 + sin(t * 0.3) * 10, 150 + sin(fa) * 320)
 					local lead = CFrame.lookAt(lp, lp + V3(-sin(fa), 0, cos(fa)))
@@ -11183,9 +10747,9 @@ local function setupRickGun(character)
 				end
 
 				local tx, tz = 32, 58
-				local TVS = 0.5 -- escala da TV (antes 1)
+				local TVS = 0.5
 				local gy = math.clamp(groundAt(tx, tz), -0.5, 3)
-				local home = CF(W(tx, gy - 1.0, tz)) * ANG(0.12, -0.35, 0.18) -- afundada na areia
+				local home = CF(W(tx, gy - 1.0, tz)) * ANG(0.12, -0.35, 0.18)
 				local g, part = group(home)
 				local function wp(x, y, z) return home:PointToWorldSpace(V3(x, y, z)) end
 				part(V3(8, 6.4, 6), CF(0, 3, 0), C(120, 98, 72), WOOD, {})
@@ -11198,7 +10762,7 @@ local function setupRickGun(character)
 				between(g, wp(0, 6.8, 0.4), wp(-3.5, 11.5, 1.5), 0.2, C(190, 190, 200), METAL, {})
 				between(g, wp(0, 6.8, 0.4), wp(3.2, 11, -1), 0.2, C(190, 190, 200), METAL, {})
 				pcall(function() g:ScaleTo(TVS) end)
-				-- montes de areia cobrindo a base da TV
+
 				for k = 1, 9 do
 					local a2 = k / 9 * TAU + rnd(-0.2, 0.2)
 					local d2 = rnd(2.2, 4.4)
@@ -11391,13 +10955,13 @@ local function setupRickGun(character)
 
 			section("oasis", function()
 				local ox, oz = -30, 330
-				local PR = 72 -- raio do lago (antes 32)
+				local PR = 72
 				column(model, 0.1, PR * 2 + 4, W(ox, 0.05, oz), C(8, 52, 62), MUDM, {shadow = false})
 				column(model, 0.25, PR * 2, W(ox, 0.16, oz), C(30, 186, 200), GLASS, {trans = 0.28, refl = 0.3, shadow = false})
 				column(model, 0.05, PR * 2, W(ox, 0.1, oz), C(40, 255, 220), NEON, {trans = 0.72, shadow = false})
 				column(model, 0.05, PR * 1.1, W(ox, 0.11, oz), C(150, 255, 240), NEON, {trans = 0.78, shadow = false})
 				column(model, 0.05, PR * 0.45, W(ox, 0.12, oz), C(220, 255, 250), NEON, {trans = 0.7, shadow = false})
-				-- brilho do lago: luzes ciano espalhadas
+
 				for k = 0, 6 do
 					local a, d = (k - 1) / 6 * TAU, (k == 0) and 0 or PR * 0.6
 					local lp0 = mk(model, V3(0.2, 0.2, 0.2), W(ox + cos(a) * d, 3, oz + sin(a) * d), C(255, 255, 255), SMOOTH, {trans = 1, shadow = false})
@@ -11455,15 +11019,13 @@ local function setupRickGun(character)
 					palm(ox + cos(a) * d, oz + sin(a) * d, a + pi + rnd(-0.5, 0.5), rnd(18, 28))
 				end
 				local jellies = {}
-				-- AGUAS-VIVAS REFEITAS: sino que pulsa (contrai e sobe, relaxa e afunda), tentaculos e bracos
-				-- orais ondulando, contas luminosas na borda, cores variadas, brilham e pulsam mais rapido
-				-- quando o jogador chega perto, e pingam particulas de luz.
+
 				local JCOLS = { C(120, 255, 240), C(255, 140, 235), C(170, 150, 255), C(255, 220, 130), C(120, 255, 240) }
 				local JT, JA, JTS, JAS = 6, 4, 6, 4
 				local NJ = 9
 				for i = 1, NJ do
 					local big = (i == 1)
-					local s = big and 0.9 or rnd(0.35, 0.6) -- antes 2.0 / 0.8-1.4
+					local s = big and 0.9 or rnd(0.35, 0.6)
 					local col = JCOLS[(i - 1) % #JCOLS + 1]
 					local nT, nTS, nA, nAS, nB = JT, JTS, JA, JAS, 10
 					if not big then nT, nTS, nA, nAS, nB = 4, 4, 3, 3, 6 end
@@ -11526,7 +11088,7 @@ local function setupRickGun(character)
 
 				local function updJelly(j, t, dt, lp)
 					local s = j.s
-					-- pulso: contrai (sobe rapido) e relaxa (afunda devagar)
+
 					local px0, pz0 = ox + cos(j.a) * j.R, oz + sin(j.a) * j.R
 					local near = clamp01(1 - dist(lp, px0, pz0) / 24)
 					j.near = j.near + (near - j.near) * min(1, dt * 3)
@@ -11759,9 +11321,7 @@ local function setupRickGun(character)
 					trailEm.Rate = (yh > -6) and 18 or 0
 					updRings(t)
 				end)
-				-- PRESAS DO VERME: urubus de areia voam baixo na frente do verme. Ele corre atras, salta
-				-- e abocanha quem estiver ao alcance (dentes fecham, penas e areia voam). A presa
-				-- reaparece longe depois de um tempo.
+
 				local featherEm = emit(dustP, {
 					Rate = 0, Lifetime = NumberRange.new(1.5, 2.8), Speed = NumberRange.new(12, 30), SpreadAngle = Vector2.new(180, 180),
 					Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0.6)}),
@@ -11830,7 +11390,7 @@ local function setupRickGun(character)
 							p.panic = 0
 						end
 						if p.state == "fly" then
-							-- distancia ao longo do anel ate o verme (so ha ameaca se ele estiver logo atras)
+
 							local gap = ((p.a - aw) * WR) % (TAU * WR)
 							local target = (gap < 150) and 1 or 0
 							p.panic = p.panic + (target - p.panic) * math.min(1, dt * 2)
@@ -11869,11 +11429,8 @@ local function setupRickGun(character)
 
 			section("vento", function()
 				local devils = {}
-				local defs = {} -- (v27.5) tornados removidos a pedido
-				-- TORNADOS REFEITOS: funil alto de camadas translucidas (denso embaixo, rarefeito no topo) com
-				-- tufos de areia girando, nuvem escura no topo com relampagos, anel de poeira no chao, jato de
-				-- particulas na base, detritos (tabuas, pedras, mato) subindo em espiral e funil inclinado na
-				-- direcao do movimento. Cada um tem um tamanho diferente (ultimo numero de defs).
+				local defs = {}
+
 				local NL = 24
 				for i, df in ipairs(defs) do
 					local sc = df[8]
@@ -11936,9 +11493,7 @@ local function setupRickGun(character)
 				end
 
 				local weeds = {}
-				-- MATO ROLANTE REFEITO: bola densa de galhos (miolo + galhos internos + galhos externos com
-				-- pontas e florzinhas secas), tamanhos variados, poeira ao rolar e ao pousar, e puxado
-				-- pelos redemoinhos de areia (sobe girando e e solto depois).
+
 				local TWC = { C(142, 100, 58), C(168, 124, 72), C(120, 84, 48), C(184, 142, 84), C(96, 66, 40) }
 				for i = 1, 9 do
 					local s = rnd(0.85, 1.5)
@@ -12031,7 +11586,7 @@ local function setupRickGun(character)
 							w.vz = w.vz + dz / dd * push
 							if w.h <= 0.01 then w.vy = 9 end
 						end
-						-- redemoinhos puxam o mato: ele gira em volta e sobe
+
 						local inDev = 0
 						for _, dv in ipairs(devils) do
 							if dv.x then
@@ -12625,8 +12180,7 @@ local function setupRickGun(character)
 			end)
 
 			section("mamute", function()
-				-- mamute vivo: anda em circulo, respira, balanca a tromba, bate as orelhas, abana o rabo,
-				-- pisca, solta vapor e de vez em quando levanta a tromba
+
 				local SC = 1.25
 				local mc = W(310, 0, 390)
 				local RW = 26
@@ -12648,7 +12202,6 @@ local function setupRickGun(character)
 				end
 				local function wp(x, y, z) return home:PointToWorldSpace(v(x, y, z)) end
 
-				-- corpo, corcova, garupa, cabeca
 				bp(sz(13, 12, 20), CF(v(0, 13.5, 1)), FUR, {ellipsoid = true, shadow = true})
 				bp(sz(11, 9.5, 9), CF(v(0, 19, -5)), FUR2, {ellipsoid = true, shadow = true})
 				bp(sz(12, 11, 10), CF(v(0, 14, 8.5)), FUR, {ellipsoid = true, shadow = true})
@@ -12656,7 +12209,6 @@ local function setupRickGun(character)
 				bp(sz(6.6, 5.2, 6.4), CF(v(0, 20.6, -11.8)), FUR2, {ellipsoid = true})
 				bp(sz(4, 3, 4), CF(v(0, 23.2, -11.6)), FUR3, {ellipsoid = true})
 
-				-- pelos: saia na barriga, peito e tufos nas costas
 				for _, sd in ipairs({-1, 1}) do
 					for zz = -8, 10, 1.9 do
 						local h = rnd(3.5, 7)
@@ -12671,7 +12223,6 @@ local function setupRickGun(character)
 					bp(sz(2, 3.2, 1.8), CF(v(0, q[1], q[2])) * ANG(0.3, 0, 0), FUR3)
 				end
 
-				-- presas curvas (curva de Bezier em 8 segmentos)
 				for _, sd in ipairs({-1, 1}) do
 					local P0, P1, P2 = V3(sd * 2.6, 14.2, -15.6), V3(sd * 6.6, 9, -22.5), V3(sd * 3.4, 13, -28)
 					local function bez(u)
@@ -12687,14 +12238,12 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- olhos
 				local eyes = {}
 				for k, sd in ipairs({-1, 1}) do
 					eyes[k] = bp(sz(0.95, 0.95, 0.95), CF(v(sd * 3.3, 17.2, -15.2)), C(20, 14, 12), {ellipsoid = true})
 					bp(sz(0.3, 0.3, 0.3), CF(v(sd * 3.65, 17.5, -15.4)), WHITE, {ellipsoid = true})
 				end
 
-				-- pernas (4 partes cada, balancam no quadril)
 				local legs = {}
 				local hips = { {-3.7, -6.2, 0}, {3.7, -6.2, pi}, {-3.9, 8.4, pi}, {3.9, 8.4, 0} }
 				for i, h in ipairs(hips) do
@@ -12711,14 +12260,12 @@ local function setupRickGun(character)
 					legs[i] = L
 				end
 
-				-- orelhas
 				local ears = {}
 				for k, sd in ipairs({-1, 1}) do
 					ears[k] = {sd = sd, hinge = CF(v(sd * 4.2, 17.6, -10.4)),
 						p = mk(model, sz(0.7, 5.6, 4.6), home, FUR2, SMOOTH, {ellipsoid = true, shadow = false})}
 				end
 
-				-- tromba (7 segmentos) + vapor na ponta
 				local TBASE = {0.05, 0.08, 0.12, 0.2, 0.28, 0.34, 0.4}
 				local trunk = {}
 				for i = 1, 7 do
@@ -12735,7 +12282,6 @@ local function setupRickGun(character)
 					Color = ColorSequence.new(C(235, 248, 255)),
 				})
 
-				-- rabo (3 segmentos + tufo)
 				local tail = {}
 				for i = 1, 3 do
 					local th = (1.1 - (i - 1) * 0.15) * SC
@@ -12760,7 +12306,6 @@ local function setupRickGun(character)
 					local base = CFrame.lookAt(at, at + tan) * ANG(0, 0, sin(ph) * 0.025 * m)
 					body:PivotTo(base)
 
-					-- trombeta no fim de cada ciclo parado
 					local k = 0
 					if cyc > 25.5 and cyc < 29 then k = sin((cyc - 25.5) / 3.5 * pi) end
 					local cid = floor(t / 34)
@@ -12773,19 +12318,16 @@ local function setupRickGun(character)
 						pcall(function() puff:Emit(5) end)
 					end
 
-					-- pernas
 					for _, L in ipairs(legs) do
 						local fr = base * L.hip * ANG(sin(ph + L.ph) * 0.32 * m, 0, 0)
 						for _, q in ipairs(L.parts) do q[1].CFrame = fr * q[2] end
 					end
 
-					-- orelhas
 					local flap = 0.12 * sin(t * 1.6) + k * 0.3
 					for _, e in ipairs(ears) do
 						e.p.CFrame = base * e.hinge * ANG(0, e.sd * (0.45 + flap), e.sd * 0.15) * CF(0, -1.6 * SC, 1.6 * SC)
 					end
 
-					-- tromba
 					local f = base * CF(v(0, 13.2, -16.4)) * ANG(-pi / 2, 0, 0)
 					for i, sg in ipairs(trunk) do
 						local dphi = sg.base + 0.08 * sin(t * 0.9 - i * 0.45) + k * 0.18
@@ -12796,7 +12338,6 @@ local function setupRickGun(character)
 					end
 					tipP.CFrame = f
 
-					-- rabo
 					local tf = base * CF(v(0, 14.6, 13.4)) * ANG(-pi / 2 - 0.35, 0, 0)
 					for i, sg in ipairs(tail) do
 						tf = tf * ANG(0.12 + 0.15 * sin(t * 1.8 - i * 0.7), 0.2 * sin(t * 1.3 - i * 0.6), 0)
@@ -12805,7 +12346,6 @@ local function setupRickGun(character)
 					end
 					tuft.CFrame = tf * CF(0, 0, -1.6 * SC)
 
-					-- piscada
 					local blink = (t % 5.3) < 0.15
 					for _, e in ipairs(eyes) do
 						e.Size = blink and sz(0.95, 0.12, 0.95) or sz(0.95, 0.95, 0.95)
@@ -13137,7 +12677,6 @@ local function setupRickGun(character)
 				end
 				m.Parent = model
 
-				-- otimiza o modelo (em lotes, pra nao travar o frame)
 				local parts, lights, n = {}, 0, 0
 				for _, d in ipairs(m:GetDescendants()) do
 					if d:IsA("BasePart") then
@@ -13165,12 +12704,10 @@ local function setupRickGun(character)
 					if n % 200 == 0 then task.wait() end
 				end
 
-				-- multiplica o tamanho atual do modelo por def.scale (ScaleTo e absoluto, entao parte de GetScale)
 				if def and def.scale and def.scale ~= 1 then
 					pcall(function() m:ScaleTo(m:GetScale() * def.scale) end)
 				end
 
-				-- remove detalhes minusculos (def.cullSize, em studs) pra aliviar a GPU
 				if def and def.cullSize then
 					local kept = {}
 					for _, d in ipairs(parts) do
@@ -13185,14 +12722,12 @@ local function setupRickGun(character)
 					parts = kept
 				end
 
-				-- pre-carrega malhas/texturas agora, pra nao dar tranco quando voce entrar
 				task.spawn(function()
 					pcall(function()
 						game:GetService("ContentProvider"):PreloadAsync(m:GetDescendants())
 					end)
 				end)
 
-				-- caixa envolvente so das partes visiveis (ignora partes invisiveis gigantes)
 				local minV, maxV
 				for _, d in ipairs(parts) do
 					if d.Parent and d.Transparency < 0.95 and d.Size.Magnitude < 300 then
@@ -13218,7 +12753,6 @@ local function setupRickGun(character)
 					return
 				end
 
-				-- centraliza em X/Z e apoia o fundo no chao da dimensao
 				local center = (minV + maxV) / 2
 				local delta = O - Vector3.new(center.X, minV.Y, center.Z)
 				pcall(function() m:PivotTo(m:GetPivot() + delta) end)
@@ -13226,7 +12760,6 @@ local function setupRickGun(character)
 				local size = maxV - minV
 				warnRG(string.format("garagem: %d partes, %.0f x %.0f x %.0f studs", #parts, size.X, size.Y, size.Z))
 
-				-- cenario em volta; "frente" = lado da porta da garagem (def.frontDir)
 				local gx, gz = math.max(size.X, 20), math.max(size.Z, 20)
 				local fd = (def and def.frontDir) or Vector3.new(0, 0, -1)
 				local fwdIsX = math.abs(fd.X) > 0.5
@@ -13253,8 +12786,6 @@ local function setupRickGun(character)
 					end
 				end
 
-				-- portal de chegada: encostado numa parede, olhando pra dentro da garagem
-				-- arriveWall = "front" (parede da porta, vazia) ou "back" (parede oposta)
 				if def then
 					local sign = (def.arriveWall == "back") and -1 or 1
 					local inset = math.clamp(depthF * 0.12, 3, 6)
@@ -13294,9 +12825,9 @@ local function setupRickGun(character)
 			{
 				id = "garage", name = "Garagem", info = "A garagem do Rick (modelo do Creator Store).",
 				build = buildModelId(89126957082495), stars = 0, daySky = true, preload = true,
-				scale = 1.3, -- multiplicador do tamanho original (1 = sem mudar)
-				noGlobalShadows = true, cullSize = 0.4, -- performance: sem sombras globais / remove pecas minusculas
-				-- frontDir = lado da porta da garagem; arriveWall = "front" ou "back"; arriveShift move o portal
+				scale = 1.3,
+				noGlobalShadows = true, cullSize = 0.4,
+
 				frontDir = Vector3.new(-1, 0, 0), arriveWall = "front", arriveShift = Vector3.new(0, 0, 0),
 				light = {Ambient = C(125, 125, 130), OutdoorAmbient = C(145, 145, 155), Brightness = 2, ClockTime = 14,
 					FogColor = C(190, 205, 225), FogStart = 600, FogEnd = 2500},
@@ -13570,9 +13101,6 @@ local function setupRickGun(character)
 		btn.MouseLeave:Connect(function() TweenService:Create(sc, TweenInfo.new(0.12), {Scale = 1}):Play() end)
 	end
 
-	-- ===== PORTAL GUN INTERATIVA (vista de tras) =====
-	-- caixa vermelha: toque = proximo modo | dial e setas: trocam a dimensao (o dial gira)
-	-- cupula: toque = alterna Player / Dimensao | etiqueta do cabo: nome do player (V3)
 	local gunHud = Instance.new("Frame")
 	gunHud.Name = "RickGunHud"
 	gunHud.AnchorPoint = Vector2.new(1, 1)
@@ -13594,14 +13122,13 @@ local function setupRickGun(character)
 		return f
 	end
 
-	-- cabo
 	local grip = gp(gunHud, 38, 112, 44, 98, WHITE, UDim.new(0, 10), 1)
 	grad(grip, Color3.fromRGB(232, 234, 232), Color3.fromRGB(150, 153, 150), 0)
 	for i = 1, 4 do
 		local ln = gp(grip, 9, 34 + i * 10, 26, 2, Color3.fromRGB(110, 112, 110), UDim.new(1, 0), 2)
 		ln.BackgroundTransparency = 0.35
 	end
-	-- pontos: dimensao atual
+
 	local dimDots = {}
 	do
 		local n = #DIM_CHOICES
@@ -13611,7 +13138,6 @@ local function setupRickGun(character)
 		end
 	end
 
-	-- corpo
 	local head = gp(gunHud, 4, 40, 112, 80, WHITE, UDim.new(0, 16), 2)
 	grad(head, Color3.fromRGB(250, 250, 247), Color3.fromRGB(184, 187, 184), 90)
 	do
@@ -13623,7 +13149,6 @@ local function setupRickGun(character)
 	local shine = gp(head, 12, 5, 88, 3, WHITE, UDim.new(1, 0), 3)
 	shine.BackgroundTransparency = 0.45
 
-	-- cupula
 	local glow = gp(gunHud, 34, 4, 52, 52, ACCENT, UDim.new(1, 0), 1)
 	glow.BackgroundTransparency = 0.78
 	TweenService:Create(glow, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {BackgroundTransparency = 0.92}):Play()
@@ -13649,7 +13174,6 @@ local function setupRickGun(character)
 	domeBtn.ZIndex = 8
 	domeBtn.Parent = gunHud
 
-	-- caixa vermelha (painel de informacoes + botao de modo)
 	local redBtn = Instance.new("TextButton")
 	redBtn.Name = "RickModeDisplay"
 	redBtn.Position = UDim2.fromOffset(12, 54)
@@ -13676,7 +13200,6 @@ local function setupRickGun(character)
 	local redInfo = mkLabel(redBtn, "", Enum.Font.GothamBold, 11, UDim2.fromOffset(48, 13), UDim2.new(1, -52, 0, 14), Color3.fromRGB(255, 244, 244), Enum.TextXAlignment.Left)
 	fitText(redInfo, 11)
 
-	-- dial (gira e troca a dimensao)
 	local dial = Instance.new("TextButton")
 	dial.Name = "RickDial"
 	dial.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -13712,7 +13235,6 @@ local function setupRickGun(character)
 		TweenService:Create(dial, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Rotation = dialRot}):Play()
 	end
 
-	-- etiqueta do cabo: nome do player (so na V3, destino Player)
 	local nameTag = Instance.new("Frame")
 	nameTag.Name = "RickNameTag"
 	nameTag.AnchorPoint = Vector2.new(1, 0)
@@ -14039,8 +13561,8 @@ local function setupRickGun(character)
 		P.boingId = (P.boingId or 0) + 1
 		local id = P.boingId
 		local amp = isExit and Config.PortalBoingExit or Config.PortalBoingEnter
-		-- camadas de fora pra dentro: cada uma comeca um pouquinho depois, a vibracao corre da borda pro centro
-		local baseSize = P.size or Config.PortalSize -- portais da nave guardam o proprio tamanho em P.size
+
+		local baseSize = P.size or Config.PortalSize
 		local layers = {
 			{ part = outer, size = baseSize, step = 0 },
 			{ part = core, size = baseSize * Vector3.new(0.88, 0.88, 0.55), step = 1 },
@@ -14061,7 +13583,7 @@ local function setupRickGun(character)
 						local sx, sy = 1, 1
 						local tl = t - L.step * gap
 						if not done and tl > 0 then
-							-- u = pulso uniforme (o boing de antes); j = gelatina: X estica enquanto Y achata e inverte
+
 							local u = amp * math.exp(-damp * tl) * math.cos(freq * tl * math.pi * 2)
 							local j = jelly * math.abs(amp) * math.exp(-damp * 0.85 * tl) * math.sin(freq * jelFreq * tl * math.pi * 2)
 							sx, sy = 1 + u + j, 1 + u - j
@@ -14102,9 +13624,6 @@ local function setupRickGun(character)
 		return list
 	end
 
-	-- Devolve o LocalTransparencyModifier que o jogo/camera tinha antes de o corte
-	-- mexer nele (em vez de forcar 0, o que mostrava a cabeca em primeira pessoa
-	-- e quebrava outros sistemas de transparencia).
 	function Rig.resetLTM(part)
 		local function restore(inst)
 			local v = Rig.prevLTM[inst]
@@ -14129,7 +13648,7 @@ local function setupRickGun(character)
 				local alpha = Severed[part]
 				local v = (type(alpha) == "number") and alpha or 1
 				if Rig.prevLTM[part] == nil then
-					-- parte escondida pela travessia do portal (LTM = 1) nao e o valor "normal"
+
 					Rig.prevLTM[part] = PortalWalk.Hidden[part] and 0 or part.LocalTransparencyModifier
 				end
 				part.LocalTransparencyModifier = v
@@ -14666,9 +14185,6 @@ local function setupRickGun(character)
 		pcall(updateOffHand, dt)
 	end))
 
-	-- Mira dos bracos (R6 e R15): em RunService.Stepped, depois que o Animator escreveu
-	-- as animacoes (idle/walk/bundle), o Transform dos Motor6D do braco e sobrescrito.
-	-- Sem mexer em C0: ao desequipar, a animacao original volta sozinha.
 	local ArmAim = {joints = nil, dir = {}}
 	local ARM_PARTS = {
 		right = {"RightUpperArm", "RightLowerArm", "RightHand", "Right Arm"},
@@ -14736,7 +14252,6 @@ local function setupRickGun(character)
 		local A = ArmAim
 		local rHand, lHand = findHandParts()
 
-		-- so o braco que segura a arma mira; o outro segue a animacao normal
 		local side = nil
 		if Config.ArmAim and Z.alive and tool.Parent == character and humanoid.Health > 0 then
 			if OffHand.swapped then
@@ -14767,7 +14282,6 @@ local function setupRickGun(character)
 		end
 		A.dir[side] = cur
 
-		-- pose de descanso do ombro (no braco esquerdo trocado, o C0 original fica em OffHand.sc0)
 		local ref = sh.C0
 		if side == "left" and OffHand.swapped and OffHand.shoulder == sh and OffHand.sc0 then
 			ref = OffHand.sc0
@@ -14779,10 +14293,6 @@ local function setupRickGun(character)
 		end
 	end
 
-	-- Membro cortado/regenerando: R6 = animacao congelada; R15 = ragdoll so nos bracos.
-	-- Em Stepped (depois do Animator) o Transform de cada junta do membro vira um
-	-- pendulo amortecido: o membro balanca com a gravidade e com o movimento do corpo.
-	-- Ao terminar a regeneracao (Severed[p] = nil) a animacao normal volta sozinha.
 	function Rig.ragdollStep(e, dt, g, damp, worldOf)
 		local jt = e.j
 		local p0 = jt.Part0
@@ -14864,7 +14374,7 @@ local function setupRickGun(character)
 					local okR = pcall(Rig.ragdollStep, e, dt, g, damp, worldOf)
 					if not okR then e.j.Transform = CFrame.new() end
 				else
-					-- R6: congela a animacao do membro
+
 					e.j.Transform = CFrame.new()
 				end
 			end
@@ -15023,9 +14533,6 @@ local function setupRickGun(character)
 			return Vector3.new(math.cos(a) * rr, r.ys + r.gy * q * r.L, math.sin(a) * rr)
 		end
 
-		-- Eixo do osso a partir do ESQUELETO (junta de cima -> junta de baixo), nao da
-		-- caixa do mesh. Em bundles R15 customizados (Rthro, bracos em A-pose, mesh
-		-- fora do eixo Y) a caixa engana; as juntas dizem onde o membro realmente vai.
 		local kidsIn = {}
 		for _, c in ipairs(list) do
 			local jc = jointOf[c]
@@ -15108,9 +14615,7 @@ local function setupRickGun(character)
 					sign = (lp.Y > 0) and 1 or -1
 				end
 			end
-			-- R15 / Custom: eixo do osso pelas juntas (inalterado).
-			-- R6: o C1 das juntas fica 0.5 stud pra fora do eixo do membro (ombro/quadril),
-			-- o que entortava o osso na diagonal; no R6 usa o eixo Y do proprio membro.
+
 			local fitAllowed = (Rig.type ~= "R6") or Config.SeverRegrowFitJointsR6 == true
 			if j and not head and fitAllowed and Config.SeverRegrowFitJoints ~= false then
 				local okF, nL, nW, nFix = pcall(fitLimbToJoints, p, j)
@@ -15406,8 +14911,7 @@ local function setupRickGun(character)
 				end
 			end
 			if folder.Parent then folder:Destroy() end
-			-- Sempre devolve os membros, mesmo quando a animacao foi abortada
-			-- (antes, abortar deixava o membro invisivel para sempre).
+
 			for _, p in ipairs(list) do
 				Severed[p] = nil
 				SeverImmune[p] = os.clock() + 1.5
@@ -15422,9 +14926,7 @@ local function setupRickGun(character)
 
 		conn = RunService.RenderStepped:Connect(function()
 			if not Z.alive then finish(false) return end
-			-- Nao aborta so porque o HumanoidRootPart ficou sem Parent por um
-			-- instante (jogos que reparentam/trocam o personagem). So encerra se
-			-- todas as partes do membro sumiram de vez.
+
 			local anyLeft = false
 			for _, lp in ipairs(list) do
 				if lp.Parent then anyLeft = true break end
@@ -15435,7 +14937,6 @@ local function setupRickGun(character)
 			local t = regrow and ((el - delay) / animTime) or -1
 			if t >= 1 then finish(true) return end
 
-			-- som do osso crescendo: toca uma vez quando a fase do osso comeca
 			if t >= 0 and not boneSoundPlayed then
 				boneSoundPlayed = true
 				if Config.SoundBoneGrow and Config.SoundBoneGrow ~= "" then
@@ -15906,8 +15407,6 @@ local function setupRickGun(character)
 	Rig.NAME_HINTS = {"arm", "hand", "leg", "foot", "head"}
 	Rig.NOT_LIMB = {HumanoidRootPart = true, Torso = true, UpperTorso = true, LowerTorso = true}
 
-	-- Hierarquia padrao, usada quando os Motor6D foram removidos/trocados
-	-- (ragdoll, rigs com Weld, etc.) e ainda assim precisamos saber quem prende quem.
 	Rig.R6_PARENT = {
 		["Head"] = "Torso", ["Left Arm"] = "Torso", ["Right Arm"] = "Torso",
 		["Left Leg"] = "Torso", ["Right Leg"] = "Torso",
@@ -15919,7 +15418,7 @@ local function setupRickGun(character)
 		LeftUpperLeg = "LowerTorso", LeftLowerLeg = "LeftUpperLeg", LeftFoot = "LeftLowerLeg",
 		RightUpperLeg = "LowerTorso", RightLowerLeg = "RightUpperLeg", RightFoot = "RightLowerLeg",
 	}
-	-- Nomes que contem "arm"/"hand"/"leg"/"head"/"hip"/"neck" mas NAO sao membros.
+
 	Rig.HINT_IGNORE = {
 		"handle", "armor", "armour", "legacy", "necklace", "whip", "ship",
 		"hitbox", "hurtbox", "headset", "headphone",
@@ -15928,7 +15427,7 @@ local function setupRickGun(character)
 	function Rig.find(name)
 		local f = character:FindFirstChild(name)
 		if f and f:IsA("BasePart") then return f end
-		-- busca recursiva, mas ignorando copias dentro de Tool/Accessory
+
 		for _, d in ipairs(character:GetDescendants()) do
 			if d.Name == name and d:IsA("BasePart")
 				and not d:FindFirstAncestorOfClass("Accessory")
@@ -16088,11 +15587,6 @@ local function setupRickGun(character)
 		pcall(function() for k in pairs(i:GetAttributes()) do i:SetAttribute(k, nil) end end)
 	end
 
-	-- Visual "fantasma" do membro arrancado: clone do personagem (com Humanoid, entao
-	-- pele, roupa e acessorios aparecem como no boneco), reduzido so as partes cortadas,
-	-- ANCORADO e sem nenhuma junta/constraint/script. Ele apenas copia o CFrame da peca
-	-- fisica limpa a cada frame, entao nao tem como prender nem puxar o jogador.
-	-- links = { {orig = parte do personagem, proxy = peca fisica limpa}, ... }
 	function Rig.buildGhost(model, links)
 		local ghost = Rig.cloneForced(character)
 		if not ghost then return nil end
@@ -16236,9 +15730,7 @@ local function setupRickGun(character)
 		for _, j in ipairs(character:GetDescendants()) do
 			if j:IsA("Motor6D") and j.Part0 and j.Part1 then
 				local p1 = j.Part1
-				-- So entra na cadeia de membros o que e membro de verdade. Arma,
-				-- armadura ou acessorio preso por Motor6D nao ganha ossos/musculos
-				-- na regeneracao: vira "peca anexada" (clonada junto, sem regenerar).
+
 				local isLimb
 				if isCustomRig then
 					isLimb = not (p1:FindFirstAncestorOfClass("Tool") or p1:FindFirstAncestorOfClass("Accessory"))
@@ -16259,8 +15751,6 @@ local function setupRickGun(character)
 			end
 		end
 
-		-- Rigs padrao sem Motor6D no membro (ragdoll, Weld...): monta a junta
-		-- a partir da hierarquia R6/R15 para o membro nao se soltar em pedacos.
 		local pmap = (rigNow.type == "R15" and Rig.R15_PARENT) or (rigNow.type == "R6" and Rig.R6_PARENT) or nil
 		if pmap then
 			for _, lp in ipairs(rigNow.list) do
@@ -16324,9 +15814,6 @@ local function setupRickGun(character)
 			end
 		end
 
-		-- Peca fisica LIMPA: so mantem o que e visual. Todo o resto (constraints,
-		-- attachments de ragdoll, scripts, tags...) e o que continuava preso ao
-		-- boneco de verdade e puxava o jogador, por isso a lista e "so isto fica".
 		local KEEP_CLASSES = {"Attachment", "DataModelMesh", "Decal", "SurfaceAppearance"}
 		local function makeClone(p)
 			local c = Rig.cloneForced(p) or Rig.fallbackClone(p)
@@ -16368,7 +15855,6 @@ local function setupRickGun(character)
 			return
 		end
 
-		-- o membro solto nao colide com o proprio boneco (nao empurra o jogador)
 		do
 			local mine = {}
 			for _, ch in ipairs(character:GetChildren()) do
@@ -16388,7 +15874,7 @@ local function setupRickGun(character)
 			local j = jointOf[p]
 			local c = map[p]
 			if c and j and set[j.Part0] and map[j.Part0] then
-				-- pose real atual (vale tambem p/ Motor6D desativado ou junta sintetica)
+
 				local poseC0 = j.Part0.CFrame:ToObjectSpace(j.Part1.CFrame) * j.C1
 				local m = Instance.new("Motor6D")
 				m.Name = j.Name
@@ -16436,8 +15922,6 @@ local function setupRickGun(character)
 			end
 		end
 
-		-- Visual do membro: fantasma ancorado com pele/roupa (ver Rig.buildGhost).
-		-- Se der certo, a peca fisica fica invisivel; se falhar, ela continua visivel.
 		if Config.SeverFakeGhost ~= false then
 			local links = {}
 			for _, p in ipairs(order) do
@@ -16512,8 +15996,6 @@ local function setupRickGun(character)
 			Rig.sevGen[hd.h] = (Rig.sevGen[hd.h] or 0) + 1
 		end
 
-		-- Rede de seguranca: se a animacao de regeneracao falhar, for interrompida
-		-- ou nunca comecar, os membros voltam sozinhos depois do tempo previsto.
 		local sevParts, sevGenAt = {}, {}
 		for _, p in ipairs(order) do sevParts[#sevParts + 1] = p end
 		for _, hd in ipairs(handles) do sevParts[#sevParts + 1] = hd.h end
@@ -16576,7 +16058,7 @@ local function setupRickGun(character)
 		local okR, errR = pcall(startRegrow, order, depthOf, jointOf, handles, preDelay, Config.SeverRegrow, regrowTime)
 		if not okR then
 			warnRG("erro na regeneracao do membro:", errR)
-			-- sem animacao: devolve os membros assim que o tempo de espera passar
+
 			task.delay(preDelay, function()
 				if Z.alive then pcall(forceRestore) end
 			end)
@@ -16908,7 +16390,6 @@ local function setupRickGun(character)
 		hasPortals = function() return entrance ~= nil or exitP ~= nil end,
 	})
 
-	-- CHAVE DA NAVE: item no inventario + mini slot na tela (substitui a antiga V4 da arma)
 	if not pcall(function()
 		State.key = State.buildKeySystem({
 			Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, backpack = backpack,

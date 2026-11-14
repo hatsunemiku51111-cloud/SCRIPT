@@ -1,3 +1,20 @@
+-- ===== CAMADA UNIVERSAL (compatibilidade com qualquer jogo/executor) =====
+local __ok, __err = xpcall(function()
+if not task then
+	task = {
+		wait = wait,
+		spawn = function(f, ...) local a = {...}; return coroutine.wrap(function() f(unpack(a)) end)() end,
+		defer = function(f, ...) local a = {...}; return coroutine.wrap(function() f(unpack(a)) end)() end,
+		delay = function(t, f, ...) local a = {...}; return delay(t, function() f(unpack(a)) end) end,
+	}
+end
+do
+	local okR, isClient = pcall(function() return game:GetService("RunService"):IsClient() end)
+	if okR and not isClient then
+		pcall(warn, "[RickPortalGun] precisa rodar como LocalScript/executor (cliente).")
+		return
+	end
+end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -67,6 +84,10 @@ local function getGuiParent()
 end
 
 local function parentGui(g)
+	pcall(function()
+		if syn and syn.protect_gui then syn.protect_gui(g)
+		elseif protect_gui then protect_gui(g) end
+	end)
 	local p = getGuiParent()
 	if p then pcall(function() g.Parent = p end) end
 	if not g.Parent then
@@ -234,8 +255,9 @@ local Config = {
 	SoundShoot = "rbxassetid://74562584385247",
 	SoundInvalid = "rbxassetid://132281440773764",
 	SoundDial = "rbxassetid://6042053626",
+	SoundKeyEquip = "rbxassetid://9113849492", -- som ao equipar a Chave da Nave
 	SoundBoneGrow = "rbxassetid://84312631986360",
-	SoundBoneGrowVolume = 1.2,
+	SoundBoneGrowVolume = 0.5,
 
 	ParticleSpark = "rbxassetid://241594419",
 	ParticleSpark2 = "rbxassetid://243660364",
@@ -609,6 +631,393 @@ end
 -- Usar a chave de novo (com a nave estacionada) abre um portal no ceu e a nave vai embora.
 -- Fica fora do setupRickGun pra nao estourar o limite de locals de la.
 -- ===================================================================
+-- ===================================================================
+-- TELAS DO PAINEL DA NAVE (SurfaceGui animado)
+-- Direita (vermelha): diagnostico rolando igual um painel de verdade.
+-- Esquerda, na frente do piloto (verde): status do velocimetro animado.
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals/upvalues de la.
+-- ===================================================================
+State.makeDashScreens = function(S, partRed, partGreen, env)
+	local GREEN = env.green
+	local RED = Color3.fromRGB(255, 64, 56)
+	local AMBER = Color3.fromRGB(255, 196, 64)
+	local WHITE = Color3.new(1, 1, 1)
+	local TL, TR, TC = Enum.TextXAlignment.Left, Enum.TextXAlignment.Right, Enum.TextXAlignment.Center
+
+	local function mkGui(part)
+		local g = Instance.new("SurfaceGui")
+		g.Name = "DashScreen"
+		g.Face = Enum.NormalId.Front
+		g.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		g.CanvasSize = Vector2.new(380, 180)
+		g.LightInfluence = 0
+		g.Brightness = 1.5
+		g.ClipsDescendants = true
+		g.Adornee = part
+		g.Parent = part
+		return g
+	end
+	local function box(parent, color, x, y, w, h, transp)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = color
+		f.BackgroundTransparency = transp or 0
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(w, h)
+		f.Parent = parent
+		return f
+	end
+	local function lbl(parent, text, size, color, x, y, w, h, xa)
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.Font = Enum.Font.Code
+		t.Text = text
+		t.TextSize = size
+		t.TextColor3 = color
+		t.TextXAlignment = xa or TL
+		t.TextYAlignment = Enum.TextYAlignment.Center
+		t.Position = UDim2.fromOffset(x, y)
+		t.Size = UDim2.fromOffset(w, h)
+		t.Parent = parent
+		return t
+	end
+	local function backdrop(g, col)
+		local bg = box(g, col:Lerp(Color3.new(0, 0, 0), 0.92), 0, 0, 380, 180, 0)
+		bg.Size = UDim2.fromScale(1, 1)
+		local st = Instance.new("UIStroke")
+		st.Color = col
+		st.Thickness = 3
+		st.Parent = bg
+		return bg
+	end
+
+	-- ---------- VERDE: velocimetro ----------
+	local sp = backdrop(mkGui(partGreen), GREEN)
+	lbl(sp, "VELOCIDADE", 14, GREEN, 10, 6, 150, 18, TL)
+	local stLbl = lbl(sp, "PARADA", 14, GREEN, 190, 6, 180, 18, TR)
+	local numLbl = lbl(sp, "000", 72, GREEN, 10, 28, 230, 84, TL)
+	lbl(sp, "KM/H", 20, GREEN, 236, 80, 80, 24, TL)
+	local modeLbl = lbl(sp, "MODO TERRA", 14, GREEN, 236, 34, 140, 18, TL)
+	local pctLbl = lbl(sp, "POTENCIA 0%", 14, GREEN, 236, 54, 140, 18, TL)
+	local NSEG = 26
+	local segs = {}
+	for i = 1, NSEG do
+		segs[i] = box(sp, i > NSEG * 0.8 and AMBER or GREEN, 10 + (i - 1) * 14, 122, 11, 30, 0.88)
+	end
+	local peak = box(sp, WHITE, 10, 118, 3, 38, 0)
+	lbl(sp, "0", 12, GREEN, 10, 156, 40, 16, TL)
+	lbl(sp, "VMAX", 12, GREEN, 330, 156, 40, 16, TR)
+	local sweep = box(sp, GREEN, -20, 0, 5, 180, 0.82)
+
+	-- ---------- VERMELHO: diagnostico rolando ----------
+	local dg = backdrop(mkGui(partRed), RED)
+	local dot = box(dg, RED, 10, 9, 10, 10, 0)
+	lbl(dg, "DIAGNOSTICO DA NAVE", 14, RED, 26, 6, 240, 18, TL)
+	local sysLbl = lbl(dg, "SYS 100%", 14, RED, 270, 6, 100, 18, TR)
+	local logF = Instance.new("Frame")
+	logF.BackgroundTransparency = 1
+	logF.Position = UDim2.fromOffset(8, 28)
+	logF.Size = UDim2.fromOffset(252, 118)
+	logF.ClipsDescendants = true
+	logF.Parent = dg
+
+	local SYSN = { "NUCLEO DE FUSAO", "PROPULSOR ESQ", "PROPULSOR DIR", "SUSPENSAO", "LINK PORTAL GUN",
+		"TANQUE DE FLUIDO", "ESCUDO", "COMPUTADOR BORDO", "ANTENA", "RODAS 4X4", "FAROIS",
+		"DOMO DE VIDRO", "PRESSAO CABINE", "GIROSCOPIO" }
+	local STAT = { "OK", "OK", "OK", "NOMINAL", "ESTAVEL", "98%", "100%", "CALIBRANDO", "SINC OK" }
+	local function newLine()
+		local name = SYSN[math.random(#SYSN)]
+		local warn = math.random() < 0.08
+		local st = warn and "AVISO!" or STAT[math.random(#STAT)]
+		local dots = string.rep(".", math.max(2, 27 - #name - #st))
+		return "> " .. name .. " " .. dots .. " " .. st, warn and AMBER or RED
+	end
+	local LH, NL = 17, 8
+	local lines = {}
+	for i = 1, NL do
+		local t, c = newLine()
+		local l = lbl(logF, t, 13, c, 0, (i - 1) * LH, 252, LH, TL)
+		l.TextTransparency = 0.65 * ((NL - i) / (NL - 1)) ^ 1.5 -- linhas de cima apagam, as de baixo acendem
+		lines[i] = l
+	end
+	local NB = 6
+	local bars, bcur, btgt = {}, {}, {}
+	for i = 1, NB do
+		local b = box(dg, RED, 272 + (i - 1) * 17, 146, 12, 4, 0.1)
+		b.AnchorPoint = Vector2.new(0, 1)
+		bars[i], bcur[i], btgt[i] = b, 20, 20
+	end
+	box(dg, RED, 8, 154, 364, 14, 0.85)
+	local scanFill = box(dg, RED, 8, 154, 0, 14, 0.15)
+	local scanTxt = lbl(dg, "SCAN 0%", 11, WHITE, 8, 154, 364, 14, TC)
+
+	-- ---------- animacao (chamada todo frame pelo loop da nave) ----------
+	local camera, SPEED, TURBO = env.camera, env.SPEED, env.TURBO
+	local GSPEED, GTURBO = env.GROUND_SPEED, env.GROUND_TURBO
+	local st = { t = 0, spd = 0, peak = 0, peakT = 0, scroll = 0, barT = 0, scan = 0,
+		num = "", stat = "", pct = -1, sys = -1, scn = -1 }
+	S.dashFx = function(_, dt)
+		if dt <= 0 then return end
+		dt = math.min(dt, 0.1)
+		local pos = S.cf.Position
+		if (camera.CFrame.Position - pos).Magnitude > 150 then st.lastPos = nil; return end -- longe: nao gasta
+		st.t = st.t + dt
+		local t = st.t
+
+		-- velocidade: usa o mesmo numero do velocimetro da tela (VEL) quando voando; senao mede o deslocamento
+		local info = env.info
+		local txt = (S.state == "flying" and info and info.Parent) and info.Text or nil
+		local inst, turbo = 0, false
+		if txt then
+			inst = tonumber(txt:match("VEL%s+(%-?%d+)")) or 0
+			turbo = txt:find("TURBO", 1, true) ~= nil
+		elseif st.lastPos then
+			inst = math.min((pos - st.lastPos).Magnitude / dt, 600)
+		end
+		st.lastPos = pos
+		st.spd = st.spd + (inst - st.spd) * (1 - math.exp(-9 * dt))
+		local fly = S.mode == "fly"
+		local vmax = fly and (SPEED * TURBO) or (GSPEED * GTURBO)
+		local frac = math.clamp(st.spd / vmax, 0, 1)
+
+		-- verde
+		local lit = frac * NSEG
+		for i = 1, NSEG do
+			segs[i].BackgroundTransparency = 0.88 * (1 - math.clamp(lit - (i - 1), 0, 1))
+		end
+		if frac > st.peak then
+			st.peak, st.peakT = frac, t + 1.2
+		elseif t > st.peakT then
+			st.peak = math.max(frac, st.peak - dt * 0.5)
+		end
+		peak.Visible = st.peak > 0.03
+		peak.Position = UDim2.fromOffset(10 + math.clamp(math.floor(st.peak * NSEG), 0, NSEG - 1) * 14 + 4, 118)
+		local n = string.format("%03d", math.floor(st.spd + 0.5))
+		if n ~= st.num then st.num = n; numLbl.Text = n end
+		local stTxt = (S.state == "arriving" or S.state == "leaving") and "PILOTO AUTO"
+			or (st.spd < 1.5 and "PARADA" or (turbo and "TURBO" or (fly and "VOO" or "TERRA")))
+		if stTxt ~= st.stat then
+			st.stat = stTxt
+			stLbl.Text = stTxt
+			modeLbl.Text = fly and "MODO VOO" or "MODO TERRA"
+		end
+		stLbl.TextTransparency = (turbo and math.floor(t * 5) % 2 == 1) and 0.7 or 0
+		local pct = math.floor(frac * 100 + 0.5)
+		if pct ~= st.pct then st.pct = pct; pctLbl.Text = "POTENCIA " .. pct .. "%" end
+		sweep.Position = UDim2.fromOffset((t * 150) % 440 - 30, 0)
+
+		-- vermelho: log rolando pra cima, como um painel de verdade
+		st.scroll = st.scroll + dt * 22
+		if st.scroll >= LH then
+			st.scroll = st.scroll - LH
+			for i = 1, NL - 1 do
+				lines[i].Text = lines[i + 1].Text
+				lines[i].TextColor3 = lines[i + 1].TextColor3
+			end
+			local txtN, colN = newLine()
+			lines[NL].Text = txtN
+			lines[NL].TextColor3 = colN
+		end
+		for i = 1, NL do
+			lines[i].Position = UDim2.fromOffset(0, (i - 1) * LH - st.scroll)
+		end
+		dot.BackgroundTransparency = (math.floor(t * 2.5) % 2 == 0) and 0 or 0.75
+		local sysv = math.floor(98.5 + 1.5 * math.sin(t * 0.7))
+		if sysv ~= st.sys then st.sys = sysv; sysLbl.Text = "SYS " .. sysv .. "%" end
+		st.barT = st.barT - dt
+		if st.barT <= 0 then
+			st.barT = 0.16
+			for i = 1, NB do btgt[i] = math.random(10, 112) end
+		end
+		for i = 1, NB do
+			bcur[i] = bcur[i] + (btgt[i] - bcur[i]) * (1 - math.exp(-12 * dt))
+			bars[i].Size = UDim2.fromOffset(12, math.floor(bcur[i]))
+		end
+		st.scan = (st.scan + dt * 0.22) % 1
+		scanFill.Size = UDim2.fromOffset(math.floor(364 * st.scan), 14)
+		local sc = math.floor(st.scan * 100)
+		if sc ~= st.scn then st.scn = sc; scanTxt.Text = "SCAN " .. sc .. "%" end
+	end
+end
+
+-- TANQUE / BARRIL atras dos bancos (fiel ao da nave do Rick da serie)
+-- Corpo cilindrico com tampas abauladas, 2 cintas largas com abas de fixacao embaixo,
+-- suporte em X com placa retangular no topo, valvula e manometro.
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+State.buildTank = function(add, cylX, c)
+	local TANK, DARK, MID, BLACK, GLOW = c.TANK, c.DARK, c.MID, c.BLACK, c.GLOW
+	local METAL, SMOOTH = c.METAL, c.SMOOTH
+	local CX, CY, CZ, R, HL = 0, 5.1, 4.6, 1.15, 3.1 -- centro, raio, meio-comprimento do corpo reto
+	local STRAP = Color3.fromRGB(96, 104, 100)
+	local RY = CFrame.Angles(0, 0, math.rad(90))
+
+	add("Tank", cylX(HL * 2, R * 2), CFrame.new(CX, CY, CZ), TANK, METAL, 0, "cyl")
+	for _, sx in ipairs({ -1, 1 }) do
+		-- tampa abaulada (elipsoide achatado) + aro de junta
+		add("TankDome", Vector3.new(1.2, R * 2, R * 2), CFrame.new(sx * HL, CY, CZ), TANK, METAL, 0, "sphere")
+		add("TankSeam", cylX(0.12, R * 2 + 0.1), CFrame.new(sx * (HL - 0.05), CY, CZ), STRAP, METAL, 0, "cyl")
+
+		-- cinta larga com borda levantada
+		local x = sx * 2.0
+		add("TankStrap", cylX(0.7, R * 2 + 0.14), CFrame.new(x, CY, CZ), STRAP, METAL, 0, "cyl")
+		for _, e in ipairs({ -1, 1 }) do
+			add("TankStrapRim", cylX(0.09, R * 2 + 0.24), CFrame.new(x + e * 0.31, CY, CZ), DARK, METAL, 0, "cyl")
+		end
+
+		-- abas de fixacao embaixo da cinta (dos dois lados) com parafuso
+		for _, sz in ipairs({ -1, 1 }) do
+			local a = sz * math.rad(135)
+			local ny, nz = math.cos(a), math.sin(a)
+			local r1, r2 = R + 0.16, R + 0.28
+			local rot = CFrame.Angles(a, 0, 0)
+			add("TankTab", Vector3.new(0.6, 0.16, 0.7), CFrame.new(x, CY + ny * r1, CZ + nz * r1) * rot, DARK, METAL)
+			add("TankTabBolt", cylX(0.1, 0.22), CFrame.new(x, CY + ny * r2, CZ + nz * r2) * rot * RY, MID, METAL, 0, "cyl")
+		end
+	end
+
+	-- suporte em X no topo: placa retangular + 4 pernas diagonais ate 4 pinos
+	local TOPY = CY + R
+	add("TankPlate", Vector3.new(0.95, 0.1, 0.65), CFrame.new(CX, TOPY + 0.03, CZ), MID, METAL)
+	add("TankPlateIn", Vector3.new(0.7, 0.04, 0.4), CFrame.new(CX, TOPY + 0.1, CZ), DARK, SMOOTH)
+	local studY = CY + math.sqrt(R * R - 0.72 * 0.72) + 0.05
+	for _, ix in ipairs({ -1, 1 }) do
+		for _, iz in ipairs({ -1, 1 }) do
+			local a = Vector3.new(CX + ix * 0.42, TOPY + 0.05, CZ + iz * 0.28)
+			local b = Vector3.new(CX + ix * 1.05, studY, CZ + iz * 0.72)
+			add("TankLeg", Vector3.new(0.1, 0.08, (b - a).Magnitude), CFrame.lookAt((a + b) / 2, b), MID, METAL)
+			add("TankStud", Vector3.new(0.26, 0.26, 0.26), CFrame.new(b), MID, METAL, 0, "sphere")
+		end
+	end
+
+	-- valvula/manipulo no topo, perto da ponta esquerda
+	add("TankValveBase", cylX(0.1, 0.55), CFrame.new(-2.85, TOPY + 0.02, CZ) * RY, DARK, METAL, 0, "cyl")
+	add("TankValveStem", cylX(0.35, 0.22), CFrame.new(-2.85, TOPY + 0.22, CZ) * RY, MID, METAL, 0, "cyl")
+	add("TankValve", Vector3.new(0.5, 0.5, 0.5), CFrame.new(-2.85, TOPY + 0.5, CZ), MID, METAL, 0, "sphere")
+
+	-- manometro na ponta direita
+	add("TankGauge", cylX(0.12, 0.7), CFrame.new(3.68, CY, CZ), BLACK, SMOOTH, 0, "cyl")
+	add("TankGaugeLed", Vector3.new(0.06, 0.2, 0.2), CFrame.new(3.76, CY, CZ), GLOW, SMOOTH)
+end
+
+-- PAINEL DA NAVE fiel a serie: pilar central com 5 mostradores, 2 saidas de ar redondas,
+-- caixa com tubo do lado do piloto, alavanca-bomba em T do outro lado, alavanquinha no topo do pilar.
+-- dashBase(rad) = CFrame de cada segmento do painel curvo (+rad = lado esquerdo do piloto, -X).
+-- Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+State.buildDash = function(add, cylX, c, dashBase)
+	local LIGHT, MID, DARK, BLACK, PLATE = c.LIGHT, c.MID, c.DARK, c.BLACK, c.PLATE
+	local METAL, SMOOTH = c.METAL, c.SMOOTH
+	local FACE = 1.175 -- face do painel virada pro piloto (z local do segmento)
+	local RZ = CFrame.Angles(0, math.pi / 2, 0) -- cilindro: eixo X -> eixo Z (aponta pro piloto)
+	local RY = CFrame.Angles(0, 0, math.pi / 2) -- cilindro: eixo X -> eixo Y
+	local function D(deg, x, y, z)
+		return dashBase(math.rad(deg)) * CFrame.new(x, y, z)
+	end
+
+	-- ===== pilar central (topo arredondado) =====
+	add("PillarBody", Vector3.new(1.4, 1.9, 0.5), D(0, 0, -0.05, FACE + 0.25), LIGHT, METAL)
+	add("PillarArch", cylX(0.5, 1.4), D(0, 0, 0.9, FACE + 0.25) * RZ, LIGHT, METAL, 0, "cyl")
+	add("PillarFoot", Vector3.new(1.55, 0.2, 0.62), D(0, 0, -0.92, FACE + 0.31), MID, METAL)
+	-- 5 mostradores: 1 grande em cima + 4 embaixo (2x2)
+	local gz = FACE + 0.5
+	local gauges = { { 0, 0.98, 0.58 }, { -0.34, 0.4, 0.42 }, { 0.34, 0.4, 0.42 }, { -0.34, -0.18, 0.42 }, { 0.34, -0.18, 0.42 } }
+	for i, g in ipairs(gauges) do
+		local gx, gy, gd = g[1], g[2], g[3]
+		add("GaugeRing", cylX(0.05, gd + 0.12), D(0, gx, gy, gz + 0.025) * RZ, MID, METAL, 0, "cyl")
+		add("GaugeFace", cylX(0.05, gd), D(0, gx, gy, gz + 0.05) * RZ, BLACK, SMOOTH, 0, "cyl")
+		add("GaugeNeedle", Vector3.new(gd * 0.4, 0.035, 0.02),
+			D(0, gx, gy, gz + 0.085) * CFrame.Angles(0, 0, math.rad(35 + i * 25)) * CFrame.new(gd * 0.17, 0, 0), PLATE, SMOOTH)
+	end
+	-- alavanquinha em cima do pilar
+	add("LeverBase", cylX(0.1, 0.34), D(0, 0, 1.62, FACE + 0.25) * RY, DARK, METAL, 0, "cyl")
+	add("LeverStick", cylX(0.6, 0.09), D(0, 0, 1.95, FACE + 0.25) * RY, MID, METAL, 0, "cyl")
+	add("LeverKnob", Vector3.new(0.2, 0.2, 0.2), D(0, 0, 2.28, FACE + 0.25), BLACK, SMOOTH, 0, "sphere")
+
+	-- ===== saidas de ar redondas com aletas, uma de cada lado do pilar =====
+	for _, sg in ipairs({ -1, 1 }) do
+		local vr = sg * 31
+		add("VentRim", cylX(0.05, 0.8), D(vr, 0, 0.35, FACE + 0.025) * RZ, MID, METAL, 0, "cyl")
+		add("VentBody", cylX(0.05, 0.68), D(vr, 0, 0.35, FACE + 0.05) * RZ, DARK, METAL, 0, "cyl")
+		for k = -1, 1 do
+			add("VentSlat", Vector3.new(0.56, 0.05, 0.04), D(vr, 0, 0.35 + k * 0.15, FACE + 0.085), MID, METAL)
+		end
+	end
+
+	-- ===== caixa do lado do piloto (-X): placa, 2 botoes, janelinha, alca e tubo que dobra =====
+	local bd = 17.8
+	add("DashBox", Vector3.new(0.8, 0.9, 0.35), D(bd, 0, -0.2, FACE + 0.175), LIGHT, METAL)
+	add("DashBoxPlate", Vector3.new(0.6, 0.66, 0.04), D(bd, 0, -0.22, FACE + 0.36), MID, METAL)
+	add("DashBoxWindow", Vector3.new(0.38, 0.22, 0.03), D(bd, 0, -0.42, FACE + 0.395), BLACK, SMOOTH)
+	for _, ky in ipairs({ 0.03, -0.17 }) do
+		add("DashBoxKnob", cylX(0.08, 0.13), D(bd, 0, ky, FACE + 0.42) * RZ, DARK, METAL, 0, "cyl")
+	end
+	for _, hx in ipairs({ -0.17, 0.17 }) do
+		add("DashBoxPost", cylX(0.16, 0.07), D(bd, hx, 0.33, FACE + 0.15) * RY, MID, METAL, 0, "cyl")
+	end
+	add("DashBoxHandle", cylX(0.4, 0.08), D(bd, 0, 0.42, FACE + 0.15), MID, METAL, 0, "cyl")
+	add("DashPipeV", cylX(0.3, 0.09), D(bd, 0, -0.8, FACE + 0.18) * RY, MID, METAL, 0, "cyl")
+	add("DashPipeElbow", Vector3.new(0.14, 0.14, 0.14), D(bd, 0, -0.96, FACE + 0.18), MID, METAL, 0, "sphere")
+	add("DashPipeH", cylX(0.3, 0.09), D(bd, 0.15, -0.96, FACE + 0.18), MID, METAL, 0, "cyl")
+	add("DashPipeCap", cylX(0.16, 0.2), D(bd, 0.36, -0.96, FACE + 0.18), DARK, METAL, 0, "cyl")
+
+	-- ===== alavanca-bomba em T do lado direito (+X), inclinada pro piloto =====
+	local pb = dashBase(math.rad(-17.8))
+	local dir = Vector3.new(0.35, 0.85, 0.40).Unit
+	local p0 = Vector3.new(0, -0.45, FACE + 0.15)
+	local function rod(name, t0, t1, d, color)
+		local a, b = p0 + dir * t0, p0 + dir * t1
+		add(name, cylX(t1 - t0, d), pb * CFrame.lookAt((a + b) / 2, b) * CFrame.Angles(0, math.pi / 2, 0), color, METAL, 0, "cyl")
+	end
+	add("PumpMount", Vector3.new(0.55, 0.3, 0.3), pb * CFrame.new(p0.X, p0.Y, FACE + 0.1), DARK, METAL)
+	rod("PumpSleeve", 0, 0.8, 0.38, MID)
+	rod("PumpCollar", 0.74, 0.86, 0.46, DARK)
+	rod("PumpRod", 0.8, 1.4, 0.14, LIGHT)
+	add("PumpBar", cylX(0.75, 0.12), pb * CFrame.new(p0 + dir * 1.4), DARK, METAL, 0, "cyl")
+	print("[RickPortalGun] painel novo (pilar, bomba, caixa) carregado")
+end
+
+-- VOLANTE fiel a serie: aro grosso, 3 raios (esquerda, direita, embaixo), cubo com tampa,
+-- coluna vertical grossa com flange no chao e 2 pedais.
+-- Tags: swheel = gira com a direcao | swcol = acompanha o volante sem girar |
+-- swbase = so acompanha em X/Z (a flange fica no chao).
+State.buildWheel = function(add, cylX, c, wc, wcPos)
+	local MID, DARK, BLACK = c.MID, c.DARK, c.BLACK
+	local METAL, SMOOTH, PLASTIC = c.METAL, c.SMOOTH, c.PLASTIC
+	local RZ = CFrame.Angles(0, math.pi / 2, 0)
+	local RY = CFrame.Angles(0, 0, math.pi / 2)
+	local RW, nW = 0.95, 20 -- raio do aro (as maos seguram em +-RW) e segmentos do aro
+
+	for k = 0, nW - 1 do
+		local a = 2 * math.pi * k / nW
+		local seg = 2 * RW * math.tan(math.pi / nW) + 0.08
+		add("WheelRim", cylX(seg, 0.26),
+			wc * CFrame.new(RW * math.cos(a), RW * math.sin(a), 0) * CFrame.Angles(0, 0, a + math.pi / 2), BLACK, PLASTIC, 0, "cyl", "swheel")
+	end
+	for _, deg in ipairs({ 0, 180, 270 }) do
+		add("WheelSpoke", Vector3.new(0.85, 0.2, 0.14), wc * CFrame.Angles(0, 0, math.rad(deg)) * CFrame.new(0.55, 0, 0), MID, METAL, 0, nil, "swheel")
+	end
+	add("WheelHubCap", cylX(0.22, 0.52), wc * CFrame.new(0, 0, 0.12) * RZ, MID, METAL, 0, "cyl", "swheel")
+	add("WheelHubDisc", cylX(0.06, 0.3), wc * CFrame.new(0, 0, 0.25) * RZ, DARK, METAL, 0, "cyl", "swheel")
+	add("WheelHub", Vector3.new(0.62, 0.62, 0.62), wc, MID, METAL, 0, "sphere", "swcol")
+
+	-- coluna vertical (desce um pouco alem do piso pra nunca aparecer vao)
+	local colLen = 3.4
+	add("WheelColumn", cylX(colLen, 0.46), CFrame.new(wcPos.X, wcPos.Y - colLen / 2, wcPos.Z) * RY, MID, METAL, 0, "cyl", "swcol")
+	add("WheelCollar", cylX(0.14, 0.62), CFrame.new(wcPos.X, wcPos.Y - 0.5, wcPos.Z) * RY, DARK, METAL, 0, "cyl", "swcol")
+	add("WheelBase", cylX(0.1, 1.05), CFrame.new(wcPos.X, 3.95, wcPos.Z) * RY, DARK, METAL, 0, "cyl", "swbase")
+	add("WheelBaseCone", cylX(0.3, 0.72), CFrame.new(wcPos.X, 4.1, wcPos.Z) * RY, MID, METAL, 0, "cyl", "swbase")
+
+	-- pedais: um de cada lado do pe da coluna; acompanham o volante em X/Z (tag swbase)
+	for _, sx in ipairs({ -1, 1 }) do
+		local px = wcPos.X + sx * 0.68
+		local p1 = Vector3.new(px, 4.0, wcPos.Z - 1.5)
+		local p2 = Vector3.new(px, 4.3, wcPos.Z - 0.65)
+		add("PedalArm", cylX((p2 - p1).Magnitude, 0.09), CFrame.lookAt((p1 + p2) / 2, p2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "swbase")
+		add("PedalPad", Vector3.new(0.42, 0.07, 0.34), CFrame.lookAt(p2, p2 + (p2 - p1)) * CFrame.Angles(math.rad(-30), 0, 0), DARK, METAL, 0, nil, "swbase")
+		add("PedalPivot", Vector3.new(0.2, 0.2, 0.2), CFrame.new(p1), DARK, METAL, 0, "sphere", "swbase")
+	end
+	print("[RickPortalGun] volante novo (3 raios, coluna, pedais) carregado")
+end
+
 State.buildShipSystem = function(ctx)
 	local Z = ctx.Z
 	local character, humanoid, rootPart, camera = ctx.character, ctx.humanoid, ctx.rootPart, ctx.camera
@@ -632,7 +1041,7 @@ State.buildShipSystem = function(ctx)
 	local CANOPY_ANGLE = math.rad(105)          -- quanto o vidro tomba pra tras ao abrir (graus)
 	local CANOPY_HINGE = Vector3.new(0, 3.8, 6.85) * SCALE -- dobradica: base traseira da cupula (nave aponta pra -Z)
 	local GEAR_TRAVEL = 3.0 * SCALE
-	local SEAT_REL = CFrame.new(-2.3 * SCALE, 4.5 * SCALE + SEAT_H, 0.9 * SCALE) -- banco esquerdo (motorista)
+	local SEAT_REL = CFrame.new(-2.3 * SCALE, (4.5 - 1.3) * SCALE + SEAT_H, 0.9 * SCALE) -- banco esquerdo (motorista)
 	local STEP_ID = "RickShipStep"
 	local GROUND_SPEED = C.ShipGroundSpeed or 45
 	local GROUND_TURBO = C.ShipGroundTurbo or 2
@@ -662,126 +1071,485 @@ State.buildShipSystem = function(ctx)
 	local sinkBound = false
 
 	-- ---------------------------------------------------------------
-	-- HUD (botoes de voo, botao PILOTAR, aviso e velocimetro)
+	-- HUD v2 (estilo Rick and Morty): velocimetro desenhado, botoes com icones desenhados,
+	-- gosma pingando, botao PILOTAR e avisos. Tudo feito de Frames (nenhum asset externo).
 	-- ---------------------------------------------------------------
+	-- (tudo dentro de um bloco: so o que o resto do script usa fica como local da funcao)
+	local pad, btnMode, btnUp, btnDown, btnTurbo, boardBtn, infoLbl, toast
+	do
 	local hud = ctx.newGui("RickShipHud", 26)
 	local ACC = C.PortalColor
+	local TURBO_COL = Color3.fromRGB(255, 222, 70)
+	local SLIME = Color3.fromRGB(128, 255, 86)
+	local BLACK = Color3.fromRGB(8, 10, 12)
+	local INK = Color3.fromRGB(16, 20, 30)
+	local WHITE = Color3.new(1, 1, 1)
+	local RED = Color3.fromRGB(255, 72, 72)
+	local FONT = Enum.Font.FredokaOne
+	local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
-	local function styleBtn(b)
-		b.BackgroundColor3 = Theme.Bg
-		b.BackgroundTransparency = 0.12
-		b.BorderSizePixel = 0
-		b.AutoButtonColor = true
-		b.TextColor3 = Theme.Text
-		b.Font = Enum.Font.GothamBold
-		b.TextSize = 14
-		b.ZIndex = 5
-		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
-		local st = Instance.new("UIStroke")
-		st.Color = ACC
-		st.Thickness = 1.6
-		st.Parent = b
+	-- ---------- helpers ----------
+	local function mk(class, props, parent)
+		local o = Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		if parent then o.Parent = parent end
+		return o
+	end
+	local function tw(o, t, props, style, dir)
+		local tween = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+		tween:Play()
+		return tween
+	end
+	local function frame(parent, x, y, w, h, col, tr, r)
+		local f = mk("Frame", {
+			BorderSizePixel = 0, BackgroundColor3 = col or WHITE, BackgroundTransparency = tr or 0,
+			Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h),
+		}, parent)
+		if r then mk("UICorner", { CornerRadius = UDim.new(0, r) }, f) end
+		return f
+	end
+	local function disc(parent, cx, cy, d, col, tr)
+		local f = mk("Frame", {
+			BorderSizePixel = 0, BackgroundColor3 = col or WHITE, BackgroundTransparency = tr or 0,
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(cx, cy), Size = UDim2.fromOffset(d, d),
+		}, parent)
+		mk("UICorner", { CornerRadius = UDim.new(0.5, 0) }, f)
+		return f
+	end
+	local function ink(o, th, col, tr)
+		return mk("UIStroke", {
+			Color = col or BLACK, Thickness = th, Transparency = tr or 0,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		}, o)
+	end
+	local function grad(o, c0, c1, rot)
+		return mk("UIGradient", { Color = ColorSequence.new(c0, c1), Rotation = rot or 90 }, o)
+	end
+	local function text(parent, str, size, col, x, y, w, h, xa)
+		return mk("TextLabel", {
+			BackgroundTransparency = 1, Text = str, TextSize = size, TextColor3 = col or WHITE, Font = FONT,
+			Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h),
+			TextXAlignment = xa or Enum.TextXAlignment.Center, ZIndex = 6,
+		}, parent)
 	end
 
-	local pad = Instance.new("Frame")
-	pad.Name = "FlightPad"
-	pad.BackgroundTransparency = 1
-	pad.AnchorPoint = Vector2.new(1, 0.5)
-	pad.Position = UDim2.new(1, -14, 0.5, 0)
-	pad.Size = UDim2.fromOffset(76, 0)
-	pad.AutomaticSize = Enum.AutomaticSize.Y
-	pad.Visible = false
-	pad.Parent = hud
+	-- escala por tamanho de tela (celular x PC). A UIAnimScale vem primeiro pra animacao automatica nao pisar na minha
+	local vpScales = {}
+	local function vpFactor()
+		local s = hud.AbsoluteSize
+		if s.X <= 0 or s.Y <= 0 then return 1 end
+		return math.clamp(math.min(s.X / 820, s.Y / 440), 0.62, 1.15)
+	end
+	local function addVP(f)
+		UIAnim.getScale(f)
+		local s = mk("UIScale", { Name = "VP", Scale = vpFactor() }, f)
+		vpScales[#vpScales + 1] = s
+	end
+
+	-- ---------- icones desenhados (grade 28x28, posicoes em escala) ----------
+	local function ibar(parent, cx, cy, w, h, rot, col)
+		local f = mk("Frame", {
+			BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = col or INK,
+			Position = UDim2.fromScale(cx / 28, cy / 28), Size = UDim2.fromScale(w / 28, h / 28), Rotation = rot or 0,
+		}, parent)
+		mk("UICorner", { CornerRadius = UDim.new(0.3, 0) }, f)
+		return f
+	end
+	local function idot(parent, cx, cy, d, col)
+		local f = mk("Frame", {
+			BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = col or INK,
+			Position = UDim2.fromScale(cx / 28, cy / 28), Size = UDim2.fromScale(d / 28, d / 28),
+		}, parent)
+		mk("UICorner", { CornerRadius = UDim.new(0.5, 0) }, f)
+		return f
+	end
+	local function subIcon(parent)
+		return mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1) }, parent)
+	end
+	local function drawArrow(f, col) -- seta pra cima (propulsor)
+		ibar(f, 14, 17, 5.5, 14, 0, col)
+		ibar(f, 10.4, 8.8, 5.5, 11, 45, col)
+		ibar(f, 17.6, 8.8, 5.5, 11, -45, col)
+	end
+	local function drawBolt(f, col) -- raio (turbo)
+		ibar(f, 15.5, 8.5, 5.5, 14.5, 33, col)
+		ibar(f, 14, 14.2, 12, 4.6, 0, col)
+		ibar(f, 11.5, 19.5, 5.5, 13, 27, col)
+	end
+	local function drawSaucer(f, col, hi) -- disco voador (modo VOO)
+		idot(f, 14, 11, 11, col)
+		idot(f, 12, 9.5, 3.2, hi)
+		local body = ibar(f, 14, 16.5, 26, 9, 0, col)
+		body:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
+		idot(f, 7, 17, 2.6, hi)
+		idot(f, 14, 18.2, 2.6, hi)
+		idot(f, 21, 17, 2.6, hi)
+		ibar(f, 9, 23, 3, 4, 20, col)
+		ibar(f, 19, 23, 3, 4, -20, col)
+	end
+	local function drawWheel(f, col, hi) -- roda (modo TERRA)
+		idot(f, 14, 14, 25, col)
+		idot(f, 14, 14, 15, hi)
+		ibar(f, 14, 14, 3, 15, 0, col)
+		ibar(f, 14, 14, 3, 15, 90, col)
+		ibar(f, 14, 14, 3, 15, 45, col)
+		ibar(f, 14, 14, 3, 15, -45, col)
+		idot(f, 14, 14, 6, col)
+	end
+	local function drawExit(f, col) -- porta + seta saindo
+		local door = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(9 / 28, 14 / 28), Size = UDim2.fromScale(13 / 28, 20 / 28) }, f)
+		mk("UIStroke", { Color = col, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, door)
+		mk("UICorner", { CornerRadius = UDim.new(0.2, 0) }, door)
+		ibar(f, 17.5, 14, 11, 4, 0, col)
+		ibar(f, 22.2, 11.2, 4, 8, -45, col)
+		ibar(f, 22.2, 16.8, 4, 8, 45, col)
+	end
+
+	-- =================================================================
+	-- VELOCIMETRO (lado esquerdo, acima do analogico)
+	-- =================================================================
+	local dialRoot = mk("Frame", { Name = "ShipDial", BackgroundTransparency = 1, BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.085, 0, 0.4, 0), Size = UDim2.fromOffset(340, 190),
+		Visible = false }, hud)
+	addVP(dialRoot)
+
+	local dial = frame(dialRoot, 102, 20, 136, 136, WHITE, 1)
+	dial.Name = "Dial"
+	dial.ZIndex = 4
+	local ticks = {}
+	local N = 36
+	local needleBox, speedNum, turboGlow
 	do
-		local lay = Instance.new("UIListLayout")
-		lay.SortOrder = Enum.SortOrder.LayoutOrder
-		lay.Padding = UDim.new(0, 8)
-		lay.HorizontalAlignment = Enum.HorizontalAlignment.Right
-		lay.Parent = pad
+		turboGlow = disc(dial, 68, 68, 160, TURBO_COL, 0.6)
+		turboGlow.Visible = false
+		TweenService:Create(turboGlow, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ BackgroundTransparency = 0.8 }):Play()
+		disc(dial, 68, 75, 136, BLACK, 0.55)                       -- sombra
+		local rim = disc(dial, 68, 68, 136, WHITE)                 -- aro de aco
+		grad(rim, Color3.fromRGB(150, 164, 180), Color3.fromRGB(52, 60, 72), 90)
+		ink(rim, 4)
+		local bevel = disc(dial, 68, 68, 124, Color3.fromRGB(22, 26, 32))
+		ink(bevel, 2)
+		local face = disc(dial, 68, 68, 114, WHITE)                -- mostrador
+		grad(face, Color3.fromRGB(26, 62, 34), Color3.fromRGB(6, 16, 10), 90)
+		ink(face, 2, ACC, 0.55)
+
+		-- mini portal girando no fundo do mostrador
+		local sw = disc(dial, 68, 93, 52, WHITE, 0.4)
+		local swg = mk("UIGradient", {
+			Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, ACC), ColorSequenceKeypoint.new(0.3, Color3.fromRGB(10, 40, 16)),
+				ColorSequenceKeypoint.new(0.6, ACC), ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 40, 16)),
+			}), Rotation = 0 }, sw)
+		ink(sw, 2, ACC, 0.35)
+		TweenService:Create(swg, TweenInfo.new(2.4, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 360 }):Play()
+
+		-- marcas da escala (240 graus)
+		for k = 0, N do
+			local ang = -120 + 240 * k / N
+			local rad = math.rad(ang)
+			local major = (k % 6 == 0)
+			local len = major and 11 or 6
+			local wd = major and 4 or 3
+			local cr = 55 - len / 2
+			local t = mk("Frame", { BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(26, 66, 34),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(68 + cr * math.sin(rad), 68 - cr * math.cos(rad)),
+				Size = UDim2.fromOffset(wd, len), Rotation = ang }, dial)
+			mk("UICorner", { CornerRadius = UDim.new(0, 1) }, t)
+			ticks[k] = t
+		end
+
+		-- agulha (caixa centrada no eixo: gira certinho em qualquer pivo)
+		needleBox = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(68, 68), Size = UDim2.fromOffset(10, 108), Rotation = -120, ZIndex = 5 }, dial)
+		local blade = frame(needleBox, 2.5, 8, 5, 62, RED, 0, 2)
+		ink(blade, 1.5)
+		local hub = disc(dial, 68, 68, 17, TURBO_COL)
+		hub.ZIndex = 6
+		ink(hub, 2.5)
+		local hubDot = disc(dial, 68, 68, 5, INK)
+		hubDot.ZIndex = 7
+
+		speedNum = text(dial, "0", 26, WHITE, 28, 77, 80, 28)
+		speedNum.TextStrokeTransparency = 0
+		speedNum.TextStrokeColor3 = BLACK
+		local unit = text(dial, "studs/s", 9, ACC, 28, 103, 80, 12)
+		unit.Font = Enum.Font.GothamBold
+
+		local shine = frame(dial, 20, 14, 70, 26, WHITE, 0.88, 13)  -- reflexo do vidro
+		shine.Rotation = -28
+		shine.ZIndex = 8
 	end
 
-	local function padBtn(i, text)
-		local b = Instance.new("TextButton")
-		b.Name = "Btn" .. i
-		b.LayoutOrder = i
-		b.Size = UDim2.fromOffset(76, 50)
-		b.Text = text
-		styleBtn(b)
-		b.Parent = pad
-		return b
+	-- capsula de altitude (esquerda) e de modo (direita), meio escondidas atras do mostrador
+	local altCap = frame(hud, 12, 48, 84, 30, WHITE, 0, 15) -- canto superior esquerdo (abaixo do menu do Roblox)
+	altCap.Name = "AltCap"
+	altCap.ZIndex = 2
+	altCap.Visible = false
+	addVP(altCap)
+	grad(altCap, Color3.fromRGB(30, 58, 38), Color3.fromRGB(10, 22, 14), 90)
+	ink(altCap, 3)
+	local altChip = frame(altCap, 7, 8, 28, 14, ACC, 0, 7)
+	text(altChip, "ALT", 10, INK, 0, 0, 28, 14)
+	local altNum = text(altCap, "0", 17, WHITE, 36, 0, 40, 30)
+
+	local modeCap = frame(hud, 0, 48, 92, 30, WHITE, 0, 15) -- canto superior direito, na mesma altura do ALT
+	modeCap.Name = "ModeCap"
+	modeCap.AnchorPoint = Vector2.new(1, 0)
+	modeCap.Position = UDim2.new(1, -12, 0, 48)
+	modeCap.ZIndex = 2
+	modeCap.Visible = false
+	addVP(modeCap)
+	grad(modeCap, Color3.fromRGB(30, 58, 38), Color3.fromRGB(10, 22, 14), 90)
+	ink(modeCap, 3)
+	local miniHolder = frame(modeCap, 28, 4, 22, 22, WHITE, 1)
+	local miniSaucer = subIcon(miniHolder)
+	drawSaucer(miniSaucer, ACC, Color3.fromRGB(10, 40, 16))
+	local miniWheel = subIcon(miniHolder)
+	drawWheel(miniWheel, ACC, Color3.fromRGB(10, 40, 16))
+	miniWheel.Visible = false
+	miniHolder.Position = UDim2.fromOffset(8, 4)
+	local modeName = text(modeCap, "VOO", 15, WHITE, 34, 0, 54, 30)
+
+	-- adesivo TURBO!
+	local sticker = frame(dialRoot, 118, 152, 104, 30, TURBO_COL, 0, 10)
+	sticker.ZIndex = 9
+	sticker.Rotation = -3
+	sticker.Visible = false
+	ink(sticker, 3)
+	text(sticker, "TURBO!", 18, INK, 0, 0, 104, 30)
+
+	-- ---------- atualizacao do velocimetro ----------
+	local tickCache = -999
+	local function paintTicks(a, fly, turbo)
+		local level = (a > 0.015) and math.floor(a * N + 0.5) or -1
+		local key = level * 4 + (fly and 2 or 0) + (turbo and 1 or 0)
+		if key == tickCache then return end
+		tickCache = key
+		local thr = fly and (1 / TURBO) or (1 / GROUND_TURBO)
+		for k = 0, N do
+			local zone = (k / N) > thr
+			local col
+			if k <= level then
+				col = zone and TURBO_COL or ACC
+			else
+				col = zone and Color3.fromRGB(86, 70, 22) or Color3.fromRGB(26, 66, 34)
+			end
+			ticks[k].BackgroundColor3 = col
+		end
 	end
-	local btnMode = padBtn(1, "VOAR")
-	local btnUp = padBtn(2, "SOBE")
-	local btnDown = padBtn(3, "DESCE")
-	local btnTurbo = padBtn(4, "TURBO")
-	local btnExit = padBtn(5, "SAIR")
-	btnMode.TextColor3 = ACC
+
+	-- o resto do script escreve "VOO   VEL 95   ALT 130   TURBO" / "TERRA   VEL 45" nesse label
+	-- (invisivel); aqui vira agulha, numeros e capsulas
+	infoLbl = mk("TextLabel", { Name = "Info", BackgroundTransparency = 1, TextTransparency = 1,
+		Size = UDim2.fromOffset(0, 0), Text = "", Visible = false }, hud)
+	local function updateDial()
+		local t = infoLbl.Text
+		local mode = t:match("^(%a+)") or "VOO"
+		local spd = tonumber(t:match("VEL%s+(%-?%d+)")) or 0
+		local alt = tonumber(t:match("ALT%s+(%-?%d+)"))
+		local turbo = t:find("TURBO", 1, true) ~= nil
+		local fly = mode == "VOO"
+		local top = fly and (SPEED * TURBO) or (GROUND_SPEED * GROUND_TURBO)
+		local a = math.clamp(spd / math.max(top, 1), 0, 1)
+		paintTicks(a, fly, turbo)
+		tw(needleBox, 0.15, { Rotation = -120 + 240 * a })
+		speedNum.Text = tostring(spd)
+		speedNum.TextColor3 = turbo and TURBO_COL or WHITE
+		altCap.Visible = alt ~= nil
+		if alt then altNum.Text = tostring(alt) end
+		modeName.Text = mode
+		miniSaucer.Visible = fly
+		miniWheel.Visible = not fly
+		sticker.Visible = turbo
+		turboGlow.Visible = turbo
+	end
+	infoLbl:GetPropertyChangedSignal("Text"):Connect(updateDial)
+	paintTicks(0, true, false)
+
+	-- =================================================================
+	-- BOTOES DE VOO (lado direito): cada um com icone desenhado da funcao
+	-- =================================================================
+	pad = mk("Frame", { Name = "FlightPad", BackgroundTransparency = 1, BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(70, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, Visible = false }, hud)
+	addVP(pad)
+	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center }, pad)
+
+	-- Text/TextColor3 do botao continuam sendo lidos/escritos pelo resto do script (VOAR/TERRA,
+	-- TURBO ligado); o que aparece sao o rotulo e o icone desenhados aqui
+	local function makeBtn(i, label, hint, col, draw, onText)
+		local b = mk("TextButton", { Name = "Btn" .. i, LayoutOrder = i, Size = UDim2.fromOffset(60, 66),
+			BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false, Text = label, TextTransparency = 1,
+			TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 5 }, pad)
+		local sc = mk("UIScale", { Name = "BtnScale" }, b) -- escala propria: hover generico nao mexe aqui
+		local glow = frame(b, -6, -6, 72, 78, col, 1, 20)
+		glow.ZIndex = 1
+		local lip = frame(b, 0, 6, 60, 60, col:Lerp(BLACK, 0.5), 0, 15)
+		lip.ZIndex = 2
+		ink(lip, 3)
+		local face = frame(b, 0, 0, 60, 60, col, 0, 15)
+		face.ZIndex = 3
+		ink(face, 3)
+		grad(face, WHITE, Color3.fromRGB(205, 205, 205), 90)
+		frame(face, 8, 5, 44, 7, WHITE, 0.55, 4)
+		local holder = frame(face, 15, 9, 30, 30, WHITE, 1)
+		draw(holder)
+		local lb = text(face, label, 12, INK, 0, 41, 60, 16)
+		if not isTouchOnly then
+			local hb = mk("TextLabel", { BackgroundColor3 = WHITE, BorderSizePixel = 0, Text = hint, TextSize = 8,
+				TextColor3 = INK, Font = Enum.Font.GothamBold, AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, 12), Position = UDim2.fromOffset(-4, -4), ZIndex = 8 }, face)
+			mk("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3) }, hb)
+			mk("UICorner", { CornerRadius = UDim.new(0, 4) }, hb)
+			ink(hb, 1.5)
+		end
+		b:GetPropertyChangedSignal("Text"):Connect(function()
+			lb.Text = b.Text
+			if onText then onText(b.Text) end
+		end)
+
+		local on, hover, down = false, false, false
+		local function render()
+			local lift = (on or down) and 4 or 0
+			tw(face, 0.07, { Position = UDim2.fromOffset(0, lift) })
+			tw(face, 0.12, { BackgroundColor3 = on and col:Lerp(WHITE, 0.45) or col })
+			tw(glow, 0.15, { BackgroundTransparency = on and 0.55 or 1 })
+		end
+		b.MouseEnter:Connect(function()
+			hover = true
+			tw(sc, 0.14, { Scale = 1.06 })
+		end)
+		b.MouseLeave:Connect(function()
+			hover = false
+			down = false
+			tw(sc, 0.14, { Scale = 1 })
+			render()
+		end)
+		b.MouseButton1Down:Connect(function()
+			down = true
+			tw(sc, 0.07, { Scale = 0.94 })
+			render()
+		end)
+		b.MouseButton1Up:Connect(function()
+			down = false
+			tw(sc, 0.25, { Scale = hover and 1.06 or 1 }, Enum.EasingStyle.Back)
+			render()
+		end)
+		return b, function(v)
+			on = v
+			render()
+		end
+	end
+
+	local BLUE = Color3.fromRGB(96, 196, 255)
+	local modeSaucer, modeWheel
+	btnMode = makeBtn(1, "VOAR", "R", BLUE, function(f)
+		modeSaucer = subIcon(f)
+		drawSaucer(modeSaucer, INK, BLUE:Lerp(WHITE, 0.7))
+		modeWheel = subIcon(f)
+		drawWheel(modeWheel, INK, BLUE:Lerp(WHITE, 0.7))
+		modeWheel.Visible = false
+	end, function(t)
+		modeSaucer.Visible = (t ~= "TERRA")
+		modeWheel.Visible = (t == "TERRA")
+	end)
+	local setUpOn, setDownOn, setTurboOn
+	btnUp, setUpOn = makeBtn(2, "SOBE", "ESPAÇO", Color3.fromRGB(92, 255, 92), function(f)
+		drawArrow(subIcon(f), INK)
+	end)
+	btnDown, setDownOn = makeBtn(3, "DESCE", "CTRL", Color3.fromRGB(255, 160, 60), function(f)
+		local s = subIcon(f)
+		s.Rotation = 180
+		drawArrow(s, INK)
+	end)
+	btnTurbo, setTurboOn = makeBtn(4, "TURBO", "SHIFT", TURBO_COL, function(f)
+		drawBolt(subIcon(f), INK)
+	end)
+	local btnExit = makeBtn(5, "SAIR", "F", Color3.fromRGB(255, 92, 100), function(f)
+		drawExit(subIcon(f), INK)
+	end)
 
 	local function isPress(i)
 		return i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch
 	end
-	local function holdBtn(b, key)
+	local function holdBtn(b, key, setOn)
 		b.InputBegan:Connect(function(i)
-			if isPress(i) then held[key] = true end
+			if isPress(i) then held[key] = true; setOn(true) end
 		end)
 		b.InputEnded:Connect(function(i)
-			if isPress(i) then held[key] = false end
+			if isPress(i) then held[key] = false; setOn(false) end
 		end)
 	end
-	holdBtn(btnUp, "up")
-	holdBtn(btnDown, "down")
+	holdBtn(btnUp, "up", setUpOn)
+	holdBtn(btnDown, "down", setDownOn)
 	btnTurbo.MouseButton1Click:Connect(function()
 		held.turbo = not held.turbo
 		btnTurbo.TextColor3 = held.turbo and ACC or Theme.Text
 	end)
+	-- o resto do script tambem mexe na cor do botao (ex.: desliga o turbo ao sair): acompanha
+	btnTurbo:GetPropertyChangedSignal("TextColor3"):Connect(function()
+		setTurboOn(btnTurbo.TextColor3 == ACC)
+	end)
 	btnExit.MouseButton1Click:Connect(function() api.exit() end)
 	btnMode.MouseButton1Click:Connect(function() api.toggleMode() end)
 
-	local boardBtn = Instance.new("TextButton")
-	boardBtn.Name = "BoardBtn"
-	boardBtn.AnchorPoint = Vector2.new(0.5, 1)
-	boardBtn.Position = UDim2.new(0.5, 0, 1, -120)
-	boardBtn.Size = UDim2.fromOffset(210, 48)
-	boardBtn.Text = "PILOTAR NAVE  (E)"
-	styleBtn(boardBtn)
-	boardBtn.TextSize = 16
-	boardBtn.Visible = false
-	boardBtn.Parent = hud
+	-- =================================================================
+	-- BOTAO PILOTAR NAVE (adesivo verde com disco voador)
+	-- =================================================================
+	boardBtn = mk("TextButton", { Name = "BoardBtn", AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -118), Size = UDim2.fromOffset(262, 70), BackgroundTransparency = 1,
+		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 5, Visible = false }, hud)
+	addVP(boardBtn)
+	mk("UIScale", { Name = "Small", Scale = 0.7 }, boardBtn) -- botao PILOTAR mais compacto
+	do
+		local lip = frame(boardBtn, 0, 6, 262, 64, Color3.fromRGB(30, 120, 34), 0, 18)
+		lip.ZIndex = 2
+		ink(lip, 3.5)
+		local face = frame(boardBtn, 0, 0, 262, 64, ACC, 0, 18)
+		face.ZIndex = 3
+		ink(face, 3.5)
+		grad(face, WHITE, Color3.fromRGB(200, 214, 200), 90)
+		frame(face, 14, 5, 234, 8, WHITE, 0.55, 4)
+		local ic = frame(face, 12, 10, 44, 44, WHITE, 1)
+		drawSaucer(subIcon(ic), INK, Color3.fromRGB(190, 255, 180))
+		local t1 = text(face, "PILOTAR NAVE", 22, INK, 64, 9, 150, 28, Enum.TextXAlignment.Left)
+		local t2 = text(face, isTouchOnly and "toque para entrar" or "aperte E ou clique", 11,
+			Color3.fromRGB(24, 84, 28), 64, 37, 150, 16, Enum.TextXAlignment.Left)
+		t2.Font = Enum.Font.GothamBold
+		local key = frame(face, 218, 16, 32, 32, WHITE, 0, 8)
+		ink(key, 3)
+		if isTouchOnly then
+			local s = subIcon(key)
+			s.Size = UDim2.fromScale(0.7, 0.7)
+			s.Rotation = 90
+			drawArrow(s, INK)
+		else
+			text(key, "E", 20, INK, 0, 0, 32, 32)
+		end
+		TweenService:Create(face, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Position = UDim2.fromOffset(0, -3) }):Play()
+	end
 	boardBtn.MouseButton1Click:Connect(function() api.board() end)
 
-	local function mkLabel(name, y, size)
-		local l = Instance.new("TextLabel")
-		l.Name = name
-		l.AnchorPoint = Vector2.new(0.5, 0)
-		l.Position = UDim2.new(0.5, 0, 0, y)
-		l.Size = UDim2.fromOffset(440, size + 10)
-		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.GothamBold
-		l.TextSize = size
-		l.TextColor3 = ACC
-		l.TextStrokeTransparency = 0.5
-		l.TextStrokeColor3 = Color3.new(0, 0, 0)
-		l.TextWrapped = true
-		l.Visible = false
-		l.ZIndex = 5
-		l.Parent = hud
-		return l
-	end
-	local infoLbl = mkLabel("Info", 18, 16)
-	local toastLbl = mkLabel("Toast", 54, 15)
-	toastLbl.TextColor3 = Theme.Text
-	local toastId = 0
-	local function toast(msg, dur)
-		toastId = toastId + 1
-		local my = toastId
-		toastLbl.Text = msg
-		toastLbl.Visible = true
-		task.delay(dur or 3, function()
-			if my == toastId then toastLbl.Visible = false end
-		end)
-	end
+	-- avisos (toast) removidos: a funcao continua existindo pro resto do script, mas nao mostra nada
+	infoLbl:GetPropertyChangedSignal("Visible"):Connect(function()
+		dialRoot.Visible = infoLbl.Visible
+		modeCap.Visible = infoLbl.Visible
+		if not infoLbl.Visible then altCap.Visible = false end
+	end)
+	hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local f = vpFactor()
+		for _, s in ipairs(vpScales) do s.Scale = f end
+	end)
+	toast = function() end
 	api.toast = toast
+	end
 
 	-- ---------------------------------------------------------------
 	-- Utilidades
@@ -864,6 +1632,8 @@ State.buildShipSystem = function(ctx)
 		return nil
 	end
 
+	local skyInfo = setmetatable({}, { __mode = "k" }) -- model -> { model, size, opened } no formato que o wobblePortal da arma espera
+
 	local function openSky(cf, size)
 		local oldSize, oldGoo = C.PortalSize, C.GooDrips
 		C.PortalSize = size or PORTAL_SIZE
@@ -874,6 +1644,7 @@ State.buildShipSystem = function(ctx)
 		C.GooDrips = oldGoo
 		if ok and model then
 			skyPortals[#skyPortals + 1] = model
+			skyInfo[model] = { model = model, size = size or PORTAL_SIZE, opened = os.clock() }
 			return model
 		end
 		return nil
@@ -881,6 +1652,14 @@ State.buildShipSystem = function(ctx)
 
 	local function closeSky(model)
 		if model then task.spawn(ctx.closePortal, model) end
+	end
+
+	-- boing de gelatina + rajada de faiscas do portal da arma, agora quando a nave atravessa o portal do ceu
+	local function wobbleSky(model, isExit)
+		local P = model and skyInfo[model]
+		if not P or not model.Parent or not ctx.wobblePortal then return end
+		if C.Elastic == false then return end
+		pcall(ctx.wobblePortal, P, isExit)
 	end
 
 	local function dustAt(pos)
@@ -931,7 +1710,7 @@ State.buildShipSystem = function(ctx)
 
 		local S = {
 			model = model, root = root,
-			parts = {}, gearParts = {}, canopyParts = {}, thrParts = {}, emitters = {},
+			parts = {}, gearParts = {}, swParts = {}, swCol = {}, swBase = {}, canopyParts = {}, thrParts = {}, emitters = {},
 			wheelHubs = {}, -- 1 hub por roda: anima so 3 welds em vez de ~100 pecas
 			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
 			yaw = 0, pitch = 0, roll = 0, yawRate = 0,
@@ -980,6 +1759,9 @@ State.buildShipSystem = function(ctx)
 			local e = { part = p, weld = w, rel = relS, tag = tag, baseT = p.Transparency }
 			S.parts[#S.parts + 1] = e
 			if tag == "gear" then S.gearParts[#S.gearParts + 1] = e
+			elseif tag == "swheel" then S.swParts[#S.swParts + 1] = e
+			elseif tag == "swcol" then S.swCol[#S.swCol + 1] = e
+			elseif tag == "swbase" then S.swBase[#S.swBase + 1] = e
 			elseif tag == "canopy" then S.canopyParts[#S.canopyParts + 1] = e
 			elseif tag == "thr" then S.thrParts[#S.thrParts + 1] = e end
 			return e
@@ -1001,7 +1783,7 @@ State.buildShipSystem = function(ctx)
 		local GLASS = Color3.fromRGB(176, 236, 214)
 		local SEATC = Color3.fromRGB(52, 58, 68)
 		local SEATC2 = Color3.fromRGB(72, 80, 92)
-		local TANK = Color3.fromRGB(92, 102, 96)
+		local TANK = Color3.fromRGB(134, 144, 138)
 		local GLOW = C.PortalColor
 
 		-- ===== CASCO: saucer achatado =====
@@ -1010,7 +1792,29 @@ State.buildShipSystem = function(ctx)
 			local t = (i - 0.5) / N
 			local r = R_BOT + (R_TOP - R_BOT) * t
 			local y = BOT_Y + (TOP_Y - BOT_Y) * t
-			add("HullLayer" .. i, cylX((TOP_Y - BOT_Y) / N + 0.12, r * 2), CFrame.new(0, y, 0) * RY, HULL, METAL, 0, "cyl")
+			local lh = (TOP_Y - BOT_Y) / N + 0.12
+			if i < 7 then
+				add("HullLayer" .. i, cylX(lh, r * 2), CFrame.new(0, y, 0) * RY, HULL, METAL, 0, "cyl")
+			else
+				-- camadas de cima viram ANEL (poco da cabine): o interior fica fundo, abaixo do aro do vidro
+				local nSeg, rIn = 32, 6.6
+				local thick = r - rIn + 0.1
+				local rm = (r + rIn) / 2 - 0.05
+				local chord = 2 * r * math.tan(math.pi / nSeg) + 0.05
+				for k = 0, nSeg - 1 do
+					local a = 2 * math.pi * k / nSeg
+					add("HullRing" .. i, Vector3.new(chord, lh, thick), CFrame.Angles(0, a, 0) * CFrame.new(0, y, -rm), HULL, METAL)
+				end
+			end
+		end
+		-- forro escuro do poco (parede interna do chao ate o aro)
+		do
+			local nSeg, rW = 32, 6.56
+			local chord = 2 * rW * math.tan(math.pi / nSeg) + 0.05
+			for k = 0, nSeg - 1 do
+				local a = 2 * math.pi * k / nSeg
+				add("WellLining", Vector3.new(chord, 1.45, 0.1), CFrame.Angles(0, a, 0) * CFrame.new(0, 3.1, -rW), Color3.fromRGB(44, 48, 54), METAL)
+			end
 		end
 		add("Flange", cylX(0.7, 23.6), CFrame.new(0, 0, 0) * RY, FLANGE, METAL, 0, "cyl")
 		add("FlangeRim", cylX(0.25, 24.0), CFrame.new(0, -0.1, 0) * RY, MID, METAL, 0, "cyl")
@@ -1091,7 +1895,13 @@ State.buildShipSystem = function(ctx)
 		end
 
 		-- ===== INTERIOR =====
-		add("Floor", cylX(0.12, 13), CFrame.new(0, 3.84, 0) * RY, DARK, SMOOTH, 0, "cyl")
+		-- tudo daqui ate o tanque desce DEP studs: interior fundo, nao rente ao aro
+		local DEP = 1.3
+		local addOrig = add
+		add = function(name, size, rel, ...)
+			return addOrig(name, size, CFrame.new(0, -DEP, 0) * rel, ...)
+		end
+		add("Floor", cylX(0.12, 13.2), CFrame.new(0, 3.84, 0) * RY, DARK, SMOOTH, 0, "cyl")
 		for _, sx in ipairs({ -1, 1 }) do
 			local x = sx * 2.3
 			local tilt = CFrame.Angles(math.rad(10), 0, 0)
@@ -1107,38 +1917,55 @@ State.buildShipSystem = function(ctx)
 		add("ShiftRod", cylX(1.1, 0.18), CFrame.new(0, 5.2, -1.2) * RY, MID, METAL, 0, "cyl")
 		add("ShiftKnob", Vector3.new(0.5, 0.5, 0.5), CFrame.new(0, 5.85, -1.2), BLACK, PLASTIC, 0, "sphere")
 
-		local dashTilt = CFrame.Angles(math.rad(-12), 0, 0)
-		add("Dash", Vector3.new(11.2, 1.1, 1.6), CFrame.new(0, 4.5, -4.4) * dashTilt, MID, METAL)
-		add("ScreenL", Vector3.new(2.2, 0.08, 0.8), CFrame.new(-3.4, 5.08, -4.42) * dashTilt, GLOW, SMOOTH)
-		add("ScreenR", Vector3.new(2.2, 0.08, 0.8), CFrame.new(3.4, 5.08, -4.42) * dashTilt, GLOW, SMOOTH)
-		add("DashGauge", cylX(0.12, 0.9), CFrame.new(0.2, 5.1, -4.42) * dashTilt * RY, BLACK, SMOOTH, 0, "cyl")
-
-		-- volante (anel de 12 segmentos + raios + coluna), inclinado pro piloto
+		-- painel curvo: segue o aro da cabine por DENTRO (nao sai da nave), baixo e inclinado pro piloto
 		do
-			local wc = CFrame.new(-2.3, 5.9, -2.3) * CFrame.Angles(math.rad(-35), 0, 0)
-			local nW, RW = 12, 0.95
-			for k = 0, nW - 1 do
-				local a = 2 * math.pi * k / nW
-				local seg = 2 * RW * math.tan(math.pi / nW) + 0.06
-				add("WheelSeg", Vector3.new(seg, 0.2, 0.2),
-					wc * CFrame.new(RW * math.cos(a), RW * math.sin(a), 0) * CFrame.Angles(0, 0, a + math.pi / 2), BLACK, PLASTIC)
+			local dashTilt = CFrame.Angles(math.rad(-14), 0, 0)
+			local DR, DY, nD, span = 5.425, 4.25, 11, math.rad(116) -- corpo fundo: da frente do painel (raio 4.25) ate a parede do poco
+			-- painel mais alto: a borda de fora sobe ate a quina de cima do aro do vidro (topo do aro: y 4.275)
+			local DH, DUP = 2.0, 0.64
+			local TOP = DH / 2
+			local da = span / (nD - 1)
+			local chord = 2 * (DR + 1.2) * math.tan(da / 2) + 0.04 -- largura no raio externo: fecha as cunhas entre os segmentos
+			local function dashBase(rad)
+				return CFrame.new(0, DUP, 0) * CFrame.Angles(0, rad, 0) * CFrame.new(0, DY, -DR) * dashTilt
 			end
-			for k = 0, 2 do
-				add("WheelSpoke", Vector3.new(1.9, 0.14, 0.14), wc * CFrame.Angles(0, 0, math.rad(k * 60)), BLACK, PLASTIC)
+			for k = 0, nD - 1 do
+				local base = dashBase(-span / 2 + da * k)
+				add("Dash", Vector3.new(chord, DH, 2.35), base, MID, METAL)
+				add("DashTrim", cylX(2 * (DR - 1.1) * math.tan(da / 2) + 0.08, 0.2), base * CFrame.new(0, TOP - 0.02, 1.1), DARK, METAL, 0, "cyl")
 			end
-			add("WheelHub", cylX(0.3, 0.6), wc * RZ, MID, METAL, 0, "cyl")
-			add("WheelColumn", Vector3.new(0.28, 0.28, 2.0), wc * CFrame.new(0, -0.15, -1.0), DARK, METAL)
+			-- telas na parede de baixo do painel (a face que olha pro piloto), nao em cima.
+			-- Rotacao 180 graus em Y: frente da peca (-Z) = pro piloto (+Z do painel), topo da tela = pra cima
+			local SCR = CFrame.Angles(0, math.pi, 0)
+			local function screen(name, deg)
+				return add(name, Vector3.new(1.9, 0.9, 0.06), dashBase(math.rad(deg)) * CFrame.new(0, 0.2, 1.175 + 0.1) * SCR, BLACK, SMOOTH).part
+			end
+			-- sa<0 fica no lado direito da nave (+X): diagnostico vermelho; sa>0 fica na frente do piloto (lado esquerdo): velocimetro verde
+			local partRed = screen("ScreenL", -50)
+			local partGreen = screen("ScreenR", 50)
+			local okS, errS = pcall(State.makeDashScreens, S, partRed, partGreen, {
+				camera = camera, green = GLOW, info = infoLbl,
+				SPEED = SPEED, TURBO = TURBO, GROUND_SPEED = GROUND_SPEED, GROUND_TURBO = GROUND_TURBO,
+			})
+			if not okS then warnRG("telas do painel:", errS) end
+			local okD, errD = pcall(State.buildDash, add, cylX, { LIGHT = FLANGE, MID = MID, DARK = DARK, BLACK = BLACK, PLATE = PLATE, METAL = METAL, SMOOTH = SMOOTH }, dashBase)
+			if not okD then warnRG("painel:", errD) end
 		end
 
-		-- tanque / bateria atras dos bancos
-		add("Tank", cylX(7.4, 2.3), CFrame.new(0, 5.1, 4.6), TANK, METAL, 0, "cyl")
-		for _, sx in ipairs({ -1, 1 }) do
-			add("TankBand", cylX(0.4, 2.5), CFrame.new(sx * 2.4, 5.1, 4.6), DARK, METAL, 0, "cyl")
-			add("TankCap", cylX(0.3, 2.5), CFrame.new(sx * 3.75, 5.1, 4.6), MID, METAL, 0, "cyl")
+		-- volante de 3 raios + coluna vertical com flange + pedais (ver State.buildWheel)
+		do
+			local wcPos = Vector3.new(-2.3, 6.7, -1.2)
+			local wcRot = CFrame.Angles(math.rad(-35), 0, 0)
+			S.wheelCF = CFrame.new((wcPos - Vector3.new(0, DEP, 0)) * SCALE) * wcRot
+			S.wheelCF0 = S.wheelCF
+			S.wheelR = 0.95 * SCALE
+			local okW, errW = pcall(State.buildWheel, add, cylX, { MID = MID, DARK = DARK, BLACK = BLACK, METAL = METAL, SMOOTH = SMOOTH, PLASTIC = PLASTIC }, CFrame.new(wcPos) * wcRot, wcPos)
+			if not okW then warnRG("volante:", errW) end
 		end
-		add("TankValve", Vector3.new(0.7, 0.7, 0.7), CFrame.new(0, 6.35, 4.6), MID, METAL, 0, "sphere")
-		add("TankGauge", cylX(0.2, 0.9), CFrame.new(4.0, 5.1, 4.6), BLACK, SMOOTH, 0, "cyl")
-		add("TankGaugeLed", Vector3.new(0.06, 0.2, 0.2), CFrame.new(4.12, 5.1, 4.6), GLOW, SMOOTH)
+
+		-- tanque / barril atras dos bancos
+		State.buildTank(add, cylX, { TANK = TANK, DARK = DARK, MID = MID, BLACK = BLACK, GLOW = GLOW, METAL = METAL, SMOOTH = SMOOTH })
+		add = addOrig
 
 		-- ===== FAROIS (pods redondos na frente do casco, abaixo do vidro), KNOBS, ANTENA =====
 		for _, sx in ipairs({ -1, 1 }) do
@@ -1312,7 +2139,7 @@ State.buildShipSystem = function(ctx)
 			for k = 0, LUGS - 1 do
 				local a = 2 * math.pi * k / LUGS
 				for _, h in ipairs({ -1, 1 }) do
-					local loc = CFrame.Angles(a, 0, 0) * CFrame.new(h * len * 0.25, R, 0) * CFrame.Angles(0, h * math.rad(32), 0)
+					local loc = CFrame.Angles(a, 0, 0) * CFrame.new(h * len * 0.25, R + (h == 1 and 0.012 or 0), 0) * CFrame.Angles(0, h * math.rad(32), 0)
 					sp("Lug" .. tag, Vector3.new(len * 0.52, lugH, diam * 0.17), loc, TIRE_D, SMOOTH)
 				end
 			end
@@ -1322,18 +2149,18 @@ State.buildShipSystem = function(ctx)
 			local sides = (side == 0) and { -1, 1 } or { side }
 			local rimD = diam * 0.5
 			if side == 0 then
-				sp("Rim" .. tag, cylX(len + 0.16, rimD), CFrame.new(), CHROME, METAL, "cyl", 0.45)
+				sp("Rim" .. tag, cylX(len + 0.22, rimD), CFrame.new(), CHROME, METAL, "cyl", 0.45)
 			else
-				sp("Rim" .. tag, cylX(len * 0.8, rimD), CFrame.new(side * (len * 0.1 + 0.08), 0, 0), CHROME, METAL, "cyl", 0.45)
+				sp("Rim" .. tag, cylX(len * 0.8, rimD), CFrame.new(side * (len * 0.1 + 0.11), 0, 0), CHROME, METAL, "cyl", 0.45)
 			end
 			for _, sd in ipairs(sides) do
-				sp("Bead" .. tag, cylX(0.16, rimD * 1.18), CFrame.new(sd * len * 0.5, 0, 0), CHROME_D, METAL, "cyl")
+				sp("Bead" .. tag, cylX(0.16, rimD * 1.18), CFrame.new(sd * (len * 0.5 + 0.015), 0, 0), CHROME_D, METAL, "cyl")
 				for k = 0, 5 do
 					local a = 2 * math.pi * k / 6 + 0.26
 					sp("RimHole" .. tag, cylX(0.12, rimD * 0.17),
-						CFrame.Angles(a, 0, 0) * CFrame.new(sd * (len * 0.5 + 0.08), rimD * 0.32, 0), BLACK, SMOOTH, "cyl")
+						CFrame.Angles(a, 0, 0) * CFrame.new(sd * (len * 0.5 + 0.14), rimD * 0.32, 0), BLACK, SMOOTH, "cyl")
 				end
-				sp("Cap" .. tag, cylX(0.35, rimD * 0.36), CFrame.new(sd * (len * 0.5 + 0.2), 0, 0), CHROME, METAL, "cyl", 0.5)
+				sp("Cap" .. tag, cylX(0.35, rimD * 0.36), CFrame.new(sd * (len * 0.5 + 0.22), 0, 0), CHROME, METAL, "cyl", 0.5)
 			end
 		end
 
@@ -1342,7 +2169,6 @@ State.buildShipSystem = function(ctx)
 		monsterWheel("FL", 1, -1, -5.4, -2.7, -4.6, 2.0, 4.6)
 		monsterWheel("FR", 2, 1, 5.4, -2.7, -4.6, 2.0, 4.6)
 		monsterWheel("RC", 3, 0, 0, -2.6, 6.8, 2.4, 4.8)
-		add("Peg", cylX(1.3, 0.9), CFrame.new(0, -3.9, -1.0) * RY, MID, METAL, 0, "cyl", "gear")
 
 		-- (luz verde da barriga removida: so os farois iluminam)
 
@@ -1364,8 +2190,137 @@ State.buildShipSystem = function(ctx)
 		return S
 	end
 
+	-- ===== maos no volante (braco reto apontando pra empunhadura; gira junto com o volante) =====
+	local function armJoints()
+		local J = { right = { extra = {} }, left = { extra = {} } }
+		local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
+		local extraN = { right = { RightLowerArm = true, RightHand = true }, left = { LeftLowerArm = true, LeftHand = true } }
+		for _, d in ipairs(character:GetDescendants()) do
+			if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+				local n = d.Part1.Name
+				for side, list in pairs(names) do
+					if n == list[1] or n == list[2] then
+						J[side].shoulder = J[side].shoulder or d
+					elseif extraN[side][n] then
+						table.insert(J[side].extra, d)
+					end
+				end
+			end
+		end
+		return J
+	end
+
+	local function releaseHands(S)
+		if not S.handsOn then return end
+		S.handsOn = false
+		S.wheelFit = false
+		if S.wheelCF0 then S.wheelCF = S.wheelCF0 end
+		local J = S.handJ
+		S.handJ = nil
+		if not J then return end
+		for _, side in pairs(J) do
+			if side.shoulder and side.shoulder.Parent then side.shoulder.Transform = CFrame.new() end
+			for _, m in ipairs(side.extra) do
+				if m.Parent then m.Transform = CFrame.new() end
+			end
+		end
+	end
+
+	local function rotFromDown(d)
+		local down = Vector3.new(0, -1, 0)
+		local axis = down:Cross(d)
+		local dp = down:Dot(d)
+		if axis.Magnitude < 1e-4 then
+			return dp > 0 and CFrame.new() or CFrame.Angles(math.pi, 0, 0)
+		end
+		return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+	end
+
+	local function updateHands(S)
+		if not S.wheelCF or humanoid.Health <= 0 then return end
+		if not S.handJ or not S.handJ.right.shoulder or (S.handJ.right.shoulder.Parent == nil) then
+			S.handJ = armJoints()
+		end
+		S.handsOn = true
+		-- posicao "prevista" do corpo preso ao banco (o personagem so e movido depois; sem isso as maos atrasam 1 frame)
+		local seatW = S.cf * SEAT_REL
+		local rootInv = rootPart.CFrame:Inverse()
+		local function pw(part) return seatW * (rootInv * part.CFrame) end
+		if not S.wheelFit then
+			local jr, jl = S.handJ.right, S.handJ.left
+			local function reachOf(j)
+				local sh = j.shoulder
+				if not (sh and sh.Part1) then return nil end
+				local len = sh.Part1.Size.Y
+				for _, m in ipairs(j.extra) do
+					if m.Part1 then len = len + m.Part1.Size.Y * (m.Part1.Name:find("Hand") and 0.4 or 1) end
+				end
+				return len
+			end
+			local rl = reachOf(jr) or reachOf(jl)
+			if rl and jr.shoulder and jr.shoulder.Part0 and jl.shoulder and jl.shoulder.Part0 then
+				S.wheelFit = true
+				local pr = pw(jr.shoulder.Part0) * jr.shoulder.C0.Position
+				local pl = pw(jl.shoulder.Part0) * jl.shoulder.C0.Position
+				local mid = S.cf:PointToObjectSpace((pr + pl) / 2)
+				local reach = rl * 0.88
+				local cy = math.clamp(mid.Y - 0.4, 5.0 * SCALE, 6.7 * SCALE)
+				local dy = mid.Y - cy
+				local dz = math.sqrt(math.max(reach * reach - dy * dy, 0.25))
+				local p0 = S.wheelCF0.Position
+				S.wheelCF = CFrame.new(p0.X, cy, mid.Z - dz) * (S.wheelCF0 - S.wheelCF0.Position)
+			end
+		end
+		local wcw = S.cf * S.wheelCF * CFrame.Angles(0, 0, S.wheelAng or 0)
+		local R = S.wheelR or 0.95
+		-- personagem olha pra -Z da nave: mao direita no lado +X do volante, esquerda no -X
+		local grips = {
+			right = wcw * CFrame.new(R, 0, 0).Position,
+			left = wcw * CFrame.new(-R, 0, 0).Position,
+		}
+		for side, j in pairs(S.handJ) do
+			local sh = j.shoulder
+			if sh and sh.Parent and sh.Part0 then
+				local p0w = pw(sh.Part0)
+				local pivot = p0w * sh.C0.Position
+				local dirW = grips[side] - pivot
+				if dirW.Magnitude > 0.05 then
+					local cur = p0w:VectorToObjectSpace(dirW.Unit)
+					local ref = sh.C0
+					local base = ref - ref.Position
+					sh.Transform = sh.C0:Inverse() * CFrame.new(ref.Position) * rotFromDown(cur) * base
+					for _, m in ipairs(j.extra) do
+						if m.Parent then m.Transform = CFrame.new() end
+					end
+				end
+			end
+		end
+	end
+
 	local function place(S)
 		S.root.CFrame = S.cf
+		S.wheelAng = (S.steer or 0) * 3.2
+		if S.wheelCF and (S.lastWa ~= S.wheelAng or S.lastWcf ~= S.wheelCF) then
+			S.lastWcf = S.wheelCF
+			S.lastWa = S.wheelAng
+			local rot = CFrame.Angles(0, 0, S.wheelAng)
+			local inv = S.wheelCF0:Inverse()
+			for _, e in ipairs(S.swParts) do
+				e.weld.C0 = S.wheelCF * rot * (inv * e.rel)
+			end
+			for _, e in ipairs(S.swCol) do
+				e.weld.C0 = S.wheelCF * (inv * e.rel)
+			end
+			local wpos, wpos0 = S.wheelCF.Position, S.wheelCF0.Position
+			for _, e in ipairs(S.swBase) do
+				e.weld.C0 = CFrame.new(wpos.X - wpos0.X, 0, wpos.Z - wpos0.Z) * e.rel
+			end
+		end
+		if S.state == "flying" then
+			pcall(updateHands, S)
+		elseif S.handsOn then
+			pcall(releaseHands, S)
+		end
 		if S.lastGear ~= S.gear or S.lastSpin ~= S.spinDist or S.suspDirty or S.lastSteer ~= S.steer then
 			S.lastGear = S.gear
 			S.lastSpin = S.spinDist
@@ -1467,9 +2422,24 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
+	-- reaplica a pose dos bracos no Stepped (depois do Animator), alem do passo de render
+	local handConn = RunService.Stepped:Connect(function(_, dt)
+		local S = ship
+		if S and not destroyed and S.state == "flying" then
+			local okH, eH = pcall(updateHands, S)
+			if not okH and not S.handErr then S.handErr = true; warnRG("maos no volante:", eH) end
+		end
+		-- telas animadas do painel (diagnostico vermelho + velocimetro verde)
+		if S and not destroyed and S.dashFx then
+			local okD, eD = pcall(S.dashFx, S, dt)
+			if not okD and not S.dashErr then S.dashErr = true; warnRG("telas do painel:", eD) end
+		end
+	end)
+
 	local function removeShip()
 		if ship then
 			local m = ship.model
+			pcall(releaseHands, ship)
 			ship = nil
 			pcall(function() m:Destroy() end)
 		end
@@ -1517,6 +2487,7 @@ State.buildShipSystem = function(ctx)
 	end
 
 	local function restoreChar()
+		if ship then pcall(releaseHands, ship) end
 		for p, v in pairs(savedCollide) do
 			if p.Parent then p.CanCollide = v end
 		end
@@ -2133,7 +3104,6 @@ State.buildShipSystem = function(ctx)
 		local portalPos = W(ROUTE_PORTAL[1], ROUTE_PORTAL[2], ROUTE_PORTAL[3])
 		local portalCF = CFrame.lookAt(portalPos, portalPos + exitDir)
 		local portal = openSky(portalCF, C.ShipArrivePortalSize or Vector3.new(46, 46, 0.2))
-		ctx.playSound(C.SoundTeleport, 1.3)
 		task.wait(1.1)
 		if destroyed or not Z.alive then
 			closeSky(portal)
@@ -2229,7 +3199,8 @@ State.buildShipSystem = function(ctx)
 			if not boomed and dist > 14 * SCALE then
 				boomed = true
 				ctx.flashAt(portalPos, 4)
-				ctx.playSound(C.SoundOpen, 1.4)
+				ctx.playSound(C.SoundTeleport, 1.1) -- mesmo som de quando voce atravessa um portal da arma
+				wobbleSky(portal, true)             -- saida: portal balanca como o de saida da arma
 			end
 			if not portalClosed and dist > 90 * SCALE then
 				portalClosed = true
@@ -2365,7 +3336,6 @@ State.buildShipSystem = function(ctx)
 		local from = Vector3.new(P.X, 0, P.Z)
 		local lastClk = os.clock()
 		S.prevHv = Vector3.zero
-		ctx.playSound(C.SoundTeleport, 0.5)
 		animate(rollT, function(_, a)
 			local now = os.clock()
 			local dt = math.clamp(now - lastClk, 1 / 240, 0.1)
@@ -2430,7 +3400,6 @@ State.buildShipSystem = function(ctx)
 			-- o portal abre na frente assim que ela sobe (ja aberto quando ela chega)
 			if not portal and f >= 0.08 then
 				portal = openSky(portalCF, C.ShipLeavePortalSize or Vector3.new(46, 46, 0.2))
-				ctx.playSound(C.SoundOpen, 1.2)
 			end
 		end, Enum.EasingStyle.Linear, Enum.EasingDirection.In)
 
@@ -2442,6 +3411,8 @@ State.buildShipSystem = function(ctx)
 		end
 
 		-- atravessa o portal e some
+		ctx.playSound(C.SoundTeleport, 1.1)
+		wobbleSky(portal, false) -- entrada: portal balanca como o de entrada da arma
 		local passDist = 46 * SCALE
 		animate(passDist / vE, function(_, a)
 			local p = portalPos + endTan * (passDist * a)
@@ -2774,6 +3745,7 @@ State.buildShipSystem = function(ctx)
 
 	function api.destroy()
 		destroyed = true
+		pcall(function() handConn:Disconnect() end)
 		pcall(function()
 			if inShip() then humanoid.Sit = false end
 		end)
@@ -2871,7 +3843,10 @@ State.loadKeyTemplate = function()
 				pcall(function() model:Destroy() end)
 				for _, d in ipairs(c:GetDescendants()) do
 					if d:IsA("Attachment") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Script")
-						or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound") then
+						or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound")
+						-- chave normal: sem nenhum efeito saindo dela
+						or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke")
+						or d:IsA("Sparkles") or d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") or d:IsA("Highlight") then
 						d:Destroy()
 					end
 				end
@@ -3046,7 +4021,6 @@ State.buildKeySystem = function(ctx)
 		pcall(ctx.closePair)
 		pcall(ctx.faceToward, plan.portalCF.Position)
 		local from = (handle and handle.Parent) and handle.Position or rootPart.Position
-		pcall(ctx.flashAt, from, 0.6)
 		pcall(function() Z.fala.dizer("nave") end)
 		State.mortyEvent("onShot", from)
 		pcall(UIAnim.pulse, slotBtn, 1.2)
@@ -3059,6 +4033,7 @@ State.buildKeySystem = function(ctx)
 	ctx.track(tool.Activated:Connect(use))
 	ctx.track(tool.Equipped:Connect(function()
 		selectedFrame.Visible = true
+		ctx.playSound(C.SoundKeyEquip, 0.5, handle)
 		local sh = State.ship
 		if sh and not sh.inShip() then
 			pcall(sh.toast, "Clique pra chamar a nave (de novo pra mandar embora).", 2.5)
@@ -3482,7 +4457,7 @@ local function setupRickGun(character)
 		local okS, sound = pcall(function()
 			local s = Instance.new("Sound")
 			s.SoundId = id
-			s.Volume = volume or 1
+			s.Volume = 0.5 -- volume global de todos os sons do script
 			s.Parent = (parent and parent.Parent) and parent or SoundService
 			s:Play()
 			Debris:AddItem(s, 5)
@@ -6954,7 +7929,7 @@ local function setupRickGun(character)
 							if dk.offer(40) then
 								local ch2 = player.Character
 								dk.take(ch2 and ch2:FindFirstChild("HumanoidRootPart"))
-								DR.giveTool(fl, function() drinkEffect(fl) end)
+								DR.giveTool(fl, function() local okD, eD = pcall(drinkEffect, fl); if not okD then warnRG("efeito da bebida:", eD) end end)
 								diz("toma")
 							else
 								dk.expire()
@@ -7150,7 +8125,7 @@ local function setupRickGun(character)
 							if not snd then
 								snd = Instance.new("Sound")
 								snd.Looped = true
-								snd.Volume = 1
+								snd.Volume = 0.5
 								snd.RollOffMinDistance = 12
 								snd.RollOffMaxDistance = 100
 								snd.Parent = jb
@@ -10836,10 +11811,11 @@ local function setupRickGun(character)
 		local id = P.boingId
 		local amp = isExit and Config.PortalBoingExit or Config.PortalBoingEnter
 		-- camadas de fora pra dentro: cada uma comeca um pouquinho depois, a vibracao corre da borda pro centro
+		local baseSize = P.size or Config.PortalSize -- portais da nave guardam o proprio tamanho em P.size
 		local layers = {
-			{ part = outer, size = Config.PortalSize, step = 0 },
-			{ part = core, size = Config.PortalSize * Vector3.new(0.88, 0.88, 0.55), step = 1 },
-			{ part = portal, size = Config.PortalSize * Vector3.new(0.88, 0.88, 0.5), step = 2 },
+			{ part = outer, size = baseSize, step = 0 },
+			{ part = core, size = baseSize * Vector3.new(0.88, 0.88, 0.55), step = 1 },
+			{ part = portal, size = baseSize * Vector3.new(0.88, 0.88, 0.5), step = 2 },
 		}
 		local freq, damp = Config.PortalBoingFrequency, Config.PortalBoingDamping
 		local jelly = Config.PortalBoingJelly or 0
@@ -13698,6 +14674,7 @@ local function setupRickGun(character)
 		Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, camera = camera,
 		track = track, newGui = newGui, playSound = playSound, flashAt = flashAt,
 		createPortalModel = createPortalModel, openRipple = openRipple, closePortal = closePortal,
+		wobblePortal = wobblePortal,
 		closeAllPortals = closeAllPortals,
 		hasPortals = function() return entrance ~= nil or exitP ~= nil end,
 	})
@@ -13846,6 +14823,9 @@ local function setupRickGun(character)
 			task.wait(0.5)
 			if not (Z.alive and scriptAlive and character.Parent) then break end
 			local needRebuild = false
+			local curCam = workspace.CurrentCamera
+			if curCam and curCam ~= camera then camera = curCam end
+			if State.rebuilds > 0 and os.clock() - (State.lastRebuild or 0) > 30 then State.rebuilds = 0 end
 
 			if tool.Parent ~= backpack and tool.Parent ~= character then
 				local okP = pcall(function() tool.Parent = backpack end)
@@ -13862,6 +14842,7 @@ local function setupRickGun(character)
 			if needRebuild then
 				if State.rebuilds < 3 then
 					State.rebuilds = State.rebuilds + 1
+					State.lastRebuild = os.clock()
 					task.defer(safeSetup, character)
 				end
 				break
@@ -13932,3 +14913,6 @@ genv[CLEANUP_KEY] = function()
 	end
 	pcall(function() RunService:UnbindFromRenderStep(STEP_NAME) end)
 end
+
+end, function(e) return debug.traceback(tostring(e), 2) end)
+if not __ok then pcall(warn, "[RickPortalGun] erro fatal:", __err) end

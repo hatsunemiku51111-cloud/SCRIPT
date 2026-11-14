@@ -1252,7 +1252,7 @@ State.buildShipLevers = function(env)
 		local LEFT = Enum.TextXAlignment.Left
 
 		local root = mk("Frame", { Name = "ShipShifter", BackgroundTransparency = 1, BorderSizePixel = 0,
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -104, 0.5, 0),
+			AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -104, 0.5, 218),
 			Size = UDim2.fromOffset(178, 188), Visible = false }, hud)
 		H.addVP(root)
 		LV.hudRoot = root
@@ -3250,6 +3250,67 @@ State.buildShipSystem = function(ctx)
 	boardBtn.MouseButton1Click:Connect(function() api.toggleCanopy() end)
 
 	do
+		local lampBtn = mk("TextButton", { Name = "LampBtn", AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -110, 0.5, 26), Size = UDim2.fromOffset(54, 54), BackgroundTransparency = 1,
+			BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 5, Visible = false }, hud)
+		addVP(lampBtn)
+		local ic = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), ZIndex = 5 }, lampBtn)
+		local hs = mk("UIScale", { Name = "Hover" }, ic)
+		local OFFC, ONC = Color3.fromRGB(120, 124, 120), Color3.fromRGB(255, 218, 74)
+		local function piece(f, th)
+			f.ZIndex = 6
+			ink(f, th or 1)
+			return f
+		end
+		local halo = idot(ic, 14, 11, 18.5, BLACK)
+		halo.BackgroundTransparency = 0.6
+		halo.ZIndex = 5
+		local head = idot(ic, 14, 11, 15, ONC)
+		head.ZIndex = 6
+		local headStroke = ink(head, 2.5, ONC)
+		local solid = {}
+		local function bar(cx, cy, w, h, rot)
+			local f = piece(ibar(ic, cx, cy, w, h, rot, ONC), 1)
+			solid[#solid + 1] = f
+			return f
+		end
+		bar(10.9, 18, 2.2, 4.5, 0)
+		bar(17.1, 18, 2.2, 4.5, 0)
+		bar(14, 22.4, 9, 2.2, 0)
+		bar(14, 25.6, 5.6, 2.2, 0)
+		bar(14, 11.8, 1.8, 6.5, 0)
+		bar(14, 8.8, 5.2, 1.8, 0)
+		local rays = {}
+		for _, r in ipairs({ { 14, 0.9, 2.2, 3, 0 }, { 4.6, 3.6, 3.2, 2.2, 45 }, { 23.4, 3.6, 3.2, 2.2, -45 },
+			{ 1.6, 11, 3.2, 2.2, 0 }, { 26.4, 11, 3.2, 2.2, 0 } }) do
+			rays[#rays + 1] = piece(ibar(ic, r[1], r[2], r[3], r[4], r[5], ONC), 1)
+		end
+		if not isTouchOnly then
+			local hb = mk("TextLabel", { BackgroundColor3 = WHITE, BorderSizePixel = 0, Text = "L", TextSize = 8,
+				TextColor3 = INK, Font = Enum.Font.GothamBold, Size = UDim2.fromOffset(14, 12),
+				Position = UDim2.new(1, -14, 1, -12), ZIndex = 8 }, lampBtn)
+			mk("UICorner", { CornerRadius = UDim.new(0, 4) }, hb)
+			ink(hb, 1.5)
+		end
+		function api.lampIcon(on)
+			local col = on and ONC or OFFC
+			head.BackgroundColor3 = col
+			head.BackgroundTransparency = on and 0.8 or 1
+			headStroke.Color = col
+			for _, f in ipairs(solid) do f.BackgroundColor3 = col end
+			for _, r in ipairs(rays) do r.Visible = on end
+		end
+		api.lampIcon(false)
+		api.lampBtn = lampBtn
+		lampBtn.MouseEnter:Connect(function() tw(hs, 0.14, { Scale = 1.12 }) end)
+		lampBtn.MouseLeave:Connect(function() tw(hs, 0.14, { Scale = 1 }) end)
+		lampBtn.MouseButton1Down:Connect(function() tw(hs, 0.07, { Scale = 0.9 }) end)
+		lampBtn.MouseButton1Up:Connect(function() tw(hs, 0.2, { Scale = 1.12 }, Enum.EasingStyle.Back) end)
+		lampBtn.MouseButton1Click:Connect(function() api.toggleLamps() end)
+	end
+
+	do
 		local okLv, errLv = pcall(State.shipLv.buildHud, {
 			hud = hud, mk = mk, frame = frame, disc = disc, ink = ink, grad = grad, text = text, addVP = addVP,
 			ACC = ACC, INK = INK, BLACK = BLACK, WHITE = WHITE, YELLOW = TURBO_COL, RED = RED, isTouchOnly = isTouchOnly,
@@ -3261,6 +3322,8 @@ State.buildShipSystem = function(ctx)
 		dialRoot.Visible = infoLbl.Visible
 		local lv = State.shipLv
 		if lv and lv.hudRoot then lv.hudRoot.Visible = infoLbl.Visible end
+		if api.lampBtn then api.lampBtn.Visible = infoLbl.Visible end
+		if api.lampIcon and ship then api.lampIcon(ship.lampsOn == true) end
 		modeCap.Visible = infoLbl.Visible
 		if not infoLbl.Visible then altCap.Visible = false end
 	end)
@@ -4273,6 +4336,88 @@ State.buildShipSystem = function(ctx)
 		return Vector3.new(x, 0, z)
 	end
 
+	local FLY_R = 4.5 * SCALE
+	local FLY_SKIN = 0.05 * SCALE
+	local flyParams = RaycastParams.new()
+	flyParams.FilterType = Enum.RaycastFilterType.Exclude
+	flyParams.IgnoreWater = true
+	flyParams.RespectCanCollide = true
+
+	local function sweepFly(origin, vec)
+		rebuildShipIgnore()
+		local list = table.clone(shipRayIgnore)
+		for _, pl in ipairs(game:GetService("Players"):GetPlayers()) do
+			if pl.Character then list[#list + 1] = pl.Character end
+		end
+		flyParams.FilterDescendantsInstances = list
+		for _ = 1, 6 do
+			local ok, res = pcall(workspace.Spherecast, workspace, origin, FLY_R, vec, flyParams)
+			if not ok or not res then return nil end
+			local inst = res.Instance
+			if inst and inst.ClassName ~= "Terrain" and inst:IsA("BasePart") and inst.Transparency >= 0.95 then
+				list[#list + 1] = inst
+				flyParams.FilterDescendantsInstances = list
+			else
+				return res
+			end
+		end
+		return nil
+	end
+
+	local function flyCollide(S, dt)
+		if State.space.k > 0.05 then
+			S.pos = S.pos + S.vel * dt
+			return
+		end
+		local pos, vel = S.pos, S.vel
+
+		local hv = Vector3.new(vel.X, 0, vel.Z)
+		if hv.Magnitude > 0.5 then
+			local mDir = hv.Unit
+			local lat = Vector3.new(-mDir.Z, 0, mDir.X)
+			local reach = 11.5 * SCALE + hv.Magnitude * dt
+			for _, off in ipairs({ 0, 7 * SCALE, -7 * SCALE }) do
+				local w = castDir(pos + lat * off, mDir * reach)
+				if w and math.abs(w.Normal.Y) < 0.7 then
+					local n = Vector3.new(w.Normal.X, 0, w.Normal.Z)
+					if n.Magnitude > 0.01 then
+						n = n.Unit
+						local into = vel:Dot(n)
+						if into < 0 then vel = vel - n * into end
+					end
+					break
+				end
+			end
+		end
+
+		local move = vel * dt
+		for _ = 1, 3 do
+			local len = move.Magnitude
+			if len < 1e-4 then break end
+			local dirU = move.Unit
+			local hit = sweepFly(pos, dirU * (len + FLY_SKIN))
+			if not hit then
+				pos = pos + move
+				break
+			end
+			local n = hit.Normal
+			if n.Magnitude < 0.01 then n = -dirU end
+			if hit.Distance < 1e-3 and n:Dot(dirU) >= 0 then
+				pos = pos + move
+				break
+			end
+			local travel = math.clamp(hit.Distance - FLY_SKIN, 0, len)
+			pos = pos + dirU * travel
+			local rem = dirU * (len - travel)
+			rem = rem - n * rem:Dot(n)
+			local into = vel:Dot(n)
+			if into < 0 then vel = vel - n * into end
+			move = rem
+		end
+		S.pos = pos
+		S.vel = vel
+	end
+
 	local function flightStep(S, dt)
 		local typing = UserInputService:GetFocusedTextBox() ~= nil
 		local mv = getMove()
@@ -4291,7 +4436,7 @@ State.buildShipSystem = function(ctx)
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
 		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3)
 		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * dt))
-		S.pos = S.pos + S.vel * dt
+		flyCollide(S, dt)
 
 		local minY = workspace.FallenPartsDestroyHeight + 40
 		if S.pos.Y < minY then
@@ -4817,6 +4962,8 @@ State.buildShipSystem = function(ctx)
 	local LAMP_ON = Color3.fromRGB(255, 246, 200)
 	local LAMP_OFF = Color3.fromRGB(110, 108, 96)
 	local function lampsSet(S, on)
+		S.lampsOn = on and true or false
+		if api.lampIcon and S == ship then api.lampIcon(S.lampsOn) end
 		for _, L in ipairs(S.lamps or {}) do
 			if L.lens and L.lens.part then
 				L.lens.part.Material = on and Enum.Material.Neon or Enum.Material.SmoothPlastic
@@ -5429,6 +5576,13 @@ State.buildShipSystem = function(ctx)
 		return true
 	end
 
+	function api.toggleLamps()
+		local S = ship
+		if destroyed or not S or not (S.state == "flying" or S.state == "shifting") then return end
+		pcall(lampsSet, S, not S.lampsOn)
+		pcall(function() ctx.playSound(C.SoundDial, 0.4) end)
+	end
+
 	function api.toggleCloseView()
 		if not (ship and ship.state == "flying") then return end
 		held.closeView = not held.closeView
@@ -5522,12 +5676,7 @@ State.buildShipSystem = function(ctx)
 				if p.Parent then p.CanCollide = on; p.CanQuery = on end
 			end
 		end
-		local domeOn = false
-		if on and S.canopyAng <= 0.001 then
-			local rel = S.cf:PointToObjectSpace(rootPart.Position)
-			local inside = Vector3.new(rel.X, 0, rel.Z).Magnitude < 7.4 * SCALE and rel.Y > 1.5 * SCALE and rel.Y < 14 * SCALE
-			domeOn = not inside
-		end
+		local domeOn = on and not S.canopyBusy
 		if S.domeOn ~= domeOn then
 			S.domeOn = domeOn
 			for _, p in ipairs(S.domeSolid) do
@@ -5538,7 +5687,9 @@ State.buildShipSystem = function(ctx)
 
 	function api.padSync(S)
 		local flyingNow = S ~= nil and (S.state == "flying" or S.state == "shifting")
-		local show = flyingNow or (S ~= nil and S.state == "landed" and api.nearShip == true)
+		local keyTool = State.key and State.key.tool
+		local keyEquipped = keyTool ~= nil and keyTool.Parent == character
+		local show = flyingNow or (S ~= nil and S.state == "landed" and keyEquipped)
 		if pad.Visible ~= show then pad.Visible = show end
 		if api.padFly ~= flyingNow then
 			api.padFly = flyingNow
@@ -5597,6 +5748,22 @@ State.buildShipSystem = function(ctx)
 				if baseFov then camera.FieldOfView = baseFov end
 
 				if gone(S) then return end
+				local tw = 0
+				while S.canopyBusy and tw < 1.5 and not gone(S) do tw = tw + task.wait() end
+				if gone(S) then return end
+				if S.canopyAng < CANOPY_OPEN * 0.5 then
+					S.canopyBusy = true
+					local a0 = S.canopyAng
+					animate(0.6, function(e)
+						S.canopyAng = a0 + (CANOPY_OPEN - a0) * e
+						place(S)
+						holdChar(S)
+					end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+					S.canopyBusy = false
+					if gone(S) then return end
+					S.canopyAng = CANOPY_OPEN
+					place(S)
+				end
 				local standCF = S.cf * CFrame.new(-2.3 * SCALE, 5.9 * SCALE, -1.8 * SCALE)
 				restoreChar()
 				rootPart.CFrame = standCF
@@ -5654,6 +5821,8 @@ State.buildShipSystem = function(ctx)
 			api.toggleCanopy()
 		elseif input.KeyCode == Enum.KeyCode.V then
 			api.toggleCloseView()
+		elseif input.KeyCode == Enum.KeyCode.L then
+			api.toggleLamps()
 		elseif input.KeyCode == Enum.KeyCode.B then
 			held.brake = true
 		end
@@ -5897,7 +6066,6 @@ State.buildKeySystem = function(ctx)
 		pcall(function() Z.fala.dizer("nave") end)
 		State.mortyEvent("onShot", from)
 		pcall(UIAnim.pulse, slotBtn, 1.2)
-		ctx.playSound(C.SoundShoot, 0.9, handle)
 
 		if not Z.alive then return end
 		sh.execute(plan)

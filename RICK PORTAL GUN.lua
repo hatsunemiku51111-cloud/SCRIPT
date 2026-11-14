@@ -2859,13 +2859,17 @@ do
 		warp(Color3.new(1, 1, 1), function()
 			for _, d in ipairs(DEFS) do
 				if d.dim == dd.id then
+					-- sai no espaco PERTO do planeta de onde voce esta saindo,
+					-- do lado da Terra, de frente pra ele (nao voa mais em direcao a Terra)
 					local away = (-d.off).Unit
+					local toPlanet = -away
 					Sp.k = 0
 					Sp.forceFull = true
 					Sp.hold = os.clock() + 1.5
-					Sp.noEnter = os.clock() + 6
-					S.pos = SPACE + d.off + away * (d.R * 1.15 + 2600)
-					S.vel = away * 120
+					Sp.noEnter = os.clock() + 12
+					S.pos = SPACE + d.off + away * (d.R * 1.35 + 800)
+					S.vel = away * 20
+					S.yaw = math.atan2(-toPlanet.X, -toPlanet.Z)
 					break
 				end
 			end
@@ -2987,7 +2991,7 @@ State.buildShipSystem = function(ctx)
 		getShip = function() return ship end,
 	})
 
-	local pad, btnUp, btnDown, btnTurbo, boardBtn, infoLbl, toast
+	local pad, btnTurbo, boardBtn, infoLbl, toast
 	do
 	local hud = ctx.newGui("RickShipHud", 26)
 	local ACC = C.PortalColor
@@ -3080,11 +3084,6 @@ State.buildShipSystem = function(ctx)
 		ibar(f, 14, 17, 5.5, 14, 0, col)
 		ibar(f, 10.4, 8.8, 5.5, 11, 45, col)
 		ibar(f, 17.6, 8.8, 5.5, 11, -45, col)
-	end
-	local function drawBolt(f, col)
-		ibar(f, 15.5, 8.5, 5.5, 14.5, 33, col)
-		ibar(f, 14, 14.2, 12, 4.6, 0, col)
-		ibar(f, 11.5, 19.5, 5.5, 13, 27, col)
 	end
 	local function drawSaucer(f, col, hi)
 		idot(f, 14, 11, 11, col)
@@ -3356,44 +3355,13 @@ State.buildShipSystem = function(ctx)
 		idot(ic, 14, 14, 9, INK)
 	end)
 	btnView.MouseButton1Click:Connect(function() api.toggleCloseView() end)
-	local setUpOn, setDownOn, setTurboOn
-	btnUp, setUpOn = makeBtn(2, "SOBE", "ESPAÇO", Color3.fromRGB(92, 255, 92), function(f)
-		drawArrow(subIcon(f), INK)
-	end)
-	btnDown, setDownOn = makeBtn(3, "DESCE", "CTRL", Color3.fromRGB(255, 160, 60), function(f)
-		local s = subIcon(f)
-		s.Rotation = 180
-		drawArrow(s, INK)
-	end)
-	btnTurbo, setTurboOn = makeBtn(4, "TURBO", "SHIFT", TURBO_COL, function(f)
-		drawBolt(subIcon(f), INK)
-	end)
+	-- estado do turbo (sem botao no painel; o botao novo fica ao lado da luz)
+	btnTurbo = Instance.new("TextLabel")
+	btnTurbo.TextColor3 = Theme.Text
 	local btnExit = makeBtn(5, "SAIR", "F", Color3.fromRGB(255, 92, 100), function(f)
 		drawExit(subIcon(f), INK)
 	end)
 
-	local function isPress(i)
-		return i.UserInputType == Enum.UserInputType.MouseButton1
-			or i.UserInputType == Enum.UserInputType.Touch
-	end
-	local function holdBtn(b, key, setOn)
-		b.InputBegan:Connect(function(i)
-			if isPress(i) then held[key] = true; setOn(true) end
-		end)
-		b.InputEnded:Connect(function(i)
-			if isPress(i) then held[key] = false; setOn(false) end
-		end)
-	end
-	holdBtn(btnUp, "up", setUpOn)
-	holdBtn(btnDown, "down", setDownOn)
-	btnTurbo.MouseButton1Click:Connect(function()
-		held.turbo = not held.turbo
-		btnTurbo.TextColor3 = held.turbo and ACC or Theme.Text
-	end)
-
-	btnTurbo:GetPropertyChangedSignal("TextColor3"):Connect(function()
-		setTurboOn(btnTurbo.TextColor3 == ACC)
-	end)
 	btnExit.MouseButton1Click:Connect(function() api.exit() end)
 
 	boardBtn = mk("TextButton", { Name = "BoardBtn", AnchorPoint = Vector2.new(0.5, 1),
@@ -3494,6 +3462,59 @@ State.buildShipSystem = function(ctx)
 	end
 
 	do
+		local turboBtn = mk("TextButton", { Name = "TurboBtn", AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -172, 0.5, 26), Size = UDim2.fromOffset(54, 54), BackgroundTransparency = 1,
+			BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 5, Visible = false }, hud)
+		addVP(turboBtn)
+		local ic = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), ZIndex = 5 }, turboBtn)
+		local hs = mk("UIScale", { Name = "Hover" }, ic)
+		local OFFC, ONC = Color3.fromRGB(120, 124, 120), Color3.fromRGB(255, 218, 74)
+		local parts = {}
+		-- raio do Tabler (ti-bolt): contorno 24x24, traco 2, juncoes arredondadas
+		local K = 28 / 24
+		local TH = 2 * K
+		local V = { { 13, 3 }, { 13, 10 }, { 19, 10 }, { 11, 21 }, { 11, 14 }, { 5, 14 }, { 13, 3 } }
+		for i = 1, #V - 1 do
+			local x1, y1, x2, y2 = V[i][1] * K, V[i][2] * K, V[i + 1][1] * K, V[i + 1][2] * K
+			local dx, dy = x2 - x1, y2 - y1
+			local len = math.sqrt(dx * dx + dy * dy)
+			local b = ibar(ic, (x1 + x2) / 2, (y1 + y2) / 2, len, TH, math.deg(math.atan2(dy, dx)), OFFC)
+			b.ZIndex = 6
+			parts[#parts + 1] = b
+			local d = idot(ic, x2, y2, TH, OFFC)
+			d.ZIndex = 6
+			parts[#parts + 1] = d
+		end
+		if not isTouchOnly then
+			local hb = mk("TextLabel", { BackgroundColor3 = WHITE, BorderSizePixel = 0, Text = "SHIFT", TextSize = 8,
+				TextColor3 = INK, Font = Enum.Font.GothamBold, AutomaticSize = Enum.AutomaticSize.X,
+				AnchorPoint = Vector2.new(1, 1), Size = UDim2.fromOffset(0, 12),
+				Position = UDim2.new(1, 0, 1, 0), ZIndex = 8 }, turboBtn)
+			mk("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3) }, hb)
+			mk("UICorner", { CornerRadius = UDim.new(0, 4) }, hb)
+			ink(hb, 1.5)
+		end
+		function api.turboIcon(on)
+			local col = on and ONC or OFFC
+			for _, p in ipairs(parts) do p.BackgroundColor3 = col end
+		end
+		api.turboIcon(false)
+		api.turboBtn = turboBtn
+		turboBtn.MouseEnter:Connect(function() tw(hs, 0.14, { Scale = 1.12 }) end)
+		turboBtn.MouseLeave:Connect(function() tw(hs, 0.14, { Scale = 1 }) end)
+		turboBtn.MouseButton1Down:Connect(function() tw(hs, 0.07, { Scale = 0.9 }) end)
+		turboBtn.MouseButton1Up:Connect(function() tw(hs, 0.2, { Scale = 1.12 }, Enum.EasingStyle.Back) end)
+		turboBtn.MouseButton1Click:Connect(function()
+			held.turbo = not held.turbo
+			btnTurbo.TextColor3 = held.turbo and ACC or Theme.Text
+		end)
+		btnTurbo:GetPropertyChangedSignal("TextColor3"):Connect(function()
+			api.turboIcon(btnTurbo.TextColor3 == ACC)
+		end)
+	end
+
+	do
 		local okLv, errLv = pcall(State.shipLv.buildHud, {
 			hud = hud, mk = mk, frame = frame, disc = disc, ink = ink, grad = grad, text = text, addVP = addVP,
 			ACC = ACC, INK = INK, BLACK = BLACK, WHITE = WHITE, YELLOW = TURBO_COL, RED = RED, isTouchOnly = isTouchOnly,
@@ -3506,6 +3527,7 @@ State.buildShipSystem = function(ctx)
 		local lv = State.shipLv
 		if lv and lv.hudRoot then lv.hudRoot.Visible = infoLbl.Visible end
 		if api.lampBtn then api.lampBtn.Visible = infoLbl.Visible end
+		if api.turboBtn then api.turboBtn.Visible = infoLbl.Visible end
 		if api.lampIcon and ship then api.lampIcon(ship.lampsOn == true) end
 		modeCap.Visible = infoLbl.Visible
 		if not infoLbl.Visible then altCap.Visible = false end
@@ -4685,8 +4707,7 @@ State.buildShipSystem = function(ctx)
 
 	local function refreshHud(S)
 		local fly = S.mode == "fly"
-		btnUp.Visible = fly
-		btnDown.Visible = fly
+		-- botoes SOBE/DESCE removidos da tela (teclas Espaco/Ctrl continuam funcionando)
 	end
 
 	local function suspStep(S, dt, grounded, spd, top)

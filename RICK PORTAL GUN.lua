@@ -309,7 +309,8 @@ local Config = {
 	ShipBoardRadius = 8,                            -- andar ate esse raio do centro da nave = entra sozinho
 	ShipGroundSpeed = 45,                          -- velocidade no modo TERRA
 	ShipGroundTurbo = 2,                            -- multiplicador do turbo no modo TERRA
-	ShipAutoBoard = true,                           -- false = so entra pelo botao PILOTAR / tecla E
+	ShipAutoBoard = false,                          -- (v20) sem Sit automatico e sem botao PILOTAR: voce so pilota se SENTAR no banco do motorista
+	ShipSolid = true,                               -- (v20) true = a nave e solida quando estacionada (voce nao atravessa o casco)
 	-- ===== FREIO DE MAO / DRIFT (tecla B, so no modo TERRA) =====
 	ShipDriftGrip = { 2.4, 1.1, 0.45 },             -- aderencia lateral (1/s) em cada clique da alavanca: menor = escorrega mais
 	ShipDriftTurn = { 10, 13, 17 },                 -- rapidez com que o nariz vira no drift em cada clique (yawRate)
@@ -1359,9 +1360,7 @@ State.buildShipLevers = function(env)
 			local t = text(k, str, 9, INK, 0, 0, 16, 14)
 			t.ZIndex = 7
 		end
-		label("CÂMBIO", 10, 6, 52, 11, ACC, LEFT)
 		keyChip("R", 62)
-		label("FREIO", 112, 6, 40, 11, ACC, LEFT)
 		keyChip("B", 154)
 
 		-- ---------- cambio: aro de metal + fenda + trilho ----------
@@ -1470,7 +1469,6 @@ State.buildShipLevers = function(env)
 			grip.Position = UDim2.fromOffset(PX + dx * (LEN + 3), PY + dy * (LEN + 3))
 		end
 		placeLever(0)
-		label("SEGURE", 108, 168, 66, 9, ACC)
 
 		local hold = mk("TextButton", { BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
 			Text = "", Position = UDim2.fromOffset(108, 50), Size = UDim2.fromOffset(68, 120), ZIndex = 12 }, root)
@@ -1655,6 +1653,318 @@ State.shipArmIK = function(S, jr, pw, held)
 		local eb = elbow.C0:Inverse() * CFrame.new(elbow.C0.Position) * State.armRotFromDown(lLoc) * (elbow.C0 - elbow.C0.Position)
 		elbow.Transform = CFrame.new():Lerp(eb, ez)
 	end
+end
+
+-- ===== PORTINHA DE TRAS + BRACO MECANICO COM CANHAO (saida da nave) =====
+-- A placa traseira do casco abre (dobradica na borda de baixo), um braco telescopico sai da baia, mira no portal e atira.
+-- Chamado por runDismiss. Fica fora do buildShipSystem pra nao estourar o limite de locals de la.
+State.shipRearInit = function(S)
+	if S.rg ~= nil then return S.rg end
+	local rg = { arm = {}, door = {} }
+	for _, e in ipairs(S.rdoorParts or {}) do
+		rg.door[#rg.door + 1] = e
+		if e.part.Name == "Plate" then rg.plate = e end
+	end
+	for _, e in ipairs(S.rarmParts or {}) do rg.arm[e.part.Name] = e end
+	if not (rg.plate and rg.arm.RGBase and rg.arm.RGGlow) then S.rg = false; return false end
+	rg.sc = rg.plate.part.Size.Z / 3.4
+	rg.half = rg.plate.part.Size.Z / 2
+	rg.H = rg.plate.rel * CFrame.new(0, 0, -rg.half) -- dobradica: borda de baixo da placa
+	-- sentido da abertura: a borda de cima tem que ir pra FORA (normal da placa)
+	local freeL = Vector3.new(0, 0, 2 * rg.half)
+	local d = (rg.H * CFrame.Angles(0.3, 0, 0)) * freeL - rg.H * freeL
+	rg.sgn = (d:Dot(rg.plate.rel.UpVector) >= 0) and 1 or -1
+	S.rg = rg
+	return rg
+end
+
+State.shipRearDoor = function(S, ang)
+	local rg = State.shipRearInit(S)
+	if not rg then return end
+	local m = rg.H * CFrame.Angles(rg.sgn * ang, 0, 0) * rg.H:Inverse()
+	for _, e in ipairs(rg.door) do e.weld.C0 = m * e.rel end
+end
+
+-- Canhao da nave (visual Cidadela, alto detalhe): carcaca octogonal em 2 estagios, capsula de vidro com nucleo e aneis giratorios,
+-- conduites de fluido, bateria, aletas, bobinas, 6 petalas com brilho interno, lente, luzes e faiscas. ~90 pecas.
+-- Fica fora do builder da nave pra nao estourar o limite de locals de la. Posicionado por State.shipRearArm.
+State.buildRearArmDetail = function(add, cylX, c0, col)
+	local METAL, SMOOTH, NEON = col.METAL, col.SMOOTH, col.NEON
+	local GUN, STEEL = Color3.fromRGB(30, 36, 44), Color3.fromRGB(96, 108, 122)
+	local LIGHT, WHITEP = Color3.fromRGB(200, 208, 216), Color3.fromRGB(228, 232, 235)
+	local GREEND, GLOW, AMBER = Color3.fromRGB(26, 143, 37), col.GLOW, Color3.fromRGB(255, 176, 40)
+	local one = Vector3.new(1, 1, 1)
+	local spec = {}
+	State.rearSpec = spec
+	-- f = distancia a frente do pulso, x = direita, y = cima (tudo multiplicado pela escala do braco)
+	local function box(name, f, x, y, sx, sy, sz, color, mat, rot)
+		local sp = { name = name, f = f, x = x, y = y, sx = sx, sy = sy, sz = sz, rot = rot }
+		spec[#spec + 1] = sp
+		add(name, one, c0, color, mat, 1, nil, "rarm")
+		return sp
+	end
+	local function cylZ(name, f, x, y, len, dia, color, mat)
+		local sp = { name = name, f = f, x = x, y = y, sx = len, sy = dia, sz = dia, rot = CFrame.Angles(0, math.rad(90), 0) }
+		spec[#spec + 1] = sp
+		add(name, cylX(1, 1), c0, color, mat, 1, "cyl", "rarm")
+		return sp
+	end
+	local function dyn(name, color, mat, shape)
+		add(name, shape == "cyl" and cylX(1, 1) or one, c0, color, mat, 1, shape, "rarm")
+	end
+
+	-- colar de ligacao com o pulso + parafusos
+	cylZ("RGCollar", 0.12, 0, 0, 0.16, 1.05, GUN, METAL)
+	for i = 0, 5 do
+		local th = math.rad(60 * i)
+		cylZ("RGBolt" .. i, 0.21, -0.46 * math.sin(th), 0.46 * math.cos(th), 0.04, 0.11, LIGHT, METAL)
+	end
+	-- carcaca octogonal: estagio A (escuro/aco, com faixas de energia nas diagonais) e estagio B (claro)
+	for i = 0, 7 do
+		local th = math.rad(45 * i)
+		box("RGHouseA" .. i, 0.45, -0.44 * math.sin(th), 0.44 * math.cos(th), 0.38, 0.1, 0.5, i % 2 == 0 and GUN or STEEL, METAL, CFrame.Angles(0, 0, th))
+		box("RGHouseB" .. i, 0.975, -0.38 * math.sin(th), 0.38 * math.cos(th), 0.33, 0.1, 0.45, i % 2 == 0 and WHITEP or STEEL, METAL, CFrame.Angles(0, 0, th))
+	end
+	for i = 1, 4 do
+		local th = math.rad(45 + 90 * (i - 1))
+		box("RGStripA" .. i, 0.45, -0.505 * math.sin(th), 0.505 * math.cos(th), 0.12, 0.03, 0.4, GLOW, NEON, CFrame.Angles(0, 0, th))
+	end
+	-- aletas de resfriamento em cima do estagio A
+	for i = 1, 4 do
+		box("RGFin" .. i, 0.28 + 0.1 * (i - 1), 0, 0.62, 0.5, 0.24, 0.05, STEEL, METAL)
+	end
+	-- conduites laterais com fluido + abracadeiras
+	for i, s in ipairs({ -1, 1 }) do
+		cylZ("RGPipe" .. i, 0.72, s * 0.58, 0, 1.0, 0.12, GREEND, NEON)
+		cylZ("RGClampA" .. i, 0.45, s * 0.58, 0, 0.07, 0.19, STEEL, METAL)
+		cylZ("RGClampB" .. i, 0.95, s * 0.58, 0, 0.07, 0.19, STEEL, METAL)
+	end
+	-- bateria embaixo, com faixas brilhantes
+	cylZ("RGBatt", 0.75, 0, -0.62, 0.9, 0.38, GUN, METAL)
+	cylZ("RGBand1", 0.5, 0, -0.62, 0.05, 0.4, GLOW, NEON)
+	cylZ("RGBand2", 0.95, 0, -0.62, 0.05, 0.4, GLOW, NEON)
+	-- capsula de vidro em cima do estagio B (o nucleo e os aneis giram la dentro)
+	box("RGCapBase", 0.97, 0, 0.45, 0.5, 0.08, 0.6, STEEL, METAL)
+	cylZ("RGGlass", 0.97, 0, 0.78, 0.6, 0.55, Color3.fromRGB(176, 236, 214), Enum.Material.Glass).tr = 0.5
+	cylZ("RGCapA", 0.65, 0, 0.78, 0.08, 0.62, STEEL, METAL)
+	cylZ("RGCapB", 1.29, 0, 0.78, 0.08, 0.62, STEEL, METAL)
+	-- cano: colares escalonados, bobinas, anel da boca, lente, trilho e mira
+	cylZ("RGCol1", 1.75, 0, 0, 0.45, 0.7, STEEL, METAL)
+	cylZ("RGCol2", 2.2, 0, 0, 0.3, 0.6, GUN, METAL)
+	cylZ("RGCoilA", 2.45, 0, 0, 0.07, 0.66, GREEND, NEON)
+	cylZ("RGCoilB", 2.6, 0, 0, 0.07, 0.66, GREEND, NEON)
+	cylZ("RGMuz", 2.82, 0, 0, 0.22, 0.6, LIGHT, METAL)
+	cylZ("RGLens1", 2.93, 0, 0, 0.05, 0.46, GUN, SMOOTH)
+	cylZ("RGLens2", 2.955, 0, 0, 0.05, 0.32, GLOW, NEON)
+	box("RGRail", 2.05, 0, 0.43, 0.06, 0.06, 1.3, STEEL, METAL)
+	box("RGSight", 1.6, 0, 0.53, 0.05, 0.2, 0.4, GUN, METAL)
+
+	-- pecas animadas (posicionadas a cada quadro em shipRearArm)
+	dyn("RGCore", GLOW, NEON, "sphere")
+	dyn("RGRingA", GLOW, NEON, "cyl")
+	dyn("RGRingB", GREEND, NEON, "cyl")
+	dyn("RGLamp", AMBER, NEON, nil)
+	for i = 1, 6 do
+		dyn("RGPetal" .. i, i % 2 == 0 and LIGHT or STEEL, METAL, nil)
+		dyn("RGPetalG" .. i, GLOW, NEON, nil)
+	end
+	-- pistoes, colares, cubos do cotovelo e cabos no braco
+	dyn("RGPistonU", STEEL, METAL, "cyl")
+	dyn("RGPistonF", STEEL, METAL, "cyl")
+	dyn("RGWristRing", GLOW, NEON, "cyl")
+	dyn("RGColU1", GUN, METAL, "cyl")
+	dyn("RGColU2", GUN, METAL, "cyl")
+	dyn("RGColF1", STEEL, METAL, "cyl")
+	dyn("RGColF2", STEEL, METAL, "cyl")
+	dyn("RGHubL", GUN, METAL, "cyl")
+	dyn("RGHubR", GUN, METAL, "cyl")
+	dyn("RGHubCapL", GLOW, NEON, "cyl")
+	dyn("RGHubCapR", GLOW, NEON, "cyl")
+	dyn("RGCable", GREEND, NEON, "cyl")
+	dyn("RGCable2", GUN, SMOOTH, "cyl")
+end
+
+-- ext 0..1 = braco saindo; g 0..1 = mirando (antebraco inclina pra frente, cano gira pra aimShip, petalas abrem, nucleo carrega); kick = recuo do tiro
+-- devolve a boca do canhao no espaco da nave
+State.shipRearArm = function(S, ext, g, aimShip, kick)
+	local rg = State.shipRearInit(S)
+	if not rg then return nil end
+	kick = kick or 0
+	local sc, A = rg.sc, rg.arm
+	local vis = ext > 0.02
+	local B = rg.plate.rel
+	local n = B.UpVector
+	local u = ext * ext * (3 - 2 * ext)
+	local k = 0.12 + 0.88 * u -- braco telescopico: cresce pra fora da baia
+	local out = Vector3.new(B.Position.X, 0, B.Position.Z)
+	out = out.Magnitude > 1e-3 and out.Unit or Vector3.new(0, 0, 1)
+	local dirU = (Vector3.new(0, 0.95, 0) + out * 0.3).Unit
+	local fwdUp = Vector3.new(0, 0.35, -1).Unit
+	local dirF = (dirU * (1 - 0.7 * g) + fwdUp * (0.7 * g)).Unit
+	local aim = (aimShip and aimShip.Magnitude > 1e-3) and aimShip.Unit or fwdUp
+	local d3 = dirF * (1 - g) + aim * g
+	d3 = d3.Magnitude > 1e-3 and d3.Unit or aim
+
+	local S0 = B.Position + n * (0.15 * sc) - n * (0.8 * sc * (1 - u))
+	local E = S0 + dirU * (4.4 * sc * k)
+	local W = E + dirF * (3.6 * sc * k)
+	local bodyEnd = W + d3 * (1.3 * sc * k)
+	local tip = W + d3 * (3.0 * sc * k) - d3 * (kick * 0.35 * sc)
+
+	local function seg(e, a, b, dia)
+		local len = math.max((b - a).Magnitude, 0.02)
+		local dir = (b - a)
+		dir = dir.Magnitude > 1e-4 and dir.Unit or Vector3.new(0, 1, 0)
+		local upv = math.abs(dir.Y) > 0.98 and Vector3.xAxis or Vector3.yAxis
+		e.part.Size = Vector3.new(len, dia, dia)
+		e.weld.C0 = CFrame.lookAt((a + b) / 2, (a + b) / 2 + dir, upv) * CFrame.Angles(0, math.pi / 2, 0)
+		e.part.Transparency = vis and 0 or 1
+	end
+	local function ball(e, pos, dia, tr)
+		e.part.Size = Vector3.new(dia, dia, dia)
+		e.weld.C0 = CFrame.new(pos)
+		e.part.Transparency = vis and (tr or 0) or 1
+	end
+	ball(A.RGBase, S0, 0.95 * sc)
+	seg(A.RGUpper, S0, E, 0.55 * sc)
+	ball(A.RGElbow, E, 0.78 * sc)
+	seg(A.RGFore, E, W, 0.48 * sc)
+	ball(A.RGWrist, W, 0.72 * sc)
+	seg(A.RGBody, W, bodyEnd, 0.55 * sc)
+	seg(A.RGBarrel, bodyEnd, tip, 0.42 * sc)
+	seg(A.RGRing, bodyEnd + d3 * (0.05 * sc), bodyEnd + d3 * (0.25 * sc), 0.8 * sc)
+	ball(A.RGGlow, tip, (0.3 + 0.22 * g + 0.2 * kick) * sc, 0.6 * (1 - g))
+
+	local spec = State.rearSpec
+	if spec and A.RGCore then
+		local det = vis and ext > 0.25 -- detalhes finos so aparecem quando o braco ja saiu o bastante
+		local q = sc * k
+		local now = os.clock()
+		local dt = math.min(now - (rg.t0 or now), 0.1)
+		rg.t0 = now
+		rg.ph = (rg.ph or 0) + dt * (2.2 + 7 * g + kick * 6) -- aneis giram mais rapido ao mirar/atirar
+		local ph = rg.ph
+		local upv = math.abs(d3.Y) > 0.98 and Vector3.xAxis or Vector3.yAxis
+		local HF = CFrame.lookAt(W, W + d3, upv)
+		local function setp(e, sx, sy, sz, cf, tr)
+			if not e then return end
+			e.part.Size = Vector3.new(sx, sy, sz)
+			e.weld.C0 = cf
+			e.part.Transparency = det and (tr or 0) or 1
+		end
+		local function putd(name, f, x, y, sx, sy, sz, rot, tr)
+			setp(A[name], sx * q, sy * q, sz * q, HF * CFrame.new(x * q, y * q, -f * q) * (rot or CFrame.new()), tr)
+		end
+		local function segd(e, a, b, dia)
+			if not e then return end
+			seg(e, a, b, dia)
+			if not det then e.part.Transparency = 1 end
+		end
+		for i = 1, #spec do
+			local sp = spec[i]
+			setp(A[sp.name], sp.sx * q, sp.sy * q, sp.sz * q, HF * CFrame.new(sp.x * q, sp.y * q, -sp.f * q) * (sp.rot or CFrame.new()), sp.tr)
+		end
+		-- nucleo dentro da capsula, entre dois aneis inclinados que giram
+		local bob = math.sin(now * 3) * 0.03
+		local dc = 0.24 + 0.16 * g + 0.12 * kick
+		putd("RGCore", 0.97, 0, 0.78 + bob, dc, dc, dc)
+		putd("RGRingA", 0.97, 0, 0.78 + bob, 0.04, 0.46, 0.46, CFrame.Angles(0, ph, 0) * CFrame.Angles(math.rad(35), 0, math.rad(90)))
+		putd("RGRingB", 0.97, 0, 0.78 + bob, 0.04, 0.36, 0.36, CFrame.Angles(0, -ph * 1.3, 0) * CFrame.Angles(math.rad(-40), 0, math.rad(90)))
+		putd("RGLamp", 1.6, 0, 0.66, 0.09, 0.09, 0.09, nil, (math.sin(now * 8) > 0) and 0 or 0.7)
+		-- 6 petalas na ponta com brilho por dentro: fechadas em repouso, abrem ao mirar, abrem mais no tiro
+		local al = 0.06 + g * 0.6 + kick * 0.3
+		for i = 1, 6 do
+			local th = (i - 1) * math.pi / 3 + math.pi / 6
+			local cf = HF * CFrame.new(0, 0, -2.55 * q) * CFrame.Angles(0, 0, th) * CFrame.new(0, 0.31 * q, 0) * CFrame.Angles(al, 0, 0) * CFrame.new(0, 0, -0.325 * q)
+			setp(A["RGPetal" .. i], 0.26 * q, 0.04 * q, 0.65 * q, cf)
+			setp(A["RGPetalG" .. i], 0.08 * q, 0.02 * q, 0.5 * q, cf * CFrame.new(0, -0.03 * q, 0))
+		end
+		-- braco: pistoes, colares, cubos no cotovelo, cabos, anel no pulso
+		local X = Vector3.xAxis
+		local sideV = X * (0.5 * sc)
+		local ud, fd = (E - S0), (W - E)
+		ud = ud.Magnitude > 1e-4 and ud.Unit or Vector3.yAxis
+		fd = fd.Magnitude > 1e-4 and fd.Unit or Vector3.yAxis
+		segd(A.RGPistonU, S0:Lerp(E, 0.15) + sideV, S0:Lerp(E, 0.7) + sideV, 0.2 * sc)
+		segd(A.RGPistonF, E:Lerp(W, 0.3) - sideV, E:Lerp(W, 0.85) - sideV, 0.2 * sc)
+		segd(A.RGWristRing, W + d3 * (0.05 * sc), W + d3 * (0.19 * sc), 0.9 * sc)
+		local p1, p2 = S0:Lerp(E, 0.35), S0:Lerp(E, 0.65)
+		segd(A.RGColU1, p1 - ud * (0.06 * sc), p1 + ud * (0.06 * sc), 0.72 * sc)
+		segd(A.RGColU2, p2 - ud * (0.06 * sc), p2 + ud * (0.06 * sc), 0.72 * sc)
+		local p3, p4 = E:Lerp(W, 0.4), E:Lerp(W, 0.7)
+		segd(A.RGColF1, p3 - fd * (0.06 * sc), p3 + fd * (0.06 * sc), 0.62 * sc)
+		segd(A.RGColF2, p4 - fd * (0.06 * sc), p4 + fd * (0.06 * sc), 0.62 * sc)
+		segd(A.RGHubL, E - X * (0.46 * sc), E - X * (0.36 * sc), 0.95 * sc)
+		segd(A.RGHubR, E + X * (0.36 * sc), E + X * (0.46 * sc), 0.95 * sc)
+		segd(A.RGHubCapL, E - X * (0.455 * sc), E - X * (0.53 * sc), 0.4 * sc)
+		segd(A.RGHubCapR, E + X * (0.455 * sc), E + X * (0.53 * sc), 0.4 * sc)
+		local pv = X:Cross(dirF)
+		pv = pv.Magnitude > 1e-4 and pv.Unit or Vector3.zAxis
+		segd(A.RGCable, E:Lerp(W, 0.1) + pv * (0.42 * sc), E:Lerp(W, 0.9) + pv * (0.42 * sc), 0.07 * sc)
+		segd(A.RGCable2, E:Lerp(W, 0.1) + pv * (0.4 * sc) - X * (0.14 * sc), E:Lerp(W, 0.9) + pv * (0.4 * sc) - X * (0.14 * sc), 0.09 * sc)
+	end
+
+	-- luzes, faiscas do nucleo e vapor/faiscas verdes na boca (criados uma vez)
+	if not rg.fxTried then
+		rg.fxTried = true
+		pcall(function()
+			local function newLight(part, range)
+				local pl = Instance.new("PointLight")
+				pl.Color = Color3.fromRGB(70, 255, 60)
+				pl.Range = range
+				pl.Brightness = 1
+				pl.Enabled = false
+				pl.Parent = part
+				return pl
+			end
+			if A.RGCore then rg.coreLight = newLight(A.RGCore.part, 10) end
+			if A.RGGlow then rg.glowLight = newLight(A.RGGlow.part, 14) end
+			local function newEmitter(parent)
+				local pe = Instance.new("ParticleEmitter")
+				pe.Enabled = false
+				pe.Rate = 0
+				pe.Texture = Config.ParticleSpark
+				pe.LightEmission = 1
+				pe.Color = ColorSequence.new(Color3.fromRGB(205, 255, 150), Color3.fromRGB(40, 200, 50))
+				pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+				pe.Parent = parent
+				return pe
+			end
+			if A.RGCore then
+				local ce = newEmitter(A.RGCore.part)
+				ce.Lifetime = NumberRange.new(0.4, 0.8)
+				ce.Speed = NumberRange.new(0.5, 1.5)
+				ce.SpreadAngle = Vector2.new(180, 180)
+				ce.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.14 * sc), NumberSequenceKeypoint.new(1, 0) })
+				rg.coreEmit = ce
+			end
+			if A.RGBarrel then
+				local att = Instance.new("Attachment")
+				att.Name = "RGMuzzleAtt"
+				att.Parent = A.RGBarrel.part
+				local pe = newEmitter(att)
+				pe.Lifetime = NumberRange.new(0.35, 0.7)
+				pe.Speed = NumberRange.new(5, 12)
+				pe.SpreadAngle = Vector2.new(22, 22)
+				pe.EmissionDirection = Enum.NormalId.Right
+				pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5 * sc), NumberSequenceKeypoint.new(1, 0) })
+				rg.att, rg.emit = att, pe
+			end
+		end)
+	end
+	local lit = vis and ext > 0.25
+	pcall(function()
+		if rg.coreLight then rg.coreLight.Enabled = lit; rg.coreLight.Brightness = 1 + 2 * g + 2 * kick end
+		if rg.glowLight then rg.glowLight.Enabled = vis; rg.glowLight.Brightness = 0.5 + 3 * g + 3 * kick end
+		if rg.coreEmit then rg.coreEmit.Enabled = lit and g > 0.05; rg.coreEmit.Rate = 4 + 26 * g end
+		if rg.att and A.RGBarrel then rg.att.Position = Vector3.new(A.RGBarrel.part.Size.X / 2, 0, 0) end
+	end)
+	if ext < 0.5 then rg.fired = false end
+	if rg.emit and kick > 0.9 and not rg.fired then
+		rg.fired = true
+		pcall(function() rg.emit:Emit(18) end)
+	end
+	return tip
 end
 
 State.buildShipSystem = function(ctx)
@@ -2091,6 +2401,16 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
+	local btnCanopy = makeBtn(0, "VIDRO", "G", Color3.fromRGB(150, 230, 200), function(f) -- cupula de vidro desenhada
+		local ic = subIcon(f)
+		idot(ic, 14, 14, 24, INK)
+		idot(ic, 14, 14, 18, Color3.fromRGB(190, 255, 230))
+		idot(ic, 14, 20, 12, Color3.fromRGB(190, 255, 230))
+	end)
+	btnCanopy.Name = "BtnCanopy"
+	api.canopyBtn = btnCanopy
+	btnCanopy.Text = "ABRIR"
+	btnCanopy.MouseButton1Click:Connect(function() api.toggleCanopy() end)
 	local btnView = makeBtn(1, "VISTA", "V", Color3.fromRGB(96, 196, 255), function(f) -- olho desenhado
 		local ic = subIcon(f)
 		idot(ic, 14, 14, 24, INK)
@@ -2157,8 +2477,9 @@ State.buildShipSystem = function(ctx)
 		frame(face, 14, 5, 234, 8, WHITE, 0.55, 4)
 		local ic = frame(face, 12, 10, 44, 44, WHITE, 1)
 		drawSaucer(subIcon(ic), INK, Color3.fromRGB(190, 255, 180))
-		local t1 = text(face, "PILOTAR NAVE", 22, INK, 64, 9, 150, 28, Enum.TextXAlignment.Left)
-		local t2 = text(face, isTouchOnly and "toque para entrar" or "aperte E ou clique", 11,
+		local t1 = text(face, "FECHAR VIDRO", 22, INK, 64, 9, 150, 28, Enum.TextXAlignment.Left)
+		api.canopyLbl = t1
+		local t2 = text(face, isTouchOnly and "toque para abrir/fechar" or "aperte G ou clique", 11,
 			Color3.fromRGB(24, 84, 28), 64, 37, 150, 16, Enum.TextXAlignment.Left)
 		t2.Font = Enum.Font.GothamBold
 		local key = frame(face, 218, 16, 32, 32, WHITE, 0, 8)
@@ -2166,15 +2487,15 @@ State.buildShipSystem = function(ctx)
 		if isTouchOnly then
 			local s = subIcon(key)
 			s.Size = UDim2.fromScale(0.7, 0.7)
-			s.Rotation = 90
+			s.Rotation = 0
 			drawArrow(s, INK)
 		else
-			text(key, "E", 20, INK, 0, 0, 32, 32)
+			text(key, "G", 20, INK, 0, 0, 32, 32)
 		end
 		TweenService:Create(face, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 			{ Position = UDim2.fromOffset(0, -3) }):Play()
 	end
-	boardBtn.MouseButton1Click:Connect(function() api.board() end)
+	boardBtn.MouseButton1Click:Connect(function() api.toggleCanopy() end) -- (v20) botao do VIDRO (abre/fecha)
 
 	-- painel do cambio + freio de mao desenhado na tela (ver State.buildShipLevers)
 	do
@@ -2362,6 +2683,7 @@ State.buildShipSystem = function(ctx)
 			model = model, root = root,
 			parts = {}, gearParts = {}, swParts = {}, swCol = {}, swBase = {}, canopyParts = {}, thrParts = {}, emitters = {},
 			shiftParts = {}, brakeParts = {}, -- cambio e freio de mao (animados em State.buildShipLevers)
+			rdoorParts = {}, rarmParts = {},  -- portinha de tras + braco com canhao (State.shipRearDoor / State.shipRearArm)
 			brakeNotch = 0,                   -- cliques da catraca do freio de mao (0..3): no modo TERRA define o drift
 			wheelHubs = {}, -- 1 hub por roda: anima so 3 welds em vez de ~100 pecas
 			cf = CFrame.new(), pos = Vector3.zero, vel = Vector3.zero,
@@ -2417,6 +2739,8 @@ State.buildShipSystem = function(ctx)
 			elseif tag == "canopy" then S.canopyParts[#S.canopyParts + 1] = e
 			elseif tag == "shift" then S.shiftParts[#S.shiftParts + 1] = e
 			elseif tag == "brake" then S.brakeParts[#S.brakeParts + 1] = e
+			elseif tag == "rdoor" then S.rdoorParts[#S.rdoorParts + 1] = e
+			elseif tag == "rarm" then S.rarmParts[#S.rarmParts + 1] = e
 			elseif tag == "thr" then S.thrParts[#S.thrParts + 1] = e end
 			return e
 		end
@@ -2490,8 +2814,23 @@ State.buildShipSystem = function(ctx)
 				local aPl = math.rad(45 * k)
 				local pr, py = rMid + 0.07 * nR, yMid + 0.07 * nY
 				local base = CFrame.Angles(0, aPl, 0) * CFrame.new(0, py, -pr) * CFrame.Angles(-slope, 0, 0)
-				add("Plate", Vector3.new(4.2, 0.16, 3.4), base, PLATE, METAL)
-				add("PlateHandle", Vector3.new(1.4, 0.2, 0.22), base * CFrame.new(0, 0.16, 1.05), DARK, METAL)
+				add("Plate", Vector3.new(4.2, 0.16, 3.4), base, PLATE, METAL, 0, nil, k == 4 and "rdoor" or nil)
+				add("PlateHandle", Vector3.new(1.4, 0.2, 0.22), base * CFrame.new(0, 0.16, 1.05), DARK, METAL, 0, nil, k == 4 and "rdoor" or nil)
+				if k == 4 then
+					-- placa de tras = PORTINHA (abre na saida da nave): baia escura por baixo + braco mecanico com canhao (escondido)
+					add("BayInner", Vector3.new(3.9, 0.04, 3.1), base * CFrame.new(0, -0.03, 0), BLACK, SMOOTH)
+					local c0 = CFrame.new(base.Position)
+					add("RGBase", Vector3.new(1, 1, 1), c0, DARK, METAL, 1, "sphere", "rarm")
+					add("RGUpper", cylX(1, 0.55), c0, MID, METAL, 1, "cyl", "rarm")
+					add("RGElbow", Vector3.new(1, 1, 1), c0, DARK, METAL, 1, "sphere", "rarm")
+					add("RGFore", cylX(1, 0.48), c0, MID, METAL, 1, "cyl", "rarm")
+					add("RGWrist", Vector3.new(1, 1, 1), c0, DARK, METAL, 1, "sphere", "rarm")
+					add("RGBody", cylX(1, 0.9), c0, DARK, METAL, 1, "cyl", "rarm")
+					add("RGBarrel", cylX(1, 0.5), c0, MID, METAL, 1, "cyl", "rarm")
+					add("RGRing", cylX(0.2, 0.78), c0, GLOW, NEON, 1, "cyl", "rarm")
+					add("RGGlow", Vector3.new(1, 1, 1), c0, GLOW, NEON, 1, "sphere", "rarm")
+					if not pcall(State.buildRearArmDetail, add, cylX, c0, { METAL = METAL, SMOOTH = SMOOTH, NEON = NEON, GLOW = GLOW }) then warnRG("detalhes do canhao nao carregaram") end
+				end
 			end
 		end
 
@@ -2832,6 +3171,45 @@ State.buildShipSystem = function(ctx)
 		dust.Parent = ds.part
 		S.dust = dust
 
+		-- ===== (v20) COLISAO: casco, piso, painel, bancos e turbinas sao solidos; vidro so fechado =====
+		-- ligado/desligado por api.syncSolid (so com a nave estacionada). Nada muda no visual.
+		S.solidParts, S.domeSolid = {}, {}
+		local SOLID_NAME = { WellLining = true, Floor = true, Flange = true, FlangeRim = true, UnderPlate = true, Rim = true,
+			Dash = true, SeatBase = true, SeatBaseLip = true, SeatBack = true, SeatSkid = true, ThrBody = true }
+		for _, e in ipairs(S.parts) do
+			local nm = e.part.Name
+			if e.parentHub then
+				-- pecas das rodas (aro, pneu...) ficam sem colisao
+			elseif nm == "DomePane" or nm == "DomeCap" then
+				S.domeSolid[#S.domeSolid + 1] = e.part
+			elseif SOLID_NAME[nm] or nm:sub(1, 9) == "HullLayer" or nm:sub(1, 8) == "HullRing" then
+				S.solidParts[#S.solidParts + 1] = e.part
+			end
+		end
+
+		-- (v20) VIDRO LEVE: uma peca-eixo invisivel soldada na raiz; todas as pecas do vidro soldam nela.
+		-- Abrir/fechar passa a mexer em 1 weld por quadro em vez de uma por peca (era isso que dava a queda de FPS).
+		do
+			local hub = Instance.new("Part")
+			hub.Name = "CanopyHub"
+			hub.Anchored = false
+			hub.Massless = true
+			hub.CanCollide = false
+			hub.CanQuery = false
+			hub.CanTouch = false
+			hub.Transparency = 1
+			hub.CastShadow = false
+			hub.Size = Vector3.new(0.2, 0.2, 0.2)
+			local hw = Instance.new("Weld")
+			hw.Part0 = root
+			hw.Part1 = hub
+			hw.C0 = CFrame.new()
+			hw.Parent = hub
+			hub.Parent = model
+			for _, e in ipairs(S.canopyParts) do e.weld.Part0 = hub end
+			S.canopyHub = { part = hub, weld = hw }
+		end
+
 		return S
 	end
 
@@ -3000,9 +3378,13 @@ State.buildShipSystem = function(ctx)
 			-- fechar = mesma conta com frac voltando a 0 (animacao ao contrario). Sem fade de transparencia.
 			local hinge = CFrame.new(CANOPY_HINGE)
 			local swing = hinge * CFrame.Angles(frac * CANOPY_ANGLE, 0, 0) * hinge:Inverse()
-			for _, e in ipairs(S.canopyParts) do
-				e.weld.C0 = swing * e.rel
-				e.part.Transparency = e.baseT
+			if S.canopyHub then
+				-- (v20) so 1 weld mexe por quadro (antes eram ~150): acaba a queda de FPS ao abrir/fechar o vidro
+				S.canopyHub.weld.C0 = swing
+			else
+				for _, e in ipairs(S.canopyParts) do
+					e.weld.C0 = swing * e.rel
+				end
 			end
 		end
 	end
@@ -3523,16 +3905,28 @@ State.buildShipSystem = function(ctx)
 	end
 
 	local function proximity(S)
+		-- (v20) NAO existe mais Sit automatico nem botao PILOTAR.
+		-- Voce anda ate o banco do MOTORISTA (esquerdo) e senta nele; ai o vidro fecha sozinho.
+		-- O botao na tela agora e o do VIDRO (G): aparece perto da nave.
 		if busy or humanoid.Health <= 0 then
-			boardBtn.Visible = false
+			api.nearShip = false
 			return
 		end
 		local d = rootPart.Position - S.pos
 		local flat = Vector3.new(d.X, 0, d.Z).Magnitude
-		boardBtn.Visible = flat < 24 * SCALE and math.abs(d.Y) < 14
-		if AUTO_BOARD and flat < BOARD_R and math.abs(d.Y) < 9
-			and os.clock() > lastBoard and not humanoid.SeatPart then
-			api.board()
+		api.nearShip = flat < 30 * SCALE and math.abs(d.Y) < 16
+		if os.clock() <= lastBoard or humanoid.SeatPart then return end
+		local rel = S.cf:PointToObjectSpace(rootPart.Position)
+		local onSeat = math.abs(rel.X + 2.3 * SCALE) < 1.0 * SCALE and math.abs(rel.Z - 0.525 * SCALE) < 1.0 * SCALE
+			and rel.Y > (3.2 + 2.0) * SCALE and rel.Y < (3.2 + 5.0) * SCALE
+		if S.needLeave then
+			if not onSeat then S.needLeave = false end
+			return
+		end
+		-- em cima da almofada do banco do motorista (x -2.3, z 0.5; topo da almofada y 3.2 no espaco da nave)
+		if math.abs(rel.X + 2.3 * SCALE) < 1.0 * SCALE and math.abs(rel.Z - 0.525 * SCALE) < 1.0 * SCALE
+			and rel.Y > (3.2 + 2.0) * SCALE and rel.Y < (3.2 + 5.0) * SCALE then
+			api.board(true)
 		end
 	end
 
@@ -3561,16 +3955,24 @@ State.buildShipSystem = function(ctx)
 		local S = ship
 		if not S then
 			boardBtn.Visible = false
+			api.nearShip = false
+			api.padSync(nil)
 			return
 		end
+		api.syncSolid(S)
+		if api.canopyBtn then
+			local want = (S.canopyAng > CANOPY_OPEN * 0.5) and "FECHAR" or "ABRIR"
+			if api.canopyBtn.Text ~= want then api.canopyBtn.Text = want end
+		end
 		if S.state == "flying" then
-			boardBtn.Visible = false
 			if S.mode == "ground" then groundStep(S, dt) else flightStep(S, dt) end
 		elseif S.state == "landed" then
 			proximity(S)
 		else
-			boardBtn.Visible = false
+			api.nearShip = false
 		end
+		boardBtn.Visible = false -- (v20) o botao PILOTAR/VIDRO de baixo foi removido: o VIDRO agora fica no painel da direita, acima de VISTA
+		api.padSync(S)
 	end
 
 	-- ---------------------------------------------------------------
@@ -4027,6 +4429,81 @@ State.buildShipSystem = function(ctx)
 			local hit = castDir(P + Vector3.new(0, 1.5 * SCALE, 0), h * (roll + 16 * SCALE))
 			if hit then roll = math.clamp((hit.Position - P).Magnitude - 16 * SCALE, 6, roll) end
 		end
+		-- 1.5) portinha de tras abre, braco mecanico com canhao sai, mira e ATIRA o portal; recolhe e a saida continua
+		local earlyCF, earlyPortal
+		do
+			local pEnd = P + h * (roll + 215 * SCALE) + up * (84 * SCALE)
+			local tn = (h * 35 + up * 14).Unit
+			local cf0 = CFrame.lookAt(pEnd, pEnd + tn)
+			local okRG, errRG = pcall(function()
+				if not State.shipRearInit(S) then return end
+				-- portinha abre
+				animate(0.55, function(e) State.shipRearDoor(S, 2.0 * e); place(S) end)
+				if gone(S) then return end
+				-- braco sai da baia
+				local muz = State.shipRearArm(S, 0, 0, nil, 0)
+				animate(0.6, function(e) muz = State.shipRearArm(S, e, 0, nil, 0); place(S) end)
+				if gone(S) then return end
+				-- mira no ponto do portal
+				local aim = nil
+				animate(0.45, function(e)
+					aim = S.cf:VectorToObjectSpace((cf0.Position - S.cf * muz))
+					muz = State.shipRearArm(S, 1, e, aim, 0)
+					place(S)
+				end)
+				if gone(S) then return end
+				-- tiro: a bola verde voa ate o ponto e o portal abre quando ela chega
+				local startW = S.cf * muz
+				ctx.playSound(C.SoundShoot, 0.9)
+				ctx.flashAt(startW, 1.6)
+				local orb = Instance.new("Part")
+				orb.Shape = Enum.PartType.Ball
+				orb.Size = Vector3.one * (1.1 * SCALE)
+				orb.Anchored, orb.CanCollide, orb.CanQuery, orb.CanTouch = true, false, false, false
+				orb.Material, orb.Color = Enum.Material.Neon, C.PortalColor
+				orb.Position = startW
+				local pl = Instance.new("PointLight")
+				pl.Color, pl.Range, pl.Brightness = C.PortalColor, 14, 3
+				pl.Parent = orb
+				local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+				a0.Position, a1.Position = Vector3.new(0, 0.5 * SCALE, 0), Vector3.new(0, -0.5 * SCALE, 0)
+				a0.Parent, a1.Parent = orb, orb
+				local tr = Instance.new("Trail")
+				tr.Attachment0, tr.Attachment1 = a0, a1
+				tr.Lifetime = 0.35
+				tr.LightEmission = 1
+				tr.Color = ColorSequence.new(C.PortalColor)
+				tr.Transparency = NumberSequence.new(0, 1)
+				tr.Parent = orb
+				orb.Parent = workspace
+				animate(0.55, function(_, a)
+					orb.Position = startW:Lerp(cf0.Position, a)
+					State.shipRearArm(S, 1, 1, aim, math.max(0, 1 - a * 6)) -- recuo do tiro
+					place(S)
+				end, Enum.EasingStyle.Linear, Enum.EasingDirection.In)
+				orb:Destroy()
+				if gone(S) then return end
+				earlyPortal = openSky(cf0, C.ShipLeavePortalSize or Vector3.new(46, 46, 0.2))
+				earlyCF = cf0
+				ctx.flashAt(cf0.Position, 4)
+				-- recolhe o braco e fecha a portinha enquanto o portal abre
+				animate(0.5, function(e) State.shipRearArm(S, 1 - e, 1 - e, aim, 0); place(S) end)
+				State.shipRearArm(S, 0, 0, nil, 0)
+				if gone(S) then return end
+				animate(0.5, function(e) State.shipRearDoor(S, 2.0 * (1 - e)); place(S) end)
+				State.shipRearDoor(S, 0)
+			end)
+			if not okRG then
+				warnRG("braco do canhao:", errRG)
+				pcall(State.shipRearArm, S, 0, 0, nil, 0)
+				pcall(State.shipRearDoor, S, 0)
+			end
+		end
+		if gone(S) then
+			closeSky(earlyPortal)
+			return
+		end
+
 		local v1 = 105 * SCALE
 		local rollT = 2 * roll / v1
 		local from = Vector3.new(P.X, 0, P.Z)
@@ -4047,13 +4524,14 @@ State.buildShipSystem = function(ctx)
 		local P2 = S.pos
 		local function W(a, y) return P2 + h * (a * SCALE) + up * (y * SCALE) end
 		local pts = { P2, W(10, 0.2), W(28, 2.5), W(55, 11), W(90, 28), W(135, 50), W(180, 70), W(215, 84) }
+		if earlyCF then pts[#pts] = earlyCF.Position end -- o caminho termina no portal que o canhao abriu
 		local pos, len, total = buildPath(pts, 24)
 		local vE = 200 * SCALE
 		local flightT = 2 * total / (v1 + vE)
 		local portalPos = pts[#pts]
 		local endTan = (pts[#pts] - pts[#pts - 1]).Unit
 		local portalCF = CFrame.lookAt(portalPos, portalPos + endTan)
-		local portal = nil
+		local portal = earlyPortal
 		if S.dust then S.dust.Rate = 0 end
 
 		lastClk = os.clock()
@@ -4190,7 +4668,7 @@ State.buildShipSystem = function(ctx)
 		end)
 	end
 
-	function api.board()
+	function api.board(manual)
 		local S = ship
 		if destroyed or not S or busy or S.state ~= "landed" then return end
 		if humanoid.Health <= 0 or humanoid.SeatPart then return end
@@ -4216,21 +4694,24 @@ State.buildShipSystem = function(ctx)
 				humanoid.Sit = true
 
 				local from = rootPart.CFrame
-				animate(0.7, function(e)
+				animate(manual and 0.25 or 0.7, function(e)
 					local to = S.cf * SEAT_REL
-					local pos = from.Position:Lerp(to.Position, e) + Vector3.new(0, math.sin(e * math.pi) * 4, 0)
+					local pos = from.Position:Lerp(to.Position, e) + Vector3.new(0, math.sin(e * math.pi) * (manual and 0.4 or 4), 0)
 					rootPart.CFrame = CFrame.new(pos) * to.Rotation
 					rootPart.AssemblyLinearVelocity = Vector3.zero
 					if not humanoid.Sit then humanoid.Sit = true end
 				end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 				if gone(S) then return end
 
+				-- sentou -> o vidro fecha sozinho (de onde estiver: aberto, meio aberto ou ja fechado)
 				local ca0 = S.canopyAng
 				animate(0.6, function(e)
 					S.canopyAng = ca0 * (1 - e)
 					place(S)
 					holdChar(S)
 				end)
+				S.canopyAng = 0
+				place(S)
 				if gone(S) then return end
 
 				S.vel = Vector3.zero
@@ -4392,6 +4873,66 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
+	-- (v20) liga/desliga a colisao da nave. So com a nave estacionada (landed); em voo/chegada/saida fica tudo sem colisao.
+	-- O vidro so e solido quando 100% fechado e com voce fora da cabine (fechar com voce dentro nao te empurra).
+	function api.syncSolid(S)
+		if C.ShipSolid == false or not S.solidParts then return end
+		local on = S.state == "landed"
+		if S.solidOn ~= on then
+			S.solidOn = on
+			for _, p in ipairs(S.solidParts) do
+				if p.Parent then p.CanCollide = on; p.CanQuery = on end
+			end
+		end
+		local domeOn = false
+		if on and S.canopyAng <= 0.001 then
+			local rel = S.cf:PointToObjectSpace(rootPart.Position)
+			local inside = Vector3.new(rel.X, 0, rel.Z).Magnitude < 7.4 * SCALE and rel.Y > 1.5 * SCALE and rel.Y < 14 * SCALE
+			domeOn = not inside
+		end
+		if S.domeOn ~= domeOn then
+			S.domeOn = domeOn
+			for _, p in ipairs(S.domeSolid) do
+				if p.Parent then p.CanCollide = domeOn; p.CanQuery = domeOn end
+			end
+		end
+	end
+
+	-- (v20) painel da direita: pilotando = todos os botoes; estacionado perto da nave = so o botao VIDRO
+	function api.padSync(S)
+		local flyingNow = S ~= nil and (S.state == "flying" or S.state == "shifting")
+		local show = flyingNow or (S ~= nil and S.state == "landed" and api.nearShip == true)
+		if pad.Visible ~= show then pad.Visible = show end
+		if api.padFly ~= flyingNow then
+			api.padFly = flyingNow
+			for _, c in ipairs(pad:GetChildren()) do
+				if c:IsA("TextButton") and c.Name ~= "BtnCanopy" then c.Visible = flyingNow end
+			end
+		end
+	end
+
+	-- (v20) abre/fecha o vidro quando quiser (tecla G / botao na tela), parado ou pilotando
+	function api.toggleCanopy()
+		local S = ship
+		if destroyed or not S or S.canopyBusy then return end
+		if S.state ~= "landed" and S.state ~= "flying" then return end
+		if S.state == "flying" and busy then return end
+		local a0 = S.canopyAng
+		local target = (a0 > CANOPY_OPEN * 0.5) and 0 or CANOPY_OPEN
+		S.canopyBusy = true
+		task.spawn(function()
+			local ok, err = pcall(function()
+				animate(0.7, function(e)
+					S.canopyAng = a0 + (target - a0) * e
+					place(S)
+				end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+				if not gone(S) then S.canopyAng = target; place(S) end
+			end)
+			if not ok then warnRG("erro no vidro da nave:", err) end
+			S.canopyBusy = false
+		end)
+	end
+
 	-- sair: no modo TERRA o vidro abre e voce desce; no modo VOO a nave pousa primeiro
 	function api.exit()
 		local S = ship
@@ -4420,24 +4961,15 @@ State.buildShipSystem = function(ctx)
 				infoLbl.Visible = false
 				if baseFov then camera.FieldOfView = baseFov end
 
-				animate(0.7, function(e)
-					S.canopyAng = CANOPY_OPEN * e
-					place(S)
-					holdChar(S)
-				end)
+				-- (v20) SAIR so levanta do banco: o vidro NAO abre sozinho (use G) e a nave fica onde esta
 				if gone(S) then return end
-
-				-- solta o piloto ao lado da nave
-				local right = S.cf.RightVector
-				local side = Vector3.new(right.X, 0, right.Z).Unit * -(14 * SCALE)
-				local spot = S.pos + side
-				local g2 = groundAt(spot, 8)
-				local y = (g2 and g2.Y or gy) + 3.2
+				local standCF = S.cf * CFrame.new(-2.3 * SCALE, 5.9 * SCALE, -1.8 * SCALE)
 				restoreChar()
-				rootPart.CFrame = CFrame.lookAt(Vector3.new(spot.X, y, spot.Z), Vector3.new(S.pos.X, y, S.pos.Z))
+				rootPart.CFrame = standCF
 				rootPart.AssemblyLinearVelocity = Vector3.zero
 				humanoid.Sit = false
 				pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+				S.needLeave = true -- so senta de novo depois que voce sair de cima do banco
 				lastBoard = os.clock() + 1.5
 				S.state = "landed"
 			end)
@@ -4486,8 +5018,8 @@ State.buildShipSystem = function(ctx)
 			api.exit()
 		elseif input.KeyCode == Enum.KeyCode.R then
 			api.toggleMode()
-		elseif input.KeyCode == Enum.KeyCode.E then
-			if ship and ship.state == "landed" and boardBtn.Visible then api.board() end
+		elseif input.KeyCode == Enum.KeyCode.G then
+			api.toggleCanopy()
 		elseif input.KeyCode == Enum.KeyCode.V then
 			api.toggleCloseView()
 		elseif input.KeyCode == Enum.KeyCode.B then

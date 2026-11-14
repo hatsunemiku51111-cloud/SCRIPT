@@ -1018,6 +1018,89 @@ State.buildWheel = function(add, cylX, c, wc, wcPos)
 	print("[RickPortalGun] volante novo (3 raios, coluna, pedais) carregado")
 end
 
+-- BANCOS fieis a serie: almofada grossa com frente arredondada e rolos laterais sobre uma chapa curva (esqui),
+-- encosto de bordas arredondadas, tira de metal atras com 3 furos e apoio de cabeca separado.
+-- Mantem o topo da almofada em y 4.5 e a face do encosto em z ~1.7 (o boneco senta nessas medidas).
+State.buildSeats = function(add, cylX, c)
+	local SEATC, SEATC2, DARK, MID, GLOW = c.SEATC, c.SEATC2, c.DARK, c.MID, c.GLOW
+	local PLASTIC, METAL, SMOOTH = c.PLASTIC, c.METAL, c.SMOOTH
+	local RZ = CFrame.Angles(0, math.pi / 2, 0) -- cilindro: eixo X -> Z
+	local RY = CFrame.Angles(0, 0, math.pi / 2) -- cilindro: eixo X -> Y
+	local tilt = CFrame.Angles(math.rad(10), 0, 0)
+	for _, sx in ipairs({ -1, 1 }) do
+		local x = sx * 2.3
+		-- base
+		add("SeatSkid", Vector3.new(2.5, 0.1, 3.1), CFrame.new(x, 3.95, 0.45), MID, METAL)
+		add("SeatSkidRoll", cylX(2.5, 0.16), CFrame.new(x, 3.97, -1.1), MID, METAL, 0, "cyl")
+		add("SeatBase", Vector3.new(2.3, 0.5, 2.25), CFrame.new(x, 4.25, 0.525), SEATC, PLASTIC)
+		add("SeatBaseLip", cylX(2.3, 0.5), CFrame.new(x, 4.25, -0.6), SEATC, PLASTIC, 0, "cyl")
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBolster", cylX(2.2, 0.5), CFrame.new(x + sd * 1.25, 4.7, 0.5) * RZ, SEATC2, PLASTIC, 0, "cyl")
+		end
+
+		-- encosto de bordas arredondadas
+		local BK = CFrame.new(x, 6.1, 2.0) * tilt
+		add("SeatBack", Vector3.new(1.9, 2.9, 0.5), BK, SEATC, PLASTIC)
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBackRoll", cylX(2.9, 0.55), BK * CFrame.new(sd * 1.0, 0, 0) * RY, SEATC, PLASTIC, 0, "cyl")
+		end
+		add("SeatBackTop", cylX(1.9, 0.55), BK * CFrame.new(0, 1.45, 0), SEATC, PLASTIC, 0, "cyl")
+		add("SeatLumbar", Vector3.new(1.5, 0.55, 0.1), BK * CFrame.new(0, -0.5, -0.27), SEATC2, PLASTIC)
+
+		-- tira de metal atras (do encosto ate o apoio de cabeca) com 3 furos
+		add("SeatStrap", Vector3.new(0.5, 4.2, 0.1), BK * CFrame.new(0, 0.5, 0.3), MID, METAL)
+		for _, hy in ipairs({ 1.55, 1.3, 1.05 }) do
+			add("SeatStrapHole", cylX(0.04, 0.11), BK * CFrame.new(0, hy, 0.36) * RZ, DARK, SMOOTH, 0, "cyl")
+		end
+
+		-- apoio de cabeca separado do encosto
+		local HD = BK * CFrame.new(0, 2.3, 0)
+		add("SeatHead", Vector3.new(1.1, 0.9, 0.5), HD, SEATC2, PLASTIC)
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatHeadRoll", cylX(0.9, 0.5), HD * CFrame.new(sd * 0.55, 0, 0) * RY, SEATC2, PLASTIC, 0, "cyl")
+		end
+		add("SeatHeadTop", cylX(1.1, 0.5), HD * CFrame.new(0, 0.45, 0), SEATC2, PLASTIC, 0, "cyl")
+		add("SeatLed", Vector3.new(0.14, 0.14, 0.05), HD * CFrame.new(0.3, 0.15, 0.28), GLOW, SMOOTH)
+	end
+	print("[RickPortalGun] bancos novos carregados")
+end
+
+-- TUNEL CENTRAL fiel a serie: bloco com bordas arredondadas em 2 degraus, ligado ao pe do pilar,
+-- fenda do cambio no topo com a alavanca, e freio de mao deitado no degrau de tras.
+State.buildTunnel = function(add, cylX, c)
+	local MID, DARK, BLACK, LIGHT = c.MID, c.DARK, c.BLACK, c.LIGHT
+	local METAL, PLASTIC, SMOOTH = c.METAL, c.PLASTIC, c.SMOOTH
+	local RZ = CFrame.Angles(0, math.pi / 2, 0)
+	local RY = CFrame.Angles(0, 0, math.pi / 2)
+
+	add("TunnelSkirt", Vector3.new(1.75, 0.12, 5.55), CFrame.new(0, 3.96, -1.075), DARK, METAL)
+	-- degrau da frente (alto, encosta no pilar): z -3.75 .. -0.4
+	add("TunnelFront", Vector3.new(1.5, 1.1, 3.35), CFrame.new(0, 4.45, -2.075), MID, PLASTIC)
+	-- degrau de tras (baixo): z -0.4 .. 1.6
+	add("TunnelRear", Vector3.new(1.5, 0.8, 2.0), CFrame.new(0, 4.3, 0.6), MID, PLASTIC)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("TunnelFrontRoll", cylX(3.35, 0.4), CFrame.new(sd * 0.55, 4.8, -2.075) * RZ, MID, PLASTIC, 0, "cyl")
+		add("TunnelRearRoll", cylX(2.0, 0.4), CFrame.new(sd * 0.55, 4.5, 0.6) * RZ, MID, PLASTIC, 0, "cyl")
+	end
+
+	-- fenda do cambio no topo do degrau da frente
+	add("ShiftBezel", Vector3.new(0.44, 0.03, 2.5), CFrame.new(0, 5.015, -2.1), LIGHT, METAL)
+	add("ShiftSlot", Vector3.new(0.24, 0.04, 2.3), CFrame.new(0, 5.03, -2.1), BLACK, SMOOTH)
+	add("ShiftCollar", cylX(0.12, 0.32), CFrame.new(0, 5.07, -1.4) * RY, DARK, METAL, 0, "cyl")
+	local s1 = Vector3.new(0, 5.1, -1.4)
+	local s2 = Vector3.new(0, 6.0, -1.1) -- inclinada pra tras, em direcao ao piloto
+	add("ShiftRod", cylX((s2 - s1).Magnitude, 0.14), CFrame.lookAt((s1 + s2) / 2, s2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl")
+	add("ShiftKnob", Vector3.new(0.42, 0.42, 0.42), CFrame.new(s2 + (s2 - s1).Unit * 0.1), BLACK, PLASTIC, 0, "sphere")
+
+	-- freio de mao no degrau de tras: suporte + alavanca inclinada + cabo em T
+	add("BrakeMount", Vector3.new(0.5, 0.14, 0.7), CFrame.new(0, 4.77, 0.35), DARK, METAL)
+	local b1 = Vector3.new(0, 4.85, 0.05)
+	local b2 = Vector3.new(0, 5.55, 0.95)
+	add("BrakeLever", cylX((b2 - b1).Magnitude, 0.13), CFrame.lookAt((b1 + b2) / 2, b2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl")
+	add("BrakeGrip", cylX(0.55, 0.15), CFrame.new(b2), DARK, PLASTIC, 0, "cyl")
+	print("[RickPortalGun] tunel central novo carregado")
+end
+
 State.buildShipSystem = function(ctx)
 	local Z = ctx.Z
 	local character, humanoid, rootPart, camera = ctx.character, ctx.humanoid, ctx.rootPart, ctx.camera
@@ -1902,20 +1985,11 @@ State.buildShipSystem = function(ctx)
 			return addOrig(name, size, CFrame.new(0, -DEP, 0) * rel, ...)
 		end
 		add("Floor", cylX(0.12, 13.2), CFrame.new(0, 3.84, 0) * RY, DARK, SMOOTH, 0, "cyl")
-		for _, sx in ipairs({ -1, 1 }) do
-			local x = sx * 2.3
-			local tilt = CFrame.Angles(math.rad(10), 0, 0)
-			add("SeatBase", Vector3.new(2.6, 0.6, 2.6), CFrame.new(x, 4.2, 0.4), SEATC, PLASTIC)
-			add("SeatBack", Vector3.new(2.6, 3.2, 0.6), CFrame.new(x, 6.1, 2.0) * tilt, SEATC, PLASTIC)
-			add("SeatHead", Vector3.new(1.6, 1.1, 0.5), CFrame.new(x, 8.0, 2.45) * tilt, SEATC2, PLASTIC)
-			add("SeatPanel", Vector3.new(0.9, 0.55, 0.05), CFrame.new(x, 8.0, 2.74) * tilt, BLACK, SMOOTH)
-			add("SeatLed", Vector3.new(0.18, 0.18, 0.06), CFrame.new(x + 0.25, 8.12, 2.78) * tilt, GLOW, SMOOTH)
-			add("SeatBolsterA", Vector3.new(0.4, 1.3, 2.2), CFrame.new(x - 1.25, 4.95, 0.5), SEATC2, PLASTIC)
-			add("SeatBolsterB", Vector3.new(0.4, 1.3, 2.2), CFrame.new(x + 1.25, 4.95, 0.5), SEATC2, PLASTIC)
-		end
-		add("Console", Vector3.new(1.6, 1.0, 3.6), CFrame.new(0, 4.4, -0.2), DARK, PLASTIC)
-		add("ShiftRod", cylX(1.1, 0.18), CFrame.new(0, 5.2, -1.2) * RY, MID, METAL, 0, "cyl")
-		add("ShiftKnob", Vector3.new(0.5, 0.5, 0.5), CFrame.new(0, 5.85, -1.2), BLACK, PLASTIC, 0, "sphere")
+		-- bancos e tunel central (ver State.buildSeats / State.buildTunnel)
+		local okSeat, errSeat = pcall(State.buildSeats, add, cylX, { SEATC = SEATC, SEATC2 = SEATC2, DARK = DARK, MID = MID, GLOW = GLOW, PLASTIC = PLASTIC, METAL = METAL, SMOOTH = SMOOTH })
+		if not okSeat then warnRG("bancos:", errSeat) end
+		local okTun, errTun = pcall(State.buildTunnel, add, cylX, { MID = MID, DARK = DARK, BLACK = BLACK, LIGHT = FLANGE, METAL = METAL, PLASTIC = PLASTIC, SMOOTH = SMOOTH })
+		if not okTun then warnRG("tunel:", errTun) end
 
 		-- painel curvo: segue o aro da cabine por DENTRO (nao sai da nave), baixo e inclinado pro piloto
 		do

@@ -2022,6 +2022,16 @@ do
 	local TweenService = game:GetService("TweenService")
 	local rng = Random.new(20)
 	Sp.SPACE = Vector3.new(0, 60000, 0)
+	-- grafico minimo do Roblox esconde coisas distantes. No espaco o script sobe o nivel de grafico
+	-- temporariamente (BOOST_LEVEL, 1..21) e devolve o seu ao sair. BOOST_QUALITY = false desliga.
+	Sp.BOOST_QUALITY = false
+	Sp.BOOST_LEVEL = 10
+	-- "fantasma": no grafico minimo o Roblox nao desenha planetas longe. Enquanto o planeta esta longe,
+	-- o script desenha uma copia encolhida mais perto da camera (mesmo tamanho aparente na tela).
+	-- GHOST_NEAR = distancia da camera ate a borda mais proxima da copia (precisa ser maior que a
+	-- distancia camera-nave, ~200). Se ainda nao aparecer, teste 300; se cobrir a nave, suba pra 700.
+	Sp.GHOST = true
+	Sp.GHOST_NEAR = 500
 
 	Sp.TEX = {
 		terra   = "rbxassetid://81971895872632",
@@ -2605,12 +2615,79 @@ do
 	end
 
 	local DEFS = {
-		{ build = buildEarth,  off = Vector3.new(0, 0, 0),           tilt = CFrame.Angles(math.rad(23), 0, 0), earth = true, R = 950 * Sp.SCALE, name = "Terra" },
-		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 } },
-		{ build = buildDesert, off = Vector3.new(-24000, 3000, -14000), tilt = CFrame.Angles(math.rad(12), 0, math.rad(6)),  dim = "desert", R = 800 * Sp.SCALE, name = "K-22 Deserto" },
-		{ build = buildIce,    off = Vector3.new(21000, 6000, -27000), tilt = CFrame.Angles(math.rad(-18), 0, 0),         dim = "ice",    R = 700 * Sp.SCALE, name = "G-7 Gelo" },
-		{ build = buildNeon,   off = Vector3.new(6000, -4500, 30000), tilt = CFrame.Angles(0, 0, math.rad(10)),           dim = "neon",   R = 750 * Sp.SCALE, name = "C-35K Neon" },
+		{ build = buildEarth,  off = Vector3.new(0, 0, 0),           tilt = CFrame.Angles(math.rad(23), 0, 0), earth = true, R = 950 * Sp.SCALE, name = "Terra", key = "terra" },
+		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 }, key = "lua", gR = 300 * Sp.SCALE },
+		{ build = buildDesert, off = Vector3.new(-24000, 3000, -14000), tilt = CFrame.Angles(math.rad(12), 0, math.rad(6)),  dim = "desert", R = 800 * Sp.SCALE, name = "K-22 Deserto", key = "deserto" },
+		{ build = buildIce,    off = Vector3.new(21000, 6000, -27000), tilt = CFrame.Angles(math.rad(-18), 0, 0),         dim = "ice",    R = 700 * Sp.SCALE, name = "G-7 Gelo", key = "gelo" },
+		{ build = buildNeon,   off = Vector3.new(6000, -4500, 30000), tilt = CFrame.Angles(0, 0, math.rad(10)),           dim = "neon",   R = 750 * Sp.SCALE, name = "C-35K Neon", key = "neon" },
 	}
+
+	-- copia de TODAS as pecas do planeta (corpo, nuvens, atmosfera, aneis, luas), com a mesma textura.
+	-- Cada frame, enquanto o planeta esta longe, as copias sao encolhidas em direcao a camera:
+	-- mesmo tamanho aparente na tela, mas dentro da distancia que o grafico minimo desenha.
+	local function makeGhost(pl)
+		if not Sp.GHOST then return end
+		local gm = Instance.new("Folder")
+		gm.Name = "RickGhost"
+		local gp = {}
+		for _, e in ipairs(pl.list) do
+			local o = e.part
+			if o and o.Parent then
+				local ok, c = pcall(function() return o:Clone() end)
+				if ok and c then
+					for _, ch in ipairs(c:GetChildren()) do
+						if ch:IsA("JointInstance") or ch:IsA("WeldConstraint") then ch:Destroy() end
+					end
+					c.Anchored = true
+					c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = false, false, false, false
+					local m = c:FindFirstChildOfClass("SpecialMesh")
+					gp[#gp + 1] = { o = o, c = c, size0 = o.Size, m = m, m0 = m and m.Scale or nil, tr = -1 }
+					c.Parent = gm
+				end
+			end
+		end
+		pl.gm, pl.gp = gm, gp
+	end
+
+	local function updateGhost(pl, camera)
+		local gm, gp = pl.gm, pl.gp
+		if not gm or not gp[1] then return end
+		local d = pl.def
+		local R = d.R or d.gR
+		if not R then return end
+		local cam = camera.CFrame
+		local cp = cam.Position
+		local v = gp[1].o.Position - cp
+		local dist = v.Magnitude
+		local F = dist - R
+		local near = Sp.GHOST_NEAR or 500
+		local show = F > near and dist > 1
+		if show then
+			local ang = math.asin(math.min(1, R / dist))
+			if cam.LookVector:Dot(v.Unit) < math.cos(math.min(math.pi, math.rad(80) + ang)) then show = false end
+		end
+		if not show then
+			if gm.Parent then gm.Parent = nil end
+			return
+		end
+		if not gm.Parent then gm.Parent = Sp.folder end
+		local s = (near / F) * 0.99
+		for i = 1, #gp do
+			local g = gp[i]
+			local o, c = g.o, g.c
+			local cf = o.CFrame
+			c.CFrame = CFrame.new(cp + (cf.Position - cp) * s) * cf.Rotation
+			local m = g.m
+			if m and m.MeshType == Enum.MeshType.FileMesh then
+				m.Scale = g.m0 * s
+			else
+				local sz = g.size0 * s
+				c.Size = Vector3.new(math.max(sz.X, 0.05), math.max(sz.Y, 0.05), math.max(sz.Z, 0.05))
+			end
+			local tr = o.Transparency
+			if tr ~= g.tr then g.tr = tr; c.Transparency = tr end
+		end
+	end
 
 	local function ensurePlanets()
 		if Sp.folder then return end
@@ -2623,12 +2700,42 @@ do
 			if ok and P then
 				root, list = P.model, P.list
 				root.Parent = f
-				Sp.planets[#Sp.planets + 1] = { root = root, list = list, def = def, P = P }
+				pcall(function()
+					if root:IsA("Model") then root.LevelOfDetail = Enum.ModelLevelOfDetail.Disabled end
+					for _, d in ipairs(root:GetDescendants()) do
+						if d:IsA("Model") then
+							d.LevelOfDetail = Enum.ModelLevelOfDetail.Disabled
+						elseif d:IsA("MeshPart") then
+							d.RenderFidelity = Enum.RenderFidelity.Precise
+						end
+					end
+				end)
+				local entry = { root = root, list = list, def = def, P = P }
+				pcall(makeGhost, entry)
+				Sp.planets[#Sp.planets + 1] = entry
 			else
 				warn("[Rick] planeta falhou:", root)
 			end
 		end
 		Sp.folder = f
+	end
+
+	local function boostQuality(on)
+		if not Sp.BOOST_QUALITY then return end
+		pcall(function()
+			local R = settings().Rendering
+			if on then
+				local want = Sp.BOOST_LEVEL or 10
+				local cur = R.QualityLevel.Value
+				if cur ~= 0 and cur < want then
+					if Sp.q0 == nil then Sp.q0 = R.QualityLevel end
+					R.QualityLevel = Enum.QualityLevel[string.format("Level%02d", want)]
+				end
+			elseif Sp.q0 ~= nil then
+				R.QualityLevel = Sp.q0
+				Sp.q0 = nil
+			end
+		end)
 	end
 
 	local function fade(show)
@@ -2653,6 +2760,7 @@ do
 		ensurePlanets()
 		if not Sp.folder then return end
 		Sp.visible = true
+		boostQuality(true)
 		Sp.shownAt = os.clock()
 		Sp.hideToken = nil
 		for _, pl in ipairs(Sp.planets) do
@@ -2669,6 +2777,12 @@ do
 	local function hidePlanets(instant)
 		if not Sp.visible then return end
 		Sp.visible = false
+		boostQuality(false)
+		if Sp.planets then
+			for _, pl in ipairs(Sp.planets) do
+				if pl.gm and pl.gm.Parent then pl.gm.Parent = nil end
+			end
+		end
 		if instant then
 			if Sp.folder then Sp.folder.Parent = nil end
 			return
@@ -2910,12 +3024,14 @@ do
 		if inSpace and Sp.k >= 0.65 then showPlanets(camera) elseif not inSpace or Sp.k < 0.5 then hidePlanets(false) end
 		if Sp.visible and Sp.planets then
 			local t = os.clock()
+			if t - (Sp.qT or 0) > 1 then Sp.qT = t; boostQuality(true) end
 			local ready = t - (Sp.shownAt or 0) > 2.6
 			local canEnter = inSpace and S.state == "flying" and not Sp.warping and t > (Sp.noEnter or 0) and Sp.k > 0.9
 			for _, pl in ipairs(Sp.planets) do
 				local d = pl.def
 				local c = SPACE + d.off
 				if pl.P then for _, fn in ipairs(pl.P.anims) do fn(t, ready) end end
+				if Sp.GHOST and camera then pcall(updateGhost, pl, camera) end
 				if canEnter and (d.dim or d.earth) and (S.pos - c).Magnitude < d.R * 0.95 then
 					canEnter = false
 					if d.earth then toWorld(S) else enterPlanet(S, d) end
@@ -2929,6 +3045,7 @@ do
 		Sp.k = 0
 		restoreLighting()
 		hidePlanets(true)
+		boostQuality(false)
 		if Sp.folder then Sp.folder:Destroy() end
 		Sp.folder, Sp.planets = nil, nil
 	end

@@ -3268,100 +3268,129 @@ State.buildShipSystem = function(ctx)
 	paintTicks(0, true, false)
 
 	pad = mk("Frame", { Name = "FlightPad", BackgroundTransparency = 1, BorderSizePixel = 0,
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(70, 0),
-		AutomaticSize = Enum.AutomaticSize.Y, Visible = false }, hud)
+		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.fromOffset(0, 72),
+		AutomaticSize = Enum.AutomaticSize.X, Visible = false }, hud)
 	addVP(pad)
-	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8),
-		HorizontalAlignment = Enum.HorizontalAlignment.Center }, pad)
+	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 14), HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Top }, pad)
 
-	local function makeBtn(i, label, hint, col, draw, onText)
-		local b = mk("TextButton", { Name = "Btn" .. i, LayoutOrder = i, Size = UDim2.fromOffset(60, 66),
+	-- botoes sem fundo: so icone com contorno + nome. Grade dos icones = 28x28.
+	local IC = { MINT = Color3.fromRGB(150, 230, 200), SKY = Color3.fromRGB(96, 196, 255),
+		CORAL = Color3.fromRGB(255, 92, 100), PILL = UDim.new(0.5, 0), parts = {} }
+	local function iPart(parent, cx, cy, w, h, rot, col, round, strokeTh, z)
+		local f = mk("Frame", { BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = col,
+			Position = UDim2.fromScale(cx / 28, cy / 28), Size = UDim2.fromScale(w / 28, h / 28),
+			Rotation = rot or 0, ZIndex = z }, parent)
+		if round then mk("UICorner", { CornerRadius = round }, f) end
+		if strokeTh then
+			mk("UIStroke", { Color = INK, Thickness = strokeTh, ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+				LineJoinMode = Enum.LineJoinMode.Round }, f)
+		end
+		IC.parts[#IC.parts + 1] = { f, col }
+		return f
+	end
+
+	function IC.vidro(h)
+		local clip = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
+			Position = UDim2.fromScale(0, 5 / 28), Size = UDim2.fromScale(1, 15 / 28), ZIndex = 7 }, h)
+		local dome = mk("Frame", { BorderSizePixel = 0, BackgroundColor3 = IC.MINT, ZIndex = 7,
+			Position = UDim2.fromScale(3 / 28, 4 / 15), Size = UDim2.fromScale(22 / 28, 22 / 15) }, clip)
+		mk("UICorner", { CornerRadius = IC.PILL }, dome)
+		mk("UIStroke", { Color = INK, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+			LineJoinMode = Enum.LineJoinMode.Round }, dome)
+		IC.parts[#IC.parts + 1] = { dome, IC.MINT }
+		iPart(h, 10.5, 12.25, 2, 7.4, 42, WHITE, IC.PILL, nil, 9)
+		iPart(h, 14, 22.5, 24, 5, 0, IC.MINT, IC.PILL, 3, 10)
+	end
+
+	function IC.camera(h)
+		iPart(h, 14, 7, 10, 6, 0, IC.SKY, UDim.new(0.25, 0), 3, 8)
+		iPart(h, 14, 16, 24, 16, 0, IC.SKY, UDim.new(0.25, 0), 3, 9)
+		iPart(h, 14, 16, 11, 11, 0, WHITE, IC.PILL, 3, 10)
+		iPart(h, 14, 16, 4.6, 4.6, 0, INK, IC.PILL, nil, 11)
+		iPart(h, 21.5, 11.5, 2.6, 2.6, 0, WHITE, IC.PILL, nil, 10)
+	end
+
+	function IC.sair(h)
+		iPart(h, 9, 14, 12, 20, 0, IC.CORAL, UDim.new(0.2, 0), 3, 8)
+		iPart(h, 19, 14, 18.5, 6.5, 0, INK, IC.PILL, nil, 9)
+		iPart(h, 23, 11.5, 13.6, 6.5, 45, INK, IC.PILL, nil, 9)
+		iPart(h, 23, 16.5, 13.6, 6.5, -45, INK, IC.PILL, nil, 9)
+		iPart(h, 19, 14, 14.6, 2.6, 0, WHITE, IC.PILL, nil, 10)
+		iPart(h, 23, 11.5, 9.7, 2.6, 45, WHITE, IC.PILL, nil, 10)
+		iPart(h, 23, 16.5, 9.7, 2.6, -45, WHITE, IC.PILL, nil, 10)
+	end
+
+	-- onText(texto, setOn): chamado quando o Text do botao muda (usado pelo VIDRO pra ligar/desligar)
+	local function makeBtn(i, label, draw, onText)
+		local b = mk("TextButton", { Name = "Btn" .. i, LayoutOrder = i, Size = UDim2.fromOffset(66, 72),
 			BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false, Text = label, TextTransparency = 1,
 			TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 5 }, pad)
 		local sc = mk("UIScale", { Name = "BtnScale" }, b)
-		local glow = frame(b, -6, -6, 72, 78, col, 1, 20)
-		glow.ZIndex = 1
-		local lip = frame(b, 0, 6, 60, 60, col:Lerp(BLACK, 0.5), 0, 15)
-		lip.ZIndex = 2
-		ink(lip, 3)
-		local face = frame(b, 0, 0, 60, 60, col, 0, 15)
-		face.ZIndex = 3
-		ink(face, 3)
-		grad(face, WHITE, Color3.fromRGB(205, 205, 205), 90)
-		frame(face, 8, 5, 44, 7, WHITE, 0.55, 4)
-		local holder = frame(face, 15, 9, 30, 30, WHITE, 1)
+		local face = mk("Frame", { Name = "Face", BackgroundTransparency = 1, BorderSizePixel = 0,
+			Size = UDim2.fromScale(1, 1), ZIndex = 6 }, b)
+		local holder = mk("Frame", { Name = "Icon", BackgroundTransparency = 1, BorderSizePixel = 0,
+			Position = UDim2.fromOffset(11, 2), Size = UDim2.fromOffset(44, 44), ZIndex = 7 }, face)
+		IC.parts = {}
 		draw(holder)
-		local lb = text(face, label, 12, INK, 0, 41, 60, 16)
-		if not isTouchOnly then
-			local hb = mk("TextLabel", { BackgroundColor3 = WHITE, BorderSizePixel = 0, Text = hint, TextSize = 8,
-				TextColor3 = INK, Font = Enum.Font.GothamBold, AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.fromOffset(0, 12), Position = UDim2.fromOffset(-4, -4), ZIndex = 8 }, face)
-			mk("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3) }, hb)
-			mk("UICorner", { CornerRadius = UDim.new(0, 4) }, hb)
-			ink(hb, 1.5)
-		end
-		b:GetPropertyChangedSignal("Text"):Connect(function()
-			lb.Text = b.Text
-			if onText then onText(b.Text) end
-		end)
+		local parts = IC.parts
+		local lb = text(face, label, 14, WHITE, 0, 49, 66, 18)
+		lb.ZIndex = 20
+		mk("UIStroke", { Color = INK, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
+			LineJoinMode = Enum.LineJoinMode.Round }, lb)
 
 		local on, hover, down = false, false, false
-		local function render()
-			local lift = (on or down) and 4 or 0
-			tw(face, 0.07, { Position = UDim2.fromOffset(0, lift) })
-			tw(face, 0.12, { BackgroundColor3 = on and col:Lerp(WHITE, 0.45) or col })
-			tw(glow, 0.15, { BackgroundTransparency = on and 0.55 or 1 })
+		local function renderPos()
+			tw(face, 0.07, { Position = UDim2.fromOffset(0, (on or down) and 2 or 0) })
+		end
+		local function setOn(v)
+			v = v and true or false
+			if on == v then return end
+			on = v
+			renderPos()
+			for _, p in ipairs(parts) do
+				tw(p[1], 0.12, { BackgroundColor3 = on and p[2]:Lerp(BLACK, 0.2) or p[2] })
+			end
+		end
+		if onText then
+			b:GetPropertyChangedSignal("Text"):Connect(function() onText(b.Text, setOn) end)
 		end
 		b.MouseEnter:Connect(function()
 			hover = true
-			tw(sc, 0.14, { Scale = 1.06 })
+			tw(sc, 0.14, { Scale = 1.08 })
 		end)
 		b.MouseLeave:Connect(function()
 			hover = false
 			down = false
 			tw(sc, 0.14, { Scale = 1 })
-			render()
+			renderPos()
 		end)
 		b.MouseButton1Down:Connect(function()
 			down = true
-			tw(sc, 0.07, { Scale = 0.94 })
-			render()
+			tw(sc, 0.07, { Scale = 0.92 })
+			renderPos()
 		end)
 		b.MouseButton1Up:Connect(function()
 			down = false
-			tw(sc, 0.25, { Scale = hover and 1.06 or 1 }, Enum.EasingStyle.Back)
-			render()
+			tw(sc, 0.25, { Scale = hover and 1.08 or 1 }, Enum.EasingStyle.Back)
+			renderPos()
 		end)
-		return b, function(v)
-			on = v
-			render()
-		end
+		return b, setOn
 	end
 
-	local btnCanopy = makeBtn(0, "VIDRO", "G", Color3.fromRGB(150, 230, 200), function(f)
-		local ic = subIcon(f)
-		idot(ic, 14, 14, 24, INK)
-		idot(ic, 14, 14, 18, Color3.fromRGB(190, 255, 230))
-		idot(ic, 14, 20, 12, Color3.fromRGB(190, 255, 230))
-	end)
+	local btnCanopy = makeBtn(0, "VIDRO", IC.vidro, function(t, set) set(t == "FECHAR") end)
 	btnCanopy.Name = "BtnCanopy"
 	api.canopyBtn = btnCanopy
 	btnCanopy.Text = "ABRIR"
 	btnCanopy.MouseButton1Click:Connect(function() api.toggleCanopy() end)
-	local btnView = makeBtn(1, "VISTA", "V", Color3.fromRGB(96, 196, 255), function(f)
-		local ic = subIcon(f)
-		idot(ic, 14, 14, 24, INK)
-		idot(ic, 14, 14, 17, WHITE)
-		idot(ic, 14, 14, 9, INK)
-	end)
+	local btnView, setViewOn = makeBtn(1, "CÂMERA", IC.camera)
+	api.viewSet = setViewOn
 	btnView.MouseButton1Click:Connect(function() api.toggleCloseView() end)
 	-- estado do turbo (sem botao no painel; o botao novo fica ao lado da luz)
 	btnTurbo = Instance.new("TextLabel")
 	btnTurbo.TextColor3 = Theme.Text
-	local btnExit = makeBtn(5, "SAIR", "F", Color3.fromRGB(255, 92, 100), function(f)
-		drawExit(subIcon(f), INK)
-	end)
-
+	local btnExit = makeBtn(5, "SAIR", IC.sair)
 	btnExit.MouseButton1Click:Connect(function() api.exit() end)
 
 	boardBtn = mk("TextButton", { Name = "BoardBtn", AnchorPoint = Vector2.new(0.5, 1),
@@ -4520,6 +4549,7 @@ State.buildShipSystem = function(ctx)
 		infoLbl.Visible = false
 		held.up, held.down, held.turbo = false, false, false
 		held.brake, held.brakeUi, held.closeView = false, false, false
+		if api.viewSet then api.viewSet(false) end
 		btnTurbo.TextColor3 = Theme.Text
 	end
 
@@ -5790,6 +5820,7 @@ State.buildShipSystem = function(ctx)
 	function api.toggleCloseView()
 		if not (ship and ship.state == "flying") then return end
 		held.closeView = not held.closeView
+		if api.viewSet then api.viewSet(held.closeView) end
 		pcall(function()
 			if held.closeView then
 				player.CameraMinZoomDistance = 0.6

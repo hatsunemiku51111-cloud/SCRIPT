@@ -28,6 +28,13 @@ local Config = {
 	GearTop = { 0.2, 0.4, 0.6, 0.8, 1.0 },
 	GearAccel = { 2.2, 1.7, 1.35, 1.12, 1.0 },
 	StartGear = 5,
+	-- MODO CAMERA (tecla V / botao CAMERA): libera o zoom da camera sentado e vai pra 1a pessoa
+	CamKey = Enum.KeyCode.V,
+	CamMaxZoom = 60,
+	CamShowBody = false,   -- true = mostra tambem o tronco/pernas na 1a pessoa (alem dos bracos)
+	-- BRACOS: mao direita no cambio
+	ShiftHoldTime = 0.45,  -- segundos que a mao fica no cambio depois de trocar marcha/modo
+	RestHandOnShifter = false, -- true = mao direita descansa no cambio quando o volante esta reto
 	ReverseTop = 45,
 	EngineBrake = 18,
 	BrakePedal = 65,
@@ -1422,59 +1429,6 @@ local PARTS = {
 {"ExhLip","c",0.06,0.4,0.62,1.7,1.12,10.39,0,90,0,"C2","M",0.8,0,""},
 {"ExhHole","c",0.06,0.26,0.46,1.7,1.12,10.42,0,90,0,"K","P",0,0,""},
 {"RValance","b",6.4,0.65,0.3,0,1.3,9.7,0,0,0,"K","P",0,0,""},
-{"Dash","b",6,2.2,1.3,0,2.4,-1.75,0,0,0,"K","P",0,0,""},
-{"DashPad","b",6,0.14,1.3,0,3.58,-1.75,0,0,0,"D","P",0,0,""},
-{"DashFace","b",5.9,1,0.1,0,3,-1.12,0,0,0,"D","P",0,0,""},
-{"DashStitch","b",5.6,0.03,0.04,0,3.66,-1.2,0,0,0,"W","P",0,0,""},
-{"Cluster","b",2.3,0.62,0.55,-1.55,3.9,-1.35,0,0,0,"K","P",0,0,""},
-{"ClusterVisor","b",2.3,0.05,0.7,-1.55,4.24,-1.35,0,0,0,"K","P",0,0,""},
-{"ClusterFace","b",2.1,0.5,0.03,-1.55,3.9,-1.07,0,0,0,"D","P",0,0,""},
-{"DialRing","c",0.03,0.56,0.56,-2.25,3.9,-1.06,0,90,0,"C","M",0.4,0,""},
-{"DialFace","c",0.03,0.48,0.48,-2.25,3.9,-1.05,0,90,0,"WF","P",0,0,""},
-{"DialNeedle","b",0.03,0.2,0.02,-2.25,3.95,-1.03,0,0,20,"R","N",0,0,""},
-{"DialRing","c",0.03,0.56,0.56,-1.55,3.9,-1.06,0,90,0,"C","M",0.4,0,""},
-{"DialFace","c",0.03,0.48,0.48,-1.55,3.9,-1.05,0,90,0,"WF","P",0,0,""},
-{"DialNeedle","b",0.03,0.2,0.02,-1.55,3.95,-1.03,0,0,-5,"R","N",0,0,""},
-{"DialRing","c",0.03,0.56,0.56,-0.85,3.9,-1.06,0,90,0,"C","M",0.4,0,""},
-{"DialFace","c",0.03,0.48,0.48,-0.85,3.9,-1.05,0,90,0,"WF","P",0,0,""},
-{"DialNeedle","b",0.03,0.2,0.02,-0.85,3.95,-1.03,0,0,-30,"R","N",0,0,""},
-{"Radio","b",1.4,0.5,0.1,0.1,3.1,-1.1,0,0,0,"D","M",0.3,0,""},
-{"Knob","c",0.05,0.14,0.14,-0.45,3.1,-1.03,0,90,0,"C","M",0.4,0,""},
-{"Knob","c",0.05,0.14,0.14,-0.15,3.1,-1.03,0,90,0,"C","M",0.4,0,""},
-{"Knob","c",0.05,0.14,0.14,0.15,3.1,-1.03,0,90,0,"C","M",0.4,0,""},
-{"Knob","c",0.05,0.14,0.14,0.45,3.1,-1.03,0,90,0,"C","M",0.4,0,""},
-{"GloveBox","b",2,0.7,0.1,1.9,3,-1.1,0,0,0,"D","P",0,0,""},
-{"GloveHandle","b",0.5,0.08,0.06,1.9,3.2,-1.04,0,0,0,"C","M",0.4,0,""},
-{"Column","b",0.3,0.3,1,-1.55,3.05,-0.9,0,0,0,"K","P",0,0,""},
-{"ShiftBase","b",0.5,0.2,0.5,0,1.8,0.6,0,0,0,"D","P",0,0,""},
-{"ShiftStick","b",0.1,0.8,0.1,0,2.2,0.6,0,0,0,"C","M",0.4,0,""},
-{"ShiftKnob","s",0.3,0.3,0.3,0,2.65,0.6,0,0,0,"K","P",0.1,0,""},
-{"SeatCushion","b",1.7,0.34,1.8,-1.55,1.62,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBolster","b",0.28,0.3,1.6,-2.25,1.78,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBolster","b",0.28,0.3,1.6,-0.85,1.78,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBack","b",1.7,1.9,0.38,-1.55,2.7,2.1,10,0,0,"W","P",0,0,""},
-{"SeatBackBolster","b",0.26,1.6,0.3,-2.3,2.65,1.95,10,0,0,"W","P",0,0,""},
-{"SeatBackBolster","b",0.26,1.6,0.3,-0.8,2.65,1.95,10,0,0,"W","P",0,0,""},
-{"Headrest","b",1,0.55,0.3,-1.55,3.85,2.4,10,0,0,"W","P",0,0,""},
-{"SeatBase","b",1.2,0.3,1.2,-1.55,1.38,1.2,0,0,0,"K","P",0,0,""},
-{"SeatCushion","b",1.7,0.34,1.8,1.55,1.62,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBolster","b",0.28,0.3,1.6,0.85,1.78,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBolster","b",0.28,0.3,1.6,2.25,1.78,1.1,0,0,0,"W","P",0,0,""},
-{"SeatBack","b",1.7,1.9,0.38,1.55,2.7,2.1,10,0,0,"W","P",0,0,""},
-{"SeatBackBolster","b",0.26,1.6,0.3,0.8,2.65,1.95,10,0,0,"W","P",0,0,""},
-{"SeatBackBolster","b",0.26,1.6,0.3,2.3,2.65,1.95,10,0,0,"W","P",0,0,""},
-{"Headrest","b",1,0.55,0.3,1.55,3.85,2.4,10,0,0,"W","P",0,0,""},
-{"SeatBase","b",1.2,0.3,1.2,1.55,1.38,1.2,0,0,0,"K","P",0,0,""},
-{"RCushion","b",5.6,0.34,1.5,0,1.7,3.45,0,0,0,"W","P",0,0,""},
-{"RBack","b",5.6,1.5,0.3,0,2.55,4.25,8,0,0,"W","P",0,0,""},
-{"DoorPanelIn","b",0.06,0.9,4.4,-2.94,2.5,0.1,0,0,0,"W","P",0,0,""},
-{"Armrest","b",0.3,0.2,1.8,-2.78,2.95,0.9,0,0,0,"K","P",0,0,""},
-{"DoorPull","b",0.08,0.1,0.7,-2.9,2.7,0.8,0,0,0,"C","M",0.4,0,""},
-{"WinCrank","b",0.08,0.1,0.1,-2.9,2.4,-0.6,0,0,0,"C","M",0.4,0,""},
-{"DoorPanelIn","b",0.06,0.9,4.4,2.94,2.5,0.1,0,0,0,"W","P",0,0,""},
-{"Armrest","b",0.3,0.2,1.8,2.78,2.95,0.9,0,0,0,"K","P",0,0,""},
-{"DoorPull","b",0.08,0.1,0.7,2.9,2.7,0.8,0,0,0,"C","M",0.4,0,""},
-{"WinCrank","b",0.08,0.1,0.1,2.9,2.4,-0.6,0,0,0,"C","M",0.4,0,""},
 {"BodyCapF","w",4,0.04,0.22,0,3.3695,-9.9,0,180,0,"B","P",0.12,0,""},
 {"BodyCapFB","w",4,0.05,0.22,0,1.0995,-9.9,0,180,180,"B","P",0.12,0,""},
 {"BodyCapF","w",4,0.0255,0.22,0,3.4022,-9.7,0,180,0,"B","P",0.12,0,""},
@@ -1801,6 +1755,7 @@ local PARTS = {
 }
 
 local COLS = {
+	LT = Color3.fromRGB(20, 20, 23),
 	B = Config.BodyColor, K = Color3.fromRGB(12, 12, 14), G = Color3.fromRGB(18, 24, 32), C = Color3.fromRGB(205, 209, 217),
 	T = Color3.fromRGB(10, 10, 12), W = Color3.fromRGB(214, 208, 192), R = Color3.fromRGB(200, 20, 20), A = Color3.fromRGB(255, 150, 0),
 	D = Color3.fromRGB(46, 47, 53), L = Color3.fromRGB(60, 0, 0), H = Color3.fromRGB(150, 155, 160), WF = Color3.fromRGB(235, 238, 240),
@@ -1817,6 +1772,19 @@ local LITE_SKIP = { TreadLug = true, TreadOutRib = true, LipBolt = true, DiscHol
 local function attachLogic(car, bodyColor)
 	car.animate = function(c, dt, spd)
 		local a = c.driver and math.clamp((c.rpm or 0) / 7000, 0, 1) or 0.04
+		if c.shiftW then
+			local tg = c.mode == "P" and -0.26 or (c.mode == "R" and -0.1 or (c.mode == "N" and 0.07 or 0.23))
+			local roll = math.sin(os.clock() * 38) * 0.006 * a
+			local kk = c.gearKick
+			if kk then
+				local e = os.clock() - kk
+				if e < 0.35 then roll = roll + math.sin(e / 0.35 * math.pi) * 0.1 * (c.gearDir or 1) else c.gearKick = nil end
+			end
+			local cur = c._shAng or tg
+			cur = cur + (tg - cur) * (1 - math.exp(-16 * dt))
+			c._shAng = cur
+			c.shiftW.C0 = c.shiftBase * CFrame.Angles(cur, 0, roll)
+		end
 		c.bw.C0 = CFrame.new(0, math.sin(os.clock() * 55) * 0.012 * S * (0.3 + a), math.sin(os.clock() * 47) * 0.008 * S * a)
 		c._ang = (c._ang or 0) + dt * (2 + (c.rpm or 0) / 900 * 3)
 		local ang = c._ang
@@ -2175,20 +2143,263 @@ local function buildCarRaw()
 		car.wheelOff[i] = Vector3.new(sd * cx * S, 0, z * S)
 	end
 
-	local SWX, SWY, SWZ, TILT = -1.55, 3.28, -0.4, 18
+	local SWX, SWY, SWZ, TILT = -1.55, 3.1, -0.4, 18
+	local CHRW = Color3.fromRGB(214, 218, 226)
+	local SLOT = Color3.fromRGB(10, 10, 13)
 	local sw, swW = add("SteerHub", V(0.22, 0.5, 0.5), P(SWX, SWY, SWZ, -TILT, 90, 0), Color3.fromRGB(14, 14, 17), MATS.P, "cyl", 0, nil, 0)
 	local RR = 0.62
-	for k = 0, 15 do
-		local a = k * 22.5
+	local WOOD1, WOOD2 = Color3.fromRGB(132, 78, 41), Color3.fromRGB(106, 61, 31)
+	local NR = 32
+	for k = 0, NR - 1 do
+		local a = k * (360 / NR)
 		local ar = math.rad(a)
-		add("SteerRim", V(0.12, 0.14, 0.27), P(0, RR * math.cos(ar), RR * math.sin(ar), a, 0, 0), Color3.fromRGB(20, 20, 23), MATS.P, nil, 0, sw, 0.1)
+		local arc = 2 * math.pi * RR / NR * 1.12
+		local th = (k % 2 == 0) and 0.17 or 0.186
+		add("SteerRim", V(th, th, arc), P(0, RR * math.cos(ar), RR * math.sin(ar), a, 0, 0), (k % 2 == 0) and WOOD1 or WOOD2, Enum.Material.Wood, nil, 0, sw, 0.04)
 	end
-	for k = 0, 2 do
-		add("SteerSpoke", V(0.06, 0.08, RR * 2), P(0, 0, 0, k * 60, 0, 0), COLS.C, MATS.M, nil, 0, sw, 0.4)
+	for _, th in ipairs({ 100, 180, 260 }) do
+		local tr = math.rad(th)
+		local function at(r, ax) return P(ax, r * math.cos(tr), r * math.sin(tr), th, 0, 0) end
+		add("SteerSpokeRoot", V(0.09, 0.2, 0.3), at(0.2, -0.04), CHRW, MATS.M, nil, 0, sw, 0.55)
+		add("SteerSpoke", V(0.064, 0.36, 0.2), at(0.43, -0.05), CHRW, MATS.M, nil, 0, sw, 0.55)
+		for _, rr in ipairs({ 0.35, 0.47 }) do
+			add("SteerSlot", V(0.09, 0.09, 0.09), at(rr, -0.052), SLOT, MATS.P, nil, 0, sw, 0)
+		end
 	end
-	add("SteerCenter", V(0.1, 0.34, 0.34), P(-0.06, 0, 0), COLS.C, MATS.M, "cyl", 0, sw, 0.5)
-	add("SteerBadge", V(0.1, 0.2, 0.2), P(-0.1, 0, 0), Color3.fromRGB(160, 20, 20), MATS.P, "cyl", 0, sw, 0)
+	add("SteerCenter", V(0.12, 0.42, 0.42), P(-0.1, 0, 0), CHRW, MATS.M, "cyl", 0, sw, 0.6)
+	add("SteerHorn", V(0.06, 0.3, 0.3), P(-0.17, 0, 0), Color3.fromRGB(14, 14, 17), MATS.P, "cyl", 0, sw, 0.1)
+	add("SteerBadge", V(0.04, 0.16, 0.16), P(-0.21, 0, 0), Color3.fromRGB(190, 20, 24), MATS.P, "cyl", 0, sw, 0.1)
+	add("SteerBadgeBar", V(0.03, 0.04, 0.13), P(-0.235, 0, 0), CHRW, MATS.M, nil, 0, sw, 0.6)
 	car.sw, car.swW, car.swBase = sw, swW, swW.C0
+
+	local LEA = Color3.fromRGB(20, 20, 23)
+	local LEA2 = Color3.fromRGB(31, 31, 35)
+	local SEATD = Color3.fromRGB(10, 10, 12)
+	local PLC = Color3.fromRGB(8, 8, 10)
+	local WHT = Color3.fromRGB(236, 238, 240)
+	local REDN = Color3.fromRGB(214, 26, 26)
+	local PANEL = Color3.fromRGB(22, 22, 25)
+	local PANEL2 = Color3.fromRGB(32, 32, 36)
+	local AMB = Color3.fromRGB(226, 190, 110)
+	local GZ = { bez = -1.065, face = -1.04, tick = -1.025, dec = -1.015, ndl = -0.99, hub = -0.975 }
+
+	local function surf(part, face, cw, ch)
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = face
+		sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		sg.CanvasSize = Vector2.new(cw, ch)
+		sg.LightInfluence = 0
+		sg.Parent = part
+		return sg
+	end
+	local function txt(parent, text, x, y, w, h, col)
+		local t = Instance.new("TextLabel")
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.new(0, x, 0, y)
+		t.Size = UDim2.new(0, w, 0, h)
+		t.BackgroundTransparency = 1
+		t.Text = text
+		t.TextColor3 = col
+		t.TextScaled = true
+		t.Font = Enum.Font.GothamBold
+		t.Parent = parent
+		return t
+	end
+
+	add("DashBody", V(5.9, 2.1, 1.25), P(0, 2.35, -1.775), COLS.K, MATS.P, nil, 0, nil, 0)
+	add("DashPadPass", V(3.15, 0.22, 1.32), P(1.375, 3.51, -1.74), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("DashPadBack", V(2.75, 0.22, 1.25), P(-1.575, 3.51, -1.775), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("ClusterPlate", V(2.3, 0.62, 0.08), P(-1.6, 3.31, -1.12), PLC, MATS.P, nil, 0, nil, 0)
+	add("ClusterBrow", V(2.4, 0.05, 0.2), P(-1.6, 3.645, -1.06), COLS.K, MATS.P, nil, 0, nil, 0.1)
+
+	local function gauge(cx, cy, d, a0, sweep, nSeg, majorEvery, labels, redFrac, caption, nA)
+		add("GaugeBezel", V(0.03, d + 0.09, d + 0.09), P(cx, cy, GZ.bez, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("GaugeFace", V(0.02, d, d), P(cx, cy, GZ.face, 0, 90, 0), PLC, MATS.P, "cyl", 0, nil, 0)
+		local ro = d * 0.5 * 0.93
+		for i = 0, nSeg do
+			local f = i / nSeg
+			local a = a0 + sweep * f
+			local mj = (i % majorEvery == 0)
+			local len = mj and d * 0.14 or d * 0.07
+			local rc = ro - len / 2
+			local ar = math.rad(a)
+			local col = (redFrac and f >= redFrac) and REDN or WHT
+			add("GaugeTick", V(mj and 0.016 or 0.009, len, 0.01), P(cx + rc * math.sin(ar), cy + rc * math.cos(ar), GZ.tick, 0, 0, -a), col, MATS.P, nil, 0, nil, 0)
+		end
+		local dec = add("GaugeDecal", V(d, d, 0.01), P(cx, cy, GZ.dec), PLC, MATS.P, nil, 1, nil, 0)
+		if dec then
+			local sg = surf(dec, Enum.NormalId.Back, 200, 200)
+			if labels then
+				for i, tx in ipairs(labels) do
+					local f = (i - 1) / math.max(#labels - 1, 1)
+					local ar = math.rad(a0 + sweep * f)
+					txt(sg, tx, 100 + 56 * math.sin(ar), 100 - 56 * math.cos(ar), 30, 20, WHT)
+				end
+			end
+			if caption then txt(sg, caption, 100, 150, 90, 20, REDN) end
+		end
+		local pv, pw = add("NeedlePivot", V(0.02, 0.02, 0.02), P(cx, cy, GZ.ndl, 0, 0, -nA), COLS.K, MATS.P, nil, 1, nil, 0)
+		local nl = d * 0.5 * 0.86
+		add("Needle", V(0.022, nl + 0.05, 0.02), P(0, (nl - 0.05) / 2, 0), REDN, MATS.P, nil, 0, pv, 0)
+		add("NeedleHub", V(0.03, d * 0.15, d * 0.15), P(cx, cy, GZ.hub, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.7)
+		return pw
+	end
+
+	car.nS = gauge(-2.4, 3.31, 0.5, -135, 270, 24, 2, { "0", "40", "80", "120", "160", "200", "240" }, nil, "KM/H", -135)
+	car.nT = gauge(-1.75, 3.31, 0.5, -135, 270, 16, 2, { "0", "1", "2", "3", "4", "5", "6", "7", "8" }, 0.8125, "RPM x1000", -135)
+	car.nSBase = car.nS and car.nS.C0
+	car.nTBase = car.nT and car.nT.C0
+	gauge(-1.15, 3.45, 0.17, -60, 120, 4, 2, nil, nil, nil, 25)
+	gauge(-0.75, 3.45, 0.17, -60, 120, 4, 2, nil, nil, nil, 0)
+	gauge(-1.15, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 12)
+	gauge(-0.75, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 8)
+
+	add("StackBezel", V(1.6, 1.15, 0.08), P(0, 2.375, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
+	add("StackTrimT", V(1.64, 0.04, 0.03), P(0, 2.97, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("StackTrimB", V(1.64, 0.04, 0.03), P(0, 1.78, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("StackTrimS", V(0.04, 1.15, 0.03), P(sd * 0.82, 2.375, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("RadioBody", V(1.4, 0.44, 0.05), P(0, 2.65, -1.065), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("RadioDial", V(0.78, 0.13, 0.02), P(-0.12, 2.72, -1.035), AMB, MATS.P, nil, 0, nil, 0)
+	add("RadioNeedle", V(0.012, 0.15, 0.02), P(0.08, 2.72, -1.02), REDN, MATS.P, nil, 0, nil, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("RadioKnob", V(0.05, 0.2, 0.2), P(sd * 0.58, 2.65, -1.03, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	end
+	for i = 0, 4 do
+		add("RadioKey", V(0.14, 0.08, 0.03), P(-0.4 + i * 0.2, 2.55, -1.035), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	add("HvacPanel", V(1.4, 0.55, 0.05), P(0, 2.15, -1.065), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	for i, kx in ipairs({ -0.35, 0.15, 0.4 }) do
+		local ty = 2.35 - (i - 1) * 0.15
+		add("HvacSlot", V(1.1, 0.03, 0.012), P(0, ty, -1.04), SLOT, MATS.P, nil, 0, nil, 0)
+		add("HvacSlider", V(0.1, 0.12, 0.05), P(kx, ty, -1.03), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("LighterRing", V(0.04, 0.17, 0.17), P(0.45, 1.88, -1.06, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	add("LighterPlug", V(0.02, 0.1, 0.1), P(0.45, 1.88, -1.035, 0, 90, 0), SLOT, MATS.P, "cyl", 0, nil, 0)
+
+	add("GloveDoor", V(1.7, 0.8, 0.08), P(2.05, 2.6, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
+	add("GloveTrimT", V(1.74, 0.03, 0.03), P(2.05, 3.0, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("GloveTrimB", V(1.74, 0.03, 0.03), P(2.05, 2.2, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("GloveHandle", V(0.5, 0.07, 0.05), P(2.05, 2.88, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("KneePanelL", V(1.35, 0.7, 0.08), P(-1.5, 2.0, -1.12), PANEL, MATS.P, nil, 0, nil, 0.04)
+	add("KneePanelR", V(1.35, 0.7, 0.08), P(1.6, 1.75, -1.12), PANEL, MATS.P, nil, 0, nil, 0.04)
+	for _, vd in ipairs({ { -2.6, 2.7 }, { 2.6, 3.2 } }) do
+		local vx, vy = vd[1], vd[2]
+		add("VentFrame", V(0.56, 0.3, 0.06), P(vx, vy, -1.13), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("VentInner", V(0.48, 0.22, 0.03), P(vx, vy, -1.095), PLC, MATS.P, nil, 0, nil, 0)
+		for i = 0, 3 do
+			add("VentSlat", V(0.46, 0.025, 0.02), P(vx, vy - 0.075 + i * 0.05, -1.07), PANEL2, MATS.P, nil, 0, nil, 0)
+		end
+	end
+
+	add("Column", V(1.1, 0.34, 0.34), P(-1.55, 2.915, -0.971, -18, 90, 0), COLS.K, MATS.P, "cyl", 0, nil, 0.05)
+	add("ColumnCollar", V(0.05, 0.4, 0.4), P(-1.55, 2.852, -1.165, -18, 90, 0), PANEL, MATS.P, "cyl", 0, nil, 0)
+	add("StalkL", V(0.5, 0.05, 0.05), P(-1.97, 2.98, -0.78, 0, 0, 6), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("StalkLTip", V(0.14, 0.08, 0.08), P(-2.25, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("StalkR", V(0.5, 0.05, 0.05), P(-1.13, 2.98, -0.78, 0, 0, -6), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("StalkRTip", V(0.14, 0.08, 0.08), P(-0.85, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
+
+	local function pedal(nm, x, y, z, w, h, rx, ribs)
+		local pd = add(nm, V(w, h, 0.09), P(x, y, z, rx, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
+		for i = 1, ribs do
+			add(nm .. "Rib", V(w - 0.08, 0.03, 0.025), P(0, (i - (ribs + 1) / 2) * (h / (ribs + 1)), 0.052), COLS.K, MATS.P, nil, 0, pd, 0)
+		end
+		add(nm .. "Arm", V(0.09, 0.9, 0.06), P(x, y + 0.5, z - 0.2, -14, 0, 0), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	pedal("PedalBrake", -1.78, 1.62, -0.82, 0.62, 0.42, -35, 4)
+	pedal("PedalGas", -1.2, 1.62, -0.82, 0.3, 0.78, -28, 5)
+	add("DeadPedal", V(0.5, 0.34, 0.06), P(-2.35, 1.5, -0.88, -25, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
+
+	for _, sx in ipairs({ -1.55, 1.55 }) do
+		add("FloorMat", V(1.7, 0.03, 2.4), P(sx, 1.265, 0), PANEL, MATS.P, nil, 0, nil, 0)
+	end
+
+	for _, sd in ipairs({ -1, 1 }) do
+		local dx = sd * 2.94
+		add("DoorPanelIn", V(0.06, 0.9, 4.4), P(dx, 2.5, 0.1), PANEL, MATS.P, nil, 0, nil, 0.03)
+		add("DoorCap", V(0.1, 0.04, 4.2), P(sd * 2.92, 2.97, 0.1), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("DoorStrip", V(0.03, 0.035, 3.9), P(sd * 2.905, 2.45, 0.1), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("Armrest", V(0.3, 0.2, 1.8), P(sd * 2.78, 2.95, 0.9), PANEL2, MATS.P, nil, 0, nil, 0.05)
+		add("DoorPull", V(0.07, 0.07, 0.8), P(sd * 2.86, 2.68, 0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+		for _, pz in ipairs({ 0.55, 1.25 }) do
+			add("DoorPullPost", V(0.08, 0.07, 0.07), P(sd * 2.875, 2.68, pz), CHRW, MATS.M, nil, 0, nil, 0.6)
+		end
+		add("CrankRosette", V(0.03, 0.24, 0.24), P(sd * 2.895, 2.4, -0.6, 0, 0, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("CrankHub", V(0.05, 0.1, 0.1), P(sd * 2.87, 2.4, -0.6, 0, 0, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("CrankArm", V(0.04, 0.04, 0.34), P(sd * 2.835, 2.4, -0.43), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("CrankKnob", V(0.1, 0.09, 0.09), P(sd * 2.8, 2.4, -0.27), COLS.K, MATS.P, "cyl", 0, nil, 0)
+		add("DoorLock", V(0.04, 0.03, 0.03), P(sd * 2.9, 3.0, -0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+
+	for _, sx in ipairs({ -1.55, 1.55 }) do
+		add("SeatBase", V(1.2, 0.3, 1.2), P(sx, 1.38, 1.2), COLS.K, MATS.P, nil, 0, nil, 0)
+		add("SeatCushion", V(1.0, 0.3, 1.7), P(sx, 1.62, 1.1), LEA, MATS.P, nil, 0, nil, 0.03)
+		for i = 0, 4 do
+			add("SeatPleat", V(0.17, 0.04, 1.55), P(sx - 0.4 + i * 0.2, 1.79, 1.1), LEA2, MATS.P, nil, 0, nil, 0.04)
+		end
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBolster", V(0.34, 0.42, 1.7), P(sx + sd * 0.67, 1.72, 1.1), LEA, MATS.P, nil, 0, nil, 0.03)
+		end
+		add("SeatFront", V(1.68, 0.3, 0.2), P(sx, 1.6, 0.18), LEA, MATS.P, nil, 0, nil, 0.03)
+		local bp = add("SeatBackPivot", V(0.1, 0.1, 0.1), P(sx, 2.7, 2.1, 10, 0, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+		add("SeatBackShell", V(1.7, 1.9, 0.22), P(0, 0, 0.08), SEATD, MATS.P, nil, 0, bp, 0)
+		for i = 0, 4 do
+			add("SeatBackPleat", V(0.17, 1.55, 0.05), P(-0.4 + i * 0.2, -0.02, -0.13), LEA2, MATS.P, nil, 0, bp, 0.04)
+		end
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBackBolster", V(0.34, 1.7, 0.3), P(sd * 0.67, -0.02, -0.1), LEA, MATS.P, nil, 0, bp, 0.03)
+			add("HeadrestPost", V(0.06, 0.34, 0.06), P(sd * 0.26, 0.92, 0), CHRW, MATS.M, nil, 0, bp, 0.6)
+		end
+		add("Headrest", V(0.9, 0.46, 0.26), P(0, 1.13, 0), LEA, MATS.P, nil, 0, bp, 0.03)
+		add("HeadrestCap", V(0.74, 0.1, 0.22), P(0, 1.41, 0.01), LEA2, MATS.P, nil, 0, bp, 0.04)
+	end
+
+	add("RCushion", V(5.6, 0.34, 1.5), P(0, 1.7, 3.45), LEA, MATS.P, nil, 0, nil, 0.03)
+	local rbp = add("RBackPivot", V(0.1, 0.1, 0.1), P(0, 2.55, 4.25, 8, 0, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+	add("RBackShell", V(5.6, 1.5, 0.3), P(0, 0, 0), LEA, MATS.P, nil, 0, rbp, 0.03)
+	for i = 0, 8 do
+		local px = -2.48 + i * 0.62
+		add("RPleat", V(0.54, 0.04, 1.4), P(px, 1.89, 3.45), LEA2, MATS.P, nil, 0, nil, 0.04)
+		add("RBackPleat", V(0.54, 1.4, 0.04), P(px, 0, -0.17), LEA2, MATS.P, nil, 0, rbp, 0.04)
+	end
+
+	add("ConsoleBody", V(1.1, 0.8, 3.4), P(0, 1.75, 0.9), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("ConsolePlate", V(1.0, 0.05, 1.95), P(0, 2.165, 0.175), PANEL, MATS.P, nil, 0, nil, 0.1)
+	add("ConsoleLid", V(1.02, 0.14, 1.35), P(0, 2.22, 1.9), COLS.K, MATS.P, nil, 0, nil, 0.08)
+	add("ConsoleLidPad", V(0.9, 0.03, 1.2), P(0, 2.295, 1.9), LEA2, MATS.P, nil, 0, nil, 0.04)
+	add("ConsoleLidSeam", V(1.06, 0.03, 0.04), P(0, 2.2, 1.2), SLOT, MATS.P, nil, 0, nil, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("ConsoleTrim", V(0.04, 0.04, 3.4), P(sd * 0.54, 2.15, 0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("GateEdge", V(0.035, 0.02, 1.2), P(sd * 0.2, 2.195, 0), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("GateEnd", V(0.435, 0.02, 0.035), P(0, 2.195, sd * 0.6), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("GateInner", V(0.37, 0.01, 1.17), P(0, 2.192, 0), Color3.fromRGB(14, 14, 16), MATS.P, nil, 0, nil, 0)
+	add("GateSlot", V(0.16, 0.02, 0.95), P(0, 2.2, 0), SLOT, MATS.P, nil, 0, nil, 0)
+	local lab = add("GateLabels", V(0.16, 0.6, 0.012), P(0.33, 2.196, -0.02, -90, 0, 0), PLC, MATS.P, nil, 1, nil, 0)
+	if lab then
+		local sg = surf(lab, Enum.NormalId.Back, 64, 240)
+		for i, ch in ipairs({ "P", "R", "N", "D" }) do
+			txt(sg, ch, 32, 30 + (i - 1) * 60, 40, 44, WHT)
+		end
+	end
+	add("BadgeBack", V(0.44, 0.2, 0.012), P(0, 2.196, 0.86, -90, 0, 0), CHRW, MATS.M, nil, 0, nil, 0.6)
+	local bdg = add("BadgeRed", V(0.36, 0.14, 0.012), P(0, 2.203, 0.86, -90, 0, 0), Color3.fromRGB(190, 20, 24), MATS.P, nil, 0, nil, 0)
+	if bdg then
+		local sg = surf(bdg, Enum.NormalId.Back, 180, 70)
+		txt(sg, "R/T", 90, 35, 150, 56, WHT)
+	end
+	add("ConsoleVentBack", V(0.7, 0.6, 0.03), P(0, 1.7, 2.605), SLOT, MATS.P, nil, 0, nil, 0)
+	for i = 0, 3 do
+		add("ConsoleVent", V(0.62, 0.04, 0.03), P(0, 1.5 + i * 0.13, 2.62), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	add("ShiftBase", V(0.04, 0.26, 0.26), P(0, 2.21, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	local piv, pivW = add("ShiftPivot", V(0.1, 0.1, 0.1), P(0, 2.2, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+	add("ShiftStick", V(0.62, 0.08, 0.08), P(0, 0.31, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.7)
+	add("ShiftCollar", V(0.04, 0.14, 0.14), P(0, 0.5, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.7)
+	add("ShiftKnob", V(0.4, 0.19, 0.19), P(0, 0.72, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.8)
+	add("ShiftCap", V(0.2, 0.2, 0.2), P(0, 0.93, 0), CHRW, MATS.M, "ball", 0, piv, 0.8)
+	car.shiftW, car.shiftBase, car.shiftKn = pivW, pivW.C0, Vector3.new(0, 0.97 * S, 0)
 
 	do
 		local bl = add("BrakeGlow", V(0.2, 0.2, 0.2), P(0, 3.35, 10.3), COLS.K, MATS.P, nil, 1, nil, 0)
@@ -2234,7 +2445,7 @@ local function buildCarRaw()
 	return car
 end
 
-local CACHE_VER = "v23"
+local CACHE_VER = "v30"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
 
@@ -2279,7 +2490,11 @@ local function tagCar(c)
 		for j, p in ipairs(w.spokes) do tagK(p, "w" .. i .. "s" .. j) end
 		for j, p in ipairs(w.discs) do tagK(p, "w" .. i .. "d" .. j) end
 	end
+	tagK(c.shiftW, "shW")
+	if c.shiftW then c.shiftW:SetAttribute("KN", c.shiftKn) end
 	tagK(c.sw, "sw")
+	tagK(c.nS, "nS")
+	tagK(c.nT, "nT")
 	tagK(c.swW, "swW")
 	tagK(c.brakeLight, "bk")
 	c.model:SetAttribute("BodyColor", c._body)
@@ -2292,7 +2507,7 @@ local function bindCar(model)
 		if k then K[k] = d end
 	end
 	local root = model.PrimaryPart or model:FindFirstChild("Root")
-	assert(root and K.bw and K.sw and K.swW and K.bk, "modelo incompleto")
+	assert(root and K.bw and K.sw and K.swW and K.bk and K.shW, "modelo incompleto")
 	model.PrimaryPart = root
 	local car = { model = model, root = root, wheels = {}, tails = {}, revs = {}, lampList = {}, smoke = {}, wheelOff = {}, lens = {}, chain = {}, spin = {}, glow = {} }
 	car.bw = K.bw
@@ -2331,6 +2546,14 @@ local function bindCar(model)
 		car.wheelOff[i] = Vector3.new(kw.C0.X, 0, kw.C0.Z)
 	end
 	car.sw, car.swW, car.swBase = K.sw, K.swW, K.swW.C0
+	car.shiftW = K.shW
+	if car.shiftW then
+		car.shiftBase = car.shiftW.C0
+		car.shiftKn = car.shiftW:GetAttribute("KN") or Vector3.new(0, 0.97 * S, 0)
+	end
+	car.nS, car.nT = K.nS, K.nT
+	if car.nS then car.nSBase = car.nS.C0 end
+	if car.nT then car.nTBase = car.nT.C0 end
 	car.brakeLight = K.bk
 	local plate = model:FindFirstChild("Plate")
 	local tl = plate and plate:FindFirstChildWhichIsA("TextLabel", true)
@@ -2429,6 +2652,10 @@ end
 local function setGear(n)
 	n = math.clamp(math.floor(n + 0.5), 1, 5)
 	if n == gear then return end
+	if car then
+		car.gearKick = os.clock()
+		car.gearDir = n > gear and 1 or -1
+	end
 	gear = n
 	playSound(Config.SoundDial, 0.7)
 end
@@ -2461,6 +2688,81 @@ local function setMode(name, force)
 	toast("CAMBIO: " .. name, Color3.fromRGB(120, 210, 255))
 	return true
 end
+
+local CAM = { on = false, orig = nil, snap = 0 }
+function CAM.set(on, silent)
+	on = on and true or false
+	if on == CAM.on then return end
+	local c = car
+	if on and not (c and c.driver) then return end
+	CAM.on = on
+	CAM.snap = CAM.snap + 1
+	local id = CAM.snap
+	local o = CAM.orig or { min = 0.5, max = 128 }
+	if on then
+		-- encosta a camera na cabeca (1a pessoa) e logo depois libera o zoom pra poder afastar com o scroll
+		pcall(function()
+			player.CameraMinZoomDistance = 0.5
+			player.CameraMaxZoomDistance = 0.5
+		end)
+		task.spawn(function()
+			for _ = 1, 3 do RunService.RenderStepped:Wait() end
+			if CAM.snap ~= id or not CAM.on then return end
+			pcall(function() player.CameraMaxZoomDistance = math.max(Config.CamMaxZoom, 5) end)
+		end)
+		if not silent then toast("CAMERA LIVRE  -  1a pessoa  (V sai, scroll afasta)", Color3.fromRGB(120, 210, 255)) end
+	else
+		pcall(function()
+			player.CameraMaxZoomDistance = math.max(o.max, 14)
+			player.CameraMinZoomDistance = 14
+		end)
+		if not silent then toast("CAMERA NORMAL", Color3.fromRGB(120, 210, 255)) end
+	end
+	if hudApi.camSet then hudApi.camSet(on) end
+end
+function CAM.toggle() CAM.set(not CAM.on) end
+-- devolve o zoom original do jogador (saida do carro / respawn)
+function CAM.reset()
+	CAM.snap = CAM.snap + 1
+	local was = CAM.on
+	CAM.on = false
+	if CAM.orig then
+		pcall(function()
+			player.CameraMinZoomDistance = CAM.orig.min
+			player.CameraMaxZoomDistance = CAM.orig.max
+		end)
+	end
+	CAM.orig = nil
+	if hudApi.camSet then hudApi.camSet(false) end
+	return was
+end
+-- 1a pessoa: o PlayerModule deixa o corpo todo invisivel; aqui os bracos voltam a aparecer segurando o volante
+local FP_ARMS = { LeftUpperArm = 1, LeftLowerArm = 1, LeftHand = 1, RightUpperArm = 1, RightLowerArm = 1, RightHand = 1, ["Left Arm"] = 1, ["Right Arm"] = 1 }
+local FP_BODY = { UpperTorso = 1, LowerTorso = 1, Torso = 1, LeftUpperLeg = 1, LeftLowerLeg = 1, LeftFoot = 1, RightUpperLeg = 1, RightLowerLeg = 1, RightFoot = 1, ["Left Leg"] = 1, ["Right Leg"] = 1 }
+function CAM.fpStep()
+	local ch = player.Character
+	local head = ch and ch:FindFirstChild("Head")
+	local cam = workspace.CurrentCamera
+	local fp = CAM.on and head and cam and car and car.driver and (cam.CFrame.Position - head.Position).Magnitude < 2.5
+	if fp then
+		for _, d in ipairs(ch:GetChildren()) do
+			if d:IsA("BasePart") and (FP_ARMS[d.Name] or (Config.CamShowBody and FP_BODY[d.Name])) then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+		CAM.fpOn = true
+	elseif CAM.fpOn then
+		CAM.fpOn = false
+		if ch then
+			local near = head and cam and (cam.CFrame.Position - head.Position).Magnitude < 2.5
+			for _, d in ipairs(ch:GetChildren()) do
+				if d:IsA("BasePart") and (FP_ARMS[d.Name] or FP_BODY[d.Name]) then
+					d.LocalTransparencyModifier = near and 1 or 0
+				end
+			end
+		end
+	end
+end
 local function enterCar(c)
 	if not c or c.driver then return end
 	local ch, hum, rpart = charParts()
@@ -2470,7 +2772,9 @@ local function enterCar(c)
 		jump = hum:GetStateEnabled(Enum.HumanoidStateType.Jumping),
 		auto = hum.AutoRotate,
 		minZoom = player.CameraMinZoomDistance,
+		maxZoom = player.CameraMaxZoomDistance,
 	}
+	CAM.orig = { min = player.CameraMinZoomDistance, max = player.CameraMaxZoomDistance }
 	for _, p in ipairs(ch:GetDescendants()) do
 		if p:IsA("BasePart") then
 			saved.collide[p] = p.CanCollide
@@ -2498,7 +2802,9 @@ local function restoreChar()
 			pcall(function() hum.AutoRotate = saved.auto ~= false end)
 		end
 		pcall(function() player.CameraMinZoomDistance = saved.minZoom or 0.5 end)
+		pcall(function() player.CameraMaxZoomDistance = saved.maxZoom or 128 end)
 	end
+	CAM.reset()
 	saved = nil
 	if hum then pcall(function() hum.Sit = false end) end
 end
@@ -2842,6 +3148,8 @@ local function carVisuals(c, dt)
 		end
 	end
 	c.swW.C0 = c.swBase * CFrame.Angles(c.steer * 2.6, 0, 0)
+	if c.nS then c.nS.C0 = c.nSBase * CFrame.Angles(0, 0, -math.rad(270 * math.clamp(math.abs(c.vF) / 240, 0, 1.03))) end
+	if c.nT then c.nT.C0 = c.nTBase * CFrame.Angles(0, 0, -math.rad(270 * math.clamp((c.rpm or 0) / 8000, 0, 1.03) + math.sin(os.clock() * 31) * 0.5)) end
 	if c.animate then c.animate(c, dt, c.vel and c.vel.Magnitude or 0) end
 	local braking = c.notch > 0 or c.brakePed > 0 or c.mode == "P" or c.parkPending
 	local ts = braking and 3 or (c.lamps and 2 or 1)
@@ -3152,6 +3460,7 @@ local function makeLever(parent, x, y, w, h, title, labels, onPick)
 		knob.Position = UDim2.fromOffset(15, curY)
 	end
 	L.root = rootF
+	function L.isDragging() return dragging end
 	L.idx = 0
 	L.set(1)
 	levers[#levers + 1] = L
@@ -3473,7 +3782,7 @@ function hudApi.toast(msg, color)
 end
 local rightF = frame(gui, 0, 0, 206, 176, PANEL, 1)
 rightF.AnchorPoint = Vector2.new(1, 1)
-rightF.Position = UDim2.new(1, -92, 1, -12)
+rightF.Position = UDim2.new(1, -8, 1, -12)
 addScale(rightF)
 local shifter = makeLever(rightF, 0, 0, 56, 176, "CAMBIO", { "P", "R", "N", "D" }, function(r)
 	setMode(MODES[r])
@@ -3521,9 +3830,9 @@ track(brakeBtn.InputEnded:Connect(function(i)
 	if isPress(i) then held.brakeUi = false end
 end))
 track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
-local quickF = frame(gui, 0, 0, 124, 46, PANEL, 1)
+local quickF = frame(gui, 0, 0, 190, 46, PANEL, 1)
 quickF.AnchorPoint = Vector2.new(1, 1)
-quickF.Position = UDim2.new(1, -92, 1, -252)
+quickF.Position = UDim2.new(1, -8, 1, -252)
 addScale(quickF)
 local function iconBtn(parent, x, y, w, h)
 	local b = Instance.new("TextButton")
@@ -3536,8 +3845,50 @@ local function iconBtn(parent, x, y, w, h)
 	b.Parent = parent
 	return b
 end
-local lampBtn = iconBtn(quickF, 0, 0, 58, 46)
-local exitBtn = iconBtn(quickF, 66, 0, 58, 46)
+local camBtn = iconBtn(quickF, 0, 0, 58, 46)
+local lampBtn = iconBtn(quickF, 66, 0, 58, 46)
+local exitBtn = iconBtn(quickF, 132, 0, 58, 46)
+do
+	local OFFC = Color3.fromRGB(110, 124, 140)
+	local parts = {}
+	local function box(x, y, w, h, round, strokeOnly)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(w, h)
+		f.BackgroundTransparency = strokeOnly and 1 or 0
+		f.BackgroundColor3 = OFFC
+		local c = Instance.new("UICorner")
+		c.CornerRadius = round
+		c.Parent = f
+		if strokeOnly then
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2.4
+			st.Color = OFFC
+			st.Parent = f
+			parts[#parts + 1] = { st = st }
+		else
+			parts[#parts + 1] = { f = f }
+		end
+		f.Parent = camBtn
+		return f
+	end
+	box(29, 8, 14, 6, UDim.new(0.3, 0))
+	box(29, 18, 34, 22, UDim.new(0.22, 0), true)
+	box(29, 18, 14, 14, UDim.new(0.5, 0), true)
+	box(29, 18, 5, 5, UDim.new(0.5, 0))
+	label(camBtn, "CAMERA  (V)", 9, METALC, 0, 38, 58, 12)
+	function hudApi.camSet(on)
+		local col = on and ACC or OFFC
+		for _, p in ipairs(parts) do
+			if p.st then p.st.Color = col else p.f.BackgroundColor3 = col end
+		end
+	end
+end
+track(camBtn.Activated:Connect(function()
+	if car and car.driver then CAM.toggle() end
+end))
 do
 	local OFFC = Color3.fromRGB(110, 124, 140)
 	local function ln(parent, x1, y1, x2, y2, th, col)
@@ -4225,11 +4576,15 @@ track(UIS.InputBegan:Connect(function(input)
 			local i = modeIndex(car.parkPending and "P" or car.mode)
 			if i < #MODES then setMode(MODES[i + 1]) end
 		elseif k == Enum.KeyCode.E then
+			held.shiftKey = true
 			setGear(gear + 1)
 		elseif k == Enum.KeyCode.Q then
+			held.shiftKey = true
 			setGear(gear - 1)
 		elseif k == Enum.KeyCode.L then
 			car.lamps = not car.lamps
+		elseif k == Config.CamKey then
+			CAM.toggle()
 		elseif k == Enum.KeyCode.B or k == Enum.KeyCode.Space then
 			held.brake = true
 		end
@@ -4239,16 +4594,20 @@ track(UIS.InputEnded:Connect(function(input)
 	if input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Space then
 		held.brake = false
 	end
+	if input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.Q then
+		held.shiftKey = false
+	end
 end))
 track(player.CharacterAdded:Connect(function()
 	if car and car.driver then
 		car.driver = false
 		car.boardFrom = nil
 		saved = nil
+		CAM.reset()
 		setMode("P", true)
 	end
 end))
-local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {} }
+local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {}, key = nil, shT = nil }
 local GRIP_A = math.rad(62)
 local GRIP_PERIOD = 2.0
 
@@ -4359,11 +4718,21 @@ local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
 	end
 end
 
+
+local function armWarn(...)
+	if not ARMS.warned then
+		ARMS.warned = true
+		pcall(warn, "[Charger] bracos:", ...)
+	end
+end
 local function releaseArms()
 	if not ARMS.on then return end
 	ARMS.on = false
 	ARMS.w = 0
 	ARMS.ang = {}
+	ARMS.key = nil
+	ARMS.shT = nil
+	ARMS.shUntil, ARMS.shRaw = nil, 0
 	if ARMS.lean > 0 then
 		ARMS.lean = 0
 		if ARMS.waist and ARMS.waist.Parent then ARMS.waist.Transform = CFrame.new() end
@@ -4394,7 +4763,10 @@ local function driveArms(c, dt)
 	end
 	local J = ARMS.J
 	local chR, chL = armChain(J.right), armChain(J.left)
-	if not (chR and chL) then return end
+	if not (chR and chL) then
+		armWarn("juntas dos bracos nao encontradas (ombro direito/esquerdo) - rig nao reconhecido")
+		return
+	end
 	ARMS.on = true
 	ARMS.w = math.min(1, ARMS.w + dt * 4)
 	local ez = ARMS.w * ARMS.w * (3 - 2 * ARMS.w)
@@ -4415,6 +4787,37 @@ local function driveArms(c, dt)
 		cur = cur + (tA - cur) * math.min(1, dt * 16)
 		ARMS.ang[sd] = cur
 		grips[sd] = baseCF * Vector3.new(0, rim * math.cos(cur), rim * math.sin(cur))
+	end
+	local now = os.clock()
+	local key = tostring(c.mode) .. gear
+	if ARMS.key == nil then ARMS.key = key end
+	if ARMS.key ~= key then
+		ARMS.key = key
+		ARMS.shUntil = now + Config.ShiftHoldTime
+	end
+	local leverHeld = (shifter and shifter.isDragging and shifter.isDragging()) or (gearLever and gearLever.isDragging and gearLever.isDragging())
+	if held.shiftKey or leverHeld then
+		ARMS.shUntil = math.max(ARMS.shUntil or 0, now + 0.2)
+	end
+	local want = 0
+	if (ARMS.shUntil or 0) > now then
+		want = 1
+	elseif Config.RestHandOnShifter and c.mode ~= "P" and math.abs(c.steer) < 0.12 then
+		want = 0.85
+	end
+	local rate = want > (ARMS.shRaw or 0) and 6.5 or 5
+	ARMS.shRaw = (ARMS.shRaw or 0) + math.clamp(want - (ARMS.shRaw or 0), -rate * dt, rate * dt)
+	local sb = ARMS.shRaw * ARMS.shRaw * (3 - 2 * ARMS.shRaw)
+	if sb > 0.001 and c.shiftW then
+		-- mao agarra o topo do cambio e acompanha o movimento da alavanca (kick de marcha / P-R-N-D)
+		local kn = c.cf * (c.shiftW.C0 * CFrame.new(c.shiftKn))
+		local push = 0
+		if c.gearKick then
+			local e = now - c.gearKick
+			if e < 0.35 then push = math.sin(e / 0.35 * math.pi) * 0.12 * S * (c.gearDir or 1) end
+		end
+		local gp = kn.Position + c.cf.LookVector * push + c.cf.UpVector * 0.05 * S
+		grips.right = grips.right:Lerp(gp, sb)
 	end
 
 	for _, side in pairs(J) do
@@ -4473,6 +4876,8 @@ track(player.CharacterAdded:Connect(function()
 	ARMS.J = nil
 	ARMS.waist = nil
 	ARMS.ang = {}
+	ARMS.shUntil, ARMS.shRaw = nil, 0
+	ARMS.warned = nil
 end))
 local STEP_ID = "ChargerStep"
 pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
@@ -4489,18 +4894,35 @@ RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, funct
 		carVisuals(c, dt)
 		if c.driver then
 			holdChar(c)
-			pcall(driveArms, c, dt)
-		elseif ARMS.on then
-			pcall(releaseArms)
 		end
 	else
-		if ARMS.on then pcall(releaseArms) end
 		if c then car = nil end
 	end
 	updateHud(dt)
 end)
+-- IGUAL AO RICK PORTAL GUN (handConn): as juntas dos bracos sao escritas no Stepped.
+-- No RenderStepped o Animator (animacao de sentar) sobrescreve o Transform antes do frame ser aplicado.
+track(RunService.Stepped:Connect(function(_, dt)
+	dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
+	local c = car
+	if c and c.model and c.model.Parent then
+		if c.driver or ARMS.on then
+			local okA, errA = pcall(driveArms, c, dt)
+			if not okA then armWarn(errA) end
+		end
+	elseif ARMS.on then
+		pcall(releaseArms)
+	end
+end))
+local FP_ID = "ChargerFirstPerson"
+pcall(function() RunService:UnbindFromRenderStep(FP_ID) end)
+RunService:BindToRenderStep(FP_ID, Enum.RenderPriority.Camera.Value + 1, function()
+	pcall(CAM.fpStep)
+end)
 genv[CLEANUP_KEY] = function()
 	pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
+	pcall(function() RunService:UnbindFromRenderStep(FP_ID) end)
+	pcall(CAM.reset)
 	pcall(releaseArms)
 	pcall(despawnCar)
 	pcall(K.destroy)

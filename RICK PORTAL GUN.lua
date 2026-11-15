@@ -465,6 +465,8 @@ local Config = {
 	ShipDriftGrip = { 2.4, 1.1, 0.45 },
 	ShipDriftTurn = { 10, 13, 17 },
 	ShipDriftDust = 2.2,
+	ShipSkidMax = 220,
+	ShipSkidLife = 14,
 }
 
 State.lastActivity = os.clock()
@@ -1225,6 +1227,19 @@ State.buildTunnel = function(add, cylX, c)
 	end
 
 	add("BrakePivot", Vector3.new(0.1, 0.1, 0.1), CFrame.new(b1), BLACK, PLASTIC, 1, "sphere")
+
+	-- cambio de marchas 1-5 (terceira alavanca); parte na marcha 5 (z = 0.45), desliza ate a 1 (z = 1.35)
+	local GX, GZ5, GSTEP = -0.55, 0.45, 0.225
+	add("GearBezel", Vector3.new(0.3, 0.03, 1.3), CFrame.new(GX, 4.715, 0.9), LIGHT, METAL)
+	add("GearSlot", Vector3.new(0.14, 0.04, 1.15), CFrame.new(GX, 4.73, 0.9), BLACK, SMOOTH)
+	for g = 1, 5 do
+		add("GearTick", Vector3.new(0.22, 0.045, 0.03), CFrame.new(GX, 4.735, GZ5 + (5 - g) * GSTEP), LIGHT, SMOOTH)
+	end
+	add("GearCollar", cylX(0.1, 0.28), CFrame.new(GX, 4.77, GZ5) * RY, DARK, METAL, 0, "cyl", "gbox")
+	local g1 = Vector3.new(GX, 4.78, GZ5)
+	local g2 = g1 + Vector3.new(0, 0.7, -0.18)
+	add("GearRod", cylX((g2 - g1).Magnitude, 0.12), CFrame.lookAt((g1 + g2) / 2, g2) * CFrame.Angles(0, math.pi / 2, 0), MID, METAL, 0, "cyl", "gbox")
+	add("GearKnob", Vector3.new(0.38, 0.38, 0.38), CFrame.new(g2 + (g2 - g1).Unit * 0.1), DARK, PLASTIC, 0, "sphere", "gbox")
 	print("[RickPortalGun] tunel central novo carregado")
 end
 
@@ -1414,6 +1429,21 @@ State.buildShipLevers = function(env)
 		end
 	end
 
+	-- anima a alavanca 3D das marchas; val = posicao fracionaria 1..5
+	function LV.gearFx(S, dt, val)
+		if not (S.gboxParts and #S.gboxParts > 0 and S.model and S.model.Parent) then return end
+		dt = math.clamp(dt, 1 / 240, 0.1)
+		local goal = (5 - math.clamp(val, 1, 5)) * 0.225
+		local z = spring(S, "gboxZ", goal, dt, 320, 0.7, -0.02, 0.92)
+		if math.abs(z - (S.lastGboxZ or 9)) > 1e-4 then
+			S.lastGboxZ = z
+			local m = CFrame.new(0, 0, z * SCALE)
+			for _, e in ipairs(S.gboxParts) do
+				e.weld.C0 = m * e.rel
+			end
+		end
+	end
+
 	function LV.buildHud(H)
 		local hud, mk, frame, disc, ink, grad, text = H.hud, H.mk, H.frame, H.disc, H.ink, H.grad, H.text
 		local ACC, INK, BLACK, WHITE, YELLOW, RED = H.ACC, H.INK, H.BLACK, H.WHITE, H.YELLOW, H.RED
@@ -1585,6 +1615,145 @@ State.buildShipLevers = function(env)
 	return LV
 end
 
+-- terceiro cambio: marchas 1-5 (v55)
+State.buildGearHud = function(H)
+	local hud, mk, frame, disc, ink, grad, text = H.hud, H.mk, H.frame, H.disc, H.ink, H.grad, H.text
+	local ACC, INK, BLACK, WHITE, YELLOW = H.ACC, H.INK, H.BLACK, H.WHITE, H.YELLOW
+	local DIM = Color3.fromRGB(26, 66, 34)
+	local METAL0, METAL1 = Color3.fromRGB(176, 186, 196), Color3.fromRGB(70, 78, 88)
+	local G = {}
+	local root = mk("Frame", { Name = "ShipGears", BackgroundTransparency = 1, BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -292, 0.5, 218),
+		Size = UDim2.fromOffset(96, 188), Visible = false }, hud)
+	H.addVP(root)
+	G.root = root
+
+	if not H.isTouchOnly then
+		for i, s in ipairs({ "Q", "E" }) do
+			local k = frame(root, i == 1 and 6 or 74, 6, 16, 14, WHITE, 0, 4)
+			k.ZIndex = 6
+			ink(k, 1.5)
+			local t = text(k, s, 9, INK, 0, 0, 16, 14)
+			t.ZIndex = 7
+		end
+	end
+
+	local bezel = frame(root, 28, 26, 40, 154, METAL0, 0, 20)
+	bezel.ZIndex = 3
+	grad(bezel, METAL0, METAL1, 90)
+	ink(bezel, 2.5)
+	local slot = frame(root, 35, 33, 26, 140, BLACK, 0, 13)
+	slot.ZIndex = 4
+	ink(slot, 2, Color3.fromRGB(24, 30, 36))
+	local rail = frame(root, 46, 40, 4, 126, Color3.fromRGB(36, 44, 52), 0, 2)
+	rail.ZIndex = 5
+
+	-- 5 = em cima, 1 = embaixo
+	local function yOf(g) return 50 + (5 - g) * 24 end
+	local dots, labels = {}, {}
+	for g = 1, 5 do
+		local d = disc(root, 48, yOf(g), 7, DIM)
+		d.ZIndex = 5
+		ink(d, 1.5)
+		dots[g] = d
+		local l = text(root, tostring(g), 12, WHITE, 70, yOf(g) - 8, 20, 16, Enum.TextXAlignment.Left)
+		l.ZIndex = 6
+		l.TextStrokeTransparency = 0
+		l.TextStrokeColor3 = BLACK
+		labels[g] = l
+	end
+
+	local kn = mk("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(48, yOf(5)), Size = UDim2.fromOffset(30, 30), ZIndex = 7 }, root)
+	local sh = disc(kn, 16, 19, 26, BLACK, 0.5)
+	sh.ZIndex = 7
+	local collar = disc(kn, 15, 15, 24, WHITE)
+	collar.ZIndex = 8
+	grad(collar, METAL0, METAL1, 90)
+	ink(collar, 2)
+	local ball = disc(kn, 15, 15, 20, Color3.fromRGB(18, 20, 24))
+	ball.ZIndex = 10
+	ink(ball, 2)
+	local num = text(kn, "5", 12, ACC, 0, 0, 30, 30, Enum.TextXAlignment.Center)
+	num.ZIndex = 12
+
+	local curY, goal = yOf(5), yOf(5)
+	local dragging, dragV = false, 5
+	local UIS = game:GetService("UserInputService")
+	local GuiService = game:GetService("GuiService")
+
+	-- "tranquinho": perto de cada marcha o movimento fica lento (trava), entao a alavanca nao passa direto
+	local function detent(v)
+		v = math.clamp(v, 1, 5)
+		local r = math.floor(v + 0.5)
+		local d = v - r
+		local s = d < 0 and -1 or 1
+		return r + s * 0.5 * (2 * math.abs(d)) ^ 3, r
+	end
+
+	local function pointerV(input)
+		local gui = root:FindFirstAncestorOfClass("ScreenGui")
+		local inset = (gui and gui.IgnoreGuiInset) and GuiService:GetGuiInset().Y or 0
+		local sc = root.AbsoluteSize.Y / 188
+		if sc <= 0 then sc = 1 end
+		local y = (input.Position.Y + inset - root.AbsolutePosition.Y) / sc
+		return 5 - (y - 50) / 24
+	end
+
+	local function drag(input)
+		dragV = pointerV(input)
+		local shown, r = detent(dragV)
+		goal = yOf(shown)
+		if H.onShown then H.onShown(shown) end
+		if H.onPick then H.onPick(r) end
+	end
+
+	local zone = mk("TextButton", { BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
+		Text = "", Position = UDim2.fromOffset(20, 30), Size = UDim2.fromOffset(76, 150), ZIndex = 12 }, root)
+	local function isPress(i)
+		return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+	end
+	zone.InputBegan:Connect(function(i)
+		if not isPress(i) then return end
+		dragging = true
+		if H.onDrag then H.onDrag(true) end
+		drag(i)
+	end)
+	UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			drag(i)
+		end
+	end)
+	UIS.InputEnded:Connect(function(i)
+		if dragging and isPress(i) then
+			dragging = false
+			if H.onDrag then H.onDrag(false) end
+			local _, r = detent(dragV)
+			if H.onPick then H.onPick(r) end
+			goal = yOf(r)
+		end
+	end)
+
+	function G.update(g)
+		if not dragging then goal = yOf(g) end
+		num.Text = tostring(g)
+		for k = 1, 5 do
+			dots[k].BackgroundColor3 = (k == g) and ACC or DIM
+			labels[k].TextColor3 = (k == g) and ACC or WHITE
+		end
+	end
+	-- movimento suave da alavanca
+	task.spawn(function()
+		while root.Parent do
+			curY = curY + (goal - curY) * 0.35
+			kn.Position = UDim2.fromOffset(48, curY)
+			task.wait(1 / 30)
+		end
+	end)
+	G.update(5)
+	return G
+end
+
 State.armRotFromDown = function(d)
 	local down = Vector3.new(0, -1, 0)
 	local axis = down:Cross(d)
@@ -1595,89 +1764,151 @@ State.armRotFromDown = function(d)
 	return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
 end
 
+-- rotacao de menor arco entre dois vetores
+State.armRotFromTo = function(a, b)
+	a, b = a.Unit, b.Unit
+	local axis = a:Cross(b)
+	local dp = a:Dot(b)
+	if axis.Magnitude < 1e-5 then
+		if dp > 0 then return CFrame.new() end
+		local perp = math.abs(a.X) < 0.9 and Vector3.xAxis or Vector3.yAxis
+		return CFrame.fromAxisAngle(a:Cross(perp).Unit, math.pi)
+	end
+	return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+end
+
+-- pose reta do ombro: leva o eixo de repouso do braco ate a direcao dirP0 (no espaco do torso), usando C0/C1 reais
+State.armAimShoulder = function(j, dirP0)
+	local sh = j.shoulder
+	local function rot(cf) return cf - cf.Position end
+	local rrSh = rot(sh.C0) * rot(sh.C1):Inverse()
+	local el = j.elbow
+	local v1 = (el and el.Part0 == sh.Part1) and (el.C0.Position - sh.C1.Position) or Vector3.new(0, -1, 0)
+	if v1.Magnitude < 1e-3 then v1 = Vector3.new(0, -1, 0) end
+	local R = State.armRotFromTo(rrSh * v1, dirP0)
+	local CF1 = CFrame.new(sh.C0.Position) * R * rrSh * CFrame.new(-sh.C1.Position)
+	return sh.C0:Inverse() * CF1 * sh.C1
+end
+
+-- IK do braco direito: serve R6 (braco reto) e R15 padrao/custom (bundles com C0/C1 rotacionados, proporcoes e juntas diferentes)
 State.shipArmIK = function(S, jr, pw, held)
 	local sh = jr and jr.shoulder
 	if not (sh and sh.Parent and sh.Part0 and sh.Part1) then return end
 	local now = os.clock()
 	local dt = math.clamp(now - (S.hwClock or now), 0, 0.1)
 	S.hwClock = now
+	local function rot(cf) return cf - cf.Position end
 
 	if S.hwScan == nil then
 		S.hwScan = true
 		for _, e in ipairs(S.parts) do
 			local n = e.part.Name
-			if n == "ShiftKnob" then S.hwKnob = e elseif n == "BrakeGrip" then S.hwGrip = e end
+			if n == "ShiftKnob" then S.hwKnob = e elseif n == "BrakeGrip" then S.hwGrip = e elseif n == "GearKnob" then S.hwGKnob = e end
 		end
 	end
-	local knobE, gripE = S.hwKnob, S.hwGrip
+	local knobE, gripE, gkE = S.hwKnob, S.hwGrip, S.hwGKnob
 
 	local ground = S.state == "flying" and S.mode == "ground"
 	local wantB = gripE ~= nil and ((ground and (held.brake or held.brakeUi)) or (S.bBtn or 0) > 0.05)
 	local wantS = knobE ~= nil and not wantB and S.shiftActT ~= nil and (now - S.shiftActT) < 0.25
-	local wb, ws = S.hwB or 0, S.hwS or 0
+	local wantG = gkE ~= nil and not wantB and not wantS and S.state == "flying"
+		and (held.gearUi or (S.gearActT ~= nil and (now - S.gearActT) < 0.7))
+	local wb, ws, wg = S.hwB or 0, S.hwS or 0, S.hwG or 0
 	if wantB then wb = math.min(1, wb + dt * 7) else wb = math.max(0, wb - dt * 5) end
 	if wantS then ws = math.min(1, ws + dt * 7) else ws = math.max(0, ws - dt * 5) end
-	S.hwB, S.hwS = wb, ws
-	local w = math.max(wb, ws)
+	if wantG then wg = math.min(1, wg + dt * 7) else wg = math.max(0, wg - dt * 5) end
+	S.hwB, S.hwS, S.hwG = wb, ws, wg
+	local w = math.max(wb, ws, wg)
 
+	-- junta da cintura: o Motor6D cujo Part1 e o torso onde o ombro se prende (Waist no R15, RootJoint no R6, qualquer nome em bundles custom)
 	local waist = S.hwWaist
-	if waist == nil or (waist and not waist.Parent) then
+	if waist == nil or (waist and (not waist.Parent or waist.Part1 ~= sh.Part0)) then
 		waist = false
-		for _, d in ipairs(sh.Part0:GetChildren()) do
-			if d:IsA("Motor6D") and d.Name == "Waist" and d.Part0 and d.Part1 then waist = d break end
+		local scope = sh.Part0:FindFirstAncestorOfClass("Model") or sh.Part0.Parent
+		for _, d in ipairs(scope:GetDescendants()) do
+			if d:IsA("Motor6D") and d.Part1 == sh.Part0 and d.Part0 then waist = d break end
 		end
 		S.hwWaist = waist
 	end
+	local bodyCF = S.hwSeat or (waist and pw(waist.Part0)) or pw(sh.Part0)
+	local bodyRight, bodyUp, bodyBack = bodyCF.RightVector, bodyCF.UpVector, -bodyCF.LookVector
 
-	if w <= 0.001 then
+	local function resetLean()
 		if (S.hwLean or 0) > 0 then
 			S.hwLean = 0
 			if waist and waist.Parent then waist.Transform = CFrame.new() end
 		end
+	end
+
+	if w <= 0.001 then
+		resetLean()
 		return
 	end
 	local ez = w * w * (3 - 2 * w)
 
 	local pk = knobE and (S.cf * knobE.weld.C0.Position) or nil
 	local pg = gripE and (S.cf * gripE.weld.C0.Position) or nil
-	local tgt
-	if pk and pg then tgt = pk:Lerp(pg, wb / (wb + ws + 1e-6)) else tgt = pg or pk end
-	if not tgt then return end
-
-	local elbow, hand
-	for _, m in ipairs(jr.extra) do
-		local n = m.Part1 and m.Part1.Name
-		if n == "RightLowerArm" then elbow = m elseif n == "RightHand" then hand = m end
-	end
-	local L1, L2
-	if elbow and elbow.Part0 == sh.Part1 and elbow.Part1 then
-		L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
-		L2 = elbow.Part1.Size.Y * 0.9
-		if hand and hand.Part0 == elbow.Part1 and hand.Part1 then
-			L2 = (hand.C0.Position - elbow.C1.Position).Magnitude + hand.Part1.Size.Y * 0.4
+	local pgb = gkE and (S.cf * gkE.weld.C0.Position) or nil
+	local tgt, tw = nil, 0
+	for _, pr in ipairs({ { pk, ws }, { pg, wb }, { pgb, wg } }) do
+		if pr[1] and pr[2] > 0.001 then
+			tgt = tgt and (tgt + pr[1] * pr[2]) or (pr[1] * pr[2])
+			tw = tw + pr[2]
 		end
 	end
+	if tgt then tgt = tgt / tw else tgt = pgb or pg or pk end
+	if not tgt then return end
+
+	-- cadeia do braco: cotovelo = motor cujo Part0 e o braco superior; mao = motor cujo Part0 e o antebraco
+	local elbow, hand = jr.elbow, jr.hand
+	if elbow and not (elbow.Parent and elbow.Part0 == sh.Part1 and elbow.Part1) then elbow = nil end
+	if hand and not (elbow and hand.Parent and hand.Part0 == elbow.Part1 and hand.Part1) then hand = nil end
+
+	-- direcao de repouso do ombro->cotovelo (R15) ou eixo do braco (R6), no espaco do torso
+	local rrSh = rot(sh.C0) * rot(sh.C1):Inverse()
+	local v1 = elbow and (elbow.C0.Position - sh.C1.Position) or Vector3.new(0, -1, 0)
+	if v1.Magnitude < 1e-3 then v1 = Vector3.new(0, -1, 0) end
+	local d0 = rrSh * v1
+
+	local L1, L2 = sh.Part1.Size.Y * 0.95, nil
+	local rrEl, d2
+	if elbow then
+		L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
+		L2 = elbow.Part1.Size.Y * 0.9
+		local v2 = Vector3.new(0, -1, 0)
+		if hand then
+			local hv = hand.C0.Position - elbow.C1.Position
+			if hv.Magnitude > 1e-3 then v2 = hv end
+			L2 = hv.Magnitude + hand.Part1.Size.Y * 0.4
+		end
+		rrEl = rot(elbow.C0) * rot(elbow.C1):Inverse()
+		d2 = rrEl * v2
+	end
+	local reachMax = (L2 and (L1 + L2) or L1) * 0.97
 
 	local p0w = pw(sh.Part0)
 	local p0n = p0w
 	local lean = S.hwLean or 0
-	if waist and waist.Parent and L1 and waist.Part0 then
+	if waist and waist.Parent and waist.Part0 then
 		local lowerCF = pw(waist.Part0)
-		local rotL = lowerCF.Rotation
 		local Wp = lowerCF * waist.C0.Position
 		local function spin(th)
-			return CFrame.new(Wp) * rotL * CFrame.Angles(-th, 0, 0) * rotL:Inverse() * CFrame.new(-Wp)
+			return CFrame.new(Wp) * CFrame.fromAxisAngle(bodyRight, -th) * CFrame.new(-Wp)
 		end
 		local p0up = spin(lean):Inverse() * p0w
-		local reach = (L1 + L2) * 0.97
+		local steps = (L2 ~= nil) and 10 or 6
 		local need = 0
-		for i = 0, 10 do
+		for i = 0, steps do
 			local th = i * 0.05
 			need = th
-			if ((spin(th) * p0up) * sh.C0.Position - tgt).Magnitude <= reach then break end
+			if ((spin(th) * p0up) * sh.C0.Position - tgt).Magnitude <= reachMax then break end
 		end
 		lean = lean + (need * ez - lean) * math.min(1, dt * 10)
-		if lean > 0.002 then waist.Transform = CFrame.Angles(-lean, 0, 0) end
+		if lean > 0.002 then
+			local a0 = lowerCF:VectorToObjectSpace(bodyRight)
+			local aC = rot(waist.C0):Inverse() * a0
+			waist.Transform = CFrame.fromAxisAngle(aC, -lean)
+		end
 		S.hwLean = lean
 		p0n = spin(lean) * p0up
 	end
@@ -1688,27 +1919,31 @@ State.shipArmIK = function(S, jr, pw, held)
 	if dist < 0.05 then return end
 	local dirT = toT / dist
 	local uW, lW = dirT, nil
-	if L1 then
+	if L2 then
 		local d = math.min(dist, (L1 + L2) * 0.999)
 		local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
 		local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
-		local pole = p0n:VectorToWorldSpace(Vector3.new(0.45, -1, 0.2))
+		local pole = bodyRight * 0.45 - bodyUp + bodyBack * 0.2
 		pole = pole - dirT * pole:Dot(dirT)
-		pole = pole.Magnitude > 1e-3 and pole.Unit or Vector3.new(0, -1, 0)
+		pole = pole.Magnitude > 1e-3 and pole.Unit or -bodyUp
 		local E = P + dirT * a + pole * h
 		uW = (E - P).Unit
 		local lv = (P + dirT * d) - E
 		if lv.Magnitude > 1e-3 then lW = lv.Unit else lW = uW end
 	end
 
-	local base = sh.C0 - sh.C0.Position
-	local B = sh.C0:Inverse() * CFrame.new(sh.C0.Position) * State.armRotFromDown(p0n:VectorToObjectSpace(uW)) * base
+	-- ombro: leva o eixo de repouso (d0) ate a direcao desejada, respeitando C0/C1 reais da junta
+	local R = State.armRotFromTo(d0, p0n:VectorToObjectSpace(uW))
+	local CF1 = CFrame.new(sh.C0.Position) * R * rrSh * CFrame.new(-sh.C1.Position)
+	local B = sh.C0:Inverse() * CF1 * sh.C1
 	sh.Transform = sh.Transform:Lerp(B, ez)
 
-	if elbow and lW then
-		local upperCF = p0n * sh.C0 * B * sh.C1:Inverse()
+	if elbow and lW and d2 then
+		local upperCF = p0n * CF1
 		local lLoc = upperCF:VectorToObjectSpace(lW)
-		local eb = elbow.C0:Inverse() * CFrame.new(elbow.C0.Position) * State.armRotFromDown(lLoc) * (elbow.C0 - elbow.C0.Position)
+		local R2 = State.armRotFromTo(d2, lLoc)
+		local CF2 = CFrame.new(elbow.C0.Position) * R2 * rrEl * CFrame.new(-elbow.C1.Position)
+		local eb = elbow.C0:Inverse() * CF2 * elbow.C1
 		elbow.Transform = CFrame.new():Lerp(eb, ez)
 	end
 end
@@ -3079,6 +3314,20 @@ State.buildShipSystem = function(ctx)
 	local GROUND_SPEED = C.ShipGroundSpeed or 45
 	local GROUND_TURBO = C.ShipGroundTurbo or 2
 	local GROUND_ACCEL = 3.2
+	local GEAR_TOP = C.ShipGearTop or { 0.2, 0.4, 0.6, 0.8, 1.0 }
+	local GEAR_ACC = C.ShipGearAccel or { 2.2, 1.7, 1.35, 1.12, 1.0 }
+	local FLY_GEAR_TOP = C.ShipFlyGearTop or { 0.1, 0.25, 0.5, 0.75, 1.0 }
+	local FLY_GEAR_ACC = C.ShipFlyGearAccel or { 1.8, 1.5, 1.25, 1.1, 1.0 }
+	local gear, gearHud, gearShown, gearDrag = 5, nil, 5, false
+	local function setGear(n)
+		n = math.clamp(math.floor(n + 0.5), 1, 5)
+		if not gearDrag then gearShown = n end
+		if n == gear then return end
+		gear = n
+		if ship then ship.gearActT = os.clock() end
+		if C.SoundDial then pcall(ctx.playSound, C.SoundDial, 0.7) end
+		if gearHud then gearHud.update(gear) end
+	end
 	local STEP_UP = 3.5 * SCALE
 
 	local SUSP_BUMP = 1.8 * SCALE
@@ -3666,12 +3915,29 @@ State.buildShipSystem = function(ctx)
 			ACC = ACC, INK = INK, BLACK = BLACK, WHITE = WHITE, YELLOW = TURBO_COL, RED = RED, isTouchOnly = isTouchOnly,
 		})
 		if not okLv then warnRG("painel do cambio:", errLv) end
+		local okG, errG = pcall(function()
+			gearHud = State.buildGearHud({
+				hud = hud, mk = mk, frame = frame, disc = disc, ink = ink, grad = grad, text = text, addVP = addVP,
+				ACC = ACC, INK = INK, BLACK = BLACK, WHITE = WHITE, YELLOW = TURBO_COL, isTouchOnly = isTouchOnly,
+				onPick = setGear,
+				onShown = function(v) gearShown = v end,
+				onDrag = function(on)
+					gearDrag = on
+					held.gearUi = on
+					if on and ship then ship.gearActT = os.clock() end
+					if not on then gearShown = gear end
+				end,
+			})
+			gearHud.update(gear)
+		end)
+		if not okG then gearHud = nil warnRG("cambio de marchas:", errG) end
 	end
 
 	infoLbl:GetPropertyChangedSignal("Visible"):Connect(function()
 		dialRoot.Visible = infoLbl.Visible
 		local lv = State.shipLv
 		if lv and lv.hudRoot then lv.hudRoot.Visible = infoLbl.Visible end
+		if gearHud and gearHud.root then gearHud.root.Visible = infoLbl.Visible end
 		if api.lampBtn then api.lampBtn.Visible = infoLbl.Visible end
 		if api.turboBtn then api.turboBtn.Visible = infoLbl.Visible end
 		if api.lampIcon and ship then api.lampIcon(ship.lampsOn == true) end
@@ -3830,7 +4096,7 @@ State.buildShipSystem = function(ctx)
 		local S = {
 			model = model, root = root,
 			parts = {}, gearParts = {}, swParts = {}, swCol = {}, swBase = {}, canopyParts = {}, thrParts = {}, emitters = {},
-			shiftParts = {}, brakeParts = {},
+			shiftParts = {}, brakeParts = {}, gboxParts = {},
 			rdoorParts = {}, rarmParts = {},
 			brakeNotch = 0,
 			wheelHubs = {},
@@ -3887,6 +4153,7 @@ State.buildShipSystem = function(ctx)
 			elseif tag == "canopy" then S.canopyParts[#S.canopyParts + 1] = e
 			elseif tag == "shift" then S.shiftParts[#S.shiftParts + 1] = e
 			elseif tag == "brake" then S.brakeParts[#S.brakeParts + 1] = e
+			elseif tag == "gbox" then S.gboxParts[#S.gboxParts + 1] = e
 			elseif tag == "rdoor" then S.rdoorParts[#S.rdoorParts + 1] = e
 			elseif tag == "rarm" then S.rarmParts[#S.rarmParts + 1] = e
 			elseif tag == "thr" then S.thrParts[#S.thrParts + 1] = e end
@@ -4333,17 +4600,33 @@ State.buildShipSystem = function(ctx)
 	local function armJoints()
 		local J = { right = { extra = {} }, left = { extra = {} } }
 		local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
-		local extraN = { right = { RightLowerArm = true, RightHand = true }, left = { LeftLowerArm = true, LeftHand = true } }
+		local motors = {}
 		for _, d in ipairs(character:GetDescendants()) do
 			if d:IsA("Motor6D") and d.Part0 and d.Part1 then
-				local n = d.Part1.Name
+				motors[#motors + 1] = d
 				for side, list in pairs(names) do
-					if n == list[1] or n == list[2] then
+					if d.Part1.Name == list[1] or d.Part1.Name == list[2] then
 						J[side].shoulder = J[side].shoulder or d
-					elseif extraN[side][n] then
-						table.insert(J[side].extra, d)
 					end
 				end
+			end
+		end
+		-- cadeia pelos Part0/Part1 (funciona com bundles custom e nomes diferentes)
+		for _, j in pairs(J) do
+			local cur = j.shoulder
+			for _ = 1, 2 do
+				if not cur then break end
+				local nxt
+				for _, m in ipairs(motors) do
+					if m ~= cur and m.Part0 == cur.Part1 and not m.Part1:IsA("Accessory") then
+						local nm = m.Part1.Name:lower()
+						if nm:find("arm") or nm:find("hand") or nm:find("elbow") or nm:find("wrist") then nxt = m break end
+					end
+				end
+				if not nxt then break end
+				table.insert(j.extra, nxt)
+				if not j.elbow then j.elbow = nxt else j.hand = nxt end
+				cur = nxt
 			end
 		end
 		return J
@@ -4352,7 +4635,7 @@ State.buildShipSystem = function(ctx)
 	local function releaseHands(S)
 		if not S.handsOn then return end
 		S.handsOn = false
-		S.hwB, S.hwS = 0, 0
+		S.hwB, S.hwS, S.hwG = 0, 0, 0
 		if (S.hwLean or 0) > 0 then
 			S.hwLean = 0
 			if S.hwWaist and S.hwWaist.Parent then S.hwWaist.Transform = CFrame.new() end
@@ -4430,9 +4713,7 @@ State.buildShipSystem = function(ctx)
 				local dirW = grips[side] - pivot
 				if dirW.Magnitude > 0.05 then
 					local cur = p0w:VectorToObjectSpace(dirW.Unit)
-					local ref = sh.C0
-					local base = ref - ref.Position
-					sh.Transform = sh.C0:Inverse() * CFrame.new(ref.Position) * rotFromDown(cur) * base
+					sh.Transform = State.armAimShoulder(j, cur)
 					for _, m in ipairs(j.extra) do
 						if m.Parent then m.Transform = CFrame.new() end
 					end
@@ -4440,6 +4721,7 @@ State.buildShipSystem = function(ctx)
 			end
 		end
 
+		S.hwSeat = seatW
 		State.shipArmIK(S, S.handJ.right, pw, held)
 	end
 
@@ -4577,6 +4859,8 @@ State.buildShipSystem = function(ctx)
 		if S and not destroyed and State.shipLv then
 			local okL, eL = pcall(State.shipLv.fx, S, dt)
 			if not okL and not S.leverErr then S.leverErr = true; warnRG("alavancas da nave:", eL) end
+			local okG, eG = pcall(State.shipLv.gearFx, S, dt, gearShown)
+			if not okG and not S.gearErr then S.gearErr = true; warnRG("alavanca de marchas:", eG) end
 		end
 
 		if S and not destroyed and S.dashFx then
@@ -4666,6 +4950,7 @@ State.buildShipSystem = function(ctx)
 		infoLbl.Visible = false
 		held.up, held.down, held.turbo = false, false, false
 		held.brake, held.brakeUi, held.closeView = false, false, false
+		held.gearUi = false
 		if api.viewSet then api.viewSet(false) end
 		btnTurbo.TextColor3 = Theme.Text
 	end
@@ -4786,8 +5071,8 @@ State.buildShipSystem = function(ctx)
 		if dir.Magnitude > 1 then dir = dir.Unit end
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
-		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3)
-		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * dt))
+		local top = SPEED * (turbo and TURBO or 1) * (1 + State.space.k * 3) * FLY_GEAR_TOP[gear]
+		S.vel = S.vel:Lerp(dir * top, 1 - math.exp(-ACCEL * FLY_GEAR_ACC[gear] * dt))
 		flyCollide(S, dt)
 
 		local minY = workspace.FallenPartsDestroyHeight + 40
@@ -4829,8 +5114,8 @@ State.buildShipSystem = function(ctx)
 		S.infoT = S.infoT + dt
 		if S.infoT > 0.1 then
 			S.infoT = 0
-			infoLbl.Text = string.format("VOO   VEL %d   ALT %d%s",
-				math.floor(spd + 0.5), math.floor(S.pos.Y + 0.5), turbo and "   TURBO" or "")
+			infoLbl.Text = string.format("VOO   M%d   VEL %d   ALT %d%s",
+				gear, math.floor(spd + 0.5), math.floor(S.pos.Y + 0.5), turbo and "   TURBO" or "")
 		end
 	end
 
@@ -4899,6 +5184,59 @@ State.buildShipSystem = function(ctx)
 		end
 	end
 
+	-- marcas de derrapagem dos pneus (v54)
+	local skidFolder, skidList = nil, {}
+	local function skidMark(S, id, on)
+		local w = S.wheels and S.wheels[id]
+		if not w then return end
+		if not on then w.skidLast = nil return end
+		local wp = S.cf:PointToWorldSpace(w.rel)
+		local g, gn = groundAt(wp, 4 * SCALE)
+		if not g or not gn or gn.Y < 0.5 then w.skidLast = nil return end
+		local p1 = g + gn * 0.05
+		local p0 = w.skidLast
+		w.skidLast = p1
+		if not p0 then return end
+		local d = (p1 - p0).Magnitude
+		if d < 0.6 or d > 14 then return end
+		if not skidFolder or not skidFolder.Parent then
+			skidFolder = Instance.new("Folder")
+			skidFolder.Name = "RickSkids"
+			skidFolder.Parent = workspace
+			skidList = {}
+		end
+		local part = Instance.new("Part")
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Material = Enum.Material.SmoothPlastic
+		part.Color = Color3.fromRGB(14, 14, 16)
+		part.Transparency = 0.2
+		part.Size = Vector3.new(1.5 * SCALE, 0.06, d + 0.15)
+		local up = gn
+		local fwdV = (p1 - p0).Unit
+		local right = fwdV:Cross(up)
+		if right.Magnitude < 0.01 then part:Destroy() return end
+		part.CFrame = CFrame.fromMatrix((p0 + p1) / 2, right.Unit, up, -fwdV)
+		part.Parent = skidFolder
+		skidList[#skidList + 1] = part
+		local maxN = C.ShipSkidMax or 220
+		while #skidList > maxN do
+			local old = table.remove(skidList, 1)
+			if old then old:Destroy() end
+		end
+		task.delay(C.ShipSkidLife or 14, function()
+			if part.Parent then
+				pcall(function()
+					game:GetService("TweenService"):Create(part, TweenInfo.new(2), { Transparency = 1 }):Play()
+				end)
+				task.delay(2.1, function() pcall(function() part:Destroy() end) end)
+			end
+		end)
+	end
+
 	local function groundStep(S, dt)
 		local typing = UserInputService:GetFocusedTextBox() ~= nil
 		local mv = getMove()
@@ -4909,7 +5247,8 @@ State.buildShipSystem = function(ctx)
 		if flat.Magnitude > 0.01 then dir = flat.Unit * math.min(flatIn.Magnitude, 1) end
 
 		local turbo = held.turbo or (not typing and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift))
-		local top = GROUND_SPEED * (turbo and GROUND_TURBO or 1)
+		local top = GROUND_SPEED * (turbo and GROUND_TURBO or 1) * GEAR_TOP[gear]
+		local gAcc = GROUND_ACCEL * GEAR_ACC[gear]
 
 		local dl = (S.state == "flying" and S.mode == "ground") and math.clamp(S.brakeNotch or 0, 0, 3) or 0
 		local slip = 0
@@ -4922,12 +5261,12 @@ State.buildShipSystem = function(ctx)
 			local grip = (C.ShipDriftGrip or { 2.4, 1.1, 0.45 })[dl]
 			local hasIn = dir.Magnitude > 0.05
 			local tgtF = hasIn and top * math.min(dir.Magnitude, 1) or 0
-			vF = vF + (tgtF - vF) * (1 - math.exp(-GROUND_ACCEL * (hasIn and 0.8 or 1.4) * dt))
+			vF = vF + (tgtF - vF) * (1 - math.exp(-gAcc * (hasIn and 0.8 or 1.4) * dt))
 			vR = vR * math.exp(-grip * dt)
 			slip = math.abs(vR)
 			hv = fwdD * vF + rgtD * vR
 		else
-			hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-GROUND_ACCEL * dt))
+			hv = Vector3.new(S.vel.X, 0, S.vel.Z):Lerp(dir * top, 1 - math.exp(-gAcc * dt))
 		end
 
 		if hv.Magnitude > 0.5 then
@@ -5062,6 +5401,14 @@ State.buildShipSystem = function(ctx)
 			end
 			S.dust.Rate = rate
 		end
+		do
+			local skidding = grounded and dl > 0 and (slip > 6 or (spd > 20 and math.abs(S.yawRate or 0) > 1.2))
+			S.skidAcc = (S.skidAcc or 0) + dt
+			if S.skidAcc >= 1 / 20 or not skidding then
+				S.skidAcc = 0
+				for id = 1, 3 do skidMark(S, id, skidding) end
+			end
+		end
 		holdChar(S)
 
 		if baseFov then
@@ -5071,7 +5418,7 @@ State.buildShipSystem = function(ctx)
 		S.infoT = S.infoT + dt
 		if S.infoT > 0.1 then
 			S.infoT = 0
-			infoLbl.Text = string.format("TERRA   VEL %d%s", math.floor(spd + 0.5), turbo and "   TURBO" or "")
+			infoLbl.Text = string.format("TERRA   M%d   VEL %d%s", gear, math.floor(spd + 0.5), turbo and "   TURBO" or "")
 		end
 	end
 
@@ -6177,6 +6524,10 @@ State.buildShipSystem = function(ctx)
 			api.toggleLamps()
 		elseif input.KeyCode == Enum.KeyCode.B then
 			held.brake = true
+		elseif input.KeyCode == Enum.KeyCode.E then
+			setGear(gear + 1)
+		elseif input.KeyCode == Enum.KeyCode.Q then
+			setGear(gear - 1)
 		end
 	end))
 	ctx.track(UserInputService.InputEnded:Connect(function(input)

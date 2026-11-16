@@ -44,6 +44,9 @@ local Config = {
 	DriftTurn = { 1.15, 1.4, 1.8 },
 	Grip = 9,
 	MaxLatAccel = 100,
+	RampJump = { Enabled = true, Tol = 0.8, MinVy = 10, GravMul = 1.15, MaxVy = 300, Gain = 1.0, LandLoss = 0.15, LandSus = 40, NoseBias = 0.08, AirK = 6, AirDamp = 0.85, AlignDist = 14 },
+	HeadlightRange = 60,
+	HeadlightBrightness = 3,
 	RollK = 0.6,
 	StepUp = 2.2,
 	SeatHeight = 1.35,
@@ -135,7 +138,8 @@ local Config = {
 	},
 	EngineSoundId = nil,
 	VolIdle = 0.22,
-	VolRun = 0.28,
+	VolRun = 0.15,
+	Cabin = { Enabled = true, Vol = 0.55, HighGain = -26, MidGain = -7, LowGain = 3, Window = 0.8, Door = 1.0, CamNear = 6, CamFar = 18 },
 	CacheDisk = true,
 	CrankDir = -1,
 	CheapGlass = true,
@@ -281,6 +285,34 @@ local function playSound(id, vol, pitch)
 	end)
 	return snd
 end
+local cabinGrp, cabinEQ = nil, nil
+local function cabinGet()
+	if cabinGrp and cabinGrp.Parent and cabinEQ and cabinEQ.Parent then return cabinGrp, cabinEQ end
+	local ok = pcall(function()
+		local g = SoundService:FindFirstChild("ChargerCabin")
+		if not g then
+			g = Instance.new("SoundGroup")
+			g.Name = "ChargerCabin"
+			g.Parent = SoundService
+		end
+		local eq = g:FindFirstChild("CabinEQ")
+		if not eq then
+			eq = Instance.new("EqualizerSoundEffect")
+			eq.Name = "CabinEQ"
+			eq.Parent = g
+		end
+		cabinGrp, cabinEQ = g, eq
+	end)
+	if ok then return cabinGrp, cabinEQ end
+	return nil
+end
+local function cabinAttach(snd)
+	if snd and Config.Cabin and Config.Cabin.Enabled then
+		local g = cabinGet()
+		if g then pcall(function() snd.SoundGroup = g end) end
+	end
+	return snd
+end
 local controls = nil
 local function getMove()
 	if controls == nil then
@@ -390,10 +422,10 @@ local PARTS = {
 {"BayWall","b",0.05,1.625,0.23,-1.475,2.723,-6.9,0,0,0,"K","P",0,0,""},
 {"HoodRail","b",0.5,1.645,0.23,1.75,2.723,-6.9,0,0,0,"B","P",0.12,0,""},
 {"BayWall","b",0.05,1.625,0.23,1.475,2.723,-6.9,0,0,0,"K","P",0,0,""},
-{"ArchIn","b",1.434,0.3,0.23,-2.717,2.578,-6.9,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.434,0.275,0.23,-2.717,2.5905,-6.9,0,0,0,"K","P",0,0,""},
 {"ArchUp","b",1.434,0.747,0.23,-2.717,3.1015,-6.9,0,0,0,"B","P",0.12,0,""},
 {"ArchSkin","b",0.22,1.047,0.23,-3.544,2.9515,-6.9,0,0,0,"B","P",0.12,0,""},
-{"ArchIn","b",1.434,0.3,0.23,2.717,2.578,-6.9,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.434,0.275,0.23,2.717,2.5905,-6.9,0,0,0,"K","P",0,0,""},
 {"ArchUp","b",1.434,0.747,0.23,2.717,3.1015,-6.9,0,0,0,"B","P",0.12,0,""},
 {"ArchSkin","b",0.22,1.047,0.23,3.544,2.9515,-6.9,0,0,0,"B","P",0.12,0,""},
 {"Body","b",4,0.95,0.23,0,1.425,-6.7,0,0,0,"B","P",0.12,0,""},
@@ -533,10 +565,10 @@ local PARTS = {
 {"BayWall","b",0.05,1.755,0.23,-1.475,2.787,-4.3,0,0,0,"K","P",0,0,""},
 {"HoodRail","b",0.5,1.775,0.23,1.75,2.787,-4.3,0,0,0,"B","P",0.12,0,""},
 {"BayWall","b",0.05,1.755,0.23,1.475,2.787,-4.3,0,0,0,"K","P",0,0,""},
-{"ArchIn","b",1.429,0.3,0.23,-2.714,2.578,-4.3,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.429,0.275,0.23,-2.714,2.5905,-4.3,0,0,0,"K","P",0,0,""},
 {"ArchUp","b",1.429,0.877,0.23,-2.714,3.1665,-4.3,0,0,0,"B","P",0.12,0,""},
 {"ArchSkin","b",0.22,1.177,0.23,-3.539,3.0165,-4.3,0,0,0,"B","P",0.12,0,""},
-{"ArchIn","b",1.429,0.3,0.23,2.714,2.578,-4.3,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.429,0.275,0.23,2.714,2.5905,-4.3,0,0,0,"K","P",0,0,""},
 {"ArchUp","b",1.429,0.877,0.23,2.714,3.1665,-4.3,0,0,0,"B","P",0.12,0,""},
 {"ArchSkin","b",0.22,1.177,0.23,3.539,3.0165,-4.3,0,0,0,"B","P",0.12,0,""},
 {"Body","b",4,0.95,0.23,0,1.425,-4.1,0,0,0,"B","P",0.12,0,""},
@@ -582,11 +614,11 @@ local PARTS = {
 {"Body","b",4,2.815,0.23,0,2.357,-2.5,0,0,0,"B","P",0.12,0,""},
 {"Side","b",1.615,2.745,0.23,-2.808,2.323,-2.5,0,0,0,"B","P",0.12,0,""},
 {"Side","b",1.615,2.745,0.23,2.808,2.323,-2.5,0,0,0,"B","P",0.12,0,""},
-{"Floor","b",4,0.3,0.23,0,1.1,-2.3,0,0,0,"K","P",0,0,""},
-{"Sill","b",1.255,0.5,0.23,-2.627,1.2,-2.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.275,0.23,0,1.1125,-2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.475,0.23,-2.6395,1.2125,-2.3,0,0,0,"K","P",0,0,""},
 {"Door","b",0.35,2.772,0.23,-3.43,2.336,-2.3,0,0,0,"B","P",0.12,0,""},
 {"DoorTrim","b",0.25,2.272,0.23,-3.13,2.586,-2.3,0,0,0,"K","P",0,0,""},
-{"Sill","b",1.255,0.5,0.23,2.627,1.2,-2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.475,0.23,2.6395,1.2125,-2.3,0,0,0,"K","P",0,0,""},
 {"Door","b",0.35,2.772,0.23,3.43,2.336,-2.3,0,0,0,"B","P",0.12,0,""},
 {"DoorTrim","b",0.25,2.272,0.23,3.13,2.586,-2.3,0,0,0,"K","P",0,0,""},
 {"Floor","b",4,0.3,0.23,0,1.1,-2.1,0,0,0,"K","P",0,0,""},
@@ -817,7 +849,7 @@ local PARTS = {
 {"WellWall","b",0.1,1.508,0.23,2.05,1.679,4.1,0,0,0,"K","P",0,0,""},
 {"Door","b",0.35,1.503,0.23,3.525,3.16,4.1,0,0,0,"B","P",0.12,0,""},
 {"DoorTrim","b",0.25,2.461,0.23,3.225,2.68,4.1,0,0,0,"K","P",0,0,""},
-{"Floor","b",4,0.3,0.23,0,1.1,4.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.275,0.23,0,1.1125,4.3,0,0,0,"K","P",0,0,""},
 {"Sill","b",1.36,0.471,0.23,-2.68,2.902,4.3,0,0,0,"K","P",0,0,""},
 {"WellWall","b",0.1,1.766,0.23,-2.05,1.808,4.3,0,0,0,"K","P",0,0,""},
 {"Door","b",0.35,1.254,0.23,-3.535,3.293,4.3,0,0,0,"B","P",0.12,0,""},
@@ -982,9 +1014,9 @@ local PARTS = {
 {"HeaderEdge","b",0.32,0.24,0.55,-2.99,4.88,-0.345,0,0,0,"B","P",0.12,0,""},
 {"RoofEdge","b",0.32,0.23,3.6,2.99,4.885,1.45,0,0,0,"B","P",0.12,0,""},
 {"HeaderEdge","b",0.32,0.24,0.55,2.99,4.88,-0.345,0,0,0,"B","P",0.12,0,""},
-{"Headliner","b",5.6,0.04,3.5,0,4.82,1.45,0,0,0,"W","P",0,0,""},
+{"Headliner","b",5.6,0.065,3.5,0,4.8075,1.45,0,0,0,"W","P",0,0,""},
 {"RearGlass","b",4.5,0.1,3.0943,0,4.45,4.55,18.316,0,0,"G","G",0.1,0.55,""},
-{"RearFrameTop","b",4.6,0.14,0.28,0,4.9,3.12,0,0,0,"K","P",0,0,""},
+{"RearFrameTop","b",4.6,0.115,0.255,0,4.9125,3.1075,0,0,0,"K","P",0,0,""},
 {"RearFrameBot","b",4.6,0.14,0.3,0,3.97,6,0,0,0,"K","P",0,0,""},
 {"TrunkDeck","b",5.2,0.14,3.9,0,3.6819,8,6.4188,0,0,"B","P",0.12,0,""},
 {"Sail","w",0.95,1.1868,4.0352,-2.62,4.4109,5.0026,0,0,0,"B","P",0.12,0,""},
@@ -1087,7 +1119,7 @@ local PARTS = {
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.312,-10.06,0,0,0,"D","M",0.2,0,""},
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.405,-10.06,0,0,0,"D","M",0.2,0,""},
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.498,-10.06,0,0,0,"D","M",0.2,0,""},
-{"GrilleMeshH","b",3.9,0.035,0.03,0,2.59,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.06,0.03,0,2.6025,-10.06,0,0,0,"D","M",0.2,0,""},
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.683,-10.06,0,0,0,"D","M",0.2,0,""},
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.775,-10.06,0,0,0,"D","M",0.2,0,""},
 {"GrilleMeshH","b",3.9,0.035,0.03,0,2.868,-10.06,0,0,0,"D","M",0.2,0,""},
@@ -1117,22 +1149,22 @@ local PARTS = {
 {"GrilleSplit","b",0.07,0.82,0.14,1,2.58,-10.05,0,0,0,"C","M",0.6,0,""},
 {"GrilleMid","b",3.9,0.06,0.12,0,2.58,-10.06,0,0,0,"C","M",0.6,0,""},
 {"GrilleBadge","b",0.95,0.24,0.04,-1.47,2.31,-10.14,0,0,0,"K","P",0,0,""},
-{"Bumper","b",7,0.42,0.4,0,1.72,-9.82,0,0,0,"C","M",0.5,0,""},
-{"BumperTopRoll","b",6.9,0.08,0.44,0,1.95,-9.83,0,0,0,"C2","M",0.85,0,""},
-{"BumperLowRoll","b",6.8,0.07,0.44,0,1.5,-9.83,0,0,0,"C2","M",0.85,0,""},
-{"BumperSlot","b",2.7,0.15,0.03,0,1.7,-10.035,0,0,0,"BK","P",0,0,""},
+{"Bumper","b",7,0.42,0.425,0,1.72,-9.8325,0,0,0,"C","M",0.5,0,""},
+{"BumperTopRoll","b",6.9,0.08,0.515,0,1.95,-9.8175,0,0,0,"C2","M",0.85,0,""},
+{"BumperLowRoll","b",6.8,0.07,0.54,0,1.5,-9.805,0,0,0,"C2","M",0.85,0,""},
+{"BumperSlot","b",2.7,0.15,0.055,0,1.7,-10.0475,0,0,0,"BK","P",0,0,""},
 {"SlotRimTop","b",2.8,0.03,0.04,0,1.795,-10.04,0,0,0,"C2","M",0.9,0,""},
 {"SlotRimBot","b",2.8,0.03,0.04,0,1.605,-10.04,0,0,0,"C2","M",0.9,0,""},
 {"SlotRimEnd","b",0.03,0.2,0.04,-1.4,1.7,-10.04,0,0,0,"C2","M",0.9,0,""},
-{"BumperEnd","b",0.3,0.42,1.3,-3.5,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
-{"BumperEndIn","b",0.3,0.42,0.7,-3.5,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
+{"BumperEnd","b",0.325,0.42,1.3,-3.5125,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
+{"BumperEndIn","b",0.325,0.42,0.7,-3.5125,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
 {"Valance","b",3,0.55,0.3,-1.8,1.28,-9.7,0,0,0,"K","P",0,0,""},
-{"ValanceEnd","b",0.6,0.55,0.8,-3.3,1.28,-9.4,0,0,0,"K","P",0,0,""},
+{"ValanceEnd","b",0.55,0.5,0.8,-3.275,1.305,-9.4,0,0,0,"K","P",0,0,""},
 {"SlotRimEnd","b",0.03,0.2,0.04,1.4,1.7,-10.04,0,0,0,"C2","M",0.9,0,""},
-{"BumperEnd","b",0.3,0.42,1.3,3.5,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
-{"BumperEndIn","b",0.3,0.42,0.7,3.5,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
+{"BumperEnd","b",0.325,0.42,1.3,3.5125,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
+{"BumperEndIn","b",0.325,0.42,0.7,3.5125,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
 {"Valance","b",3,0.55,0.3,1.8,1.28,-9.7,0,0,0,"K","P",0,0,""},
-{"ValanceEnd","b",0.6,0.55,0.8,3.3,1.28,-9.4,0,0,0,"K","P",0,0,""},
+{"ValanceEnd","b",0.55,0.5,0.8,3.275,1.305,-9.4,0,0,0,"K","P",0,0,""},
 {"ValanceCenter","b",1.6,0.55,0.3,0,1.28,-9.7,0,0,0,"K","P",0,0,""},
 {"HeadBezel","c",0.1,0.68,0.68,-2.34,2.62,-10.1,0,90,0,"C","M",0.6,0,""},
 {"HeadCup","c",0.04,0.6,0.6,-2.34,2.62,-10.17,0,90,0,"K","P",0,0,""},
@@ -1267,7 +1299,7 @@ local PARTS = {
 {"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-4.6,0,0,0,"C","M",0.8,0,"blower"},
 {"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-4.1,0,0,0,"C","M",0.8,0,"blower"},
 {"EndPlate","b",1.45,0.7,0.12,0,3.71,-4.1,0,0,0,"C","M",0.8,0,"blower"},
-{"RearBracket","b",1,0.2,0.2,0,3.4,-4.05,0,0,0,"D","M",0.4,0,"blower"},
+{"RearBracket","b",1,0.2,0.225,0,3.4,-4.0625,0,0,0,"D","M",0.4,0,"blower"},
 {"ChainLink","b",0.167,0.06,0.14,0.58,0,0,0,0,90,"D","M",0.6,0,"spin1"},
 {"ChainLink","b",0.167,0.066,0.15,0.5602,0.1501,0,0,0,105,"K","P",0,0,"spin1"},
 {"ChainLink","b",0.167,0.06,0.14,0.5023,0.29,0,0,0,120,"D","M",0.6,0,"spin1"},
@@ -1437,7 +1469,7 @@ local PARTS = {
 {"TailFrameTop","b",6.92,0.07,0.1,0,3.435,10.055,0,0,0,"C","M",0.55,0,""},
 {"TailFrameTop2","b",6.6,0.02,0.06,0,3.34,10.075,0,0,0,"C2","M",0.8,0,""},
 {"TailFrameBot","b",6.92,0.07,0.1,0,2.365,10.055,0,0,0,"C","M",0.55,0,""},
-{"TailFrameEnd","b",0.08,1.07,0.1,-3.42,2.9,10.055,0,0,0,"C","M",0.55,0,""},
+{"TailFrameEnd","b",0.08,1.07,0.125,-3.42,2.9,10.0425,0,0,0,"C","M",0.55,0,""},
 {"TailLens","b",2.33,0.32,0.04,-1.835,2.84,10.065,0,0,0,"L","N",0,0,"tail"},
 {"TailLensEdge","b",2.37,0.022,0.045,-1.835,3.01,10.09,0,0,0,"C2","M",0.8,0,""},
 {"TailLensEdge","b",2.37,0.022,0.045,-1.835,2.67,10.09,0,0,0,"C2","M",0.8,0,""},
@@ -1447,7 +1479,7 @@ local PARTS = {
 {"TailRib","b",0.014,0.3,0.045,-1.45,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
 {"TailRib","b",0.014,0.3,0.045,-2.22,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
 {"TailLensLow","b",2,0.05,0.04,-1.3,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
-{"TailFrameEnd","b",0.08,1.07,0.1,3.42,2.9,10.055,0,0,0,"C","M",0.55,0,""},
+{"TailFrameEnd","b",0.08,1.07,0.125,3.42,2.9,10.0425,0,0,0,"C","M",0.55,0,""},
 {"TailLens","b",2.33,0.32,0.04,1.835,2.84,10.065,0,0,0,"L","N",0,0,"tail"},
 {"TailLensEdge","b",2.37,0.022,0.045,1.835,3.01,10.09,0,0,0,"C2","M",0.8,0,""},
 {"TailLensEdge","b",2.37,0.022,0.045,1.835,2.67,10.09,0,0,0,"C2","M",0.8,0,""},
@@ -1458,24 +1490,24 @@ local PARTS = {
 {"TailRib","b",0.014,0.3,0.045,2.22,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
 {"TailLensLow","b",2,0.05,0.04,1.3,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
 {"TailLensLow","b",0.6,0.05,0.04,0,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
-{"TailLowTrim","b",4.7,0.016,0.05,0,2.495,10.03,0,0,0,"C2","M",0.8,0,""},
+{"TailLowTrim","b",4.7,0.016,0.1,0,2.495,10.03,0,0,0,"C2","M",0.8,0,""},
 {"TrunkKnob","c",0.04,0.12,0.12,0,3.17,10.06,0,90,0,"C2","M",0.8,0,""},
 {"RevLamp","b",0.45,0.12,0.05,-2.75,1.25,9.9,0,0,0,"D","P",0,0,"rev"},
 {"RevLamp","b",0.45,0.12,0.05,2.75,1.25,9.9,0,0,0,"D","P",0,0,"rev"},
-{"RBumper","b",7,0.45,0.36,0,1.9,9.94,0,0,0,"C","M",0.5,0,""},
+{"RBumper","b",7.05,0.45,0.36,0,1.9,9.94,0,0,0,"C","M",0.5,0,""},
 {"RBumperTopRoll","b",6.9,0.07,0.42,0,2.15,9.95,0,0,0,"C2","M",0.85,0,""},
 {"RBumperLowRoll","b",6.8,0.06,0.42,0,1.65,9.95,0,0,0,"C2","M",0.85,0,""},
 {"RBumperBulge","b",2.5,0.45,0.08,0,1.9,10.16,0,0,0,"C","M",0.6,0,""},
 {"RBumperRecess","b",2.1,0.14,0.03,0,1.9,10.215,0,0,0,"S","M",0.35,0,""},
-{"RBumperEnd","b",0.3,0.45,1.5,-3.45,1.9,9.37,0,0,0,"C","M",0.5,0,""},
+{"RBumperEnd","b",0.375,0.45,1.5,-3.4875,1.9,9.37,0,0,0,"C","M",0.5,0,""},
 {"RBumperEndCap","c",0.45,0.4,0.4,-3.42,1.9,10,0,0,90,"C2","M",0.8,0,""},
 {"RBumperGuard","b",0.2,1.2,0.22,-1.3,1.6,10.2,0,0,0,"C2","M",0.8,0,""},
 {"RBumperGuardCap","b",0.26,0.1,0.28,-1.3,2.24,10.2,0,0,0,"C","M",0.7,0,""},
-{"RBumperEnd","b",0.3,0.45,1.5,3.45,1.9,9.37,0,0,0,"C","M",0.5,0,""},
+{"RBumperEnd","b",0.375,0.45,1.5,3.4875,1.9,9.37,0,0,0,"C","M",0.5,0,""},
 {"RBumperEndCap","c",0.45,0.4,0.4,3.42,1.9,10,0,0,90,"C2","M",0.8,0,""},
 {"RBumperGuard","b",0.2,1.2,0.22,1.3,1.6,10.2,0,0,0,"C2","M",0.8,0,""},
 {"RBumperGuardCap","b",0.26,0.1,0.28,1.3,2.24,10.2,0,0,0,"C","M",0.7,0,""},
-{"PlatePanel","b",2,0.7,0.2,0,1.3,9.92,0,0,0,"K","P",0,0,""},
+{"PlatePanel","b",2,0.7,0.175,0,1.3,9.9075,0,0,0,"K","P",0,0,""},
 {"PlateBack","b",1.62,0.82,0.04,0,1.3,10.04,0,0,0,"C2","M",0.7,0,""},
 {"Plate","b",1.5,0.7,0.03,0,1.3,10.07,0,0,0,"PL","P",0,0,""},
 {"PlateScrew","c",0.04,0.07,0.07,-0.68,1.02,10.1,0,90,0,"C","M",0.6,0,""},
@@ -2888,9 +2920,10 @@ local function buildCarRaw()
 		local em = add("LampEmit", V(0.2, 0.2, 0.2), P(sd * 2.34, 2.62, -10.45), COLS.K, MATS.P, nil, 1, nil, 0)
 		local sl = Instance.new("SpotLight")
 		sl.Face = Enum.NormalId.Front
-		sl.Range = 110
+		sl.Range = math.min(Config.HeadlightRange or 60, 60)
 		sl.Angle = 65
-		sl.Brightness = 2.5
+		sl.Brightness = Config.HeadlightBrightness or 3
+		sl.Shadows = false
 		sl.Color = Color3.fromRGB(255, 244, 225)
 		sl.Enabled = false
 		sl.Parent = em
@@ -2899,7 +2932,7 @@ local function buildCarRaw()
 	attachLogic(car, COLS.B)
 	return car
 end
-local CACHE_VER = "v64a"
+local CACHE_VER = "v64b"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
 local function newPlate()
@@ -3103,7 +3136,7 @@ RAYC.HW = 3.6 * S
 RAYC.HL = 10 * S
 function RAYC.wallHit(o, d)
 	local h = workspace:Raycast(o, d, rp)
-	if h and math.abs(h.Normal.Y) < 0.6 then return h end
+	if h and math.abs(h.Normal.Y) < 0.35 then return h end
 	return nil
 end
 function RAYC.sweep(origin, dir, len)
@@ -3455,10 +3488,10 @@ local function ignStep(c, dt)
 				if Config.SoundStartFail and not c.lastFail and math.random() < (I.FailChance or 0) then
 					ign.fail = true
 					c.lastFail = true
-					c.failSnd = playSound(Config.SoundStartFail, 0.9)
+					c.failSnd = cabinAttach(playSound(Config.SoundStartFail, 0.9))
 				else
 					c.lastFail = false
-					c.startSnd = playSound(Config.SoundStart, 0.9)
+					c.startSnd = cabinAttach(playSound(Config.SoundStart, 0.9))
 					c.startT = now
 				end
 			end
@@ -3744,6 +3777,112 @@ local function addSkid(p0, p1, up)
 		if part.Parent then part:Destroy() end
 	end)
 end
+local function tiltOf(c)
+	local cu = c.up
+	return math.clamp(math.sqrt(cu.X * cu.X + cu.Z * cu.Z) / math.max(cu.Y, 0.2), 0, 2.5)
+end
+local function groundRay(base, tilt)
+	local ext = 8.4 * S * tilt
+	local lift = 4.6 * S + ext
+	local res = workspace:Raycast(base + Vector3.new(0, lift, 0), Vector3.new(0, -(lift + 4.5 * S + ext), 0), rp)
+	if res then return res end
+	local hi = 20 * S
+	local r2 = workspace:Raycast(base + Vector3.new(0, hi, 0), Vector3.new(0, -(hi + 14 * S), 0), rp)
+	if r2 and r2.Normal.Y > 0.3 and r2.Position.Y - base.Y < 11 * S then return r2 end
+	return nil
+end
+local function climbable(c, hit)
+	local o = hit.Position - hit.Normal * 0.3 + Vector3.new(0, 8 * S, 0)
+	local t = workspace:Raycast(o, Vector3.new(0, -16 * S, 0), rp)
+	if not t or t.Normal.Y < 0.5 then return false end
+	local fx, fz = -math.sin(c.yaw), -math.cos(c.yaw)
+	local cu = c.up
+	local sl = -(cu.X * fx + cu.Z * fz) / math.max(cu.Y, 0.2)
+	local along = (hit.Position.X - c.pos.X) * fx + (hit.Position.Z - c.pos.Z) * fz
+	local base = c.pos.Y + math.max(math.min(sl, 1.8) * along, 0)
+	return t.Position.Y - base < Config.StepUp * S * 1.2
+end
+local function noseNeed(c, cfY, posN)
+	local lf = cfY.LookVector
+	local cu = c.up
+	local best = nil
+	local tl = tiltOf(c)
+	local rt = Vector3.new(-lf.Z, 0, lf.X)
+	local sl = -(cu.X * lf.X + cu.Z * lf.Z) / math.max(cu.Y, 0.2)
+	local sr = -(cu.X * rt.X + cu.Z * rt.Z) / math.max(cu.Y, 0.2)
+	for _, d in ipairs({ 8.4 * S, -8.4 * S }) do
+		for _, off in ipairs({ 0, 3.2 * S, -3.2 * S }) do
+			local o = Vector3.new(posN.X + lf.X * d + rt.X * off, c.pos.Y, posN.Z + lf.Z * d + rt.Z * off)
+			local bh = groundRay(o, tl)
+			if bh and bh.Normal.Y > 0.3 then
+				local need = bh.Position.Y - 0.7 * S - d * sl - off * sr
+				if not best or need > best then best = need end
+			end
+		end
+	end
+	return best
+end
+local function landFx(c, imp, bottom)
+	if imp < 55 then return end
+	local n = math.clamp(math.floor(imp / 7), 6, 40)
+	for _, pe in ipairs(c.smoke) do
+		pcall(function() pe:Emit(n) end)
+	end
+	if (bottom or imp > 140) and c.root then
+		if not c.fxSpark then
+			local e = Instance.new("ParticleEmitter")
+			e.Name = "LandSparks"
+			e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			e.Rate = 0
+			e.Lifetime = NumberRange.new(0.2, 0.55)
+			e.Speed = NumberRange.new(18, 48)
+			e.SpreadAngle = Vector2.new(60, 60)
+			e.EmissionDirection = Enum.NormalId.Top
+			e.Acceleration = Vector3.new(0, -140, 0)
+			e.Color = ColorSequence.new(Color3.fromRGB(255, 190, 90), Color3.fromRGB(255, 90, 20))
+			e.LightEmission = 1
+			e.LightInfluence = 0
+			e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+			e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+			e.Parent = c.root
+			c.fxSpark = e
+		end
+		pcall(function() c.fxSpark:Emit(math.clamp(math.floor(imp / 5), 8, 45)) end)
+	end
+end
+local function landImpact(c, imp, nrm, yaw)
+	local RJ = Config.RampJump
+	local fl = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local rv = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local aP, aR = c.aP or 0, c.aR or 0
+	local gP = aP
+	if nrm then
+		local ny = math.max(nrm.Y, 0.2)
+		gP = math.atan(-(nrm.X * fl.X + nrm.Z * fl.Z) / ny)
+		local gR = math.atan(-(nrm.X * rv.X + nrm.Z * rv.Z) / ny)
+		c.up = nrm
+		c.rkP = (c.rkP or 0) + math.clamp(aP - gP, -0.5, 0.5)
+		c.rkR = (c.rkR or 0) + math.clamp(aR - gR, -0.4, 0.4)
+	end
+	c.rkPV = (c.rkPV or 0) + math.clamp((c.aPV or 0) * 0.35, -1.5, 1.5)
+	c.rkRV = (c.rkRV or 0) + math.clamp((c.aRV or 0) * 0.35, -1.5, 1.5)
+	local share = math.clamp(0.5 + (gP - aP) * 2.5, 0.08, 0.92)
+	local skew = (share - 0.5) * 2
+	local dv = math.min(imp * 0.16, RJ.LandSus)
+	c.susV = c.susV - dv * 0.6
+	c.rkPV = c.rkPV - skew * imp * 0.012
+	c.landPend = {
+		t = 0.07 + 0.05 * (1 - math.abs(skew)),
+		sv = dv * 0.4,
+		pv = skew * imp * 0.009,
+		snd = imp > 60 and math.clamp(0.25 + imp / 350, 0.3, 0.8) or 0,
+	}
+	if imp > 35 then
+		cabinAttach(playSound(Config.SoundLand, math.clamp(0.45 + imp / 220, 0.5, 1.4), math.clamp(1.1 - imp / 700, 0.7, 1.0)))
+	end
+	landFx(c, imp, imp * 0.16 / 10.5 > 1.3)
+	return 1 - math.clamp((imp - 50) / 900, 0, RJ.LandLoss)
+end
 local function stepCar(c, dt)
 	ignStep(c, dt)
 	local g = workspace.Gravity
@@ -3808,6 +3947,7 @@ local function stepCar(c, dt)
 		elseif mode == "R" and throttle == 0 then
 			resist = resist + 6
 		end
+		if not grounded then resist = 0.00015 * vF * vF end
 		local sgn = vF > 0 and 1 or -1
 		local dec = math.min(resist * dt, math.abs(vF))
 		vF = vF + acc * dt - sgn * dec
@@ -3817,7 +3957,11 @@ local function stepCar(c, dt)
 			local sa = gt * (g * Config.RollK)
 			local spd0 = math.sqrt(vF * vF + vR * vR)
 			if not (spd0 < 2 and sa.Magnitude < 7) then
-				vF = vF + sa:Dot(fwd) * dt
+				local sf = sa:Dot(fwd)
+				if throttle > 0 and brakePed == 0 and ((mode == "D" and sf < 0) or (mode == "R" and sf > 0)) then
+					sf = sf * (1 - 0.92 * throttle)
+				end
+				vF = vF + sf * dt
 				vR = vR + sa:Dot(right) * dt
 			end
 		end
@@ -3864,10 +4008,13 @@ local function stepCar(c, dt)
 		local dir = vel.Unit
 		local lat = Vector3.new(-dir.Z, 0, dir.X)
 		local reach = 1.0 + spd * dt * 1.5 + 0.6
+		local upR = c.grounded and c.up or Vector3.yAxis
+		local tdir = dir - upR * dir:Dot(upR)
+		tdir = tdir.Magnitude > 0.05 and tdir.Unit or dir
 		for _, off in ipairs({ 0, 2.8 * S, -2.8 * S }) do
-			local o = c.pos + Vector3.new(0, 1.9 * S, 0) + dir * (8.2 * S - 1.0) + lat * off
-			local hit = workspace:Raycast(o, dir * reach, rp)
-			if hit and math.abs(hit.Normal.Y) < 0.6 then
+			local o = c.pos + upR * (1.9 * S) + tdir * (8.2 * S - 1.0) + lat * off
+			local hit = workspace:Raycast(o, tdir * reach, rp)
+			if hit and math.abs(hit.Normal.Y) < 0.35 and not climbable(c, hit) then
 				local n = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
 				if n.Magnitude > 0.01 then
 					n = n.Unit
@@ -3883,11 +4030,44 @@ local function stepCar(c, dt)
 		end
 	end
 	local posN = c.pos + Vector3.new(vel.X * dt, 0, vel.Z * dt)
+	do
+		local hv = Vector3.new(vel.X, 0, vel.Z)
+		local hs = hv.Magnitude
+		if hs > 0.5 then
+			local hd = hv / hs
+			local upB = c.grounded and c.up or Vector3.yAxis
+			local fB = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			fB = fB - upB * fB:Dot(upB)
+			fB = fB.Magnitude > 0.05 and fB.Unit or Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			local rB = fB:Cross(upB).Unit
+			local uB = rB:Cross(fB)
+			local cfB = CFrame.fromMatrix(c.pos + uB * (2.3 * S), rB, uB, -fB)
+			local tB = hd - uB * hd:Dot(uB)
+			tB = tB.Magnitude > 0.05 and tB.Unit or hd
+			local hf = math.max(Vector3.new(tB.X, 0, tB.Z).Magnitude, 0.2)
+			local okB, bc = pcall(workspace.Blockcast, workspace, cfB, Vector3.new(6.6 * S, 1.6 * S, 16 * S), tB * ((hs * dt + 0.6) / hf), rp)
+			if okB and bc and math.abs(bc.Normal.Y) < 0.5 then
+				local n = Vector3.new(bc.Normal.X, 0, bc.Normal.Z)
+				if n.Magnitude > 0.01 then
+					n = n.Unit
+					local into = vel:Dot(n)
+					local d0 = hs * dt
+					local allowed = math.min(d0, math.max(bc.Distance - 0.3, 0) * hf)
+					if into < 0 then
+						vel = vel - n * into
+						vF, vR = vel:Dot(fwd), vel:Dot(right)
+					end
+					posN = c.pos + hd * allowed + Vector3.new(vel.X, 0, vel.Z) * dt * (1 - allowed / math.max(d0, 1e-4))
+					if bc.Distance < 0.05 then posN = posN + n * 0.3 end
+				end
+			end
+		end
+	end
 	local cfY = CFrame.new(posN) * CFrame.Angles(0, yaw, 0)
 	local hits, pts = {}, {}
 	for i = 1, 4 do
 		local wp = cfY:PointToWorldSpace(c.wheelOff[i])
-		local res = workspace:Raycast(wp + Vector3.new(0, 3.2 * S, 0), Vector3.new(0, -7.7 * S, 0), rp)
+		local res = groundRay(Vector3.new(wp.X, c.pos.Y, wp.Z), tiltOf(c))
 		if res then
 			hits[i] = res.Position
 			pts[#pts + 1] = res.Position
@@ -3907,52 +4087,150 @@ local function stepCar(c, dt)
 		if nrm and nrm.Magnitude > 1e-4 then
 			nrm = nrm.Unit
 			if nrm.Y < 0 then nrm = -nrm end
-			if nrm.Y < 0.45 then nrm = nil end
+			if nrm.Y < 0.3 then nrm = nil end
 		else
 			nrm = nil
 		end
 	end
-	if targetY and targetY - c.pos.Y > Config.StepUp * S and c.grounded then
-		vel = Vector3.zero
-		vF, vR = 0, 0
-		posN = c.pos
-		targetY = c.pos.Y
+	if targetY and c.grounded then
+		local nd = noseNeed(c, cfY, posN)
+		if nd and nd > targetY then targetY = nd end
+	end
+	local hsp = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	if targetY and c.grounded then
+		local maxUp = c.pos.Y + Config.StepUp * S + hsp * dt * 3
+		if targetY > maxUp then targetY = maxUp end
 	end
 	local y = c.pos.Y
+	local RJ = Config.RampJump
+	local rjOn = RJ and RJ.Enabled
+	local gA = g * ((rjOn and RJ.GravMul) or 1)
 	if targetY then
 		local allow = 0.4 * S + spd * dt * 0.35
-		if y > targetY + allow then
-			if c.grounded then
-				c.vy = math.clamp(c.vyG or 0, -60, 80)
-				c.grounded = false
-			end
-			c.vy = c.vy - g * dt
-			y = y + c.vy * dt
-			if y <= targetY then
-				if c.vy < -30 then
-					playSound(Config.SoundLand, 0.6)
-					c.susV = c.susV + math.clamp(c.vy * 0.25, -25, 0)
-				end
-				c.vy = 0
-				y = targetY
-				c.grounded = true
+		local launch
+		if c.grounded then
+			launch = y > targetY + allow
+			if rjOn and not launch and (c.vyG or 0) > RJ.MinVy and (c.landT or 0) < 0.35 then
+				local ballY = y + (c.vyG or 0) * dt - 0.5 * gA * dt * dt
+				launch = ballY > targetY + RJ.Tol * S + spd * dt * 0.08
 			end
 		else
-			c.vyG = (c.vyG or 0) * 0.7 + ((targetY - y) / dt) * 0.3
-			y = y + (targetY - y) * (1 - math.exp(-30 * dt))
+			launch = y > targetY + allow or (rjOn and c.vy > 0 and y > targetY)
+		end
+		if launch then
+			if c.grounded then
+				if rjOn then
+					c.vy = math.clamp((c.vyG or 0) * RJ.Gain, -RJ.MaxVy, RJ.MaxVy)
+					c.susV = c.susV + math.clamp((c.vyG or 0) * 0.05, 0, 9)
+					c.rkPV = (c.rkPV or 0) + math.clamp((c.vyG or 0) * 0.0035, 0, 0.45)
+				else
+					c.vy = math.clamp(c.vyG or 0, -60, 80)
+				end
+				c.grounded = false
+			end
+			c.vy = c.vy - gA * dt
+			y = y + c.vy * dt
+			if y <= targetY then
+				if c.vy < -18 then
+					local RJ2 = Config.RampJump
+					if RJ2 and RJ2.Enabled then
+						local imp = -c.vy
+						if nrm then
+							imp = math.max(-(Vector3.new(vel.X, c.vy, vel.Z)):Dot(nrm), 0)
+						end
+						vel = vel * landImpact(c, imp, nrm, yaw)
+					else
+						if c.vy < -30 then playSound(Config.SoundLand, 0.6) end
+						c.susV = c.susV + math.clamp(c.vy * 0.25, -25, 0)
+					end
+				end
+				c.vy = 0
+				c.vyG = 0
+				y = targetY
+				c.grounded = true
+				c.landT = 0.5
+			end
+		else
+			if not c.grounded then c.vyG = 0 end
+			c.vyG = (c.vyG or 0) + (math.clamp((targetY - y) / dt, -400, 400) - (c.vyG or 0)) * (1 - math.exp(-18 * dt))
+			y = y + (targetY - y) * (1 - math.exp(-(targetY > y and 80 or 30) * dt))
 			c.vy = 0
 			c.grounded = true
 		end
 		if nrm and c.grounded then
-			c.up = c.up:Lerp(nrm, 1 - math.exp(-10 * dt)).Unit
+			c.up = c.up:Lerp(nrm, 1 - math.exp(-((c.landT or 0) > 0 and 18 or math.clamp(10 + hsp * 0.05, 10, 22)) * dt)).Unit
 		end
+		c.landT = math.max((c.landT or 0) - dt, 0)
 	else
 		c.grounded = false
-		c.vy = c.vy - g * dt
+		c.vy = c.vy - gA * dt
 		y = y + c.vy * dt
 	end
-	if not c.grounded then
-		c.up = c.up:Lerp(Vector3.yAxis, 1 - math.exp(-1.5 * dt)).Unit
+	if not c.grounded and c.vy <= 0 then
+		local nd = noseNeed(c, cfY, posN)
+		if nd and nd > y and nd - y < 4 * S then
+			y = nd
+			if c.vy < -18 and Config.RampJump and Config.RampJump.Enabled then
+				vel = vel * landImpact(c, -c.vy, nil, yaw)
+			else
+				c.susV = c.susV - math.clamp(-c.vy * 0.2, 0, 30)
+			end
+			c.vy = 0
+			c.vyG = 0
+			c.grounded = true
+			c.landT = 0.5
+		end
+	end
+	do
+		local fl = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+		local rv = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+		local cu = c.up
+		local cuY = math.max(cu.Y, 0.2)
+		local curP = math.atan(-(cu.X * fl.X + cu.Z * fl.Z) / cuY)
+		local curR = math.atan(-(cu.X * rv.X + cu.Z * rv.Z) / cuY)
+		if c.grounded then
+			local k = 1 - math.exp(-12 * dt)
+			local d = math.max(dt, 1e-3)
+			c.pRateG = (c.pRateG or 0) + (((curP - (c.prevP or curP)) / d) - (c.pRateG or 0)) * k
+			c.rRateG = (c.rRateG or 0) + (((curR - (c.prevR or curR)) / d) - (c.rRateG or 0)) * k
+			c.prevP, c.prevR = curP, curR
+			c.airInit = false
+			c.airT = 0
+			c.aP, c.aR, c.aPV, c.aRV = nil, nil, nil, nil
+		else
+			if not c.airInit then
+				c.airInit = true
+				c.aP, c.aR = curP, curR
+				c.aPV = math.clamp(c.pRateG or 0, -3, 3)
+				c.aRV = math.clamp(c.rRateG or 0, -3, 3)
+			end
+			local vfa = vel:Dot(fl)
+			local tp = math.atan2(c.vy, math.max(math.abs(vfa), 1)) * (vfa >= 0 and 1 or -1)
+			tp = math.clamp(tp * math.clamp(math.abs(vfa) / 15, 0, 1), -1.1, 1.1)
+			local tr = 0
+			local RJa = Config.RampJump or {}
+			c.airT = (c.airT or 0) + dt
+			tp = tp - (RJa.NoseBias or 0.08) * math.min(c.airT / 1.2, 1)
+			local gh = workspace:Raycast(Vector3.new(posN.X, y, posN.Z), Vector3.new(0, -(RJa.AlignDist or 14) * 1.6 * S, 0), rp)
+			if gh and gh.Normal.Y > 0.3 then
+				local h = y - gh.Position.Y
+				local w = math.clamp(1 - h / ((RJa.AlignDist or 14) * S), 0, 1)
+				w = w * w * (3 - 2 * w)
+				local gn = gh.Normal
+				local gnY = math.max(gn.Y, 0.2)
+				local gP = math.atan(-(gn.X * fl.X + gn.Z * fl.Z) / gnY)
+				local gR = math.atan(-(gn.X * rv.X + gn.Z * rv.Z) / gnY)
+				tp = tp + (gP - tp) * w
+				tr = gR * w
+			end
+			local K = RJa.AirK or 6
+			local Cd = 2 * math.sqrt(K) * (RJa.AirDamp or 0.85)
+			c.aPV = c.aPV + (K * (tp - c.aP) - Cd * c.aPV) * dt
+			c.aRV = c.aRV + (K * (tr - c.aR) - Cd * c.aRV) * dt
+			c.aP = math.clamp(c.aP + c.aPV * dt, -1.3, 1.3)
+			c.aR = math.clamp(c.aR + c.aRV * dt, -1.0, 1.0)
+			c.up = (Vector3.yAxis - fl * math.tan(c.aP) - rv * math.tan(c.aR)).Unit
+		end
 	end
 	if y < workspace.FallenPartsDestroyHeight + 40 then
 		posN = c.lastSafe or c.pos
@@ -3980,10 +4258,58 @@ local function stepCar(c, dt)
 	local kk = 1 - math.exp(-8 * dt)
 	c.leanP = c.leanP + (tp - c.leanP) * kk
 	c.leanR = c.leanR + (tr - c.leanR) * kk
-	local sa = -150 * c.susY - 14 * c.susV
-	c.susV = c.susV + sa * dt
-	c.susY = c.susY + c.susV * dt
-	c.susY = math.clamp(c.susY, -1.2, 1.2)
+	do
+		local sa = -110 * c.susY - 9 * c.susV
+		if c.susY < -1.0 then sa = sa - (c.susY + 1.0) * 420 end
+		c.susV = c.susV + sa * dt
+		c.susY = c.susY + c.susV * dt
+		if c.susY < -1.3 then
+			c.susY = -1.3
+			if c.susV < 0 then c.susV = -c.susV * 0.25 end
+		elseif c.susY > 0.9 then
+			c.susY = 0.9
+			if c.susV > 0 then c.susV = 0 end
+		end
+		c.rkPV = (c.rkPV or 0) + (-60 * (c.rkP or 0) - 7.7 * (c.rkPV or 0)) * dt
+		c.rkP = math.clamp((c.rkP or 0) + c.rkPV * dt, -0.6, 0.6)
+		c.rkRV = (c.rkRV or 0) + (-70 * (c.rkR or 0) - 8 * (c.rkRV or 0)) * dt
+		c.rkR = math.clamp((c.rkR or 0) + c.rkRV * dt, -0.5, 0.5)
+		local lp = c.landPend
+		if lp then
+			lp.t = lp.t - dt
+			if lp.t <= 0 then
+				c.susV = c.susV - lp.sv
+				c.rkPV = c.rkPV + lp.pv
+				if lp.snd > 0 then cabinAttach(playSound(Config.SoundLand, lp.snd, 1.15)) end
+				c.landPend = nil
+			end
+		end
+	end
+end
+local function cabinStep(c, dt)
+	local CB = Config.Cabin
+	if not (CB and CB.Enabled) then return end
+	local g, eq = cabinGet()
+	if not g then return end
+	local io = 0
+	local cam = workspace.CurrentCamera
+	if c.driver and cam and c.cf then
+		local sp = (c.cf * SEAT_REL).Position
+		local d = (cam.CFrame.Position - sp).Magnitude
+		io = math.clamp(1 - (d - CB.CamNear * S) / ((CB.CamFar - CB.CamNear) * S), 0, 1)
+		io = io * io * (3 - 2 * io)
+	end
+	local wp = c.winP or 0
+	local da = math.clamp(math.abs(c.doorAng or 0) / math.rad(35), 0, 1)
+	local op = math.clamp(wp * CB.Window + da * CB.Door, 0, 1)
+	local target = io * (1 - op)
+	local m0 = c.cabinM or 0
+	local m = m0 + (target - m0) * (1 - math.exp(-6 * dt))
+	c.cabinM = m
+	g.Volume = 1 - (1 - CB.Vol) * m
+	eq.HighGain = CB.HighGain * m
+	eq.MidGain = CB.MidGain * m
+	eq.LowGain = CB.LowGain * m
 end
 local function updateWheelFx(w, omega, heat)
 	local k = math.clamp((omega - 14) / 18, 0, 1)
@@ -4011,7 +4337,7 @@ local function carVisuals(c, dt)
 	fwd = fwd.Unit
 	local right = fwd:Cross(up).Unit
 	local up2 = right:Cross(fwd)
-	local cf = CFrame.fromMatrix(c.pos + up2 * c.susY, right, up2, -fwd) * CFrame.Angles(c.leanP, 0, c.leanR)
+	local cf = CFrame.fromMatrix(c.pos + up2 * c.susY, right, up2, -fwd) * CFrame.Angles(c.leanP + (c.rkP or 0), 0, c.leanR + (c.rkR or 0))
 	local sa = c.shakeA or 0
 	if sa > 0.005 then
 		local tt = os.clock()
@@ -4034,12 +4360,12 @@ local function carVisuals(c, dt)
 	local uy = math.max(cf.UpVector.Y, 0.5)
 	for i, w in ipairs(c.wheels) do
 		local hit = c.hits and c.hits[i]
-		local tgt = -0.3 * S
+		local tgt = -0.55 * S
 		if hit then
 			local nomY = cf:PointToWorldSpace(w.base.Position).Y
 			tgt = (hit.Y + w.base.Position.Y - nomY) / uy
 		end
-		tgt = math.clamp(tgt, -0.45 * S, 0.45 * S)
+		tgt = math.clamp(tgt, -0.6 * S, 1.2 * S)
 		local sv0 = w.sV or 0
 		sv0 = sv0 + (260 * (tgt - (w.sOff or 0)) - 24 * sv0) * dt
 		w.sV = sv0
@@ -4126,6 +4452,100 @@ local function carVisuals(c, dt)
 	if c.lampState ~= c.lamps then
 		c.lampState = c.lamps
 		for _, l in ipairs(c.lampObjs) do l.light.Enabled = c.lamps end
+		c._lampChk = 0
+	end
+	-- Brilho dos farois (estilo Charger Toretto): particulas com LightEmission, aparecem no grafico minimo
+	if not c.hGlow then
+		c.hGlow = {}
+		local function mk(em, tex, size, tr, rate, col, minK)
+			local pe = Instance.new("ParticleEmitter")
+			pe.Name = "HeadGlow"
+			pe.Texture = tex
+			pe.Color = ColorSequence.new(col)
+			pe.LightEmission = 1
+			pe.LightInfluence = 0
+			pe.LockedToPart = true
+			pe.Lifetime = NumberRange.new(0.6)
+			pe.Speed = NumberRange.new(0)
+			pe.Rotation = NumberRange.new(0)
+			pe.RotSpeed = NumberRange.new(0)
+			pe.ZOffset = 1
+			pe.Size = NumberSequence.new(size * S)
+			pe.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.2, tr),
+				NumberSequenceKeypoint.new(0.8, tr),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			pe.Rate = 0
+			pe.Enabled = false
+			pe:SetAttribute("BR", rate)
+			pe:SetAttribute("SZ", size)
+			pe:SetAttribute("MK", minK)
+			pe.Parent = em
+			c.hGlow[#c.hGlow + 1] = pe
+		end
+		local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+		local STAR = "rbxasset://textures/particles/sparkles_main.dds"
+		for _, l in ipairs(c.lampObjs or {}) do
+			local em = l.light and l.light.Parent
+			if em and em:IsA("BasePart") then
+				mk(em, SMOKE, 5, 0.86, 14, Color3.fromRGB(255, 238, 205), 0.45)
+				mk(em, SMOKE, 2.4, 0.55, 12, Color3.fromRGB(255, 252, 240), 0.6)
+				mk(em, STAR, 5.5, 0.7, 8, Color3.fromRGB(255, 245, 225), 0)
+			end
+		end
+	end
+	-- Brilho so aparece de frente: some conforme a camera sai da frente do carro
+	do
+		local cam = workspace.CurrentCamera
+		if c.lamps and cam and c.cf then
+			local to = cam.CFrame.Position - c.cf.Position
+			local d = to.Magnitude > 0.1 and c.cf.LookVector:Dot(to.Unit) or 0
+			local k = math.floor(math.clamp((d - 0.4) / 0.45, 0, 1) * 10 + 0.5) / 10
+			if c._hgK ~= k then
+				c._hgK = k
+				for _, pe in ipairs(c.hGlow) do
+					if pe.Parent then
+						local mk0 = pe:GetAttribute("MK") or 0
+						pe.Size = NumberSequence.new((pe:GetAttribute("SZ") or 4) * S * (mk0 + (1 - mk0) * k))
+					end
+				end
+			end
+		end
+	end
+	c._lampChk = (c._lampChk or 0) - dt
+	if c._lampChk <= 0 then
+		c._lampChk = 0.4
+		local want = c.lamps == true
+		do
+			local t = game:GetService("Lighting").ClockTime
+			local k = (t < 6 or t > 18) and 1 or 0.45
+			for _, pe in ipairs(c.hGlow) do
+				if pe.Parent then
+					pe.Rate = want and (pe:GetAttribute("BR") or 10) * k or 0
+					if pe.Enabled ~= want then pe.Enabled = want end
+				end
+			end
+		end
+		for _, l in ipairs(c.lampObjs) do
+			local L = l.light
+			if L and L.Parent then
+				if L.Enabled ~= want then L.Enabled = want end
+				if L.Range > 60 then L.Range = 60 end
+				if L.Parent:IsA("BasePart") and L.Parent.Parent == nil then L.Parent.Parent = c.model end
+			end
+		end
+		if c.brakeLight and c.brakeLight.Parent then
+			local bw = c.tailState == 3
+			if c.brakeLight.Enabled ~= bw then c.brakeLight.Enabled = bw end
+		end
+		if c._lensOn ~= nil then
+			for _, p in ipairs(c.lens) do
+				local wm = want and MATS.N or MATS.G
+				if p.Parent and p.Material ~= wm then p.Material = wm end
+			end
+		end
 	end
 	local slip = math.abs(c.vR) + ((c.notch >= 2 and math.abs(c.vF) > 25) and math.abs(c.vF) * 0.3 or 0)
 	local sliding = c.grounded and (slip > 12 or c.fxSlide == true)
@@ -4178,6 +4598,7 @@ local function carVisuals(c, dt)
 		c.engine.PlaybackSpeed = 0.5 + c.rpm / 7000 * 1.2
 		c.engine.Volume = c.engineOn and 0.6 or 0
 	end
+	cabinStep(c, dt)
 	local sn = c.snd
 	if sn then
 		local drv = (c.driver or c.cine) and true or false
@@ -4877,6 +5298,7 @@ local function spawnCar()
 	c.notch, c.notchT = 0, 0
 	c.steer = 0
 	c.leanP, c.leanR = 0, 0
+	c.rkP, c.rkPV, c.rkR, c.rkRV, c.landPend = 0, 0, 0, 0, nil
 	c.susY, c.susV = 0, 0
 	c.rpm = 0
 	c.vF, c.vR = 0, 0
@@ -4914,6 +5336,7 @@ local function spawnCar()
 			s.Looped = true
 			s.Volume = 0
 			s.RollOffMaxDistance = 120
+			cabinAttach(s)
 			s.Parent = c.root
 			s:Play()
 			c.engine = s
@@ -4927,6 +5350,7 @@ local function spawnCar()
 			sd.Volume = 0
 			sd.RollOffMinDistance = 30
 			sd.RollOffMaxDistance = 200
+			cabinAttach(sd)
 			sd.Parent = c.root
 			sd:Play()
 			return sd
@@ -6867,6 +7291,108 @@ do
 			if m.TextSource and m.TextSource.UserId == player.UserId then liteCmd(m.Text) end
 		end))
 	end)
+	task.delay(3, function()
+		local mname = (Config.LiteMode == "super" and "3 (SUPER LITE)") or (Config.LiteMode == "lite" and "2 (LITE)") or "1 (COMPLETO)"
+		say("Modo atual: " .. mname .. ". Digite no chat para trocar:")
+		say("-1 = COMPLETO: todos os detalhes do carro, sombras e fumaca/derrapagem normais.")
+		say("-2 = LITE: tira detalhes pequenos (parafusos e furos dos discos). Visual quase igual, um pouco mais leve.")
+		say("-3 = SUPER LITE: tira mais detalhes (frisos, logos, desenhos dos pneus/rodas), sem sombra nas pecas, menos fumaca, sem fumaca de escapamento, menos marcas de pneu. Para celular fraco.")
+		say("O carro e reconstruido ao trocar. Dica: -4 mostra diagnostico dos bracos.")
+	end)
+end
+-- Pre-carregamento de sons e texturas, com caixa de aviso e barra de progresso
+do
+	local list, seen = {}, {}
+	local function add(v)
+		if type(v) == "string" and v:find("^rbxasset") and not seen[v] then
+			seen[v] = true
+			list[#list + 1] = v
+		end
+	end
+	for k, v in pairs(Config) do
+		if type(v) == "string" and tostring(k):find("Sound") then add(v) end
+		if type(v) == "table" then
+			for k2, v2 in pairs(v) do
+				if type(v2) == "string" and tostring(k2):find("Sound") then add(v2) end
+			end
+		end
+	end
+	add("rbxasset://textures/particles/smoke_main.dds")
+	add("rbxasset://textures/particles/sparkles_main.dds")
+	add("rbxasset://textures/particles/fire_main.dds")
+	local total = #list
+	if total > 0 then
+		local box = Instance.new("Frame")
+		box.Name = "PreloadBox"
+		box.AnchorPoint = Vector2.new(0.5, 0)
+		box.Position = UDim2.new(0.5, 0, 0, 70)
+		box.Size = UDim2.fromOffset(290, 62)
+		box.BackgroundColor3 = PANEL
+		box.BackgroundTransparency = 0.12
+		box.BorderSizePixel = 0
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(0, 10)
+		bc.Parent = box
+		local bs = Instance.new("UIStroke")
+		bs.Color = AMBER
+		bs.Thickness = 1.5
+		bs.Parent = box
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Position = UDim2.fromOffset(10, 6)
+		lbl.Size = UDim2.new(1, -20, 0, 28)
+		lbl.Font = FONT
+		lbl.TextSize = 15
+		lbl.TextColor3 = Color3.fromRGB(235, 235, 235)
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Text = "Charger: carregando recursos 0/" .. total
+		lbl.Parent = box
+		local barBg = Instance.new("Frame")
+		barBg.Position = UDim2.fromOffset(10, 40)
+		barBg.Size = UDim2.new(1, -20, 0, 8)
+		barBg.BackgroundColor3 = DIMC
+		barBg.BorderSizePixel = 0
+		local bgc = Instance.new("UICorner")
+		bgc.CornerRadius = UDim.new(1, 0)
+		bgc.Parent = barBg
+		barBg.Parent = box
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.fromScale(0, 1)
+		bar.BackgroundColor3 = AMBER
+		bar.BorderSizePixel = 0
+		local brc = Instance.new("UICorner")
+		brc.CornerRadius = UDim.new(1, 0)
+		brc.Parent = bar
+		bar.Parent = barBg
+		box.Parent = gui
+		task.spawn(function()
+			local done = 0
+			pcall(function()
+				game:GetService("ContentProvider"):PreloadAsync(list, function()
+					done = done + 1
+					if box.Parent then
+						lbl.Text = "Charger: carregando recursos " .. math.min(done, total) .. "/" .. total
+						bar.Size = UDim2.fromScale(math.clamp(done / total, 0, 1), 1)
+					end
+				end)
+			end)
+			if box.Parent then
+				lbl.Text = "Charger: tudo carregado!"
+				bar.Size = UDim2.fromScale(1, 1)
+				bar.BackgroundColor3 = GREEN
+				task.wait(1.5)
+				pcall(function()
+					TweenService:Create(box, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(lbl, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
+					TweenService:Create(bs, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+					TweenService:Create(barBg, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(bar, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+				end)
+				task.wait(0.6)
+				box:Destroy()
+			end
+		end)
+	end
 end
 local STEP_ID = "ChargerStep"
 pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)

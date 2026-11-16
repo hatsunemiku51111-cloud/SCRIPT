@@ -87,10 +87,6 @@ local Config = {
 		Enabled = true,
 		RevLook = true,
 		RevLookYaw = 75,
-		Elbow = true,
-		ElbowSpeed = 25,
-		ElbowDelay = 1.5,
-		ElbowRest = Vector3.new(-3.3, 0.45, -0.6),
 		LampTime = 1.2,
 		LampSwitch = Vector3.new(-2.9, 3.3, -0.95),
 	},
@@ -4070,6 +4066,8 @@ local function stepCar(c, dt)
 		local res = groundRay(Vector3.new(wp.X, c.pos.Y, wp.Z), tiltOf(c))
 		if res then
 			hits[i] = res.Position
+			c.hitMat = c.hitMat or {}
+			c.hitMat[i] = res.Material
 			pts[#pts + 1] = res.Position
 		end
 	end
@@ -4328,6 +4326,153 @@ local function updateWheelFx(w, omega, heat)
 		w.glow.Brightness = hq * 2.2
 	end
 end
+local EXTRA = {}
+do
+	local DUST = {
+		[Enum.Material.Ground] = Color3.fromRGB(150, 125, 95),
+		[Enum.Material.Sand] = Color3.fromRGB(222, 200, 150),
+		[Enum.Material.Mud] = Color3.fromRGB(95, 72, 52),
+		[Enum.Material.Grass] = Color3.fromRGB(135, 125, 90),
+		[Enum.Material.LeafyGrass] = Color3.fromRGB(135, 125, 90),
+		[Enum.Material.Slate] = Color3.fromRGB(150, 150, 150),
+		[Enum.Material.Limestone] = Color3.fromRGB(205, 195, 175),
+		[Enum.Material.Salt] = Color3.fromRGB(230, 225, 215),
+	}
+	local function build(c)
+		local fx = { dust = {}, spark = {}, part = {}, fire = {} }
+		c.fx = fx
+		for i = 3, 4 do
+			local p = Instance.new("Part")
+			p.Name = "FxEmit"
+			p.Anchored = true
+			p.CanCollide, p.CanQuery, p.CanTouch = false, false, false
+			p.CastShadow = false
+			p.Transparency = 1
+			p.Size = Vector3.new(0.2, 0.2, 0.2)
+			p.Parent = c.model
+			local d = Instance.new("ParticleEmitter")
+			d.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			d.Rate = 0
+			d.Enabled = false
+			d.Lifetime = NumberRange.new(0.6, 1.3)
+			d.Speed = NumberRange.new(2, 7)
+			d.SpreadAngle = Vector2.new(35, 35)
+			d.Acceleration = Vector3.new(0, 2, 0)
+			d.Drag = 1.5
+			d.Rotation = NumberRange.new(0, 360)
+			d.RotSpeed = NumberRange.new(-60, 60)
+			d.LightInfluence = 1
+			d.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) })
+			d.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8 * S), NumberSequenceKeypoint.new(1, 3.2 * S) })
+			d.Parent = p
+			local sp = Instance.new("ParticleEmitter")
+			sp.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			sp.Rate = 0
+			sp.Enabled = false
+			sp.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+			sp.LightEmission = 1
+			sp.LightInfluence = 0
+			sp.Lifetime = NumberRange.new(0.2, 0.45)
+			sp.Speed = NumberRange.new(14, 34)
+			sp.SpreadAngle = Vector2.new(40, 40)
+			sp.Acceleration = Vector3.new(0, -70, 0)
+			sp.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45 * S), NumberSequenceKeypoint.new(1, 0.05 * S) })
+			sp.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+			sp.Parent = p
+			fx.part[#fx.part + 1] = p
+			fx.dust[#fx.dust + 1] = d
+			fx.spark[#fx.spark + 1] = sp
+		end
+		for _, pe in ipairs(c.exh or {}) do
+			local em = pe.Parent
+			if em then
+				local fe = Instance.new("ParticleEmitter")
+				fe.Texture = "rbxasset://textures/particles/fire_main.dds"
+				fe.Rate = 0
+				fe.Enabled = false
+				fe.EmissionDirection = Enum.NormalId.Back
+				fe.Lifetime = NumberRange.new(0.08, 0.2)
+				fe.Speed = NumberRange.new(14, 28)
+				fe.SpreadAngle = Vector2.new(6, 6)
+				fe.LightEmission = 1
+				fe.LightInfluence = 0
+				fe.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 170)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 140, 30)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 40, 10)),
+				})
+				fe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+				fe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7 * S), NumberSequenceKeypoint.new(1, 0.15 * S) })
+				fe.Parent = em
+				fx.fire[#fx.fire + 1] = fe
+			end
+		end
+	end
+	local function burstFire(c, n)
+		for _, fe in ipairs(c.fx.fire) do fe:Emit(n) end
+		playSound("rbxasset://sounds/impact_explosion_03.mp3", 0.22, 1.7)
+	end
+	function EXTRA.step(c, dt)
+		if Config.LiteMode == "super" then return end
+		local fx = c.fx
+		if not fx then
+			if not c.exh then return end
+			build(c)
+			fx = c.fx
+		end
+		local now = os.clock()
+		local speed = math.abs(c.vF or 0)
+		local up = c.up or Vector3.yAxis
+		local slideSpark = c.grounded and speed > 65 and math.abs(c.vR or 0) > 22
+		for k = 1, 2 do
+			local i = k + 2
+			local hit = c.hits and c.hits[i]
+			local d, sp, p = fx.dust[k], fx.spark[k], fx.part[k]
+			if hit and c.grounded then
+				p.CFrame = CFrame.new(hit + up * 0.25)
+				local col = DUST[c.hitMat and c.hitMat[i]]
+				local rate = 0
+				if col and speed > 10 then
+					rate = math.floor(math.clamp((speed - 10) * 0.6, 0, 40) + 0.5)
+					if d:GetAttribute("C") ~= col then
+						d:SetAttribute("C", col)
+						d.Color = ColorSequence.new(col)
+					end
+				end
+				if d.Rate ~= rate then d.Rate = rate end
+				d.Enabled = rate > 0
+				local sr = slideSpark and 35 or 0
+				if sp.Rate ~= sr then sp.Rate = sr end
+				sp.Enabled = sr > 0
+			else
+				if d.Enabled then d.Enabled = false; d.Rate = 0 end
+				if sp.Enabled then sp.Enabled = false; sp.Rate = 0 end
+			end
+		end
+		if c.grounded then
+			if (c._fxAir or 0) > 0.35 then
+				for k = 1, 2 do fx.spark[k]:Emit(14) end
+			end
+			c._fxAir = 0
+		else
+			c._fxAir = (c._fxAir or 0) + dt
+		end
+		if c.engineOn and c.gearKick and c.gearDir == -1 and c._flK ~= c.gearKick then
+			c._flK = c.gearKick
+			if (c.rpm or 0) > 2500 and speed > 20 then
+				burstFire(c, 9)
+				task.delay(0.1, function() if c.fx then for _, fe in ipairs(c.fx.fire) do fe:Emit(6) end end end)
+			end
+		end
+		local thr = c.throttle or 0
+		local prev = c._thrP or 0
+		c._thrP = thr
+		if c.engineOn and prev > 0.7 and thr < 0.15 and speed > 40 and now - (c._flT or 0) > 1.2 then
+			c._flT = now
+			burstFire(c, 7)
+		end
+	end
+end
 local function carVisuals(c, dt)
 	local yaw = c.yaw
 	local f0 = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
@@ -4496,19 +4641,31 @@ local function carVisuals(c, dt)
 			end
 		end
 	end
-	-- Brilho so aparece de frente: some conforme a camera sai da frente do carro
+	-- Brilho dos farois: fade ao ligar/desligar e intensidade por farol conforme o angulo da camera
 	do
 		local cam = workspace.CurrentCamera
-		if c.lamps and cam and c.cf then
-			local to = cam.CFrame.Position - c.cf.Position
-			local d = to.Magnitude > 0.1 and c.cf.LookVector:Dot(to.Unit) or 0
-			local k = math.floor(math.clamp((d - 0.4) / 0.45, 0, 1) * 10 + 0.5) / 10
-			if c._hgK ~= k then
-				c._hgK = k
-				for _, pe in ipairs(c.hGlow) do
-					if pe.Parent then
-						local mk0 = pe:GetAttribute("MK") or 0
-						pe.Size = NumberSequence.new((pe:GetAttribute("SZ") or 4) * S * (mk0 + (1 - mk0) * k))
+		local want = (c.lamps == true) and 1 or 0
+		local f0 = c._hgF or 0
+		local f = f0 + math.clamp(want - f0, -dt * 3.3, dt * 3.3)
+		c._hgF = f
+		local on = f > 0.01
+		local day = c._hgDay or 1
+		c._hgQ = c._hgQ or {}
+		for _, pe in ipairs(c.hGlow) do
+			local em = pe.Parent
+			if em then
+				if pe.Enabled ~= on then pe.Enabled = on end
+				local rt = on and math.floor((pe:GetAttribute("BR") or 10) * day * f + 0.5) or 0
+				if pe.Rate ~= rt then pe.Rate = rt end
+				if on and cam and c.cf then
+					local to = cam.CFrame.Position - em.Position
+					local d = to.Magnitude > 0.1 and c.cf.LookVector:Dot(to.Unit) or 0
+					local kk = math.clamp((d - 0.4) / 0.45, 0, 1)
+					local mk0 = pe:GetAttribute("MK") or 0
+					local q = math.floor((mk0 + (1 - mk0) * kk) * f * 20 + 0.5) / 20
+					if c._hgQ[pe] ~= q then
+						c._hgQ[pe] = q
+						pe.Size = NumberSequence.new((pe:GetAttribute("SZ") or 4) * S * q)
 					end
 				end
 			end
@@ -4520,13 +4677,7 @@ local function carVisuals(c, dt)
 		local want = c.lamps == true
 		do
 			local t = game:GetService("Lighting").ClockTime
-			local k = (t < 6 or t > 18) and 1 or 0.45
-			for _, pe in ipairs(c.hGlow) do
-				if pe.Parent then
-					pe.Rate = want and (pe:GetAttribute("BR") or 10) * k or 0
-					if pe.Enabled ~= want then pe.Enabled = want end
-				end
-			end
+			c._hgDay = (t < 6 or t > 18) and 1 or 0.45
 		end
 		for _, l in ipairs(c.lampObjs) do
 			local L = l.light
@@ -4555,6 +4706,7 @@ local function carVisuals(c, dt)
 		pe.Enabled = sliding
 	end
 	exhaustStep(c)
+	pcall(EXTRA.step, c, dt)
 	for i = 3, 4 do
 		local h = c.hits and c.hits[i]
 		if sliding and h then
@@ -6919,7 +7071,7 @@ local function driveArms(c, dt)
 		local DA = Config.DriveAnim
 		local dA = c._da
 		if not dA then
-			dA = { rev = 0, cruise = 0, elbow = 0 }
+			dA = { rev = 0 }
 			c._da = dA
 		end
 		local function ss(x) x = math.clamp(x, 0, 1) return x * x * (3 - 2 * x) end
@@ -6934,20 +7086,6 @@ local function driveArms(c, dt)
 			if dA.rev > 0.001 then
 				local rp = seatW * Vector3.new(3.1 * S - 1.2, 0.9, 1.0)
 				grips.right = grips.right:Lerp(rp, ss(dA.rev))
-			end
-			local elbowWant = 0
-			if DA.Elbow ~= false and (c.winP or 0) > 0.85 and c.mode == "D" and vF > (DA.ElbowSpeed or 25)
-				and math.abs(c.steer or 0) < 0.2 and (c.notch or 0) < 2 and not held.brake and revWant == 0 then
-				dA.cruise = dA.cruise + dt
-				if dA.cruise > (DA.ElbowDelay or 1.5) then elbowWant = 1 end
-			else
-				dA.cruise = 0
-			end
-			dA.elbow = dA.elbow + math.clamp(elbowWant - dA.elbow, -dt * 4, dt * 2.5)
-			if dA.elbow > 0.001 then
-				local rest = seatW * (DA.ElbowRest or Vector3.new(-3.3, 0.45, -0.6))
-				rest = rest + bodyUp * (math.sin(now * 3) * 0.05)
-				grips.left = grips.left:Lerp(rest, ss(dA.elbow))
 			end
 			c.lampHandOn = ARMS.w >= 0.5
 			if ARMS.w < 0.5 or dA.lampSeen == nil then

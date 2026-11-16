@@ -9,7 +9,6 @@ local TweenService = game:GetService("TweenService")
 do
 	local okR, isClient = pcall(function() return RunService:IsClient() end)
 	if okR and not isClient then
-		pcall(warn, "[Charger] precisa rodar como LocalScript/executor (cliente).")
 		return
 	end
 end
@@ -30,9 +29,9 @@ local Config = {
 	StartGear = 5,
 	CamKey = Enum.KeyCode.V,
 	CamMaxZoom = 60,
-	CamShowBody = false,   -- true = mostra tambem o tronco/pernas na 1a pessoa (alem dos bracos)
-	ShiftHoldTime = 0.45,  -- segundos que a mao fica no cambio depois de trocar marcha/modo
-	RestHandOnShifter = false, -- true = mao direita descansa no cambio quando o volante esta reto
+	CamShowBody = false,
+	ShiftHoldTime = 0.45,
+	RestHandOnShifter = false,
 	ReverseTop = 45,
 	EngineBrake = 18,
 	BrakePedal = 65,
@@ -45,33 +44,52 @@ local Config = {
 	StepUp = 2.2,
 	SeatHeight = 1.35,
 	SpawnDistance = 22,
+	SpawnFx = {
+		Enabled = true,
+		InTime = 2.4,
+		InDist = 120,
+		InSlip0 = 60,
+		InSlipPeak = 76,
+		InSlipEnd = 50,
+		InArc = 100,
+		InWag = 6,
+		InSide = 0,
+		OutEnabled = true,
+		OutRevTime = 1.0,
+		OutRunTime = 2.4,
+		OutSpeed = 235,
+		OutDist = 420,
+		SoundFlash = "rbxasset://sounds/impact_explosion_03.mp3",
+		SoundFlashVol = 1.3,
+	},
 	BoardRadius = 16,
-	BoardAnim = true,          -- true = anda ate a porta, abre, entra, senta e fecha a porta (false = jeito antigo)
+	BoardAnim = true,
 	Board = {
-		OpenAngle = 64,        -- graus que a porta abre
-		OpenTime = 0.5,        -- tempo abrindo a porta
-		InTime = 0.65,         -- tempo entrando e sentando
-		SettleTime = 0.2,      -- pausa sentado antes de fechar a porta
-		CloseTime = 0.4,       -- tempo fechando a porta
-		StandX = -4.6,         -- onde o boneco para ao lado da porta (esquerda do carro, antes da escala)
-		StandZ = 1.6,          -- (mais pra frente = negativo, mais pra tras = positivo)
-	}, 
-	SoundDoorOpen = "rbxassetid://139882610901041",   -- som de abrir a porta
-	SoundDoorClose = "rbxassetid://121381393291287",  -- som de fechar a porta
-	LimbAnim = true,           -- true = anima bracos/pernas/tronco do boneco ao entrar e sair
-	ExitAnim = true,           -- true = animacao de sair do carro (abre a porta, levanta, sai, fecha)
+		OpenAngle = 64,
+		OpenTime = 0.5,
+		InTime = 0.65,
+		SettleTime = 0.2,
+		CloseTime = 0.4,
+		StandX = -4.6,
+		StandZ = 1.6,
+	},
+	SoundDoorOpen = "rbxassetid://139882610901041",
+	SoundDoorClose = "rbxassetid://121381393291287",
+	LimbAnim = true,
+	ExitAnim = true,
 	Exit = {
-		OpenTime = 0.45,       -- tempo abrindo a porta por dentro
-		OutTime = 0.7,         -- tempo levantando e saindo do banco
-		CloseDelay = 0.35,     -- espera antes de fechar a porta depois de sair
-		CloseTime = 0.4,       -- tempo fechando a porta
-		MaxSpeed = 3,          -- acima dessa velocidade (studs/s) sai direto, sem animacao
+		OpenTime = 0.45,
+		OutTime = 0.7,
+		CloseDelay = 0.35,
+		CloseTime = 0.4,
+		MaxSpeed = 3,
 	},
 	UseHiddenGui = true,
 	SoundDial = "rbxassetid://6042053626",
 	SoundInvalid = "rbxassetid://132281440773764",
 	SoundLand = "rbxassetid://7340406550",
 	SoundStart = "rbxassetid://118763914673708",
+	SoundStartFail = "rbxassetid://111925060225158",
 	SoundIdle = "rbxassetid://6399923126",
 	SoundDrive = "rbxassetid://81909109039491",
 	SoundRun = "rbxassetid://82036216654849",
@@ -85,12 +103,13 @@ local Config = {
 	KeyCooldown = 0.9,
 	KeyIcon = "\u{1F511}",
 	SoundKeyEquip = "rbxassetid://9113849492",
-	EnginePerf = { Enabled = true, Hz = 20, LodDist = 120, Shake = false, Spin = true, Chain = true },
+	EnginePerf = { Enabled = true, Hz = 20, LodDist = 120, Shake = true, Spin = false, Chain = false },
 	Ignition = {
 		Pos = Vector3.new(-1.33, 2.88, -0.85),
 		ReachTime = 0.45,
 		TurnTime = 0.3,
 		CrankTime = 1.2,
+		FailChance = 0.3,
 		OffAngle = 0,
 		OnAngle = 22,
 		StartAngle = 58,
@@ -103,9 +122,10 @@ local Config = {
 	VolIdle = 0.22,
 	VolRun = 0.28,
 	CacheDisk = true,
-	CrankDir = -1,             -- sentido da manivela ao abrir o vidro (inverta para 1 se girar pro lado errado)
-	CheapGlass = true,         -- true = vidros em plastico transparente (bem mais leve que o material Glass); false = vidro com reflexo
+	CrankDir = -1,
+	CheapGlass = true,
 	Lite = nil,
+	LiteMode = "off",
 }
 Config.UserTweaks = {
 	SeatHeight = 1.35,
@@ -1776,9 +1796,33 @@ local PARTS = {
 {"ArchSkinWedge","w",0.22,0.344,0.22,3.608,2.365,7.1,0,180,180,"B","P",0.12,0,""},
 {"ArchInWedge","w",1.498,0.344,0.22,2.749,2.365,7.1,0,180,180,"K","P",0,0,""},
 {"ArchSkinWedge","w",0.22,0.215,0.22,3.604,2.0855,7.3,0,180,180,"B","P",0.12,0,""},
-{"ArchInWedge","w",1.494,0.215,0.22,2.747,2.0855,7.3,0,180,180,"K","P",0,0,""}
+{"ArchInWedge","w",1.494,0.215,0.22,2.747,2.0855,7.3,0,180,180,"K","P",0,0,""},
+{"DoorArchWedge","w",0.35,1.0275,0.22,-3.515,1.4638,3.9,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.431,0.22,-3.525,2.193,4.1,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.2575,0.22,-3.535,2.5373,4.3,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,1.0275,0.22,3.515,1.4638,3.9,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.431,0.22,3.525,2.193,4.1,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.2575,0.22,3.535,2.5373,4.3,0,0,180,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.155,0.15,0.22,-3.3995,2.203,-9.9,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.245,0.09,0.22,-3.5195,2.197,-9.7,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.32,0.03,0.22,-3.5795,2.185,-9.5,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.359,0.03,0.22,-3.6095,2.176,-9.3,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.5037,0.072,0.22,-3.544,2.3268,9.7,0,0,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.393,0.072,0.22,-3.472,2.321,9.9,0,0,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.155,0.15,0.22,3.3995,2.203,-9.9,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.245,0.09,0.22,3.5195,2.197,-9.7,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.32,0.03,0.22,3.5795,2.185,-9.5,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.359,0.03,0.22,3.6095,2.176,-9.3,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.5037,0.072,0.22,3.544,2.3268,9.7,0,0,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.393,0.072,0.22,3.472,2.321,9.9,0,0,270,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,4.3283,4.7,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.2613,4.9,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.1947,5.1,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,4.1277,5.3,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.0607,5.5,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,3.9937,5.7,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,3.9268,5.9,0,0,0,"B","P",0.12,0,""}
 }
-
 local COLS = {
 	LT = Color3.fromRGB(20, 20, 23),
 	B = Config.BodyColor, K = Color3.fromRGB(12, 12, 14), G = Color3.fromRGB(18, 24, 32), C = Color3.fromRGB(205, 209, 217),
@@ -1791,12 +1835,22 @@ local MATS = { P = Enum.Material.SmoothPlastic, M = Enum.Material.Metal, N = Enu
 if Config.CheapGlass then MATS.G = Enum.Material.SmoothPlastic end
 local SHAPES = { b = "block", c = "cyl", s = "ball", w = "wedge" }
 local CAR_NAME = "1970_Dodge_Charger_RTChargerToretto"
-local LITE = Config.Lite
-if LITE == nil then LITE = UIS.TouchEnabled end
-local LITE_SKIP = { LipBolt = true, DiscHole = true } -- os pneus (banda, nervuras e garras) ficam sempre completos, como na V23
-local TIRE_PARTS = { Tire = true, SideWall = true, SideWallOut = true, TreadRib = true, TreadLug = true, TreadOutBase = true, TreadOutRib = true }
-
--- ===== PORTA DO MOTORISTA (lado esquerdo) =====
+if Config.Lite == true and Config.LiteMode == "off" then Config.LiteMode = "lite" end
+local LITE = Config.LiteMode ~= "off"
+local LITE_SKIP = { LipBolt = true, DiscHole = true }
+local LITE_SKIP2 = {
+	TreadLug = true, TreadOutRib = true, SpokeRidge = true, ForkRidge = true, Lug = true,
+	CaliperBolt = true, CaliperLogo = true, EmblemH = true, EmblemV = true,
+	DoorTrim = true, PlugBoot = true, PlugWire = true,
+}
+local TIRE_PARTS = {}
+for _, n in ipairs({
+	"Tire", "SideWall", "SideWallOut", "TreadRib", "TreadLug", "TreadOutBase", "TreadOutRib",
+	"WheelFloor", "RimLip", "RimStep", "LipBolt", "BrakeDisc", "DiscHole", "DiscHat",
+	"SpokeRoot", "SpokeRidge", "SpokeFork", "ForkRidge", "Lug",
+	"HubPlate", "HubRing", "HubCap", "EmblemRed", "EmblemH", "EmblemV",
+	"Caliper", "CaliperLogo", "CaliperBolt",
+}) do TIRE_PARTS[n] = true end
 local DOOR_NAMES = {}
 for _, n in ipairs({
 	"Door", "DoorTrim", "DoorGlass", "DoorSkin", "LowerBead", "BeltMolding", "ShoulderRidge",
@@ -1809,7 +1863,6 @@ for _, n in ipairs({
 local DOOR_ZMIN, DOOR_ZMAX = -2.35, 2.05
 local DOOR_HINGE = CFrame.new(-3.5 * S, 0, -2.42 * S)
 local DOOR_HINGE_INV = DOOR_HINGE:Inverse()
-
 local function doorSetup(c)
 	local items = {}
 	local winOf, crankOf = {}, {}
@@ -1850,7 +1903,6 @@ local function doorSetup(c)
 	c._doorWinQ = nil
 	return items
 end
-
 local function doorApply(c)
 	local a = c.doorAng or 0
 	local X = (a ~= 0) and (DOOR_HINGE * CFrame.Angles(0, -a, 0) * DOOR_HINGE_INV) or CFrame.new()
@@ -1873,8 +1925,6 @@ local function doorApply(c)
 		end
 	end
 end
-
--- angulo em radianos (0 = fechada)
 local function doorSet(c, a)
 	a = a or 0
 	if (c.doorAng or 0) == a then return end
@@ -1882,9 +1932,150 @@ local function doorSet(c, a)
 	c.doorAng = a
 	doorApply(c)
 end
-
+local HOOD = { names = { BodyCapF = true, HoodRailCapF = true, BayWallCapF = true, HoodBulge = true, HoodEdge = true }, open = math.rad(62) }
+HOOD.hinge = CFrame.new(0, 3.62 * S, -3.3 * S)
+HOOD.hingeInv = HOOD.hinge:Inverse()
+function HOOD.build(c, bodyColor)
+	local model = c.model
+	local old = model:FindFirstChild("HoodRoot")
+	if old then
+		if old:GetAttribute("V") == 4 then
+			c.hoodW = old:FindFirstChildOfClass("Weld")
+			return
+		end
+		for _, p in ipairs(model:GetChildren()) do
+			local w = p:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == old then p:Destroy() end
+		end
+		old:Destroy()
+	end
+	for _, p in ipairs(model:GetChildren()) do
+		if HOOD.names[p.Name] and p:IsA("BasePart") then
+			local w = p:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == c.root and w.Part1 == p then
+				local pos = w.C0.Position
+				local x, z = pos.X / S, pos.Z / S
+				if math.abs(x) + p.Size.X / S / 2 <= 2.06 and z >= -9.95 and z <= -3.25 then
+					p:Destroy()
+				end
+			end
+		end
+	end
+	local dr = Instance.new("Part")
+	dr.Name = "HoodRoot"
+	dr:SetAttribute("V", 4)
+	dr.Size = Vector3.new(0.2, 0.2, 0.2) * S
+	dr.Transparency = 1
+	dr.Anchored = false
+	dr.CanCollide = false
+	dr.CanQuery = false
+	dr.CanTouch = false
+	dr.Massless = true
+	dr.CastShadow = false
+	dr.Parent = model
+	local dw = Instance.new("Weld")
+	dw.Part0 = c.root
+	dw.Part1 = dr
+	dw.C0 = CFrame.new()
+	dw.Parent = dr
+	c.hoodW = dw
+	local BLK = Color3.fromRGB(12, 12, 14)
+	local CHR = Color3.fromRGB(205, 209, 217)
+	local function put(nm, sx, sy, sz, px, py, pz, rx, ry, rz, col, mat, refl, cyl, wedge)
+		local p = wedge and Instance.new("WedgePart") or Instance.new("Part")
+		p.Name = nm
+		if cyl and not wedge then p.Shape = Enum.PartType.Cylinder end
+		p.Size = Vector3.new(sx, sy, sz) * S
+		p.Color = col
+		p.Material = mat
+		p.Reflectance = refl or 0
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.CastShadow = false
+		p.Parent = model
+		local w = Instance.new("Weld")
+		w.Part0 = dr
+		w.Part1 = p
+		w.C0 = CFrame.new(px * S, py * S, pz * S) * CFrame.Angles(math.rad(rx), math.rad(ry), math.rad(rz))
+		w.Parent = p
+		return p
+	end
+	local PL = Enum.Material.SmoothPlastic
+	local MT = Enum.Material.Metal
+	local LIN = Color3.fromRGB(26, 26, 30)
+	local TOP = 3.70
+	local CY = TOP - 0.05
+	put("HoodSkin", 5.98, 0.1, 1.17, 0, 3.551, -9.275, -9.9, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 5.98, 0.1, 1.95, 0, CY, -7.725, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 1.89, 0.1, 2.9, -2.045, CY, -5.3, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 1.89, 0.1, 2.9, 2.045, CY, -5.3, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 5.98, 0.1, 0.55, 0, CY, -3.575, 0, 0, 0, bodyColor, PL, 0.12)
+	-- V3: capo com dobra (aba) e painel interno rebaixado
+	local SLOPE = 3.551 - CY
+	local PY = 3.47
+	local FY, FH, FT = 3.45, 0.34, 0.07
+	for _, sd in ipairs({ -1, 1 }) do
+		put("HoodFold", FT, FH, 5.4, sd * 2.955, FY, -6.0, 0, 0, 0, bodyColor, PL, 0.12)
+		put("HoodFold", FT, FH, 1.17, sd * 2.955, FY + SLOPE, -9.275, -9.9, 0, 0, bodyColor, PL, 0.12)
+	end
+	put("HoodFold", 5.98, 0.3, 0.06, 0, 3.32, -9.83, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodFold", 5.9, 0.17, 0.06, 0, 3.535, -3.335, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodLiner", 5.84, 0.04, 1.08, 0, PY + SLOPE, -9.26, -9.9, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 5.84, 0.04, 1.97, 0, PY, -7.735, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 1.84, 0.04, 2.9, -2.0, PY, -5.3, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 1.84, 0.04, 2.9, 2.0, PY, -5.3, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 5.84, 0.04, 0.51, 0, PY, -3.595, 0, 0, 0, LIN, PL, 0)
+	-- V4: cunhas (wedges) nas laterais do capo: chanfro do capo ate o paralama
+	do
+		local tall = Config.WedgeFlip and 90 or -90
+		for _, sd in ipairs({ -1, 1 }) do
+			local yw = sd * tall
+			put("HoodWedge", 5.4, 0.3, 0.56, sd * 3.27, 3.55, -6.0, 0, yw, 0, bodyColor, PL, 0.12, false, true)
+			put("HoodWedge", 1.17, 0.3, 0.56, sd * 3.27, 3.55 + SLOPE, -9.275, -9.9, yw, 0, bodyColor, PL, 0.12, false, true)
+		end
+	end
+	put("HoodHoleWall", 0.04, 0.24, 2.9, -1.08, CY - 0.07, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 0.04, 0.24, 2.9, 1.08, CY - 0.07, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 2.16, 0.24, 0.04, 0, CY - 0.07, -6.73, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 2.16, 0.24, 0.04, 0, CY - 0.07, -3.87, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleBead", 0.05, 0.03, 2.9, -1.12, TOP + 0.005, -5.3, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 0.05, 0.03, 2.9, 1.12, TOP + 0.005, -5.3, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 2.29, 0.03, 0.05, 0, TOP + 0.005, -6.77, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 2.29, 0.03, 0.05, 0, TOP + 0.005, -3.83, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodRib", 0.08, 0.18, 4.6, -2.5, 3.51, -6.2, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 4.6, 2.5, 3.51, -6.2, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 2.9, -1.3, 3.51, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 2.9, 1.3, 3.51, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -8.1, 0, 0, 0, BLK, PL, 0)
+	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -7.0, 0, 0, 0, BLK, PL, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+				put("HoodPin", 0.3, 0.1, 0.1, sd * 2.4, TOP + 0.15, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
+		put("HoodPinCap", 0.04, 0.2, 0.2, sd * 2.4, TOP + 0.31, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
+		put("HoodHinge", 0.3, 0.12, 0.3, sd * 2.5, 3.6, -3.42, 0, 0, 0, BLK, PL, 0)
+	end
+end
+function HOOD.step(c, dt)
+	if not c.hoodW then return end
+	local tg = c.hoodT or 0
+	if c.driver and tg > 0 then
+		tg = 0
+		c.hoodT = 0
+	end
+	local ta = tg * HOOD.open
+	local cur = c.hoodA or 0
+	if cur == ta then return end
+	cur = cur + (ta - cur) * (1 - math.exp(-5 * dt))
+	if math.abs(ta - cur) < 0.002 then cur = ta end
+	c.hoodA = cur
+	c.hoodW.C0 = HOOD.hinge * CFrame.Angles(cur, 0, 0) * HOOD.hingeInv
+end
 local function attachLogic(car, bodyColor)
+	HOOD.build(car, bodyColor)
 	car.animate = function(c, dt, spd)
+		HOOD.step(c, dt)
 		local a = math.clamp((c.rpm or 0) / 7000, 0, 1)
 		local run = math.clamp((c.rpm or 0) / 300, 0, 1)
 		if c.shiftW then
@@ -1980,7 +2171,6 @@ local function attachLogic(car, bodyColor)
 			end
 		end
 	end
-
 	car.shellName = "Charger R/T 1970"
 	car._body = bodyColor
 	car.setShell = function(n) car.shellName = "Charger R/T 1970" end
@@ -1996,7 +2186,6 @@ local function attachLogic(car, bodyColor)
 	end
 	car.apply(Config.Tweaks)
 end
-
 local function buildCarRaw()
 	COLS.B = Config.Tweaks.BodyColor or Config.BodyColor
 	local model = Instance.new("Model")
@@ -2012,9 +2201,8 @@ local function buildCarRaw()
 	root.CFrame = CFrame.new(0, 1000, 0)
 	root.Parent = model
 	model.PrimaryPart = root
-
 	local function add(name, size, cf, color, mat, shape, tr, base, refl)
-		if LITE and LITE_SKIP[name] then return nil, nil end
+		if LITE and (LITE_SKIP[name] or (Config.LiteMode == "super" and LITE_SKIP2[name])) then return nil, nil end
 		local p = (shape == "wedge") and Instance.new("WedgePart") or Instance.new("Part")
 		p.Name = name
 		if shape == "cyl" then p.Shape = Enum.PartType.Cylinder
@@ -2029,7 +2217,7 @@ local function buildCarRaw()
 		p.CanQuery = false
 		p.CanTouch = false
 		p.Massless = true
-		if p.Size.Magnitude < 1.6 * S and not TIRE_PARTS[name] then p.CastShadow = false end
+		if (p.Size.Magnitude < 1.6 * S and not TIRE_PARTS[name]) or Config.LiteMode == "super" then p.CastShadow = false end
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Parent = model
@@ -2040,12 +2228,9 @@ local function buildCarRaw()
 		w.Parent = p
 		return p, w
 	end
-
 	local car = { model = model, root = root, wheels = {}, tails = {}, revs = {}, lampList = {}, smoke = {}, wheelOff = {}, lens = {}, chain = {}, win = {}, crank = {} }
-
 	local blowerBase, blowerW = add("BlowerBase", V(0.2, 0.2, 0.2), CFrame.new(), COLS.K, MATS.P, nil, 1, nil, 0)
 	car.bw = blowerW
-
 	car.spin = {}
 	car.glow = {}
 	local spinBase = {}
@@ -2054,7 +2239,6 @@ local function buildCarRaw()
 		spinBase[nm] = bp
 		car.spin[nm] = { w = bw, base = bw.C0 }
 	end
-
 	local plateText
 	do
 		local rng = Random.new()
@@ -2069,7 +2253,7 @@ local function buildCarRaw()
 		local base = (g == "blower") and blowerBase or spinBase[g]
 		if sh == "w" and not Config.WedgeFlip then
 			ry = ry + 180
-			if nm == "DoorGlass" then rz = -rz end
+			if nm == "DoorGlass" or nm == "SideEndWedge" then rz = -rz end
 		end
 		local p, pw = add(nm, V(sx, sy, sz), P(x, y, z, rx, ry, rz), COLS[ck], MATS[mk], SHAPES[sh], tr, base, rf)
 		if nm == "DoorGlass" and pw then car.win[#car.win + 1] = { w = pw, base = pw.C0, sd = (x < 0) and -1 or 1 } end
@@ -2125,7 +2309,6 @@ local function buildCarRaw()
 		elseif g == "glow" then car.glow[#car.glow + 1] = p
 		elseif g == "lens" or g == "lens2" then car.lens[#car.lens + 1] = p end
 	end
-
 	do
 		local FZ = { { -9.9, 3.44 }, { -9.3, 3.595 }, { -8.7, 3.642 }, { -8.1, 3.646 }, { -3.3, 3.642 }, { -2.7, 3.624 }, { -2.3, 3.605 }, { -1.5, 3.587 }, { -0.7, 3.573 }, { 0.1, 3.562 }, { 0.9, 3.582 }, { 1.7, 3.601 }, { 2.5, 3.62 }, { 3.3, 3.66 }, { 4.1, 3.7 }, { 4.3, 3.71 }, { 7.5, 3.71 }, { 8.1, 3.692 }, { 8.7, 3.644 }, { 9.3, 3.596 }, { 9.9, 3.436 } }
 		local TZ = { { -9.9, 3.28 }, { -9.3, 3.356 }, { -8.1, 3.415 }, { -7.5, 3.445 }, { -3.9, 3.625 }, { -2.7, 3.684 }, { -2.3, 3.722 }, { -1.5, 3.74 }, { -0.7, 3.759 }, { 0.1, 3.776 }, { 1.7, 3.814 }, { 3.3, 3.876 }, { 4.1, 3.912 }, { 4.3, 3.92 }, { 5.5, 3.9 }, { 7.5, 3.833 }, { 8.1, 3.77 }, { 8.7, 3.71 }, { 9.3, 3.64 }, { 9.9, 3.52 } }
@@ -2199,7 +2382,6 @@ local function buildCarRaw()
 			end
 		end
 	end
-
 	local defs = { { -1, -5.6, true }, { 1, -5.6, true }, { -1, 5.6, false }, { 1, 5.6, false } }
 	local TIRE_OUT, RIM_IN = 0.30, 0.19
 	for i, d in ipairs(defs) do
@@ -2227,7 +2409,7 @@ local function buildCarRaw()
 		local h = w / 2
 		local rimD = dia - 0.52
 		local rimR = rimD / 2
-		local hr = h - RIM_IN -- plano de referencia do aro (recuado pra dentro do pneu)
+		local hr = h - RIM_IN
 		local CHR = Color3.fromRGB(205, 209, 217)
 		local CHR2 = Color3.fromRGB(240, 243, 248)
 		local STEEL = Color3.fromRGB(172, 178, 186)
@@ -2363,7 +2545,6 @@ local function buildCarRaw()
 		car.wheels[i] = { kw = kw, tw = tw, base = base, front = front, side = sd, spokes = spokes, discs = discs, blur = blur, glow = glow }
 		car.wheelOff[i] = Vector3.new(sd * cx * S, 0, z * S)
 	end
-
 	local SWX, SWY, SWZ, TILT = -1.55, 3.1, -0.4, 18
 	local CHRW = Color3.fromRGB(214, 218, 226)
 	local SLOT = Color3.fromRGB(10, 10, 13)
@@ -2392,7 +2573,6 @@ local function buildCarRaw()
 	add("SteerBadge", V(0.04, 0.16, 0.16), P(-0.21, 0, 0), Color3.fromRGB(190, 20, 24), MATS.P, "cyl", 0, sw, 0.1)
 	add("SteerBadgeBar", V(0.03, 0.04, 0.13), P(-0.235, 0, 0), CHRW, MATS.M, nil, 0, sw, 0.6)
 	car.sw, car.swW, car.swBase = sw, swW, swW.C0
-
 	local LEA = Color3.fromRGB(20, 20, 23)
 	local LEA2 = Color3.fromRGB(31, 31, 35)
 	local SEATD = Color3.fromRGB(10, 10, 12)
@@ -2403,7 +2583,6 @@ local function buildCarRaw()
 	local PANEL2 = Color3.fromRGB(32, 32, 36)
 	local AMB = Color3.fromRGB(226, 190, 110)
 	local GZ = { bez = -1.065, face = -1.04, tick = -1.025, dec = -1.015, ndl = -0.99, hub = -0.975 }
-
 	local function surf(part, face, cw, ch)
 		local sg = Instance.new("SurfaceGui")
 		sg.Face = face
@@ -2426,13 +2605,11 @@ local function buildCarRaw()
 		t.Parent = parent
 		return t
 	end
-
 	add("DashBody", V(5.9, 2.1, 1.25), P(0, 2.35, -1.775), COLS.K, MATS.P, nil, 0, nil, 0)
 	add("DashPadPass", V(3.15, 0.22, 1.32), P(1.375, 3.51, -1.74), COLS.K, MATS.P, nil, 0, nil, 0.05)
 	add("DashPadBack", V(2.75, 0.22, 1.25), P(-1.575, 3.51, -1.775), COLS.K, MATS.P, nil, 0, nil, 0.05)
 	add("ClusterPlate", V(2.3, 0.62, 0.08), P(-1.6, 3.31, -1.12), PLC, MATS.P, nil, 0, nil, 0)
 	add("ClusterBrow", V(2.4, 0.05, 0.2), P(-1.6, 3.645, -1.06), COLS.K, MATS.P, nil, 0, nil, 0.1)
-
 	local function gauge(cx, cy, d, a0, sweep, nSeg, majorEvery, labels, redFrac, caption, nA)
 		add("GaugeBezel", V(0.03, d + 0.09, d + 0.09), P(cx, cy, GZ.bez, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
 		add("GaugeFace", V(0.02, d, d), P(cx, cy, GZ.face, 0, 90, 0), PLC, MATS.P, "cyl", 0, nil, 0)
@@ -2465,7 +2642,6 @@ local function buildCarRaw()
 		add("NeedleHub", V(0.03, d * 0.15, d * 0.15), P(cx, cy, GZ.hub, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.7)
 		return pw
 	end
-
 	car.nS = gauge(-2.4, 3.31, 0.5, -135, 270, 24, 2, { "0", "40", "80", "120", "160", "200", "240" }, nil, "KM/H", -135)
 	car.nT = gauge(-1.75, 3.31, 0.5, -135, 270, 16, 2, { "0", "1", "2", "3", "4", "5", "6", "7", "8" }, 0.8125, "RPM x1000", -135)
 	car.nSBase = car.nS and car.nS.C0
@@ -2474,7 +2650,6 @@ local function buildCarRaw()
 	gauge(-0.75, 3.45, 0.17, -60, 120, 4, 2, nil, nil, nil, 0)
 	gauge(-1.15, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 12)
 	gauge(-0.75, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 8)
-
 	add("StackBezel", V(1.6, 1.15, 0.08), P(0, 2.375, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
 	add("StackTrimT", V(1.64, 0.04, 0.03), P(0, 2.97, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
 	add("StackTrimB", V(1.64, 0.04, 0.03), P(0, 1.78, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
@@ -2498,7 +2673,6 @@ local function buildCarRaw()
 	end
 	add("LighterRing", V(0.04, 0.17, 0.17), P(0.45, 1.88, -1.06, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
 	add("LighterPlug", V(0.02, 0.1, 0.1), P(0.45, 1.88, -1.035, 0, 90, 0), SLOT, MATS.P, "cyl", 0, nil, 0)
-
 	add("GloveDoor", V(1.7, 0.8, 0.08), P(2.05, 2.6, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
 	add("GloveTrimT", V(1.74, 0.03, 0.03), P(2.05, 3.0, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
 	add("GloveTrimB", V(1.74, 0.03, 0.03), P(2.05, 2.2, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
@@ -2513,14 +2687,12 @@ local function buildCarRaw()
 			add("VentSlat", V(0.46, 0.025, 0.02), P(vx, vy - 0.075 + i * 0.05, -1.07), PANEL2, MATS.P, nil, 0, nil, 0)
 		end
 	end
-
 	add("Column", V(1.1, 0.34, 0.34), P(-1.55, 2.915, -0.971, -18, 90, 0), COLS.K, MATS.P, "cyl", 0, nil, 0.05)
 	add("ColumnCollar", V(0.05, 0.4, 0.4), P(-1.55, 2.852, -1.165, -18, 90, 0), PANEL, MATS.P, "cyl", 0, nil, 0)
 	add("StalkL", V(0.5, 0.05, 0.05), P(-1.97, 2.98, -0.78, 0, 0, 6), PANEL2, MATS.P, nil, 0, nil, 0.05)
 	add("StalkLTip", V(0.14, 0.08, 0.08), P(-2.25, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
 	add("StalkR", V(0.5, 0.05, 0.05), P(-1.13, 2.98, -0.78, 0, 0, -6), PANEL2, MATS.P, nil, 0, nil, 0.05)
 	add("StalkRTip", V(0.14, 0.08, 0.08), P(-0.85, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
-
 	local function pedal(nm, x, y, z, w, h, rx, ribs)
 		local pd = add(nm, V(w, h, 0.09), P(x, y, z, rx, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
 		for i = 1, ribs do
@@ -2531,11 +2703,9 @@ local function buildCarRaw()
 	pedal("PedalBrake", -1.78, 1.62, -0.82, 0.62, 0.42, -35, 4)
 	pedal("PedalGas", -1.2, 1.62, -0.82, 0.3, 0.78, -28, 5)
 	add("DeadPedal", V(0.5, 0.34, 0.06), P(-2.35, 1.5, -0.88, -25, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
-
 	for _, sx in ipairs({ -1.55, 1.55 }) do
 		add("FloorMat", V(1.7, 0.03, 2.4), P(sx, 1.265, 0), PANEL, MATS.P, nil, 0, nil, 0)
 	end
-
 	for _, sd in ipairs({ -1, 1 }) do
 		local dx = sd * 2.94
 		add("DoorPanelIn", V(0.06, 0.9, 4.4), P(dx, 2.5, 0.1), PANEL, MATS.P, nil, 0, nil, 0.03)
@@ -2558,7 +2728,6 @@ local function buildCarRaw()
 		add("SpeakerRing", V(0.04, 0.62, 0.62), P(sd * 2.895, 2.65, -1.5), CHRW, MATS.M, "cyl", 0, nil, 0.6)
 		add("SpeakerGrille", V(0.05, 0.5, 0.5), P(sd * 2.88, 2.65, -1.5), COLS.K, MATS.P, "cyl", 0, nil, 0)
 	end
-
 	for _, sx in ipairs({ -1.55, 1.55 }) do
 		add("SeatBase", V(1.2, 0.3, 1.2), P(sx, 1.38, 1.2), COLS.K, MATS.P, nil, 0, nil, 0)
 		add("SeatCushion", V(1.0, 0.3, 1.7), P(sx, 1.62, 1.1), LEA, MATS.P, nil, 0, nil, 0.03)
@@ -2581,7 +2750,6 @@ local function buildCarRaw()
 		add("Headrest", V(0.9, 0.46, 0.26), P(0, 1.13, 0), LEA, MATS.P, nil, 0, bp, 0.03)
 		add("HeadrestCap", V(0.74, 0.1, 0.22), P(0, 1.41, 0.01), LEA2, MATS.P, nil, 0, bp, 0.04)
 	end
-
 	add("RCushion", V(5.6, 0.34, 1.5), P(0, 1.7, 3.45), LEA, MATS.P, nil, 0, nil, 0.03)
 	local rbp = add("RBackPivot", V(0.1, 0.1, 0.1), P(0, 2.55, 4.25, 8, 0, 0), COLS.K, MATS.P, nil, 1, nil, 0)
 	add("RBackShell", V(5.6, 1.5, 0.3), P(0, 0, 0), LEA, MATS.P, nil, 0, rbp, 0.03)
@@ -2590,7 +2758,6 @@ local function buildCarRaw()
 		add("RPleat", V(0.54, 0.04, 1.4), P(px, 1.89, 3.45), LEA2, MATS.P, nil, 0, nil, 0.04)
 		add("RBackPleat", V(0.54, 1.4, 0.04), P(px, 0, -0.17), LEA2, MATS.P, nil, 0, rbp, 0.04)
 	end
-
 	add("ConsoleBody", V(1.1, 0.8, 3.4), P(0, 1.75, 0.9), COLS.K, MATS.P, nil, 0, nil, 0.05)
 	add("ConsolePlate", V(1.0, 0.05, 1.95), P(0, 2.165, 0.175), PANEL, MATS.P, nil, 0, nil, 0.1)
 	add("ConsoleLid", V(1.02, 0.14, 1.35), P(0, 2.22, 1.9), COLS.K, MATS.P, nil, 0, nil, 0.08)
@@ -2627,7 +2794,6 @@ local function buildCarRaw()
 	add("ShiftKnob", V(0.4, 0.19, 0.19), P(0, 0.72, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.8)
 	add("ShiftCap", V(0.2, 0.2, 0.2), P(0, 0.93, 0), CHRW, MATS.M, "ball", 0, piv, 0.8)
 	car.shiftW, car.shiftBase, car.shiftKn = pivW, pivW.C0, Vector3.new(0, 0.97 * S, 0)
-
 	do
 		local bl = add("BrakeGlow", V(0.2, 0.2, 0.2), P(0, 3.35, 10.3), COLS.K, MATS.P, nil, 1, nil, 0)
 		local pl = Instance.new("PointLight")
@@ -2638,7 +2804,6 @@ local function buildCarRaw()
 		pl.Parent = bl
 		car.brakeLight = pl
 	end
-
 	for _, sd in ipairs({ -1, 1 }) do
 		local sp = add("SmokeEmit", V(0.2, 0.2, 0.2), P(sd * 2.9, 0.4, 5.6), COLS.K, MATS.P, nil, 1, nil, 0)
 		local pe = Instance.new("ParticleEmitter")
@@ -2654,7 +2819,6 @@ local function buildCarRaw()
 		pe.Parent = sp
 		car.smoke[#car.smoke + 1] = pe
 	end
-
 	for _, sd in ipairs({ -1, 1 }) do
 		local em = add("LampEmit", V(0.2, 0.2, 0.2), P(sd * 2.34, 2.62, -10.45), COLS.K, MATS.P, nil, 1, nil, 0)
 		local sl = Instance.new("SpotLight")
@@ -2667,15 +2831,12 @@ local function buildCarRaw()
 		sl.Parent = em
 		car.lampList[#car.lampList + 1] = { light = sl }
 	end
-
 	attachLogic(car, COLS.B)
 	return car
 end
-
-local CACHE_VER = "v41t"
+local CACHE_VER = "v56a"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
-
 local function newPlate()
 	local rng = Random.new()
 	local L = "ABCDEFGHJKLMNPRSTUVWXYZ"
@@ -2684,15 +2845,12 @@ local function newPlate()
 	for _ = 1, 3 do t = t .. tostring(rng:NextInteger(0, 9)) end
 	return t
 end
-
 local function cachePath()
-	return CACHE_DIR .. "/charger_" .. CACHE_VER .. "_s" .. tostring(S) .. "_g" .. tostring(Config.CheapGlass and 1 or 0) .. "_w" .. tostring(Config.WedgeFlip) .. "_l" .. tostring(LITE) .. ".rbxm"
+	return CACHE_DIR .. "/charger_" .. CACHE_VER .. "_s" .. tostring(S) .. "_g" .. tostring(Config.CheapGlass and 1 or 0) .. "_w" .. tostring(Config.WedgeFlip) .. "_l" .. tostring(Config.LiteMode) .. ".rbxm"
 end
-
 local function tagK(o, k)
 	if o then o:SetAttribute("K", k) end
 end
-
 local function tagCar(c)
 	tagK(c.bw, "bw")
 	for nm, s in pairs(c.spin) do tagK(s.w, "sp:" .. nm) end
@@ -2734,7 +2892,6 @@ local function tagCar(c)
 	tagK(c.brakeLight, "bk")
 	c.model:SetAttribute("BodyColor", c._body)
 end
-
 local function bindCar(model)
 	local K = {}
 	for _, d in ipairs(model:GetDescendants()) do
@@ -2742,7 +2899,7 @@ local function bindCar(model)
 		if k then K[k] = d end
 	end
 	local root = model.PrimaryPart or model:FindFirstChild("Root")
-	assert(root and K.bw and K.sw and K.swW and K.bk and K.shW, "modelo incompleto")
+	assert(root and K.bw and K.sw and K.swW and K.bk and K.shW)
 	model.PrimaryPart = root
 	local car = { model = model, root = root, wheels = {}, tails = {}, revs = {}, lampList = {}, smoke = {}, wheelOff = {}, lens = {}, chain = {}, spin = {}, glow = {}, win = {}, crank = {} }
 	car.bw = K.bw
@@ -2771,7 +2928,7 @@ local function bindCar(model)
 	list("sm:", car.smoke)
 	for i = 1, 4 do
 		local kw = K["w" .. i .. "k"]
-		assert(kw and K["w" .. i .. "t"] and K["w" .. i .. "b"] and K["w" .. i .. "g"], "roda incompleta")
+		assert(kw and K["w" .. i .. "t"] and K["w" .. i .. "b"] and K["w" .. i .. "g"])
 		local w = {
 			kw = kw, tw = K["w" .. i .. "t"], base = kw.C0,
 			front = kw:GetAttribute("F") == true, side = kw:GetAttribute("S"),
@@ -2798,7 +2955,6 @@ local function bindCar(model)
 	attachLogic(car, model:GetAttribute("BodyColor") or COLS.B)
 	return car
 end
-
 local function loadDisk()
 	if Config.CacheDisk == false then return nil end
 	if not (isfile and readfile and getcustomasset) then return nil end
@@ -2810,7 +2966,6 @@ local function loadDisk()
 	if delfile then pcall(delfile, path) end
 	return nil
 end
-
 local function saveDisk(m)
 	if Config.CacheDisk == false then return end
 	if not (saveinstance and isfile and writefile) then return end
@@ -2836,7 +2991,6 @@ local function saveDisk(m)
 	end
 	m.Parent = nil
 end
-
 local function buildCar()
 	if not carTpl then carTpl = loadDisk() end
 	if carTpl then
@@ -2854,8 +3008,6 @@ local function buildCar()
 	end
 	return c
 end
-
-
 local car = nil
 local gear = Config.StartGear
 local held = { brake = false, brakeUi = false }
@@ -2863,7 +3015,6 @@ local saved = nil
 local skidFolder = nil
 local skidList = {}
 local filterT = 0
-local toastT = 0
 local rp = RaycastParams.new()
 rp.FilterType = Enum.RaycastFilterType.Exclude
 rp.IgnoreWater = true
@@ -2878,9 +3029,6 @@ local function refreshFilter()
 	rp.FilterDescendantsInstances = list
 end
 local hudApi = {}
-local function toast(msg, color)
-	if hudApi.toast then pcall(hudApi.toast, msg, color) end
-end
 local MODES = { "P", "R", "N", "D" }
 local function modeIndex(m)
 	for i, v in ipairs(MODES) do if v == m then return i end end
@@ -2907,25 +3055,20 @@ local function setMode(name, force)
 			c.vel = Vector3.zero
 			c.parkPending = false
 			playSound(Config.SoundDial, 0.8, 0.8)
-			toast("TRAVADO  (P)", Color3.fromRGB(255, 90, 90))
 		else
 			c.parkPending = true
-			toast("FREANDO PARA TRAVAR...", Color3.fromRGB(255, 200, 80))
 		end
 		return true
 	end
 	c.parkPending = false
 	if (name == "R" and (c.vF or 0) > 8) or (name == "D" and (c.vF or 0) < -8) then
-		toast("PARE ANTES DE TROCAR", Color3.fromRGB(255, 200, 80))
 		playSound(Config.SoundInvalid, 0.6)
 		return false
 	end
 	c.mode = name
 	playSound(Config.SoundDial, 0.7)
-	toast("CAMBIO: " .. name, Color3.fromRGB(120, 210, 255))
 	return true
 end
-
 local CAM = { on = false, orig = nil, snap = 0 }
 function CAM.set(on, silent)
 	on = on and true or false
@@ -2946,13 +3089,11 @@ function CAM.set(on, silent)
 			if CAM.snap ~= id or not CAM.on then return end
 			pcall(function() player.CameraMaxZoomDistance = math.max(Config.CamMaxZoom, 5) end)
 		end)
-		if not silent then toast("CAMERA LIVRE  -  1a pessoa  (V sai, scroll afasta)", Color3.fromRGB(120, 210, 255)) end
 	else
 		pcall(function()
 			player.CameraMaxZoomDistance = math.max(o.max, 14)
 			player.CameraMinZoomDistance = 14
 		end)
-		if not silent then toast("CAMERA NORMAL", Color3.fromRGB(120, 210, 255)) end
 	end
 	if hudApi.camSet then hudApi.camSet(on) end
 end
@@ -3019,14 +3160,11 @@ local function endBoard(c)
 	c.boardFrom = nil
 	doorSet(c, 0)
 	ctrlSet(true)
-	if not c.engineOn then toast("LIGUE O MOTOR  (Y)", Color3.fromRGB(255, 200, 80)) end
 end
 local function easeIO(x)
 	x = math.clamp(x, 0, 1)
 	return x * x * (3 - 2 * x)
 end
--- Sequencia: anda ate a porta -> abre -> entra e senta -> fecha.
--- Retorna true quando o boneco deve ficar preso no banco (sentado).
 local function boardStep(c, B, ch, hum, rpart, seatCF)
 	local cfg = Config.Board or {}
 	local now = os.clock()
@@ -3052,7 +3190,6 @@ local function boardStep(c, B, ch, hum, rpart, seatCF)
 			B.i = B.i + 1
 			return false
 		end
-		-- chegou na porta (ou estourou o tempo: ajusta a posicao)
 		pcall(function() hum.AutoRotate = false end)
 		if timeout then
 			local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
@@ -3103,7 +3240,7 @@ local function boardStep(c, B, ch, hum, rpart, seatCF)
 			B.t0 = now
 		end
 		return true
-	else -- close
+	else
 		local x = t / (cfg.CloseTime or 0.4)
 		if x >= 1 then
 			doorSet(c, 0)
@@ -3116,7 +3253,7 @@ local function boardStep(c, B, ch, hum, rpart, seatCF)
 	end
 end
 local function enterCar(c)
-	if not c or c.driver then return end
+	if not c or c.driver or c.cine then return end
 	local ch, hum, rpart = charParts()
 	if not ch then return end
 	saved = {
@@ -3141,7 +3278,6 @@ local function enterCar(c)
 		local wp = {}
 		local lp = c.cf:PointToObjectSpace(rpart.Position)
 		if lp.X > -3.8 * S then
-			-- boneco esta do lado direito/dentro do carro: contorna pela frente ou por tras
 			local zWay = (lp.Z < 0) and (-11.5 * S) or (11 * S)
 			wp[1] = c.cf:PointToWorldSpace(Vector3.new(-7 * S, 0, zWay))
 		end
@@ -3162,7 +3298,6 @@ local function enterCar(c)
 		ghostChar(ch)
 		hum.AutoRotate = false
 		hum.Sit = true
-		if not c.engineOn then toast("LIGUE O MOTOR  (Y)", Color3.fromRGB(255, 200, 80)) end
 	end
 end
 local function restoreChar()
@@ -3193,7 +3328,6 @@ local function setEngine(c, on)
 	if c.ign then return end
 	if not c.engineOn then return end
 	c.engineOn = false
-	toast("MOTOR DESLIGADO", Color3.fromRGB(255, 90, 90))
 end
 local function ignStep(c, dt)
 	local I = Config.Ignition
@@ -3203,6 +3337,7 @@ local function ignStep(c, dt)
 		c.ign = nil
 		ign = nil
 		if c.startSnd and c.startSnd.Parent then pcall(function() c.startSnd:Stop() end) end
+		if c.failSnd and c.failSnd.Parent then pcall(function() c.failSnd:Stop() end) end
 	end
 	c.crankRpm = nil
 	c.shakeA = (c.shakeA or 0) * math.exp(-7 * dt)
@@ -3224,19 +3359,30 @@ local function ignStep(c, dt)
 			tgt = stA
 			if not ign.snd then
 				ign.snd = true
-				c.startSnd = playSound(Config.SoundStart, 0.9)
-				c.startT = now
+				if Config.SoundStartFail and not c.lastFail and math.random() < (I.FailChance or 0) then
+					ign.fail = true
+					c.lastFail = true
+					c.failSnd = playSound(Config.SoundStartFail, 0.9)
+				else
+					c.lastFail = false
+					c.startSnd = playSound(Config.SoundStart, 0.9)
+					c.startT = now
+				end
 			end
 			local k = t - R - T
 			c.crankRpm = 170 + 90 * math.sin(k * 26) + 50 * math.sin(k * 9.3)
 			c.shakeA = math.max(c.shakeA, 0.35)
-			if k >= C then
+			if ign.fail then
+				local fs = c.failSnd
+				if (not fs) or (not fs.Parent) or (k > 0.6 and fs.IsLoaded and not fs.IsPlaying) or (k > 1.5 and not fs.IsLoaded) or k > 5 then
+					c.ign = nil
+				end
+			elseif k >= C then
 				c.ign = nil
 				c.engineOn = true
 				c.rpm = math.max(c.rpm or 0, I.KickRpm)
 				c.kickT = now
 				c.shakeA = I.KickShake
-				toast("MOTOR LIGADO", Color3.fromRGB(90, 235, 130))
 			end
 		end
 	elseif c.kickT and now - c.kickT < 0.3 then
@@ -3386,7 +3532,6 @@ function ANIM.exitCarNow(c, keepDoor, noTeleport)
 	end
 	setMode("P")
 end
--- Sequencia de saida: abre a porta -> levanta/sai do banco -> solta o boneco -> porta fecha sozinha.
 function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
 	local cfgB = Config.Board or {}
 	local cfgX = Config.Exit or {}
@@ -3428,7 +3573,7 @@ function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
 			if out.Magnitude < 0.01 then out = Vector3.new(-1, 0, 0) end
 			X.outRot = CFrame.lookAt(Vector3.zero, out.Unit).Rotation
 		end
-	else -- "out"
+	else
 		local x = t / (cfgX.OutTime or 0.7)
 		local e = easeIO(x)
 		local pos = X.p0:Lerp(X.standPos, e) + Vector3.new(0, math.sin(e * math.pi) * 0.7, 0)
@@ -3498,7 +3643,7 @@ local function addSkid(p0, p1, up)
 	part.CFrame = CFrame.fromMatrix((p0 + p1) / 2 + up * 0.05, right.Unit, up, -fwdV)
 	part.Parent = skidFolder
 	skidList[#skidList + 1] = part
-	while #skidList > 160 do
+	while #skidList > 200 do
 		local old = table.remove(skidList, 1)
 		if old then old:Destroy() end
 	end
@@ -3595,7 +3740,6 @@ local function stepCar(c, dt)
 				c.mode = "P"
 				c.parkPending = false
 				vF, vR = 0, 0
-				toast("TRAVADO  (P)", Color3.fromRGB(255, 90, 90))
 				playSound(Config.SoundDial, 0.8, 0.8)
 			end
 		end
@@ -3786,7 +3930,7 @@ local function carVisuals(c, dt)
 	local vF = c.vF
 	c.spinF = (c.spinF or 0) - vF * dt / WR
 	local rearLocked = (c.notch >= 2) or c.mode == "P"
-	if not rearLocked then c.spinR = (c.spinR or 0) - vF * dt / WR end
+	if not rearLocked then c.spinR = (c.spinR or 0) - (vF + (c.burnV or 0)) * dt / WR end
 	c.spinF = c.spinF % (math.pi * 2)
 	c.spinR = (c.spinR or 0) % (math.pi * 2)
 	local sv = -c.steer * c.maxD
@@ -3794,14 +3938,28 @@ local function carVisuals(c, dt)
 	local brk0 = c.notch > 0 or c.brakePed > 0 or c.parkPending
 	local hr = (brk0 and math.abs(vF) > 12) and math.clamp(math.abs(vF) / 140, 0, 1) or 0
 	c.heat = math.clamp((c.heat or 0) + (hr * 0.9 - (c.heat or 0) * 0.25) * dt, 0, 1)
-	for _, w in ipairs(c.wheels) do
+	local uy = math.max(cf.UpVector.Y, 0.5)
+	for i, w in ipairs(c.wheels) do
+		local hit = c.hits and c.hits[i]
+		local tgt = -0.3 * S
+		if hit then
+			local nomY = cf:PointToWorldSpace(w.base.Position).Y
+			tgt = (hit.Y + w.base.Position.Y - nomY) / uy
+		end
+		tgt = math.clamp(tgt, -0.45 * S, 0.45 * S)
+		local sv0 = w.sV or 0
+		sv0 = sv0 + (260 * (tgt - (w.sOff or 0)) - 24 * sv0) * dt
+		w.sV = sv0
+		w.sOff = (w.sOff or 0) + sv0 * dt
+		local lift = CFrame.new(0, w.sOff, 0)
 		if w.front then
-			w.kw.C0 = w.base * CFrame.Angles(0, sv, 0)
+			w.kw.C0 = lift * w.base * CFrame.Angles(0, sv, 0)
 			w.tw.C0 = CFrame.Angles(c.spinF, 0, 0)
 			updateWheelFx(w, omega0, c.heat)
 		else
+			w.kw.C0 = lift * w.base
 			w.tw.C0 = CFrame.Angles(c.spinR, 0, 0)
-			updateWheelFx(w, rearLocked and 0 or omega0, c.heat)
+			updateWheelFx(w, rearLocked and 0 or ((math.abs(vF) + (c.burnV or 0)) / WR), c.heat)
 		end
 	end
 	c.swW.C0 = c.swBase * CFrame.Angles(c.steer * 2.6, 0, 0)
@@ -3828,16 +3986,58 @@ local function carVisuals(c, dt)
 		for _, p in ipairs(c.revs) do
 			p.Material = rv and NEON or PLASTIC
 			p.Color = rv and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(120, 120, 120)
+			local L = p:FindFirstChild("RevLight")
+			if rv and not L then
+				L = Instance.new("SpotLight")
+				L.Name = "RevLight"
+				L.Face = Enum.NormalId.Back
+				L.Range = 26
+				L.Angle = 75
+				L.Brightness = 2.2
+				L.Color = Color3.fromRGB(255, 255, 255)
+				L.Shadows = false
+				L.Parent = p
+			end
+			if L then L.Enabled = rv end
 		end
+	end
+	local dl = (c.engineOn or c.ign ~= nil) and true or false
+	if c.dashState ~= dl then
+		c.dashState = dl
+		if not c.dashParts then
+			local L = {}
+			for _, p in ipairs(c.model:GetChildren()) do
+				local n = p.Name
+				if n == "GaugeTick" or n == "Needle" or n == "RadioNeedle" then
+					L[#L + 1] = { p = p, m = p.Material }
+				end
+			end
+			c.dashParts = L
+			local plate = c.model:FindFirstChild("ClusterPlate")
+			if plate then
+				local pl = Instance.new("PointLight")
+				pl.Name = "DashLight"
+				pl.Range = 5 * S
+				pl.Brightness = 0.7
+				pl.Color = Color3.fromRGB(255, 225, 170)
+				pl.Shadows = false
+				pl.Parent = plate
+				c.dashLight = pl
+			end
+		end
+		for _, it in ipairs(c.dashParts) do
+			if it.p.Parent then it.p.Material = dl and NEON or it.m end
+		end
+		if c.dashLight then c.dashLight.Enabled = dl end
 	end
 	if c.lampState ~= c.lamps then
 		c.lampState = c.lamps
 		for _, l in ipairs(c.lampObjs) do l.light.Enabled = c.lamps end
 	end
 	local slip = math.abs(c.vR) + ((c.notch >= 2 and math.abs(c.vF) > 25) and math.abs(c.vF) * 0.3 or 0)
-	local sliding = c.grounded and slip > 12
+	local sliding = c.grounded and (slip > 12 or c.fxSlide == true)
 	for _, pe in ipairs(c.smoke) do
-		local want = sliding and 45 or 0
+		local want = sliding and math.floor(45 * (c.smokeMul or 1)) or 0
 		if pe.Rate ~= want then pe.Rate = want end
 		pe.Enabled = sliding
 	end
@@ -3846,8 +4046,12 @@ local function carVisuals(c, dt)
 		local h = c.hits and c.hits[i]
 		if sliding and h then
 			local last = c.lastSk[i]
-			if last then addSkid(last, h, c.up) end
-			c.lastSk[i] = h
+			if not last then
+				c.lastSk[i] = h
+			elseif (h - last).Magnitude >= ((Config.LiteMode == "super") and 14 or 6) then
+				addSkid(last, h, c.up)
+				c.lastSk[i] = h
+			end
 		else
 			c.lastSk[i] = nil
 		end
@@ -3874,6 +4078,7 @@ local function carVisuals(c, dt)
 	elseif c.kickT and os.clock() - c.kickT < 1.4 then
 		rpmRate = 3
 	end
+	if c.cine and c.cine.rpm then target = c.cine.rpm; rpmRate = 14 end
 	c.rpm = c.rpm + (target - c.rpm) * (1 - math.exp(-rpmRate * dt))
 	if not c.engineOn and c.rpm < 25 then c.rpm = 0 end
 	if c.engine then
@@ -3882,7 +4087,7 @@ local function carVisuals(c, dt)
 	end
 	local sn = c.snd
 	if sn then
-		local drv = c.driver and true or false
+		local drv = (c.driver or c.cine) and true or false
 		local on = c.engineOn and true or false
 		local kmh = math.abs(vF)
 		local thr = on and math.clamp(c.throttle or 0, 0, 1) or 0
@@ -3906,9 +4111,9 @@ local function carVisuals(c, dt)
 				ig = 0
 			end
 		end
-		local iv = on and Config.VolIdle * ig * math.clamp(1 - kmh / 12, 0, 1) or 0
+		local iv = on and Config.VolIdle * ig * math.clamp(1 - kmh / 12, 0, 1) * (1 + (c.revBoost or 0) * 3) or 0
 		local kk = c.kickT and math.max(0, 1 - (os.clock() - c.kickT)) or 0
-		local ip = 0.95 + thr * 0.3 + kk * 0.35
+		local ip = 0.95 + thr * 0.3 + kk * 0.35 + (c.revBoost or 0) * 0.7
 		local cv, cp
 		if thr > 0.05 then
 			cv, cp = 0.5, 0.75 + gr * 0.75
@@ -3946,7 +4151,6 @@ local function holdChar(c)
 	if XT then
 		local okX, errX = pcall(ANIM.exitStep, c, XT, ch, hum, rpart, seatCF)
 		if not okX then
-			pcall(warn, "[Charger] animacao de saida falhou:", errX)
 			pcall(ANIM.exitCarNow, c)
 		end
 		return
@@ -3954,7 +4158,6 @@ local function holdChar(c)
 	if B then
 		local ok, res = pcall(boardStep, c, B, ch, hum, rpart, seatCF)
 		if not ok then
-			pcall(warn, "[Charger] animacao de entrada falhou:", res)
 			ghostChar(ch)
 			pcall(function() hum.AutoRotate = false end)
 			endBoard(c)
@@ -3980,17 +4183,526 @@ local function holdChar(c)
 		end
 	end
 end
-local function despawnCar()
+local CINE = {}
+function CINE.ss(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function CINE.ground(c, posN, yaw, dt)
+	local cfY = CFrame.new(posN) * CFrame.Angles(0, yaw, 0)
+	local hits, pts = {}, {}
+	for i = 1, 4 do
+		local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+		local res = workspace:Raycast(wp + Vector3.new(0, 3.2 * S, 0), Vector3.new(0, -7.7 * S, 0), rp)
+		if res then
+			hits[i] = res.Position
+			pts[#pts + 1] = res.Position
+		end
+	end
+	c.hits = hits
+	local y = c.pos.Y
+	if #pts >= 1 then
+		local sum = 0
+		for _, p in ipairs(pts) do sum = sum + p.Y end
+		y = y + (sum / #pts - y) * (1 - math.exp(-30 * dt))
+		local nrm
+		if #pts == 4 then
+			nrm = (hits[2] - hits[3]):Cross(hits[1] - hits[4])
+		elseif #pts == 3 then
+			nrm = (pts[2] - pts[1]):Cross(pts[3] - pts[1])
+		end
+		if nrm and nrm.Magnitude > 1e-4 then
+			nrm = nrm.Unit
+			if nrm.Y < 0 then nrm = -nrm end
+			if nrm.Y >= 0.45 then
+				c.up = c.up:Lerp(nrm, 1 - math.exp(-10 * dt)).Unit
+			end
+		end
+	end
+	return y
+end
+function CINE.apply(c, dt, pos, yaw, vel)
+	local y = CINE.ground(c, Vector3.new(pos.X, c.pos.Y, pos.Z), yaw, dt)
+	c.pos = Vector3.new(pos.X, y, pos.Z)
+	c.yaw = yaw
+	c.vel = vel
+	local fwd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	c.vF = vel:Dot(fwd)
+	c.vR = vel:Dot(right)
+	c.grounded = true
+	c.vy, c.vyG = 0, 0
+	c.maxD = R(34)
+	local sa = -150 * c.susY - 14 * c.susV
+	c.susV = c.susV + sa * dt
+	c.susY = math.clamp(c.susY + c.susV * dt, -1.2, 1.2)
+end
+function CINE.lean(c, dt, tp, tr, rate)
+	local kk = 1 - math.exp(-rate * dt)
+	c.leanP = c.leanP + (tp - c.leanP) * kk
+	c.leanR = c.leanR + (tr - c.leanR) * kk
+end
+function CINE.smokeStyle(c, on)
+	if on then
+		if c.smokeOrig then return end
+		c.smokeOrig = {}
+		for _, pe in ipairs(c.smoke) do
+			c.smokeOrig[pe] = { pe.Lifetime, pe.Size, pe.Speed, pe.Acceleration }
+			pe.Lifetime = NumberRange.new(0.9, 1.5)
+			pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2 * S), NumberSequenceKeypoint.new(1, 6 * S) })
+			pe.Speed = NumberRange.new(3, 9)
+			pe.Acceleration = Vector3.new(0, 2.5, 0)
+		end
+	elseif c.smokeOrig then
+		for pe, o in pairs(c.smokeOrig) do
+			if pe.Parent then
+				pe.Lifetime, pe.Size, pe.Speed, pe.Acceleration = o[1], o[2], o[3], o[4]
+			end
+		end
+		c.smokeOrig = nil
+	end
+end
+function CINE.flameSetup(c)
+	if c.flames or not c.exh then return end
+	c.flames = {}
+	for _, ex in ipairs(c.exh) do
+		local host = ex.Parent
+		if host then
+			local fe = Instance.new("ParticleEmitter")
+			fe.Name = "CineFlame"
+			fe.Texture = "rbxasset://textures/particles/fire_main.dds"
+			fe.Rate = 0
+			fe.Enabled = false
+			fe.EmissionDirection = Enum.NormalId.Back
+			fe.Lifetime = NumberRange.new(0.12, 0.26)
+			fe.Speed = NumberRange.new(16, 30)
+			fe.SpreadAngle = Vector2.new(5, 5)
+			fe.LightEmission = 1
+			fe.LightInfluence = 0
+			fe.Rotation = NumberRange.new(0, 360)
+			fe.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 236, 160)),
+				ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 140, 30)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 40, 10)),
+			})
+			fe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+			fe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9 * S), NumberSequenceKeypoint.new(1, 0.1 * S) })
+			fe.Parent = host
+			c.flames[#c.flames + 1] = fe
+		end
+	end
+end
+function CINE.flameRate(c, rate)
+	if not c.flames or c.flameR == rate then return end
+	c.flameR = rate
+	for _, fe in ipairs(c.flames) do
+		fe.Rate = rate
+		fe.Enabled = rate > 0
+	end
+end
+function CINE.flamePop(c, n)
+	if not c.flames then return end
+	for _, fe in ipairs(c.flames) do fe:Emit(n) end
+end
+function CINE.flash(pos)
+	local FX = Config.SpawnFx
+	local base = Instance.new("Part")
+	base.Name = "ChargerFlash"
+	base.Anchored = true
+	base.CanCollide = false
+	base.CanQuery = false
+	base.CanTouch = false
+	base.CastShadow = false
+	base.Transparency = 1
+	base.Size = Vector3.new(1, 1, 1)
+	base.CFrame = CFrame.new(pos + Vector3.new(0, 2.5 * S, 0))
+	base.Parent = workspace
+	Debris:AddItem(base, 4)
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 170, 70)
+	light.Range = 70
+	light.Brightness = 14
+	light.Shadows = false
+	light.Parent = base
+	TweenService:Create(light, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = 0, Range = 20 }):Play()
+	local function emitter(tex, count, life, speed, s0, s1, col, lightEm, trans0)
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = tex
+		pe.Rate = 0
+		pe.Enabled = false
+		pe.Lifetime = life
+		pe.Speed = speed
+		pe.SpreadAngle = Vector2.new(180, 180)
+		pe.Drag = 3
+		pe.LightEmission = lightEm
+		pe.LightInfluence = 0
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-120, 120)
+		pe.Color = col
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, trans0), NumberSequenceKeypoint.new(1, 1) })
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, s0 * S), NumberSequenceKeypoint.new(1, s1 * S) })
+		pe.Parent = base
+		pe:Emit(count)
+	end
+	emitter("rbxasset://textures/particles/fire_main.dds", 30, NumberRange.new(0.35, 0.75), NumberRange.new(18, 46), 3, 9,
+		ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 170)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 130, 30)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 40, 10)),
+		}), 1, 0.05)
+	emitter("rbxasset://textures/particles/smoke_main.dds", 14, NumberRange.new(0.9, 1.8), NumberRange.new(8, 22), 4, 14,
+		ColorSequence.new(Color3.fromRGB(40, 40, 44)), 0, 0.35)
+	local function ball(color, s0, s1, tm)
+		local b = Instance.new("Part")
+		b.Name = "ChargerFlashBall"
+		b.Shape = Enum.PartType.Ball
+		b.Material = Enum.Material.Neon
+		b.Color = color
+		b.Anchored = true
+		b.CanCollide = false
+		b.CanQuery = false
+		b.CanTouch = false
+		b.CastShadow = false
+		b.Transparency = 0.05
+		b.Size = Vector3.new(s0, s0, s0) * S
+		b.CFrame = base.CFrame
+		b.Parent = workspace
+		TweenService:Create(b, TweenInfo.new(tm, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(s1, s1, s1) * S, Transparency = 1 }):Play()
+		Debris:AddItem(b, tm + 0.2)
+	end
+	ball(Color3.fromRGB(255, 190, 90), 4, 26, 0.32)
+	ball(Color3.fromRGB(255, 255, 240), 2, 12, 0.18)
+	pcall(function()
+		local s = Instance.new("Sound")
+		s.SoundId = FX.SoundFlash or "rbxasset://sounds/impact_explosion_03.mp3"
+		s.Volume = FX.SoundFlashVol or 1.2
+		s.PlaybackSpeed = 1.25
+		s.RollOffMinDistance = 60
+		s.RollOffMaxDistance = 700
+		s.Parent = base
+		s:Play()
+	end)
+end
+function CINE.destroy()
 	if not car then return end
-	if car.driver then exitCar(car, true) end
-	pcall(function() car.model:Destroy() end)
+	local c = car
+	if c.driver then pcall(ANIM.exitCarNow, c) end
+	pcall(function() c.model:Destroy() end)
 	car = nil
 	refreshFilter()
+end
+function CINE.buildIn(F, psiF, sg, dist, T, FX)
+	local N = 180
+	local dtS = T / N
+	local slip0 = R(FX.InSlip0 or 60)
+	local slipPk = R(FX.InSlipPeak or 76)
+	local slipEnd = R(FX.InSlipEnd or 50)
+	local arc = R(FX.InArc or 100)
+	local wag = R(FX.InWag or 6)
+	local phi1 = psiF - sg * slipEnd
+	local phi0 = phi1 - sg * arc
+	local rel, psi, phi, spd, slp = {}, {}, {}, {}, {}
+	local acc = Vector3.zero
+	local prevV = nil
+	for i = 0, N do
+		local u = i / N
+		local ph = phi0 + sg * arc * (1 - (1 - u) * (1 - u))
+		local sl = slip0 + (slipPk - slip0) * CINE.ss(u / 0.25)
+			+ (slipEnd - slipPk) * CINE.ss((u - 0.5) / 0.5)
+			+ wag * math.sin(math.pi * math.clamp((u - 0.55) / 0.45, 0, 1)) ^ 2
+		local s = (1 - u ^ 1.5) ^ 1.4
+		local v = Vector3.new(-math.sin(ph) * s, 0, -math.cos(ph) * s)
+		if prevV then acc = acc + (prevV + v) * 0.5 * dtS end
+		prevV = v
+		rel[i] = acc
+		phi[i], psi[i], spd[i], slp[i] = ph, ph + sg * sl, s, sl
+	end
+	local tot = rel[N]
+	local len = Vector3.new(tot.X, 0, tot.Z).Magnitude
+	if len < 1e-4 then return nil end
+	local k = dist / len
+	local A = Vector3.new(F.X - tot.X * k, 0, F.Z - tot.Z * k)
+	local pos = {}
+	for i = 0, N do
+		pos[i] = Vector3.new(A.X + rel[i].X * k, 0, A.Z + rel[i].Z * k)
+		spd[i] = spd[i] * k
+	end
+	return { N = N, sg = sg, pos = pos, psi = psi, phi = phi, spd = spd, slp = slp }
+end
+function CINE.pathClear(P, Fy)
+	local N = P.N
+	local step = math.max(1, math.floor(N / 14))
+	local prev = nil
+	for i = 0, N, step do
+		local p = P.pos[i]
+		local g = workspace:Raycast(p + Vector3.new(0, 50, 0), Vector3.new(0, -140, 0), rp)
+		if not g or math.abs(g.Position.Y - Fy) > 16 then return false end
+		local o = Vector3.new(p.X, g.Position.Y + 3 * S, p.Z)
+		if prev then
+			local h = workspace:Raycast(prev, o - prev, rp)
+			if h and math.abs(h.Normal.Y) < 0.6 then return false end
+		end
+		prev = o
+	end
+	return true
+end
+function CINE.startIn(c)
+	local FX = Config.SpawnFx
+	if type(FX) ~= "table" or FX.Enabled == false then return false end
+	local F = c.pos
+	local psiF = c.yaw
+	local T = FX.InTime or 2.4
+	local first = FX.InSide
+	if first ~= 1 and first ~= -1 then first = (math.random() < 0.5) and 1 or -1 end
+	refreshFilter()
+	local P = nil
+	for _, k in ipairs({ 1, 0.72, 0.5, 0.36 }) do
+		for _, sg in ipairs({ first, -first }) do
+			local cand = CINE.buildIn(F, psiF, sg, (FX.InDist or 120) * k, T, FX)
+			if cand and CINE.pathClear(cand, F.Y) then
+				P = cand
+				break
+			end
+		end
+		if P then break end
+	end
+	if not P then return false end
+	local A = P.pos[0]
+	local ga = workspace:Raycast(A + Vector3.new(0, 60, 0), Vector3.new(0, -200, 0), rp)
+	local ay = ga and ga.Position.Y or F.Y
+	local ph0, sp0 = P.phi[0], P.spd[0]
+	c.cine = { kind = "in", t = 0, T = T, P = P, sg = P.sg, F = F, psiF = psiF, rpm = 4200 }
+	c.pos = Vector3.new(A.X, ay, A.Z)
+	c.yaw = P.psi[0]
+	c.vel = Vector3.new(-math.sin(ph0) * sp0, 0, -math.cos(ph0) * sp0)
+	c.vF = c.vel:Dot(Vector3.new(-math.sin(c.yaw), 0, -math.cos(c.yaw)))
+	c.vR = c.vel:Dot(Vector3.new(math.cos(c.yaw), 0, -math.sin(c.yaw)))
+	c.mode = "D"
+	c.engineOn = true
+	c.ign = nil
+	c.rpm = 4200
+	c.throttle = 1
+	c.brakePed = 0
+	c.notch = 0
+	c.steer = 0
+	c.lastSk = {}
+	c.smokeMul = (Config.LiteMode == "super") and 0.6 or 1.5
+	c.cf = CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+	c.root.CFrame = c.cf
+	CINE.smokeStyle(c, true)
+	return true
+end
+function CINE.stepIn(c, X, dt)
+	X.t = X.t + dt
+	local P = X.P
+	local N = P.N
+	local u = math.clamp(X.t / X.T, 0, 1)
+	local fi = u * N
+	local i0 = math.min(math.floor(fi), N - 1)
+	local f = fi - i0
+	local pos = P.pos[i0]:Lerp(P.pos[i0 + 1], f)
+	local psi = P.psi[i0] + (P.psi[i0 + 1] - P.psi[i0]) * f
+	local phi = P.phi[i0] + (P.phi[i0 + 1] - P.phi[i0]) * f
+	local sp = P.spd[i0] + (P.spd[i0 + 1] - P.spd[i0]) * f
+	local sl = P.slp[i0] + (P.slp[i0 + 1] - P.slp[i0]) * f
+	local oldVel = c.vel
+	local vel = Vector3.new(-math.sin(phi) * sp, 0, -math.cos(phi) * sp)
+	CINE.apply(c, dt, pos, psi, vel)
+	local fwd = Vector3.new(-math.sin(psi), 0, -math.cos(psi))
+	local right = Vector3.new(math.cos(psi), 0, -math.sin(psi))
+	local acc = (vel - oldVel) / math.max(dt, 1e-3)
+	local kA = 1 - math.exp(-6 * dt)
+	X.aL = (X.aL or 0) + (acc:Dot(fwd) - (X.aL or 0)) * kA
+	X.aR = (X.aR or 0) + (acc:Dot(right) - (X.aR or 0)) * kA
+	CINE.lean(c, dt, math.clamp(X.aL * 0.0007, -0.09, 0.09), math.clamp(X.aR * 0.0005, -0.08, 0.08), 8)
+	local st = math.clamp(X.sg * sl / R(34), -1, 1)
+	c.steer = c.steer + (st - c.steer) * (1 - math.exp(-12 * dt))
+	c.throttle = (u < 0.15) and 1 or ((u < 0.6) and 0.4 or 0)
+	c.brakePed = (u > 0.12) and 0.8 or 0
+	X.rpm = 1600 + 3000 * (1 - u)
+	c.shakeA = 0
+	if not X.kick and u > 0.94 then
+		X.kick = true
+		c.susV = c.susV - 7
+	end
+	if X.t >= X.T then CINE.finishIn(c) end
+end
+function CINE.finishIn(c)
+	local X = c.cine
+	c.cine = nil
+	if X then
+		c.pos = Vector3.new(X.F.X, c.pos.Y, X.F.Z)
+		c.yaw = X.psiF
+	end
+	c.vel = Vector3.zero
+	c.vF, c.vR = 0, 0
+	c.mode = "P"
+	c.engineOn = false
+	c.throttle, c.brakePed, c.notch = 0, 0, 0
+	c.fxSlide, c.smokeMul, c.burnV, c.revBoost = nil, nil, nil, nil
+	c.lamps = Config.HeadlightsOnStart == true
+	c.lastSk = {}
+	pcall(CINE.smokeStyle, c, false)
+end
+function CINE.startOut(c)
+	local FX = Config.SpawnFx
+	if type(FX) ~= "table" or FX.Enabled == false or FX.OutEnabled == false then return false end
+	if not c or c.cine or not c.model or not c.model.Parent or not c.exh then return false end
+	if c.driver then pcall(ANIM.exitCarNow, c) end
+	c.doorClose = nil
+	pcall(doorSet, c, 0)
+	refreshFilter()
+	local yaw = c.yaw
+	local fwd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local want = FX.OutDist or 420
+	local clear = want
+	local base = c.pos + Vector3.new(0, 1.9 * S, 0)
+	for _, off in ipairs({ 0, 2.8 * S, -2.8 * S }) do
+		local h = workspace:Raycast(base + right * off, fwd * (want + 14), rp)
+		if h and math.abs(h.Normal.Y) < 0.6 then
+			clear = math.min(clear, h.Distance - 14)
+		end
+	end
+	for d = 25, want, 25 do
+		local g = workspace:Raycast(c.pos + fwd * d + Vector3.new(0, 40, 0), Vector3.new(0, -140, 0), rp)
+		if not g then
+			clear = math.min(clear, d - 25)
+			break
+		end
+	end
+	clear = math.max(clear, 0)
+	local v0 = math.max(c.vF or 0, 0)
+	local tRev = (v0 < 8) and (FX.OutRevTime or 1.0) or 0
+	local Tl = FX.OutRunTime or 2.4
+	local Vend, V1 = FX.OutSpeed or 235, 45
+	local E = V1 * (Tl - 0.12 * (1 - math.exp(-Tl / 0.12))) + (Vend - V1) * (Tl - 0.9 * (1 - math.exp(-Tl / 0.9)))
+	c.cine = {
+		kind = "out", t = 0, tRev = tRev, Tl = Tl, Vend = Vend, V1 = V1,
+		vk = math.clamp(clear / E, 0.4, 1), clear = clear, noRun = clear < 30, v0 = v0,
+		dist = 0, p0 = c.pos, fwd = fwd, yaw = yaw, sg = (math.random() < 0.5) and 1 or -1,
+		rpm = 1800, burnV = 0,
+	}
+	c.mode = "D"
+	c.engineOn = true
+	c.ign = nil
+	c.notch, c.brakePed, c.throttle = 0, 0, 0
+	c.parkPending = false
+	c.lastSk = {}
+	CINE.smokeStyle(c, true)
+	CINE.flameSetup(c)
+	return true
+end
+function CINE.stepOut(c, X, dt)
+	X.t = X.t + dt
+	local t = X.t
+	local tau = t - X.tRev
+	if X.noRun and tau >= 0 then
+		CINE.finishOut(c)
+		return
+	end
+	local yaw = X.yaw
+	local v = 0
+	local rpm, thr, tp, tr, rate = 1800, 0, 0, 0, 0
+	if tau < 0 then
+		local r = t / math.max(X.tRev, 0.01)
+		if r < 0.33 then
+			thr = 0.7 * math.sin(math.pi * r / 0.33)
+		elseif r < 0.66 then
+			thr = math.sin(math.pi * (r - 0.33) / 0.33)
+		else
+			thr = 1
+		end
+		rpm = 1800 + thr * 5600 + ((r >= 0.66) and math.sin(t * 70) * 300 or 0)
+		local stage = (r < 0.33) and 1 or ((r < 0.66) and 2 or 3)
+		if X.stage ~= stage then
+			if X.stage then CINE.flamePop(c, 7) end
+			X.stage = stage
+		end
+		X.burnV = (r > 0.55) and 150 * CINE.ss((r - 0.55) / 0.35) or 0
+		c.fxSlide = r > 0.6
+		c.shakeA = 0.5 + thr * 1.3
+		c.revBoost = thr
+		tr = 0.02 * thr * X.sg
+	else
+		if not X.launched then
+			X.launched = true
+			c.susV = c.susV - 11
+			CINE.flamePop(c, 16)
+		end
+		local f = X.V1 * (1 - math.exp(-tau / 0.12)) + (X.Vend - X.V1) * (1 - math.exp(-tau / 0.9))
+		v = math.min(X.Vend * X.vk, X.v0 + f * X.vk)
+		X.dist = X.dist + v * dt
+		yaw = X.yaw + X.sg * 0.055 * math.exp(-tau / 0.45) * math.sin(tau * 10)
+		thr = 1
+		rpm = 3600 + 4000 * ((tau % 0.7) / 0.7) ^ 0.8
+		X.burnV = 150 * math.exp(-tau / 0.7)
+		c.fxSlide = tau < 1.0
+		c.shakeA = 0.35 + 2.0 * math.exp(-tau / 0.45)
+		c.revBoost = math.exp(-tau / 0.15)
+		tp = 0.08 * math.exp(-tau / 1.2) + 0.09 * math.exp(-tau / 0.4) * math.sin(tau * 9)
+		tr = 0.015 * X.sg * math.exp(-tau / 0.6) * math.sin(tau * 7)
+		rate = (Config.LiteMode == "super") and 0 or ((tau < 1.6) and 60 or 25)
+	end
+	CINE.apply(c, dt, X.p0 + X.fwd * X.dist, yaw, X.fwd * v)
+	CINE.lean(c, dt, tp, tr, 18)
+	c.steer = c.steer + (0 - c.steer) * (1 - math.exp(-6 * dt))
+	c.throttle = thr
+	c.brakePed = 0
+	c.smokeMul = (Config.LiteMode == "super") and 0.6 or 1.4
+	c.burnV = X.burnV
+	X.rpm = rpm
+	CINE.flameRate(c, rate)
+	if tau >= 0 and (X.dist >= X.clear - 1 or tau >= X.Tl + 0.5) then
+		CINE.finishOut(c)
+	end
+end
+function CINE.finishOut(c)
+	local pos = c.pos
+	pcall(CINE.flash, pos)
+	if car == c then
+		CINE.destroy()
+	else
+		pcall(function() c.model:Destroy() end)
+	end
+end
+function CINE.step(c, dt)
+	local X = c.cine
+	if not X then return end
+	if X.kind == "in" then
+		CINE.stepIn(c, X, dt)
+	else
+		CINE.stepOut(c, X, dt)
+	end
+end
+function CINE.abort(c)
+	local X = c.cine
+	if not X then return end
+	if X.kind == "in" then
+		CINE.finishIn(c)
+	else
+		if car == c then
+			CINE.destroy()
+		else
+			pcall(function() c.model:Destroy() end)
+		end
+	end
+end
+local function despawnCar()
+	if not car then return end
+	local c = car
+	if c.cine then
+		if c.cine.kind == "in" then CINE.destroy() end
+		return
+	end
+	if CINE.startOut(c) then return end
+	CINE.destroy()
 end
 local function spawnCar()
 	local ch, hum, rpart = charParts()
 	if not ch then return end
-	if car then despawnCar() end
+	if car then CINE.destroy() end
 	local c = buildCar()
 	local look = camera and camera.CFrame.LookVector or rpart.CFrame.LookVector
 	local flat = Vector3.new(look.X, 0, look.Z)
@@ -4029,6 +4741,19 @@ local function spawnCar()
 	c.model.Parent = workspace
 	buildIgnition(c)
 	refreshFilter()
+	do
+		local pos0, yaw0 = c.pos, c.yaw
+		local okIn, started = pcall(CINE.startIn, c)
+		if not okIn or not started then
+			c.cine = nil
+			c.pos, c.yaw = pos0, yaw0
+			c.vel = Vector3.zero
+			c.mode, c.engineOn, c.throttle, c.lamps = "P", false, 0, Config.HeadlightsOnStart == true
+			c.smokeMul = nil
+			pcall(CINE.smokeStyle, c, false)
+			c.root.CFrame = CFrame.new(pos0)
+		end
+	end
 	if Config.EngineSoundId then
 		pcall(function()
 			local s = Instance.new("Sound")
@@ -4061,7 +4786,6 @@ local function spawnCar()
 		}
 	end)
 	playSound(Config.SoundEquip, 0.6)
-	toast("CHARGER CHAMADO  -  aperte F perto dele", Color3.fromRGB(120, 210, 255))
 end
 local ACC = Color3.fromRGB(80, 170, 255)
 local WHITE = Color3.fromRGB(240, 244, 250)
@@ -4372,6 +5096,33 @@ do
 		chs.Transparency = 0.15 + 0.4 * (0.5 + 0.5 * math.sin(t * 5))
 	end
 end
+do
+	local hb = HX.shell(leftF, 0, 76, 118, 40)
+	HX.hoodBtn = hb.b
+	hb.b.Visible = false
+	local ic = hb.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 8, 27, 34, 27, 2.6, OUT)
+	HX.line(ic, 34, 27, 34, 17, 2.6, OUT)
+	HX.line(ic, 34, 17, 12, 8, 2.6, GREEN)
+	label(ic, "CAP\u{D4}", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	stroke(chip, 1.6, GREEN, 0)
+	label(chip, "G", 11, GREEN, 0, 0, 16, 16)
+end
+function HX.nearZone(c)
+	local _, _, rpart = charParts()
+	if not rpart or not c or not c.root then return nil end
+	local lp = c.root.CFrame:PointToObjectSpace(rpart.Position) / S
+	if lp.X >= -11.5 and lp.X <= -2.4 and lp.Z >= -6 and lp.Z <= 8 then return "door" end
+	if lp.Z <= -8.6 and lp.Z >= -19 and math.abs(lp.X) <= 5.5 then return "front" end
+	return nil
+end
+function HX.toggleHood(c)
+	if not c or c.driver then return end
+	c.hoodT = (c.hoodT == 1) and 0 or 1
+	playSound(c.hoodT == 1 and Config.SoundDoorOpen or Config.SoundDoorClose, 0.6)
+end
 local K = { alive = true }
 do
 	local KEYDIR = "CHARGER_SCRIPT"
@@ -4387,18 +5138,18 @@ do
 		return KEYDIR .. "/modelos/" .. name
 	end
 	local function fromDisk(id)
-		assert(writefile and readfile and isfile and getcustomasset, "executor sem writefile/getcustomasset")
+		assert(writefile and readfile and isfile and getcustomasset)
 		local path = keyPath(tostring(id) .. ".rbxm")
 		for tentativa = 1, 2 do
 			if not isfile(path) then
 				local data = game:HttpGet("https://assetdelivery.roblox.com/v1/asset/?id=" .. tostring(id))
-				assert(type(data) == "string" and #data > 100, "download vazio")
+				assert(type(data) == "string" and #data > 100)
 				writefile(path, data)
 			end
 			local okO, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
 			if okO and type(objs) == "table" and objs[1] then return objs[1] end
 			if delfile then pcall(delfile, path) end
-			if tentativa == 2 then error(okO and "arquivo sem objetos" or tostring(objs)) end
+			if tentativa == 2 then error(0) end
 		end
 	end
 	local function fetchModel(id)
@@ -4497,9 +5248,7 @@ do
 					return c
 				end
 				pcall(function() model:Destroy() end)
-				pcall(warn, "[Charger] acessorio da chave sem Handle. Usando chave simples.")
 			else
-				pcall(warn, "[Charger] nao foi possivel carregar a chave " .. tostring(id) .. " (" .. tostring(err) .. "). Usando chave simples.")
 			end
 		end
 		keyTpl = fallbackKey()
@@ -4556,7 +5305,6 @@ do
 		local ch = charParts()
 		if not ch then return end
 		if car and car.driver then
-			toast("SAIA DO CARRO (F OU BOTAO SAIR) PRA USAR A CHAVE", Color3.fromRGB(255, 200, 80))
 			return
 		end
 		if os.clock() - keyLast < Config.KeyCooldown then return end
@@ -4601,7 +5349,6 @@ do
 			slotStroke.Color = WHITE
 			playSound(Config.SoundKeyEquip, 0.5)
 			if not (car and car.driver) then
-				toast(car and "CLIQUE PRA GUARDAR O CHARGER" or "CLIQUE PRA CHAMAR O CHARGER", Color3.fromRGB(120, 210, 255))
 			end
 		end)
 		tool.Unequipped:Connect(function() slotStroke.Color = ACC end)
@@ -4668,17 +5415,6 @@ for i = 1, 16 do
 	local col = i <= 10 and GREEN or (i <= 13 and AMBER or HUDRED)
 	local s = frame(rpmF, (i - 1) * 9, 0, 7, 8, col, 0.85, 2)
 	segs[i] = s
-end
-local toastL = label(gui, "", 13, WHITE, 0, 0, 300, 22)
-toastL.AnchorPoint = Vector2.new(0.5, 1)
-toastL.Position = UDim2.new(0.5, 0, 1, -176)
-toastL.TextStrokeTransparency = 0.4
-toastL.Visible = false
-function hudApi.toast(msg, color)
-	toastL.Text = msg
-	toastL.TextColor3 = color or WHITE
-	toastL.Visible = true
-	toastT = os.clock() + 2.2
 end
 local rightF = frame(gui, 0, 0, 206, 176, PANEL, 1)
 rightF.AnchorPoint = Vector2.new(1, 1)
@@ -5231,6 +5967,9 @@ end
 track(enterBtn.Activated:Connect(function()
 	if car and not car.driver then enterCar(car) end
 end))
+track(HX.hoodBtn.Activated:Connect(function()
+	if car then HX.toggleHood(car) end
+end))
 track(exitBtn.Activated:Connect(function()
 	if car and car.driver then exitCar(car) end
 end))
@@ -5250,15 +5989,12 @@ local function updateHud(dt)
 	rpmF.Visible = seated
 	rightF.Visible = seated
 	quickF.Visible = seated
-	local near = false
-	if c and not c.driver then
-		local _, _, rpart = charParts()
-		if rpart then near = (rpart.Position - c.pos).Magnitude < Config.BoardRadius * S end
-	end
-	enterBtn.Visible = near
+	local zone = nil
+	if c and not c.driver and not c.boardFrom and not c.exiting then zone = HX.nearZone(c) end
+	enterBtn.Visible = zone == "door"
+	HX.hoodBtn.Visible = zone == "front"
 	local nowT = os.clock()
 	for _, f in ipairs(HX.anim) do f(nowT) end
-	if toastL.Visible and os.clock() > toastT then toastL.Visible = false end
 	if not seated then return end
 	local kmh = math.abs(c.vF)
 	local kq = math.floor(kmh + 0.5)
@@ -5314,15 +6050,15 @@ track(UIS.InputBegan:Connect(function(input)
 			if car.driver then
 				exitCar(car)
 			else
-				local _, _, rpart = charParts()
-				if rpart and (rpart.Position - car.pos).Magnitude < Config.BoardRadius * S then enterCar(car) end
+				if HX.nearZone(car) == "door" then enterCar(car) end
 			end
 		end
+	elseif k == Enum.KeyCode.G then
+		if car and not car.driver and HX.nearZone(car) == "front" then HX.toggleHood(car) end
 	elseif car and car.setShell and (k == Enum.KeyCode.One or k == Enum.KeyCode.Two or k == Enum.KeyCode.Three or k == Enum.KeyCode.Four) then
 		local n = (k == Enum.KeyCode.One and 1) or (k == Enum.KeyCode.Two and 2) or (k == Enum.KeyCode.Three and 3) or 4
 		Config.ShellStyle = n
 		car.setShell(n)
-		pcall(toast, "Carroceria: " .. tostring(car.shellName))
 	elseif car and car.driver then
 		if k == Enum.KeyCode.P then
 			if car.mode == "P" and not car.parkPending then setMode("N") else setMode("P") end
@@ -5380,7 +6116,6 @@ end))
 local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {}, key = nil, shT = nil }
 local GRIP_A = math.rad(62)
 local GRIP_PERIOD = 2.0
-
 local function armRotFromTo(a, b)
 	a, b = a.Unit, b.Unit
 	local axis = a:Cross(b)
@@ -5392,7 +6127,6 @@ local function armRotFromTo(a, b)
 	end
 	return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
 end
-
 local function armJoints(ch)
 	local J = { right = { extra = {} }, left = { extra = {} } }
 	local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
@@ -5426,7 +6160,6 @@ local function armJoints(ch)
 	end
 	return J
 end
-
 local function armChain(j)
 	local sh = j.shoulder
 	if not (sh and sh.Parent and sh.Part0 and sh.Part1) then return nil end
@@ -5453,7 +6186,6 @@ local function armChain(j)
 	k.reach = (k.L2 and (k.L1 + k.L2) or k.L1) * 0.97
 	return k
 end
-
 local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
 	local sh, elbow = k.sh, k.elbow
 	local P = p0n * sh.C0.Position
@@ -5487,12 +6219,9 @@ local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
 		elbow.Transform = CFrame.new():Lerp(eb, ez)
 	end
 end
-
-
 local function armWarn(...)
 	if not ARMS.warned then
 		ARMS.warned = true
-		pcall(warn, "[Charger] bracos:", ...)
 	end
 end
 local function releaseArms()
@@ -5519,7 +6248,6 @@ local function releaseArms()
 		end
 	end
 end
-
 local function driveArms(c, dt)
 	local ch, hum, rpart = charParts()
 	if not (ch and c.driver) then
@@ -5541,12 +6269,10 @@ local function driveArms(c, dt)
 	ARMS.on = true
 	ARMS.w = math.min(1, ARMS.w + dt * 4)
 	local ez = ARMS.w * ARMS.w * (3 - 2 * ARMS.w)
-
 	local seatW = c.cf * SEAT_REL
 	local rootInv = rpart.CFrame:Inverse()
 	local function pw(part) return seatW * (rootInv * part.CFrame) end
 	local bodyRight, bodyUp, bodyBack = seatW.RightVector, seatW.UpVector, -seatW.LookVector
-
 	local baseCF = c.cf * c.swBase
 	local rim = 0.62 * S
 	local off = ((c.steer * 2.6 + GRIP_PERIOD / 2) % GRIP_PERIOD) - GRIP_PERIOD / 2
@@ -5589,7 +6315,6 @@ local function driveArms(c, dt)
 		local gp = kn.Position + c.cf.LookVector * push + c.cf.UpVector * 0.05 * S
 		grips.right = grips.right:Lerp(gp, sb)
 	end
-	-- mao esquerda na manivela enquanto o vidro sobe/desce
 	local crankK
 	for _, kk in ipairs(c.crank or {}) do
 		if kk.sd < 0 then crankK = kk break end
@@ -5602,20 +6327,17 @@ local function driveArms(c, dt)
 		local knob = c.cf * (c.doorW and c.doorW.C0 or CFrame.new()) * crankK.w.C0 * Vector3.new(crankK.sd * -0.07 * S, 0, 0.33 * S)
 		grips.left = grips.left:Lerp(knob, wbs)
 	end
-
 	local ir = c.ignReach or 0
 	if ir > 0.001 and c.keyBase then
 		local irs = ir * ir * (3 - 2 * ir)
 		local hp = c.cf * (c.keyBase * CFrame.Angles(c.keyAng or 0, 0, 0) * CFrame.new(0.2 * S, 0, 0)).Position
 		grips.right = grips.right:Lerp(hp, irs)
 	end
-
 	for _, side in pairs(J) do
 		for _, m in ipairs(side.extra) do
 			if m.Parent then m.Transform = CFrame.new() end
 		end
 	end
-
 	local sr = chR.sh
 	local waist = ARMS.waist
 	if waist == nil or (waist and (not waist.Parent or waist.Part1 ~= sr.Part0)) then
@@ -5626,7 +6348,6 @@ local function driveArms(c, dt)
 		end
 		ARMS.waist = waist
 	end
-
 	local prevLean = ARMS.lean
 	local spin = nil
 	if waist and waist.Parent and waist.Part0 then
@@ -5661,7 +6382,6 @@ local function driveArms(c, dt)
 		end
 		ARMS.lean = lean
 	end
-
 	local function p0nOf(sh)
 		local p0w = pw(sh.Part0)
 		if spin then return spin(ARMS.lean) * (spin(prevLean):Inverse() * p0w) end
@@ -5670,8 +6390,6 @@ local function driveArms(c, dt)
 	solveArm(chR, p0nOf(chR.sh), grips.right, 1, bodyRight, bodyUp, bodyBack, ez)
 	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
 end
-
--- ===== Animacao de bracos/pernas/tronco ao entrar e sair do carro =====
 ANIM.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, ik = 0 }
 function ANIM.limbRot(cf) return cf - cf.Position end
 function ANIM.limbJoints(ch)
@@ -5795,7 +6513,6 @@ function ANIM.limbStep(c, dt)
 			end
 		end
 	end
-	-- braco direito vai ate a macaneta da porta
 	ANIM.L.ik = ANIM.L.ik + ((ik and 1 or 0) - ANIM.L.ik) * math.min(1, dt * 9)
 	if not ik and ANIM.L.ik < 0.01 then ANIM.L.ik = 0 end
 	if ANIM.L.ik > 0 and ANIM.L.AJ and ch then
@@ -5826,6 +6543,47 @@ track(player.CharacterAdded:Connect(function()
 	ARMS.shUntil, ARMS.shRaw = nil, 0
 	ARMS.warned = nil
 end))
+do
+	local LITE_NAMES = { off = "LITE DESATIVADO (visual completo)", lite = "MODO LITE ATIVADO", super = "MODO SUPER LITE ATIVADO" }
+	local function say(msg)
+		local ok = pcall(function()
+			game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] " .. msg, Color = Color3.fromRGB(80, 170, 255) })
+		end)
+		pcall(function()
+			local TCS = game:GetService("TextChatService")
+			local ch = TCS:FindFirstChild("TextChannels") and TCS.TextChannels:FindFirstChild("RBXGeneral")
+			if ch then ch:DisplaySystemMessage("[Charger] " .. msg) end
+		end)
+	end
+	local lastCmd, lastT = nil, 0
+	local function liteCmd(text)
+		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
+		if not mode then return end
+		local now = os.clock()
+		if lastCmd == text and now - lastT < 0.6 then return end
+		lastCmd, lastT = text, now
+		Config.LiteMode = mode
+		LITE = mode ~= "off"
+		carTpl = nil
+		if car and not car.driver and not car.cine then
+			CINE.destroy()
+			spawnCar()
+			say(LITE_NAMES[mode] .. " - carro reconstruido.")
+		elseif car then
+			say(LITE_NAMES[mode] .. " - vale a partir do proximo spawn.")
+		else
+			say(LITE_NAMES[mode] .. ".")
+		end
+	end
+	track(player.Chatted:Connect(liteCmd))
+	pcall(function()
+		local TCS = game:GetService("TextChatService")
+		track(TCS.MessageReceived:Connect(function(m)
+			if m.TextSource and m.TextSource.UserId == player.UserId then liteCmd(m.Text) end
+		end))
+	end)
+end
 local STEP_ID = "ChargerStep"
 pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
 RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, function(dt)
@@ -5837,11 +6595,18 @@ RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, funct
 			filterT = 0.5
 			refreshFilter()
 		end
-		stepCar(c, dt)
-		carVisuals(c, dt)
-		if c.doorClose then pcall(ANIM.doorCloseStep, c) end
-		if c.driver then
-			holdChar(c)
+		if c.cine then
+			local okC = pcall(CINE.step, c, dt)
+			if not okC then pcall(CINE.abort, c) end
+		else
+			stepCar(c, dt)
+		end
+		if c.model.Parent then
+			carVisuals(c, dt)
+			if c.doorClose then pcall(ANIM.doorCloseStep, c) end
+			if c.driver then
+				holdChar(c)
+			end
 		end
 	else
 		if c then car = nil end
@@ -5849,7 +6614,6 @@ RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, funct
 	local okH, errH = pcall(updateHud, dt)
 	if not okH and not HUDC.warned then
 		HUDC.warned = true
-		pcall(warn, "[Charger] hud:", errH)
 	end
 end)
 track(RunService.Stepped:Connect(function(_, dt)
@@ -5878,15 +6642,13 @@ genv[CLEANUP_KEY] = function()
 	pcall(CAM.reset)
 	pcall(releaseArms)
 	pcall(ANIM.limbRelease)
-	pcall(despawnCar)
+	pcall(CINE.destroy)
 	pcall(K.destroy)
 	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
 	pcall(function() gui:Destroy() end)
 	pcall(function() if skidFolder then skidFolder:Destroy() end end)
 	genv[CLEANUP_KEY] = nil
 end
-toast("CHARGER pronto  -  use a CHAVE (ou tecla M)", Color3.fromRGB(120, 210, 255))
 end, debug.traceback)
 if not __ok then
-	pcall(warn, "[Charger] erro:", __err)
 end

@@ -76,6 +76,17 @@ local Config = {
 	SoundDoorOpen = "rbxassetid://139882610901041",
 	SoundDoorClose = "rbxassetid://121381393291287",
 	LimbAnim = true,
+	DriveAnim = {
+		Enabled = true,
+		RevLook = true,
+		RevLookYaw = 75,
+		Elbow = true,
+		ElbowSpeed = 25,
+		ElbowDelay = 1.5,
+		ElbowRest = Vector3.new(-3.3, 0.45, -0.6),
+		LampTime = 0.9,
+		LampSwitch = Vector3.new(-2.4, 2.85, -0.2),
+	},
 	ExitAnim = true,
 	Exit = {
 		OpenTime = 0.45,
@@ -6297,10 +6308,26 @@ local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
 		elbow.Transform = CFrame.new():Lerp(eb, ez)
 	end
 end
+function ARMS.say(msg, col)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] " .. msg, Color = col or Color3.fromRGB(255, 120, 80) })
+	end)
+	pcall(function()
+		local TCS = game:GetService("TextChatService")
+		local ch = TCS:FindFirstChild("TextChannels") and TCS.TextChannels:FindFirstChild("RBXGeneral")
+		if ch then ch:DisplaySystemMessage("[Charger] " .. msg) end
+	end)
+end
 local function armWarn(...)
-	if not ARMS.warned then
-		ARMS.warned = true
+	local parts = {}
+	for i, v in ipairs({ ... }) do parts[i] = tostring(v) end
+	local msg = table.concat(parts, " ")
+	ARMS.warnSeen = ARMS.warnSeen or {}
+	if not ARMS.warnSeen[msg] then
+		ARMS.warnSeen[msg] = true
+		ARMS.say("ERRO: " .. msg)
 	end
+	ARMS.warned = true
 end
 local function releaseArms()
 	if not ARMS.on then return end
@@ -6344,6 +6371,11 @@ local function driveArms(c, dt)
 		armWarn("juntas dos bracos nao encontradas (ombro direito/esquerdo) - rig nao reconhecido")
 		return
 	end
+	local ck = ARMS.chk
+	if ck and ARMS.on and ck.sh.Parent then
+		local d = (ck.sh.Transform.Position - ck.tf.Position).Magnitude + (ck.sh.Transform.LookVector - ck.tf.LookVector).Magnitude
+		if d > 0.01 then ARMS.ovr = (ARMS.ovr or 0) + 1 else ARMS.keep = (ARMS.keep or 0) + 1 end
+	end
 	ARMS.on = true
 	ARMS.w = math.min(1, ARMS.w + dt * 4)
 	local ez = ARMS.w * ARMS.w * (3 - 2 * ARMS.w)
@@ -6364,6 +6396,66 @@ local function driveArms(c, dt)
 		grips[sd] = baseCF * Vector3.new(0, rim * math.cos(cur), rim * math.sin(cur))
 	end
 	local now = os.clock()
+	local daL = 0
+	do
+		local DA = Config.DriveAnim
+		local dA = c._da
+		if not dA then
+			dA = { rev = 0, cruise = 0, elbow = 0 }
+			c._da = dA
+		end
+		local function ss(x) x = math.clamp(x, 0, 1) return x * x * (3 - 2 * x) end
+		if DA and DA.Enabled ~= false then
+			local vF = c.vF or 0
+			local revWant = 0
+			if DA.RevLook ~= false and c.mode == "R" and c.engineOn and (vF < -1.5 or (c.throttle or 0) > 0.05) then
+				revWant = 1
+			end
+			dA.rev = dA.rev + math.clamp(revWant - dA.rev, -dt * 3, dt * 3)
+			c.revLook = ss(dA.rev)
+			if dA.rev > 0.001 then
+				local rp = seatW * Vector3.new(3.1 * S - 1.2, 0.9, 1.0)
+				grips.right = grips.right:Lerp(rp, ss(dA.rev))
+			end
+			local elbowWant = 0
+			if DA.Elbow ~= false and (c.winP or 0) > 0.85 and c.mode == "D" and vF > (DA.ElbowSpeed or 25)
+				and math.abs(c.steer or 0) < 0.2 and (c.notch or 0) < 2 and not held.brake and revWant == 0 then
+				dA.cruise = dA.cruise + dt
+				if dA.cruise > (DA.ElbowDelay or 1.5) then elbowWant = 1 end
+			else
+				dA.cruise = 0
+			end
+			dA.elbow = dA.elbow + math.clamp(elbowWant - dA.elbow, -dt * 4, dt * 2.5)
+			if dA.elbow > 0.001 then
+				local rest = seatW * (DA.ElbowRest or Vector3.new(-3.3, 0.45, -0.6))
+				rest = rest + bodyUp * (math.sin(now * 3) * 0.05)
+				grips.left = grips.left:Lerp(rest, ss(dA.elbow))
+			end
+			if ARMS.w < 0.5 or dA.lampSeen == nil then
+				dA.lampSeen = c.lamps
+				dA.lampT0 = nil
+			elseif dA.lampSeen ~= c.lamps then
+				dA.lampSeen = c.lamps
+				dA.lampT0 = now
+			end
+			if dA.lampT0 then
+				local p = (now - dA.lampT0) / (DA.LampTime or 0.9)
+				if p >= 1 then
+					dA.lampT0 = nil
+				else
+					local w
+					if p < 0.3 then w = ss(p / 0.3) elseif p < 0.65 then w = 1 else w = 1 - ss((p - 0.65) / 0.35) end
+					local sw = c.cf * ((DA.LampSwitch or Vector3.new(-2.4, 2.85, -0.2)) * S)
+					local push = (p > 0.32 and p < 0.55) and math.sin((p - 0.32) / 0.23 * math.pi) or 0
+					sw = sw + c.cf.LookVector * (push * 0.1 * S)
+					grips.left = grips.left:Lerp(sw, ss(w))
+					daL = w
+				end
+			end
+		else
+			c.revLook = 0
+		end
+	end
 	local key = tostring(c.mode) .. gear
 	if ARMS.key == nil then ARMS.key = key end
 	if ARMS.key ~= key then
@@ -6441,7 +6533,8 @@ local function driveArms(c, dt)
 			need = th
 			if ((spin(th) * p0u) * sr.C0.Position - grips.right).Magnitude <= chR.reach then break end
 		end
-		if wbs > 0.001 then
+		local lw = math.max(wbs, daL)
+		if lw > 0.001 then
 			local sl = chL.sh
 			local p0l = spin(prevLean):Inverse() * pw(sl.Part0)
 			local needL = 0
@@ -6450,7 +6543,7 @@ local function driveArms(c, dt)
 				needL = th
 				if ((spin(th) * p0l) * sl.C0.Position - grips.left).Magnitude <= chL.reach then break end
 			end
-			need = math.max(need, needL * wbs)
+			need = math.max(need, needL * lw)
 		end
 		local lean = prevLean + (need * ez - prevLean) * math.min(1, dt * 10)
 		if lean > 0.002 then
@@ -6467,6 +6560,7 @@ local function driveArms(c, dt)
 	end
 	solveArm(chR, p0nOf(chR.sh), grips.right, 1, bodyRight, bodyUp, bodyBack, ez)
 	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
+	ARMS.chk = { sh = chR.sh, tf = chR.sh.Transform }
 end
 ANIM.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, ik = 0 }
 function ANIM.limbRot(cf) return cf - cf.Position end
@@ -6551,6 +6645,9 @@ function ANIM.limbTargets(c, now)
 	elseif D then
 		ik = true
 		tgt.waist = V3(-6, 0, 0)
+	elseif c.driver and not c.boardFrom and (c.revLook or 0) > 0.02 then
+		local yaw = (Config.DriveAnim and Config.DriveAnim.RevLookYaw) or 75
+		tgt.neck = V3(0, -yaw * c.revLook, 0)
 	end
 	return tgt, ik
 end
@@ -6636,6 +6733,18 @@ do
 	local lastCmd, lastT = nil, 0
 	local function liteCmd(text)
 		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "-4" then
+			local ch, hum = charParts()
+			local J = ARMS.J
+			local function f(j) return j and "ok" or "NAO" end
+			local n = 0
+			for _ in pairs(ANIM.L.J or {}) do n = n + 1 end
+			local blue = Color3.fromRGB(80, 170, 255)
+			ARMS.say("rig=" .. (hum and tostring(hum.RigType) or "?") .. " | Animate=" .. ((ch and ch:FindFirstChild("Animate")) and "sim" or "nao") .. " | carro=" .. tostring(car ~= nil) .. " | motorista=" .. tostring(car ~= nil and car.driver ~= nil), blue)
+			ARMS.say("ARMS.on=" .. tostring(ARMS.on) .. " | ombroD=" .. f(J and J.right.shoulder) .. " ombroE=" .. f(J and J.left.shoulder) .. " cotoveloD=" .. f(J and J.right.elbow) .. " | juntasLimb=" .. n, blue)
+			ARMS.say("sobrescrito pelo jogo=" .. tostring(ARMS.ovr or 0) .. " | quadros mantidos=" .. tostring(ARMS.keep or 0), blue)
+			return
+		end
 		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
 		if not mode then return end
 		local now = os.clock()
@@ -6729,4 +6838,8 @@ genv[CLEANUP_KEY] = function()
 end
 end, debug.traceback)
 if not __ok then
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] ERRO FATAL: " .. tostring(__err), Color = Color3.fromRGB(255, 80, 80) })
+	end)
+	warn("[Charger] ERRO FATAL: " .. tostring(__err))
 end

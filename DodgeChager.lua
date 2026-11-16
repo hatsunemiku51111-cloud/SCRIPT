@@ -26,6 +26,10 @@ local Config = {
 	Thrust = 28,
 	GearTop = { 0.2, 0.4, 0.6, 0.8, 1.0 },
 	GearAccel = { 2.2, 1.7, 1.35, 1.12, 1.0 },
+	RunPitchBase = { 0.62, 0.68, 0.74, 0.78, 0.8 },
+	RunPitchSpan = { 0.28, 0.4, 0.55, 0.68, 0.8 },
+	RunFadeIn = 0.7,
+	RunFadeOut = 1.1,
 	StartGear = 5,
 	CamKey = Enum.KeyCode.V,
 	CamMaxZoom = 60,
@@ -84,8 +88,8 @@ local Config = {
 		ElbowSpeed = 25,
 		ElbowDelay = 1.5,
 		ElbowRest = Vector3.new(-3.3, 0.45, -0.6),
-		LampTime = 0.9,
-		LampSwitch = Vector3.new(-2.4, 2.85, -0.2),
+		LampTime = 1.2,
+		LampSwitch = Vector3.new(-2.9, 3.3, -0.95),
 	},
 	ExitAnim = true,
 	Exit = {
@@ -2169,6 +2173,36 @@ local function attachLogic(car, bodyColor)
 				end
 			end
 		end
+		if c.lampKnob then
+			local k = c.lampKnob
+			local want = c.lamps and 1 or 0
+			if k.x == nil then
+				k.x, k.v, k.tgt, k.seen, k.gate = want, 0, want, want, 0
+				k.dirty = true
+			end
+			if k.seen ~= want then
+				k.seen = want
+				local DAk = Config.DriveAnim
+				k.gate = c.lampHandOn and (os.clock() + 0.3 * ((DAk and DAk.LampTime) or 0.9)) or 0
+			end
+			if k.tgt ~= want and os.clock() >= k.gate then k.tgt = want end
+			local dtc = math.min(dt, 1 / 30)
+			local v = k.v + ((k.tgt - k.x) * 320 - k.v * 19) * dtc
+			local x = k.x + v * dtc
+			if math.abs(k.tgt - x) < 0.0004 and math.abs(v) < 0.01 then x, v = k.tgt, 0 end
+			if x ~= k.x or k.dirty then
+				k.dirty = false
+				k.x, k.v = x, v
+				k.w.C0 = k.base * CFrame.new(0, 0, 0.3 * S * x) * CFrame.Angles(0, 0, 0.28 * x)
+			else
+				k.v = v
+			end
+			if c.lampLed and k.ledOn ~= (k.tgt == 1) then
+				k.ledOn = k.tgt == 1
+				c.lampLed.Material = k.ledOn and MATS.N or MATS.P
+				c.lampLed.Color = k.ledOn and Color3.fromRGB(255, 170, 40) or Color3.fromRGB(70, 42, 10)
+			end
+		end
 		if c._lensOn ~= c.lamps then
 			c._lensOn = c.lamps
 			for _, p in ipairs(c.lens) do
@@ -2621,6 +2655,26 @@ local function buildCarRaw()
 	add("DashPadBack", V(2.75, 0.22, 1.25), P(-1.575, 3.51, -1.775), COLS.K, MATS.P, nil, 0, nil, 0.05)
 	add("ClusterPlate", V(2.3, 0.62, 0.08), P(-1.6, 3.31, -1.12), PLC, MATS.P, nil, 0, nil, 0)
 	add("ClusterBrow", V(2.4, 0.05, 0.2), P(-1.6, 3.645, -1.06), COLS.K, MATS.P, nil, 0, nil, 0.1)
+	do
+		local KX, KY, KZ = -2.9, 3.3, -1.08
+		local BLKP = Color3.fromRGB(20, 20, 22)
+		local RIB = Color3.fromRGB(58, 58, 63)
+		add("LampBezel", V(0.03, 0.46, 0.46), P(KX, KY, -1.14, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("LampWell", V(0.02, 0.36, 0.36), P(KX, KY, -1.12, 0, 90, 0), COLS.BK, MATS.P, "cyl", 0, nil, 0)
+		local led = add("LampLed", V(0.035, 0.035, 0.035), CFrame.new(KX, KY + 0.15, -1.108), Color3.fromRGB(70, 42, 10), MATS.P, "ball", 0, nil, 0)
+		local kb, kw = add("LampKnobBase", V(0.1, 0.1, 0.1), P(KX, KY, KZ), COLS.K, MATS.P, nil, 1, nil, 0)
+		if kb and kw then
+			add("LampKnobShaft", V(0.6, 0.07, 0.07), P(0, 0, -0.18, 0, 90, 0), CHRW, MATS.M, "cyl", 0, kb, 0.6)
+			add("LampKnobHead", V(0.1, 0.24, 0.24), P(0, 0, 0.08, 0, 90, 0), BLKP, MATS.P, "cyl", 0, kb, 0.05)
+			add("LampKnobCap", V(0.035, 0.17, 0.17), P(0, 0, 0.1425, 0, 90, 0), CHRW, MATS.M, "cyl", 0, kb, 0.6)
+			for i = 0, 15 do
+				local a = i * math.pi / 8
+				add("LampKnobRib", V(0.03, 0.03, 0.09), CFrame.new(math.cos(a) * 0.12, math.sin(a) * 0.12, 0.08) * CFrame.Angles(0, 0, a), RIB, MATS.P, nil, 0, kb, 0.1)
+			end
+			car.lampKnob = { w = kw, base = kw.C0 }
+		end
+		car.lampLed = led
+	end
 	local function gauge(cx, cy, d, a0, sweep, nSeg, majorEvery, labels, redFrac, caption, nA)
 		add("GaugeBezel", V(0.03, d + 0.09, d + 0.09), P(cx, cy, GZ.bez, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
 		add("GaugeFace", V(0.02, d, d), P(cx, cy, GZ.face, 0, 90, 0), PLC, MATS.P, "cyl", 0, nil, 0)
@@ -2845,7 +2899,7 @@ local function buildCarRaw()
 	attachLogic(car, COLS.B)
 	return car
 end
-local CACHE_VER = "v56a"
+local CACHE_VER = "v64a"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
 local function newPlate()
@@ -2901,6 +2955,8 @@ local function tagCar(c)
 	tagK(c.nT, "nT")
 	tagK(c.swW, "swW")
 	tagK(c.brakeLight, "bk")
+	if c.lampKnob then tagK(c.lampKnob.w, "lkW") end
+	tagK(c.lampLed, "lkL")
 	c.model:SetAttribute("BodyColor", c._body)
 end
 local function bindCar(model)
@@ -2960,6 +3016,8 @@ local function bindCar(model)
 	if car.nS then car.nSBase = car.nS.C0 end
 	if car.nT then car.nTBase = car.nT.C0 end
 	car.brakeLight = K.bk
+	if K.lkW then car.lampKnob = { w = K.lkW, base = K.lkW.C0 } end
+	car.lampLed = K.lkL
 	local plate = model:FindFirstChild("Plate")
 	local tl = plate and plate:FindFirstChildWhichIsA("TextLabel", true)
 	if tl then tl.Text = newPlate() end
@@ -4128,8 +4186,12 @@ local function carVisuals(c, dt)
 		local thr = on and math.clamp(c.throttle or 0, 0, 1) or 0
 		local gr = math.clamp(kmh / math.max(topG, 1), 0, 1.1)
 		local moving = on and (c.mode == "D" or c.mode == "R") and kmh > 3
-		local runT = (moving and thr > 0.6 and kmh > topG * 0.6) and 1 or 0
-		c.runMix = (c.runMix or 0) + (runT - (c.runMix or 0)) * (1 - math.exp(-4 * dt))
+		local function sstep(x) x = math.clamp(x, 0, 1); return x * x * (3 - 2 * x) end
+		local runT = moving and (sstep((thr - 0.45) / 0.35) * sstep((kmh / math.max(topG, 1) - 0.5) / 0.25)) or 0
+		local rm0 = c.runMix or 0
+		local fadeT = (runT > rm0) and (Config.RunFadeIn or 0.7) or (Config.RunFadeOut or 1.1)
+		c.runMix = rm0 + (runT - rm0) * (1 - math.exp(-3 / math.max(fadeT, 0.05) * dt))
+		if c.runMix < 0.002 and runT == 0 then c.runMix = 0 end
 		local kv = 1 - math.exp(-12 * dt)
 		local kp = 1 - math.exp(-10 * dt)
 		local st = c.startSnd
@@ -4155,9 +4217,11 @@ local function carVisuals(c, dt)
 		else
 			cv, cp = 0.3, 0.6 + math.clamp(kmh / Config.TopSpeed, 0, 1) * 0.9
 		end
-		cv = on and cv * math.clamp(kmh / 8, 0, 1) * (1 - c.runMix) or 0
-		local rv = on and Config.VolRun * c.runMix * math.clamp(kmh / 10, 0, 1) or 0
-		local rp = 0.8 + gr * 0.8 + (gear - 1) * 0.02
+		cv = on and cv * math.clamp(kmh / 8, 0, 1) * math.cos(c.runMix * math.pi / 2) or 0
+		local rv = on and Config.VolRun * math.sin(c.runMix * math.pi / 2) * math.clamp(kmh / 10, 0, 1) or 0
+		local rpB = (Config.RunPitchBase and Config.RunPitchBase[gear]) or 0.8
+		local rpS = (Config.RunPitchSpan and Config.RunPitchSpan[gear]) or 0.8
+		local rp = rpB + math.min(gr, 1) * rpS - (1 - c.runMix) * 0.1
 		local sk = 0
 		if drv and c.grounded then
 			if sliding then
@@ -5863,22 +5927,30 @@ do
 		HX.line(ic, 46, 32, 12, 32, 2.4, OFFC),
 		HX.line(ic, 12, 32, 18, 10, 2.4, OFFC),
 	}
-	local pane = Instance.new("Frame")
-	pane.BorderSizePixel = 0
-	pane.BackgroundColor3 = ACC
-	pane.BackgroundTransparency = 0.45
-	pane.Position = UDim2.fromOffset(16, 12)
-	pane.Size = UDim2.fromOffset(28, 18)
-	pane.Parent = ic
+	-- vidro: so contorno (sem fundo) + linha do vidro que desce + brilhos
+	local edge = HX.line(ic, 18, 10, 40, 10, 2.4, ACC)
+	local shine = {
+		HX.line(ic, 22, 17, 30, 17, 1.8, OFFC),
+		HX.line(ic, 24, 23, 36, 23, 1.8, OFFC),
+	}
 	local lastOn = nil
 	function K.setWin(p)
-		pane.Position = UDim2.fromOffset(16, 12 + 18 * p)
-		pane.Size = UDim2.fromOffset(28, 18 * (1 - p))
+		local y = 10 + 22 * p
+		local t = 22 * p / 22
+		local xl, xr = 18 - 6 * t, 40 + 6 * t
+		edge.Position = UDim2.fromOffset((xl + xr) / 2, y)
+		edge.Size = UDim2.fromOffset(xr - xl, 2.4)
+		edge.Visible = p < 0.97
+		for i, f in ipairs(shine) do
+			f.Visible = p < (i == 1 and 0.25 or 0.5)
+		end
 		local on = p > 0.02
 		if on == lastOn then return end
 		lastOn = on
 		winT.setActive(on)
 		for _, f in ipairs(ol) do f.BackgroundColor3 = on and ACC or OFFC end
+		for _, f in ipairs(shine) do f.BackgroundColor3 = on and ACC or OFFC end
+		edge.BackgroundColor3 = on and ACC or OFFC
 	end
 end
 do
@@ -6205,6 +6277,16 @@ end))
 local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {}, key = nil, shT = nil }
 local GRIP_A = math.rad(62)
 local GRIP_PERIOD = 2.0
+function ARMS.isJoint(d)
+	return d:IsA("Motor6D") or d:IsA("AnimationConstraint")
+end
+function ARMS.armSide(name)
+	local n = name:lower():gsub("[%s_]", "")
+	if not (n:find("upperarm") or n == "rightarm" or n == "leftarm" or n:find("shoulder")) then return nil end
+	if n:find("^right") then return "right" end
+	if n:find("^left") then return "left" end
+	return nil
+end
 local function armRotFromTo(a, b)
 	a, b = a.Unit, b.Unit
 	local axis = a:Cross(b)
@@ -6221,13 +6303,21 @@ local function armJoints(ch)
 	local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
 	local motors = {}
 	for _, d in ipairs(ch:GetDescendants()) do
-		if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+		if ARMS.isJoint(d) and d.Part0 and d.Part1 then
 			motors[#motors + 1] = d
 			for side, list in pairs(names) do
 				if d.Part1.Name == list[1] or d.Part1.Name == list[2] then
 					J[side].shoulder = J[side].shoulder or d
 				end
 			end
+		end
+	end
+	-- fallback: rig com nomes diferentes
+	for _, d in ipairs(motors) do
+		local side = ARMS.armSide(d.Part1.Name) or ARMS.armSide(d.Name)
+		if side and not J[side].shoulder then
+			local nm = d.Part1.Name:lower()
+			if not (nm:find("lower") or nm:find("hand")) then J[side].shoulder = d end
 		end
 	end
 	for _, j in pairs(J) do
@@ -6368,7 +6458,11 @@ local function driveArms(c, dt)
 	local J = ARMS.J
 	local chR, chL = armChain(J.right), armChain(J.left)
 	if not (chR and chL) then
-		armWarn("juntas dos bracos nao encontradas (ombro direito/esquerdo) - rig nao reconhecido")
+		local dbg = {}
+		for _, d in ipairs(ch:GetDescendants()) do
+			if ARMS.isJoint(d) and d.Part0 and d.Part1 then dbg[#dbg + 1] = d.ClassName:sub(1, 1) .. ":" .. d.Part1.Name end
+		end
+		armWarn("juntas dos bracos nao encontradas - rig: " .. table.concat(dbg, ", "))
 		return
 	end
 	local ck = ARMS.chk
@@ -6431,6 +6525,7 @@ local function driveArms(c, dt)
 				rest = rest + bodyUp * (math.sin(now * 3) * 0.05)
 				grips.left = grips.left:Lerp(rest, ss(dA.elbow))
 			end
+			c.lampHandOn = ARMS.w >= 0.5
 			if ARMS.w < 0.5 or dA.lampSeen == nil then
 				dA.lampSeen = c.lamps
 				dA.lampT0 = nil
@@ -6444,16 +6539,18 @@ local function driveArms(c, dt)
 					dA.lampT0 = nil
 				else
 					local w
-					if p < 0.3 then w = ss(p / 0.3) elseif p < 0.65 then w = 1 else w = 1 - ss((p - 0.65) / 0.35) end
-					local sw = c.cf * ((DA.LampSwitch or Vector3.new(-2.4, 2.85, -0.2)) * S)
-					local push = (p > 0.32 and p < 0.55) and math.sin((p - 0.32) / 0.23 * math.pi) or 0
-					sw = sw + c.cf.LookVector * (push * 0.1 * S)
+					if p < 0.3 then w = ss(p / 0.3) elseif p < 0.7 then w = 1 else w = 1 - ss((p - 0.7) / 0.3) end
+					local sw = c.cf * ((DA.LampSwitch or Vector3.new(-2.9, 3.3, -0.95)) * S)
+					local kn = c.lampKnob
+					local kx = kn and kn.x or (c.lamps and 1 or 0)
+					sw = sw - c.cf.LookVector * (kx * 0.3 * S)
 					grips.left = grips.left:Lerp(sw, ss(w))
 					daL = w
 				end
 			end
 		else
 			c.revLook = 0
+			c.lampHandOn = false
 		end
 	end
 	local key = tostring(c.mode) .. gear
@@ -6514,7 +6611,7 @@ local function driveArms(c, dt)
 		waist = false
 		local scope = sr.Part0:FindFirstAncestorOfClass("Model") or sr.Part0.Parent
 		for _, d in ipairs(scope:GetDescendants()) do
-			if d:IsA("Motor6D") and d.Part1 == sr.Part0 and d.Part0 then waist = d break end
+			if ARMS.isJoint(d) and d.Part1 == sr.Part0 and d.Part0 then waist = d break end
 		end
 		ARMS.waist = waist
 	end
@@ -6572,7 +6669,7 @@ function ANIM.limbJoints(ch)
 	}
 	local J = {}
 	for _, d in ipairs(ch:GetDescendants()) do
-		if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+		if ARMS.isJoint(d) and d.Part0 and d.Part1 then
 			for key, names in pairs(map) do
 				if not J[key] then
 					for _, n in ipairs(names) do

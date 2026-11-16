@@ -65,6 +65,8 @@ local Config = {
 	KeyIcon = "\u{1F511}",
 	SoundKeyEquip = "rbxassetid://9113849492",
 	EngineSoundId = nil,
+	VolIdle = 0.22,
+	VolRun = 0.28,
 	CacheDisk = true,
 	Lite = nil,
 }
@@ -2772,9 +2774,8 @@ local function enterCar(c)
 	c.driver = true
 	c.boardFrom = rpart.CFrame
 	c.boardT0 = os.clock()
-	c.startSnd = playSound(Config.SoundStart, 0.9)
-	c.startT = os.clock()
-	toast("D = ANDAR  |  P = TRAVAR", Color3.fromRGB(120, 210, 255))
+	c.engineOn = false
+	toast("LIGUE O MOTOR  (Y)", Color3.fromRGB(255, 200, 80))
 end
 local function restoreChar()
 	local ch, hum = charParts()
@@ -2793,10 +2794,24 @@ local function restoreChar()
 	saved = nil
 	if hum then pcall(function() hum.Sit = false end) end
 end
+local function setEngine(c, on)
+	if not c or not c.driver then return end
+	on = on and true or false
+	if on == (c.engineOn == true) then return end
+	c.engineOn = on
+	if on then
+		c.startSnd = playSound(Config.SoundStart, 0.9)
+		c.startT = os.clock()
+		toast("MOTOR LIGADO", Color3.fromRGB(90, 235, 130))
+	else
+		toast("MOTOR DESLIGADO", Color3.fromRGB(255, 90, 90))
+	end
+end
 local function exitCar(c)
 	if not c or not c.driver then return end
 	local ch, hum, rpart = charParts()
 	c.driver = false
+	c.engineOn = false
 	c.boardFrom = nil
 	restoreChar()
 	if rpart then
@@ -2847,7 +2862,7 @@ local function stepCar(c, dt)
 	local throttle, brakePed, steerIn = 0, 0, 0
 	if driving then
 		local mv = getMove()
-		throttle = math.clamp(-mv.Z, 0, 1)
+		throttle = c.engineOn and math.clamp(-mv.Z, 0, 1) or 0
 		brakePed = math.clamp(mv.Z, 0, 1)
 		steerIn = math.clamp(mv.X, -1, 1)
 	end
@@ -3175,7 +3190,7 @@ local function carVisuals(c, dt)
 	end
 	local topG = Config.TopSpeed * Config.GearTop[gear]
 	local target = 0
-	if c.driver then
+	if c.driver and c.engineOn then
 		if c.mode == "D" or c.mode == "R" then
 			local lim = (c.mode == "R") and Config.ReverseTop or topG
 			target = 900 + math.clamp(math.abs(vF) / lim, 0, 1) * 6200 + c.throttle * 350
@@ -3190,7 +3205,8 @@ local function carVisuals(c, dt)
 	end
 	local sn = c.snd
 	if sn then
-		local on = c.driver and true or false
+		local drv = c.driver and true or false
+		local on = (c.driver and c.engineOn) and true or false
 		local kmh = math.abs(vF)
 		local thr = on and math.clamp(c.throttle or 0, 0, 1) or 0
 		local gr = math.clamp(kmh / math.max(topG, 1), 0, 1.1)
@@ -3213,7 +3229,7 @@ local function carVisuals(c, dt)
 				ig = 0
 			end
 		end
-		local iv = on and 0.55 * ig * math.clamp(1 - kmh / 12, 0, 1) or 0
+		local iv = on and Config.VolIdle * ig * math.clamp(1 - kmh / 12, 0, 1) or 0
 		local ip = 0.95 + thr * 0.3
 		local cv, cp
 		if thr > 0.05 then
@@ -3222,10 +3238,10 @@ local function carVisuals(c, dt)
 			cv, cp = 0.3, 0.6 + math.clamp(kmh / Config.TopSpeed, 0, 1) * 0.9
 		end
 		cv = on and cv * math.clamp(kmh / 8, 0, 1) * (1 - c.runMix) or 0
-		local rv = on and 0.65 * c.runMix * math.clamp(kmh / 10, 0, 1) or 0
+		local rv = on and Config.VolRun * c.runMix * math.clamp(kmh / 10, 0, 1) or 0
 		local rp = 0.8 + gr * 0.8 + (gear - 1) * 0.02
 		local sk = 0
-		if on and c.grounded then
+		if drv and c.grounded then
 			if sliding then
 				sk = math.clamp(slip / 40, 0.35, 1)
 			elseif (c.notch > 0 or c.brakePed > 0) and kmh > 18 then
@@ -4302,14 +4318,50 @@ track(brakeBtn.InputEnded:Connect(function(i)
 	if isPress(i) then held.brakeUi = false end
 end))
 track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
-local quickF = frame(gui, 0, 0, 190, 60, PANEL, 1)
+local quickF = frame(gui, 0, 0, 256, 60, PANEL, 1)
 quickF.AnchorPoint = Vector2.new(1, 1)
 quickF.Position = UDim2.new(1, -8, 1, -252)
 addScale(quickF)
 local camT = HX.shell(quickF, 0, 0, 58, 60, "CAMERA  (V)")
 local lampT = HX.shell(quickF, 66, 0, 58, 60, "LUZ  (L)")
 local exitT = HX.shell(quickF, 132, 0, 58, 60, "SAIR  (F)")
-local camBtn, lampBtn, exitBtn = camT.b, lampT.b, exitT.b
+local engT = HX.shell(quickF, 198, 0, 58, 60, "MOTOR  (Y)")
+local camBtn, lampBtn, exitBtn, engBtn = camT.b, lampT.b, exitT.b, engT.b
+do
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local ic = engT.ic
+	local cx, cy, r = 29, 24, 11
+	local ls = {}
+	local prev
+	for i = 0, 12 do
+		local a = math.rad(35 + (290 * i / 12))
+		local x, y = cx + r * math.sin(a), cy - r * math.cos(a)
+		if prev then ls[#ls + 1] = HX.line(ic, prev[1], prev[2], x, y, 2.8, OFFC) end
+		prev = { x, y }
+	end
+	ls[#ls + 1] = HX.line(ic, cx, cy - 15, cx, cy - 3, 2.8, OFFC)
+	local engOn = false
+	function HX.setEngine(on)
+		engOn = on and true or false
+	end
+	HX.anim[#HX.anim + 1] = function(t)
+		local col, tr
+		if engOn then
+			col = Color3.fromRGB(90, 235, 130)
+			tr = 0.15 * (0.5 + 0.5 * math.sin(t * 4))
+		else
+			col = (math.floor(t * 1.6) % 2 == 0) and HUDRED or OFFC
+			tr = 0
+		end
+		for _, f in ipairs(ls) do
+			f.BackgroundColor3 = col
+			f.BackgroundTransparency = tr
+		end
+	end
+end
+track(engBtn.Activated:Connect(function()
+	if car and car.driver then setEngine(car, not car.engineOn) end
+end))
 do
 	local OFFC = Color3.fromRGB(150, 162, 176)
 	local ic = camT.ic
@@ -4501,6 +4553,7 @@ local function updateHud(dt)
 		ribs[i].BackgroundColor3 = ((7 - i) <= c.notch * 2) and HUDRED or PEDIDLE
 	end
 	HX.brakeFx(c, dt)
+	HX.setEngine(c.engineOn)
 	K.setLamp(c.lamps)
 end
 local __editorToggle
@@ -5062,6 +5115,8 @@ track(UIS.InputBegan:Connect(function(input)
 		elseif k == Enum.KeyCode.Q then
 			held.shiftKey = true
 			setGear(gear - 1)
+		elseif k == Enum.KeyCode.Y then
+			setEngine(car, not car.engineOn)
 		elseif k == Enum.KeyCode.L then
 			car.lamps = not car.lamps
 		elseif k == Config.CamKey then

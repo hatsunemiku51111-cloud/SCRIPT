@@ -28,11 +28,9 @@ local Config = {
 	GearTop = { 0.2, 0.4, 0.6, 0.8, 1.0 },
 	GearAccel = { 2.2, 1.7, 1.35, 1.12, 1.0 },
 	StartGear = 5,
-	-- MODO CAMERA (tecla V / botao CAMERA): libera o zoom da camera sentado e vai pra 1a pessoa
 	CamKey = Enum.KeyCode.V,
 	CamMaxZoom = 60,
 	CamShowBody = false,   -- true = mostra tambem o tronco/pernas na 1a pessoa (alem dos bracos)
-	-- BRACOS: mao direita no cambio
 	ShiftHoldTime = 0.45,  -- segundos que a mao fica no cambio depois de trocar marcha/modo
 	RestHandOnShifter = false, -- true = mao direita descansa no cambio quando o volante esta reto
 	ReverseTop = 45,
@@ -51,7 +49,12 @@ local Config = {
 	UseHiddenGui = true,
 	SoundDial = "rbxassetid://6042053626",
 	SoundInvalid = "rbxassetid://132281440773764",
-	SoundLand = "rbxassetid://9116546593",
+	SoundLand = "rbxassetid://7340406550",
+	SoundStart = "rbxassetid://118763914673708",
+	SoundIdle = "rbxassetid://6399923126",
+	SoundDrive = "rbxassetid://81909109039491",
+	SoundRun = "rbxassetid://82036216654849",
+	SoundSkid = "rbxassetid://8763693960",
 	SoundEquip = "rbxassetid://129589685201945",
 	KeyToolName = "Chave do Charger",
 	KeyAccessoryId = 71337506344769,
@@ -191,6 +194,7 @@ local function parentGui(g)
 end
 local function playSound(id, vol, pitch)
 	if not id then return end
+	local snd
 	pcall(function()
 		local s = Instance.new("Sound")
 		s.SoundId = id
@@ -198,8 +202,10 @@ local function playSound(id, vol, pitch)
 		s.PlaybackSpeed = pitch or 1
 		s.Parent = SoundService
 		s:Play()
-		Debris:AddItem(s, 5)
+		Debris:AddItem(s, 8)
+		snd = s
 	end)
+	return snd
 end
 local controls = nil
 local function getMove()
@@ -1893,7 +1899,6 @@ local function buildCarRaw()
 		car.spin[nm] = { w = bw, base = bw.C0 }
 	end
 
-	-- placa aleatoria (padrao tipo californiano: 1 digito + 3 letras + 3 digitos), nova a cada spawn
 	local plateText
 	do
 		local rng = Random.new()
@@ -1962,8 +1967,6 @@ local function buildCarRaw()
 	end
 
 	local defs = { { -1, -5.6, true }, { 1, -5.6, true }, { -1, 5.6, false }, { 1, 5.6, false } }
-	-- AJUSTE DAS RODAS: TIRE_OUT = quanto o pneu sai pra fora (lateral); RIM_IN = quanto o aro entra pra dentro do pneu.
-	-- O conjunto todo e puxado pra dentro por TIRE_OUT, entao a face externa do pneu continua no mesmo lugar da lataria.
 	local TIRE_OUT, RIM_IN = 0.30, 0.19
 	for i, d in ipairs(defs) do
 		local sd, z, front = d[1], d[2], d[3]
@@ -1991,13 +1994,6 @@ local function buildCarRaw()
 		local rimD = dia - 0.52
 		local rimR = rimD / 2
 		local hr = h - RIM_IN -- plano de referencia do aro (recuado pra dentro do pneu)
-		-- ============================================================
-		-- RODA v7 (Toretto): aro cromado 5 raios bifurcados, prato fundo,
-		-- disco furado + pinca vermelha, pneu baixo com banda direcional.
-		-- REGRA ANTI-FLICKER: toda superficie que se sobrepoe a outra fica
-		-- >= 0.045 acima/abaixo dela (nenhuma face coplanar visivel).
-		-- "face" = distancia da face externa da peca ate o plano do pneu (h).
-		-- ============================================================
 		local CHR = Color3.fromRGB(205, 209, 217)
 		local CHR2 = Color3.fromRGB(240, 243, 248)
 		local STEEL = Color3.fromRGB(172, 178, 186)
@@ -2032,8 +2028,6 @@ local function buildCarRaw()
 				add(nm, V(th, radial, arc), P(sd * ((hb or hr) + from + th / 2), rad * math.cos(ar), rad * math.sin(ar), a, 0, 0), col, mat, nil, 0, tire, rf)
 			end
 		end
-		-- pneu: ombros + banda (4 nervuras com sulcos) + blocos em V direcionais
-		-- lado interno: disco macico; lado externo: anel oco (deixa o aro aparecer recuado dentro do pneu)
 		add("SideWall", V(0.18, dia - 0.18, dia - 0.18), P(-sd * (h - 0.09), 0, 0), COLS.T, MATS.P, "cyl", 0, tire, 0)
 		ring("SideWallOut", dia / 2 - 0.105, 0.17, TIRE_OUT - 0.18, TIRE_OUT, 36, COLS.T, MATS.P, 0, h)
 		do
@@ -2055,7 +2049,6 @@ local function buildCarRaw()
 					add("TreadLug", V(armL, 0.045, 0.14), P(sx * reach, Rt * math.cos(ar), Rt * math.sin(ar), a, -sx * beta, 0), Color3.fromRGB(44, 44, 49), MATS.P, nil, 0, tire, 0)
 				end
 			end
-			-- EXTENSAO DO PNEU PRO LADO DE FORA (mesmas camadas: banda, nervuras, garras; o ombro e o SideWallOut)
 			local x0, x1 = -0.18, TIRE_OUT - 0.18
 			ring("TreadOutBase", dia / 2 - 0.095, 0.19, x0, x1, 32, COLS.T, MATS.P, 0, h)
 			local pos = x0 + gap
@@ -2069,7 +2062,6 @@ local function buildCarRaw()
 				add("TreadLug", V((x1 - x0) * 0.8, 0.045, 0.14), P(sd * (h + (x0 + x1) / 2), Rt * math.cos(ar), Rt * math.sin(ar), a, 0, 0), Color3.fromRGB(44, 44, 49), MATS.P, nil, 0, tire, 0)
 			end
 		end
-		-- prato (fundo escuro do barril) e aneis de caixas (labio + degrau)
 		cx_("WheelFloor", rimD - 0.06, 0.1, 0.06, Color3.fromRGB(16, 16, 19), MATS.M, 0.25)
 		ring("RimLip", rimR + 0.01, 0.17, 0.04, 0.33, 30, CHR, MATS.M, 0.9)
 		ring("RimStep", rimR - 0.16, 0.09, 0.04, 0.17, 26, STEEL, MATS.M, 0.8)
@@ -2078,7 +2070,6 @@ local function buildCarRaw()
 			local br = rimR + 0.01
 			add("LipBolt", V(0.05, 0.08, 0.08), P(sd * (hr + 0.38 - 0.025), br * math.cos(ba), br * math.sin(ba)), Color3.fromRGB(110, 115, 122), MATS.M, "cyl", 0, tire, 0.6)
 		end
-		-- disco de freio furado (gira com a roda)
 		local discR = rimR - 0.23
 		cx_("BrakeDisc", discR * 2, 0.06, 0.11, DISC0, MATS.M, 0.5, discs)
 		for k = 0, 13 do
@@ -2090,7 +2081,6 @@ local function buildCarRaw()
 			add("DiscHole", V(0.05, 0.075, 0.075), P(sd * (hr + 0.155 - 0.025), discR * 0.58 * math.cos(da), discR * 0.58 * math.sin(da)), Color3.fromRGB(18, 18, 22), MATS.P, "cyl", 0, tire, 0)
 		end
 		cx_("DiscHat", 0.8, 0.1, 0.16, Color3.fromRGB(28, 28, 32), MATS.M, 0.3)
-		-- raios: 5 raios grossos que se bifurcam em Y ate o labio
 		for k = 0, 4 do
 			local th = k * 72
 			local ry0, rz0 = pol(0.18, th)
@@ -2110,14 +2100,12 @@ local function buildCarRaw()
 			local la = math.rad(k * 72 + 36)
 			add("Lug", V(0.08, 0.09, 0.09), P(sd * (hr + 0.34 - 0.04), 0.33 * math.cos(la), 0.33 * math.sin(la)), Color3.fromRGB(150, 155, 162), MATS.M, "cyl", 0, tire, 0.7)
 		end
-		-- cubo + tampa + emblema Dodge
 		cx_("HubPlate", 0.52, 0.1, 0.22, CHR, MATS.M, 0.9)
 		cx_("HubRing", 0.5, 0.1, 0.34, CHR, MATS.M, 1)
 		cx_("HubCap", 0.38, 0.08, 0.39, Color3.fromRGB(13, 13, 16), MATS.P, 0.1)
 		cx_("EmblemRed", 0.26, 0.04, 0.43, Color3.fromRGB(190, 20, 24), MATS.P, 0)
 		bx("EmblemH", 0.03, 0.03, 0.2, 0, 0, 0.47, 0, CHR, MATS.M, 0.8)
 		bx("EmblemV", 0.03, 0.2, 0.03, 0, 0, 0.47, 0, CHR, MATS.M, 0.8)
-		-- pinca vermelha (fixa na manga: nao gira, so esterca)
 		local cAng = 40
 		local cyc, czc = pol(rimR * 0.62, cAng)
 		local ca = math.rad(cAng)
@@ -2135,7 +2123,6 @@ local function buildCarRaw()
 		glow.Brightness = 0
 		glow.Enabled = false
 		glow.Parent = cal
-		-- disco "borrado": aparece em alta velocidade (esconde o strobe dos raios)
 		local blur = cx_("WheelBlur", rimD - 0.14, 0.03, 0.5, Color3.fromRGB(165, 170, 180), MATS.P, 0)
 		blur.Transparency = 1
 		blur.CastShadow = false
@@ -2700,7 +2687,6 @@ function CAM.set(on, silent)
 	local id = CAM.snap
 	local o = CAM.orig or { min = 0.5, max = 128 }
 	if on then
-		-- encosta a camera na cabeca (1a pessoa) e logo depois libera o zoom pra poder afastar com o scroll
 		pcall(function()
 			player.CameraMinZoomDistance = 0.5
 			player.CameraMaxZoomDistance = 0.5
@@ -2721,7 +2707,6 @@ function CAM.set(on, silent)
 	if hudApi.camSet then hudApi.camSet(on) end
 end
 function CAM.toggle() CAM.set(not CAM.on) end
--- devolve o zoom original do jogador (saida do carro / respawn)
 function CAM.reset()
 	CAM.snap = CAM.snap + 1
 	local was = CAM.on
@@ -2736,7 +2721,6 @@ function CAM.reset()
 	if hudApi.camSet then hudApi.camSet(false) end
 	return was
 end
--- 1a pessoa: o PlayerModule deixa o corpo todo invisivel; aqui os bracos voltam a aparecer segurando o volante
 local FP_ARMS = { LeftUpperArm = 1, LeftLowerArm = 1, LeftHand = 1, RightUpperArm = 1, RightLowerArm = 1, RightHand = 1, ["Left Arm"] = 1, ["Right Arm"] = 1 }
 local FP_BODY = { UpperTorso = 1, LowerTorso = 1, Torso = 1, LeftUpperLeg = 1, LeftLowerLeg = 1, LeftFoot = 1, RightUpperLeg = 1, RightLowerLeg = 1, RightFoot = 1, ["Left Leg"] = 1, ["Right Leg"] = 1 }
 function CAM.fpStep()
@@ -2788,7 +2772,8 @@ local function enterCar(c)
 	c.driver = true
 	c.boardFrom = rpart.CFrame
 	c.boardT0 = os.clock()
-	playSound(Config.SoundEquip, 0.6)
+	c.startSnd = playSound(Config.SoundStart, 0.9)
+	c.startT = os.clock()
 	toast("D = ANDAR  |  P = TRAVAR", Color3.fromRGB(120, 210, 255))
 end
 local function restoreChar()
@@ -3203,6 +3188,60 @@ local function carVisuals(c, dt)
 		c.engine.PlaybackSpeed = 0.5 + c.rpm / 7000 * 1.2
 		c.engine.Volume = c.driver and 0.6 or 0
 	end
+	local sn = c.snd
+	if sn then
+		local on = c.driver and true or false
+		local kmh = math.abs(vF)
+		local thr = on and math.clamp(c.throttle or 0, 0, 1) or 0
+		local gr = math.clamp(kmh / math.max(topG, 1), 0, 1.1)
+		local moving = on and (c.mode == "D" or c.mode == "R") and kmh > 3
+		local runT = (moving and thr > 0.6 and kmh > topG * 0.6) and 1 or 0
+		c.runMix = (c.runMix or 0) + (runT - (c.runMix or 0)) * (1 - math.exp(-4 * dt))
+		local kv = 1 - math.exp(-12 * dt)
+		local kp = 1 - math.exp(-10 * dt)
+		local st = c.startSnd
+		local ig = 1
+		if st and st.Parent and os.clock() - (c.startT or 0) < 8 then
+			if not st.IsLoaded or st.TimeLength <= 0 then
+				ig = 0
+			elseif st.IsPlaying then
+				local rem = st.TimeLength - st.TimePosition
+				local f = math.clamp(rem / 1.2, 0, 1)
+				ig = 1 - f
+				if f < 1 then st.Volume = 0.9 * f end
+			elseif os.clock() - (c.startT or 0) < 0.5 then
+				ig = 0
+			end
+		end
+		local iv = on and 0.55 * ig * math.clamp(1 - kmh / 12, 0, 1) or 0
+		local ip = 0.95 + thr * 0.3
+		local cv, cp
+		if thr > 0.05 then
+			cv, cp = 0.5, 0.75 + gr * 0.75
+		else
+			cv, cp = 0.3, 0.6 + math.clamp(kmh / Config.TopSpeed, 0, 1) * 0.9
+		end
+		cv = on and cv * math.clamp(kmh / 8, 0, 1) * (1 - c.runMix) or 0
+		local rv = on and 0.65 * c.runMix * math.clamp(kmh / 10, 0, 1) or 0
+		local rp = 0.8 + gr * 0.8 + (gear - 1) * 0.02
+		local sk = 0
+		if on and c.grounded then
+			if sliding then
+				sk = math.clamp(slip / 40, 0.35, 1)
+			elseif (c.notch > 0 or c.brakePed > 0) and kmh > 18 then
+				sk = math.clamp(kmh / 120, 0.2, 0.8)
+			end
+		end
+		local skp = 0.9 + math.clamp(kmh / 200, 0, 1) * 0.3
+		sn.idle.Volume = sn.idle.Volume + (iv - sn.idle.Volume) * (1 - math.exp(-6 * dt))
+		sn.idle.PlaybackSpeed = sn.idle.PlaybackSpeed + (ip - sn.idle.PlaybackSpeed) * kp
+		sn.cruise.Volume = sn.cruise.Volume + (cv - sn.cruise.Volume) * kv
+		sn.cruise.PlaybackSpeed = math.max(0.1, sn.cruise.PlaybackSpeed + (cp - sn.cruise.PlaybackSpeed) * kp)
+		sn.run.Volume = sn.run.Volume + (rv - sn.run.Volume) * kv
+		sn.run.PlaybackSpeed = math.max(0.1, sn.run.PlaybackSpeed + (rp - sn.run.PlaybackSpeed) * kp)
+		sn.skid.Volume = sn.skid.Volume + (0.6 * sk - sn.skid.Volume) * kv
+		sn.skid.PlaybackSpeed = sn.skid.PlaybackSpeed + (skp - sn.skid.PlaybackSpeed) * kp
+	end
 end
 local function holdChar(c)
 	local ch, hum, rpart = charParts()
@@ -3286,6 +3325,25 @@ local function spawnCar()
 			c.engine = s
 		end)
 	end
+	pcall(function()
+		local function loop(id)
+			local sd = Instance.new("Sound")
+			sd.SoundId = id
+			sd.Looped = true
+			sd.Volume = 0
+			sd.RollOffMinDistance = 30
+			sd.RollOffMaxDistance = 200
+			sd.Parent = c.root
+			sd:Play()
+			return sd
+		end
+		c.snd = {
+			idle = loop(Config.SoundIdle),
+			cruise = loop(Config.SoundDrive),
+			run = loop(Config.SoundRun),
+			skid = loop(Config.SoundSkid),
+		}
+	end)
 	playSound(Config.SoundEquip, 0.6)
 	toast("CHARGER CHAMADO  -  aperte F perto dele", Color3.fromRGB(120, 210, 255))
 end
@@ -3470,8 +3528,134 @@ local leftF = frame(gui, 0, 0, 120, 114, PANEL, 1)
 leftF.AnchorPoint = Vector2.new(0, 0.5)
 leftF.Position = UDim2.new(0, 10, 0.5, -20)
 addScale(leftF)
-local enterBtn = button(leftF, "ENTRAR  (F)", 12, 0, 76, 118, 36, Color3.fromRGB(20, 60, 100))
+local HX = { anim = {} }
+do
+	function HX.line(parent, x1, y1, x2, y2, th, col)
+		local dx, dy = x2 - x1, y2 - y1
+		local len = math.sqrt(dx * dx + dy * dy)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
+		f.Size = UDim2.fromOffset(len + th * 0.6, th)
+		f.Rotation = math.deg(math.atan2(dy, dx))
+		f.BackgroundColor3 = col
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = f
+		f.Parent = parent
+		return f
+	end
+	function HX.circ(parent, x, y, d, col, tr)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(d, d)
+		f.BackgroundColor3 = col
+		f.BackgroundTransparency = tr or 0
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = f
+		f.Parent = parent
+		return f
+	end
+	function HX.bez(p0, p1, p2, p3, n)
+		local pts = {}
+		for i = 0, n do
+			local t = i / n
+			local u = 1 - t
+			pts[#pts + 1] = {
+				u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+				u * u * u * p0[2] + 3 * u * u * t * p1[2] + 3 * u * t * t * p2[2] + t * t * t * p3[2],
+			}
+		end
+		return pts
+	end
+	function HX.shell(parent, x, y, w, h, caption)
+		local b = Instance.new("TextButton")
+		b.AutoButtonColor = false
+		b.BorderSizePixel = 0
+		b.Text = ""
+		b.ClipsDescendants = true
+		b.Position = UDim2.fromOffset(x, y)
+		b.Size = UDim2.fromOffset(w, h)
+		b.BackgroundTransparency = 1
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0, 11)
+		cr.Parent = b
+		local st = stroke(b, 1.6, METALC, 1)
+		local sc = Instance.new("UIScale")
+		sc.Parent = b
+		local ic = Instance.new("Frame")
+		ic.BackgroundTransparency = 1
+		ic.BorderSizePixel = 0
+		ic.Size = UDim2.fromOffset(w, caption and (h - 14) or h)
+		ic.ZIndex = 3
+		ic.Parent = b
+		if caption then
+			local lb = label(b, caption, 9, METALC, 0, h - 15, w, 12)
+			lb.ZIndex = 3
+		end
+		b.Parent = parent
+		local T = { b = b, ic = ic, st = st, active = false }
+		local hover = false
+		local function paint(scale)
+			TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Quad), { Scale = scale }):Play()
+		end
+		function T.setActive(on)
+			T.active = on and true or false
+			paint(1)
+		end
+		track(b.MouseEnter:Connect(function()
+			hover = true
+			paint(1.06)
+		end))
+		track(b.MouseLeave:Connect(function()
+			hover = false
+			paint(1)
+		end))
+		track(b.InputBegan:Connect(function(i)
+			if isPress(i) then paint(0.92) end
+		end))
+		track(b.InputEnded:Connect(function(i)
+			if isPress(i) then paint(hover and 1.06 or 1) end
+		end))
+		return T
+	end
+end
+local enterT = HX.shell(leftF, 0, 76, 118, 40)
+local enterBtn = enterT.b
 enterBtn.Visible = false
+do
+	local ic = enterT.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 26, 9, 36, 9, 2.6, OUT)
+	HX.line(ic, 36, 9, 36, 31, 2.6, OUT)
+	HX.line(ic, 36, 31, 26, 31, 2.6, OUT)
+	local ag = Instance.new("Frame")
+	ag.BackgroundTransparency = 1
+	ag.BorderSizePixel = 0
+	ag.Size = UDim2.fromOffset(118, 40)
+	ag.Parent = ic
+	local al = {
+		HX.line(ag, 8, 20, 28, 20, 2.8, GREEN),
+		HX.line(ag, 21, 13, 28, 20, 2.8, GREEN),
+		HX.line(ag, 28, 20, 21, 27, 2.8, GREEN),
+	}
+	label(ic, "ENTRAR", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	local chs = stroke(chip, 1.6, GREEN, 0)
+	label(chip, "F", 11, GREEN, 0, 0, 16, 16)
+	HX.anim[#HX.anim + 1] = function(t)
+		local p = (t * 0.9) % 1
+		ag.Position = UDim2.fromOffset(p * 10 - 4, 0)
+		local tr = 0
+		if p > 0.65 then tr = (p - 0.65) / 0.35 elseif p < 0.15 then tr = (0.15 - p) / 0.15 end
+		for _, l in ipairs(al) do l.BackgroundTransparency = tr end
+		chs.Transparency = 0.15 + 0.4 * (0.5 + 0.5 * math.sin(t * 5))
+	end
+end
 local K = { alive = true }
 do
 	local KEYDIR = "CHARGER_SCRIPT"
@@ -3784,12 +3968,260 @@ local rightF = frame(gui, 0, 0, 206, 176, PANEL, 1)
 rightF.AnchorPoint = Vector2.new(1, 1)
 rightF.Position = UDim2.new(1, -8, 1, -12)
 addScale(rightF)
-local shifter = makeLever(rightF, 0, 0, 56, 176, "CAMBIO", { "P", "R", "N", "D" }, function(r)
-	setMode(MODES[r])
-end)
-local gearLever = makeLever(rightF, 62, 0, 56, 176, "MARCHA", { "5", "4", "3", "2", "1" }, function(r)
-	setGear(6 - r)
-end)
+local shifter
+do
+	local GW, GH = 118, 176
+	local GLX = { 18, 46, 74, 102 }
+	local GTOP, GMID, GBOT = 40, 92, 144
+	local GSLOTS = {
+		{ id = "P", lane = 1, y = GTOP, txt = "P", col = HUDRED },
+		{ id = "N", lane = 1, y = GMID, txt = "N", col = WHITE },
+		{ id = "R", lane = 1, y = GBOT, txt = "R", col = AMBER },
+		{ id = 1, lane = 2, y = GTOP, txt = "1", col = GREEN },
+		{ id = 2, lane = 2, y = GBOT, txt = "2", col = GREEN },
+		{ id = 3, lane = 3, y = GTOP, txt = "3", col = GREEN },
+		{ id = 4, lane = 3, y = GBOT, txt = "4", col = GREEN },
+		{ id = 5, lane = 4, y = GTOP, txt = "5", col = GREEN },
+	}
+	local function slotIndexOf(mode, g)
+		if mode == "D" then
+			for i, s in ipairs(GSLOTS) do
+				if s.id == g then return i end
+			end
+		end
+		for i, s in ipairs(GSLOTS) do
+			if s.id == mode then return i end
+		end
+		return 1
+	end
+	local function pick(s)
+		if s.id == "P" or s.id == "N" or s.id == "R" then
+			setMode(s.id)
+		elseif setMode("D") then
+			setGear(s.id)
+		end
+	end
+	local rootF = frame(rightF, 0, 0, GW, GH, PANEL, 1)
+	label(rootF, "CAMBIO", 9, METALC, 0, 0, GW, 12)
+	local function groove(x, y, w, h, col, z)
+		local g = frame(rootF, x, y, w, h, col, 0, math.min(w, h) / 2)
+		g.ZIndex = z
+		return g
+	end
+	local RIM = Color3.fromRGB(78, 90, 106)
+	local DEEP = Color3.fromRGB(5, 7, 10)
+	for i = 1, 4 do
+		local bot = (i == 4) and GMID or GBOT
+		groove(GLX[i] - 9, GTOP - 9, 18, bot - GTOP + 18, RIM, 1)
+	end
+	groove(GLX[1] - 9, GMID - 9, GLX[4] - GLX[1] + 18, 18, RIM, 1)
+	for i = 1, 4 do
+		local bot = (i == 4) and GMID or GBOT
+		groove(GLX[i] - 7, GTOP - 7, 14, bot - GTOP + 14, DEEP, 2)
+	end
+	groove(GLX[1] - 7, GMID - 7, GLX[4] - GLX[1] + 14, 14, DEEP, 2)
+	local rt = label(rootF, "R/T", 11, HUDRED, 88, GBOT - 8, 28, 16)
+	rt.ZIndex = 3
+	local dots, lbls = {}, {}
+	for i, s in ipairs(GSLOTS) do
+		local x = GLX[s.lane]
+		local d = HX.circ(rootF, x, s.y, 7, DIMC, 0)
+		d.ZIndex = 3
+		dots[i] = d
+		local ly, lx, lw = s.y - 22, x - 12, 24
+		if s.y == GTOP then
+			ly = s.y - 26
+		elseif s.y == GBOT then
+			ly = s.y + 15
+		end
+		if s.id == "N" then
+			lx, lw = x + 9, 10
+		end
+		local lb = label(rootF, s.txt, 11, s.col, lx, ly, lw, 12)
+		lb.ZIndex = 3
+		lb.TextTransparency = 0.45
+		lbls[i] = lb
+	end
+	local knob = Instance.new("Frame")
+	knob.BorderSizePixel = 0
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Size = UDim2.fromOffset(28, 28)
+	knob.Position = UDim2.fromOffset(GLX[1], GTOP)
+	knob.BackgroundColor3 = Color3.fromRGB(235, 240, 246)
+	knob.ZIndex = 6
+	do
+		local kc = Instance.new("UICorner")
+		kc.CornerRadius = UDim.new(1, 0)
+		kc.Parent = knob
+		local kg = Instance.new("UIGradient")
+		kg.Rotation = 45
+		kg.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(120, 132, 148))
+		kg.Parent = knob
+		stroke(knob, 2, Color3.fromRGB(14, 17, 22), 0)
+	end
+	knob.Parent = rootF
+	local ks = Instance.new("UIScale")
+	ks.Parent = knob
+	local ring = Instance.new("Frame")
+	ring.BackgroundTransparency = 1
+	ring.BorderSizePixel = 0
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.5)
+	ring.Size = UDim2.fromScale(1.3, 1.3)
+	do
+		local rc = Instance.new("UICorner")
+		rc.CornerRadius = UDim.new(1, 0)
+		rc.Parent = ring
+	end
+	local ringStroke = stroke(ring, 2, HUDRED, 0.5)
+	ring.Parent = knob
+	local hl = HX.circ(knob, 9, 8, 7, WHITE, 0.55)
+	hl.ZIndex = 7
+	local ktxt = label(knob, "P", 14, Color3.fromRGB(10, 14, 20), 0, 0, 28, 28)
+	ktxt.ZIndex = 8
+	local curX, curY = GLX[1], GTOP
+	local gx, gy = curX, curY
+	local dragging, dragInput, lastPick = false, nil, nil
+	local shownIdx = nil
+	local tilt, lastX = 0, curX
+	local L = { idx = 1 }
+	local function laneNear(x)
+		local best, bd = 1, 1e9
+		for i = 1, 4 do
+			local d = math.abs(x - GLX[i])
+			if d < bd then best, bd = i, d end
+		end
+		return best, bd
+	end
+	local function maxYOf(l)
+		return l == 4 and GMID or GBOT
+	end
+	local function pointer(input)
+		local inset = gui.IgnoreGuiInset and GuiService:GetGuiInset().Y or 0
+		local sc = rootF.AbsoluteSize.Y / GH
+		if sc <= 0 then sc = 1 end
+		return (input.Position.X - rootF.AbsolutePosition.X) / sc, (input.Position.Y + inset - rootF.AbsolutePosition.Y) / sc
+	end
+	local function toState()
+		local s = GSLOTS[L.idx]
+		gx, gy = GLX[s.lane], s.y
+	end
+	local function project(px, py)
+		local bx, by, bd
+		local function try(ax, ay, cx, cy)
+			local dx, dy = cx - ax, cy - ay
+			local t = math.clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1)
+			local x, y = ax + dx * t, ay + dy * t
+			local d = (x - px) ^ 2 + (y - py) ^ 2
+			if not bd or d < bd then bx, by, bd = x, y, d end
+		end
+		local nearMid = math.abs(gy - GMID)
+		if nearMid <= 10 then
+			try(GLX[1], GMID, GLX[4], GMID)
+		end
+		for i = 1, 4 do
+			local dxk = math.abs(gx - GLX[i])
+			if dxk <= 0.5 or (nearMid <= 1.5 and dxk <= 10) then
+				try(GLX[i], GTOP, GLX[i], maxYOf(i))
+			end
+		end
+		if not bd then
+			try(GLX[1], GMID, GLX[4], GMID)
+		end
+		return bx, by
+	end
+	local function drag(input)
+		local px, py = pointer(input)
+		gx, gy = project(px, py)
+		curX, curY = gx, gy
+		local bi, bd = nil, 1e9
+		for i, s in ipairs(GSLOTS) do
+			local d = math.sqrt((gx - GLX[s.lane]) ^ 2 + (gy - s.y) ^ 2)
+			if d < bd then bi, bd = i, d end
+		end
+		if bi and bd <= 11 and bi ~= lastPick then
+			lastPick = bi
+			pick(GSLOTS[bi])
+		end
+	end
+	local zone = Instance.new("TextButton")
+	zone.BackgroundTransparency = 1
+	zone.Text = ""
+	zone.AutoButtonColor = false
+	zone.Position = UDim2.fromOffset(0, 12)
+	zone.Size = UDim2.fromOffset(GW, GH - 12)
+	zone.ZIndex = 9
+	zone.Parent = rootF
+	local function grow(v)
+		TweenService:Create(ks, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { Scale = v }):Play()
+	end
+	track(zone.InputBegan:Connect(function(i)
+		if not isPress(i) then return end
+		dragging = true
+		dragInput = i
+		lastPick = nil
+		toState()
+		grow(1.15)
+		drag(i)
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i == dragInput or i.UserInputType == Enum.UserInputType.MouseMovement) then drag(i) end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if dragging and (i == dragInput or isPress(i)) then
+			dragging = false
+			dragInput = nil
+			grow(1)
+			toState()
+		end
+	end))
+	function L.isDragging()
+		return dragging
+	end
+	function L.setState(mode, g)
+		local idx = slotIndexOf(mode, g)
+		L.idx = idx
+		if not dragging then toState() end
+		if idx ~= shownIdx then
+			shownIdx = idx
+			local s = GSLOTS[idx]
+			ktxt.Text = s.txt
+			ringStroke.Color = s.col
+			for i, d in ipairs(dots) do
+				d.BackgroundColor3 = (i == idx) and GSLOTS[i].col or DIMC
+			end
+			for i, lb in ipairs(lbls) do
+				lb.TextTransparency = (i == idx) and 0 or 0.45
+			end
+		end
+	end
+	function L.tick(t)
+		if dragging then
+			curX, curY = gx, gy
+		elseif math.abs(curX - gx) > 1.5 then
+			if math.abs(curY - GMID) > 2 then
+				curY = curY + (GMID - curY) * 0.4
+			else
+				curY = curY + (GMID - curY) * 0.5
+				curX = curX + (gx - curX) * 0.3
+			end
+		else
+			curX = gx
+			curY = curY + (gy - curY) * 0.4
+		end
+		knob.Position = UDim2.fromOffset(curX, curY)
+		tilt = tilt + (math.clamp((curX - lastX) * 3, -18, 18) - tilt) * 0.4
+		lastX = curX
+		knob.Rotation = tilt
+		ringStroke.Transparency = 0.45 + 0.3 * math.sin(t * 5)
+		local pr = 1.28 + 0.14 * math.sin(t * 5)
+		ring.Size = UDim2.fromScale(pr, pr)
+	end
+	L.root = rootF
+	L.setState("P", 5)
+	shifter = L
+end
+local gearLever = shifter
 local PEDIDLE = Color3.fromRGB(122, 43, 43)
 local PEDH = 96
 local brakeBtn = Instance.new("TextButton")
@@ -3799,11 +4231,12 @@ brakeBtn.AnchorPoint = Vector2.new(0.5, 1)
 brakeBtn.Position = UDim2.fromOffset(166, 172)
 brakeBtn.Size = UDim2.fromOffset(52, PEDH)
 brakeBtn.BackgroundTransparency = 1
+brakeBtn.ClipsDescendants = true
 brakeBtn.Text = ""
 local pedalStroke
 do
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 10)
+	c.CornerRadius = UDim.new(0, 12)
 	c.Parent = brakeBtn
 	pedalStroke = stroke(brakeBtn, 3, PEDIDLE, 0)
 end
@@ -3813,14 +4246,53 @@ for i = 1, 6 do
 	local r = Instance.new("Frame")
 	r.BorderSizePixel = 0
 	r.AnchorPoint = Vector2.new(0.5, 0.5)
-	r.Position = UDim2.fromScale(0.5, 0.17 + (i - 1) * 0.132)
-	r.Size = UDim2.new(0.62, 0, 0, 3)
+	r.Position = UDim2.fromScale(0.5, 0.40 + (i - 1) * 0.105)
+	r.Size = UDim2.new(0.66, 0, 0, 4)
 	r.BackgroundColor3 = PEDIDLE
 	local rc = Instance.new("UICorner")
 	rc.CornerRadius = UDim.new(1, 0)
 	rc.Parent = r
 	r.Parent = brakeBtn
 	ribs[i] = r
+end
+do
+	local discG = Instance.new("Frame")
+	discG.BackgroundTransparency = 1
+	discG.BorderSizePixel = 0
+	discG.AnchorPoint = Vector2.new(0.5, 0)
+	discG.Position = UDim2.new(0.5, -3, 0, 6)
+	discG.Size = UDim2.fromOffset(26, 26)
+	discG.Parent = brakeBtn
+	local ringF = Instance.new("Frame")
+	ringF.BackgroundTransparency = 1
+	ringF.BorderSizePixel = 0
+	ringF.Size = UDim2.fromScale(1, 1)
+	do
+		local rc = Instance.new("UICorner")
+		rc.CornerRadius = UDim.new(1, 0)
+		rc.Parent = ringF
+	end
+	local ringStroke = stroke(ringF, 2.6, METALC, 0)
+	ringF.Parent = discG
+	for i = 1, 6 do
+		local a = math.rad(i * 60)
+		HX.circ(discG, 13 + 7.5 * math.cos(a), 13 + 7.5 * math.sin(a), 3.4, Color3.fromRGB(8, 10, 14), 0)
+	end
+	HX.circ(discG, 13, 13, 7, METALC, 0)
+	local caliper = frame(brakeBtn, 0, 0, 8, 17, PEDIDLE, 0, 3)
+	caliper.AnchorPoint = Vector2.new(0.5, 0.5)
+	caliper.Position = UDim2.new(0.5, 14, 0, 19)
+	local spin, heat = 0, 0
+	function HX.brakeFx(c, dt)
+		spin = (spin + math.abs(c.vF or 0) * dt * 3) % 360
+		discG.Rotation = spin
+		local want = (c.notch > 0 or (c.brakePed or 0) > 0 or held.brakeUi) and 1 or 0
+		heat = heat + (want - heat) * math.min(1, dt * 10)
+		ringStroke.Color = METALC:Lerp(HUDRED, heat)
+		caliper.BackgroundColor3 = PEDIDLE:Lerp(HUDRED, heat)
+		local k = 1 + 0.12 * heat
+		caliper.Size = UDim2.fromOffset(8 * k, 17 * k)
+	end
 end
 label(rightF, "FREIO (B)", 9, METALC, 128, 60, 76, 12)
 track(brakeBtn.InputBegan:Connect(function(i)
@@ -3830,39 +4302,30 @@ track(brakeBtn.InputEnded:Connect(function(i)
 	if isPress(i) then held.brakeUi = false end
 end))
 track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
-local quickF = frame(gui, 0, 0, 190, 46, PANEL, 1)
+local quickF = frame(gui, 0, 0, 190, 60, PANEL, 1)
 quickF.AnchorPoint = Vector2.new(1, 1)
 quickF.Position = UDim2.new(1, -8, 1, -252)
 addScale(quickF)
-local function iconBtn(parent, x, y, w, h)
-	local b = Instance.new("TextButton")
-	b.AutoButtonColor = false
-	b.BorderSizePixel = 0
-	b.BackgroundTransparency = 1
-	b.Text = ""
-	b.Position = UDim2.fromOffset(x, y)
-	b.Size = UDim2.fromOffset(w, h)
-	b.Parent = parent
-	return b
-end
-local camBtn = iconBtn(quickF, 0, 0, 58, 46)
-local lampBtn = iconBtn(quickF, 66, 0, 58, 46)
-local exitBtn = iconBtn(quickF, 132, 0, 58, 46)
+local camT = HX.shell(quickF, 0, 0, 58, 60, "CAMERA  (V)")
+local lampT = HX.shell(quickF, 66, 0, 58, 60, "LUZ  (L)")
+local exitT = HX.shell(quickF, 132, 0, 58, 60, "SAIR  (F)")
+local camBtn, lampBtn, exitBtn = camT.b, lampT.b, exitT.b
 do
-	local OFFC = Color3.fromRGB(110, 124, 140)
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local ic = camT.ic
 	local parts = {}
-	local function box(x, y, w, h, round, strokeOnly)
+	local function shp(x, y, w, h, rad, ring)
 		local f = Instance.new("Frame")
 		f.BorderSizePixel = 0
 		f.AnchorPoint = Vector2.new(0.5, 0.5)
 		f.Position = UDim2.fromOffset(x, y)
 		f.Size = UDim2.fromOffset(w, h)
-		f.BackgroundTransparency = strokeOnly and 1 or 0
 		f.BackgroundColor3 = OFFC
+		f.BackgroundTransparency = ring and 1 or 0
 		local c = Instance.new("UICorner")
-		c.CornerRadius = round
+		c.CornerRadius = rad
 		c.Parent = f
-		if strokeOnly then
+		if ring then
 			local st = Instance.new("UIStroke")
 			st.Thickness = 2.4
 			st.Color = OFFC
@@ -3871,18 +4334,32 @@ do
 		else
 			parts[#parts + 1] = { f = f }
 		end
-		f.Parent = camBtn
+		f.Parent = ic
 		return f
 	end
-	box(29, 8, 14, 6, UDim.new(0.3, 0))
-	box(29, 18, 34, 22, UDim.new(0.22, 0), true)
-	box(29, 18, 14, 14, UDim.new(0.5, 0), true)
-	box(29, 18, 5, 5, UDim.new(0.5, 0))
-	label(camBtn, "CAMERA  (V)", 9, METALC, 0, 38, 58, 12)
+	shp(29, 11, 14, 6, UDim.new(0.3, 0))
+	shp(29, 25, 36, 24, UDim.new(0.22, 0), true)
+	shp(29, 25, 16, 16, UDim.new(0.5, 0), true)
+	local dot = shp(29, 25, 6, 6, UDim.new(0.5, 0))
+	local rec = HX.circ(ic, 46, 13, 6, HUDRED, 0)
+	rec.Visible = false
+	local camOn = false
+	HX.anim[#HX.anim + 1] = function(t)
+		if not camOn then return end
+		local d = 6 + 3 * (0.5 + 0.5 * math.sin(t * 6))
+		dot.Size = UDim2.fromOffset(d, d)
+		rec.Visible = math.floor(t * 2) % 2 == 0
+	end
 	function hudApi.camSet(on)
-		local col = on and ACC or OFFC
+		camOn = on and true or false
+		local col = camOn and ACC or OFFC
 		for _, p in ipairs(parts) do
 			if p.st then p.st.Color = col else p.f.BackgroundColor3 = col end
+		end
+		camT.setActive(camOn)
+		if not camOn then
+			dot.Size = UDim2.fromOffset(6, 6)
+			rec.Visible = false
 		end
 	end
 end
@@ -3890,83 +4367,85 @@ track(camBtn.Activated:Connect(function()
 	if car and car.driver then CAM.toggle() end
 end))
 do
-	local OFFC = Color3.fromRGB(110, 124, 140)
-	local function ln(parent, x1, y1, x2, y2, th, col)
-		local dx, dy = x2 - x1, y2 - y1
-		local len = math.sqrt(dx * dx + dy * dy)
-		local f = Instance.new("Frame")
-		f.BorderSizePixel = 0
-		f.AnchorPoint = Vector2.new(0.5, 0.5)
-		f.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
-		f.Size = UDim2.fromOffset(len + th * 0.6, th)
-		f.Rotation = math.deg(math.atan2(dy, dx))
-		f.BackgroundColor3 = col
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(1, 0)
-		c.Parent = f
-		f.Parent = parent
-		return f
-	end
-	local function bez(p0, p1, p2, p3, n)
-		local pts = {}
-		for i = 0, n do
-			local t = i / n
-			local u = 1 - t
-			pts[#pts + 1] = {
-				u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
-				u * u * u * p0[2] + 3 * u * u * t * p1[2] + 3 * u * t * t * p2[2] + t * t * t * p3[2],
-			}
-		end
-		return pts
-	end
-	local k, ox, oy = 0.62, -7.6, -16.6
-	local function LP(p) return ox + p[1] * k, oy + p[2] * k end
-	local lens, ribs, beams = {}, {}, {}
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local LAMPC = Color3.fromRGB(255, 226, 130)
+	local ic = lampT.ic
+	local k, ox, oy = 0.62, -7.6, -14.6
+	local lens, ribL, beams = {}, {}, {}
+	local glow = HX.circ(ic, 41, 22, 34, LAMPC, 1)
 	local function seg(list, a, b, th)
-		local x1, y1 = LP(a)
-		local x2, y2 = LP(b)
-		list[#list + 1] = ln(lampBtn, x1, y1, x2, y2, th, OFFC)
+		local x1, y1 = ox + a[1] * k, oy + a[2] * k
+		local x2, y2 = ox + b[1] * k, oy + b[2] * k
+		list[#list + 1] = HX.line(ic, x1, y1, x2, y2, th, OFFC)
 	end
 	local path = { { 54, 30 }, { 64, 30 } }
-	local c1 = bez({ 64, 30 }, { 92, 30 }, { 102, 48 }, { 102, 60 }, 8)
-	local c2 = bez({ 102, 60 }, { 102, 72 }, { 92, 90 }, { 64, 90 }, 8)
+	local c1 = HX.bez({ 64, 30 }, { 92, 30 }, { 102, 48 }, { 102, 60 }, 8)
+	local c2 = HX.bez({ 102, 60 }, { 102, 72 }, { 92, 90 }, { 64, 90 }, 8)
 	for i = 2, #c1 do path[#path + 1] = c1[i] end
 	for i = 2, #c2 do path[#path + 1] = c2[i] end
 	path[#path + 1] = { 54, 90 }
 	path[#path + 1] = { 54, 30 }
 	for i = 1, #path - 1 do seg(lens, path[i], path[i + 1], 2.4) end
 	for _, r in ipairs({ { 66, 40, 80 }, { 78, 36, 84 }, { 90, 44, 76 } }) do
-		seg(ribs, { r[1], r[2] }, { r[1], r[3] }, 1.8)
+		seg(ribL, { r[1], r[2] }, { r[1], r[3] }, 1.8)
 	end
 	for _, y in ipairs({ 36, 50, 64, 78 }) do
 		seg(beams, { 44, y }, { 16, y + 7 }, 2.4)
 	end
-	label(lampBtn, "LUZ  (L)", 9, METALC, 0, 38, 58, 12)
+	local lampOn = false
+	HX.anim[#HX.anim + 1] = function(t)
+		if not lampOn then return end
+		for i, f in ipairs(beams) do
+			f.BackgroundTransparency = 0.05 + 0.5 * (0.5 + 0.5 * math.sin(t * 8 - i * 1.2))
+		end
+		glow.BackgroundTransparency = 0.78 + 0.12 * math.sin(t * 4)
+	end
 	local lampLast = nil
 	function K.setLamp(on)
 		on = on and true or false
 		if on == lampLast then return end
 		lampLast = on
-		local col = on and ACC or OFFC
-		for _, f in ipairs(lens) do f.BackgroundColor3 = col end
-		for _, f in ipairs(ribs) do f.BackgroundColor3 = col; f.BackgroundTransparency = on and 0 or 0.6 end
-		for _, f in ipairs(beams) do f.BackgroundColor3 = col; f.BackgroundTransparency = on and 0 or 0.65 end
+		lampOn = on
+		lampT.setActive(on)
+		for _, f in ipairs(lens) do f.BackgroundColor3 = on and ACC or OFFC end
+		for _, f in ipairs(ribL) do
+			f.BackgroundColor3 = on and ACC or OFFC
+			f.BackgroundTransparency = on and 0 or 0.6
+		end
+		for _, f in ipairs(beams) do
+			f.BackgroundColor3 = on and LAMPC or OFFC
+			f.BackgroundTransparency = on and 0.1 or 0.65
+		end
+		if not on then glow.BackgroundTransparency = 1 end
 	end
 	K.setLamp(false)
-	local k2, ox2, oy2 = 0.46, -4.6, -9
-	local function EP(x, y) return ox2 + x * k2, oy2 + y * k2 end
-	local function eseg(a, b, th)
-		local x1, y1 = EP(a[1], a[2])
-		local x2, y2 = EP(b[1], b[2])
-		ln(exitBtn, x1, y1, x2, y2, th, ACC)
+end
+do
+	local OUT = Color3.fromRGB(205, 214, 226)
+	local ic = exitT.ic
+	local function seg(g, a, b, th, col)
+		return HX.line(g, 0.46 * a[1] - 4.6, 0.46 * a[2] - 6, 0.46 * b[1] - 4.6, 0.46 * b[2] - 6, th, col)
 	end
-	eseg({ 62, 24 }, { 34, 24 }, 2.8)
-	eseg({ 34, 24 }, { 34, 100 }, 2.8)
-	eseg({ 34, 100 }, { 62, 100 }, 2.8)
-	eseg({ 52, 62 }, { 112, 62 }, 2.8)
-	eseg({ 94, 44 }, { 112, 62 }, 2.8)
-	eseg({ 112, 62 }, { 94, 80 }, 2.8)
-	label(exitBtn, "SAIR  (F)", 9, METALC, 0, 38, 58, 12)
+	seg(ic, { 62, 24 }, { 34, 24 }, 2.8, OUT)
+	seg(ic, { 34, 24 }, { 34, 100 }, 2.8, OUT)
+	seg(ic, { 34, 100 }, { 62, 100 }, 2.8, OUT)
+	local ag = Instance.new("Frame")
+	ag.BackgroundTransparency = 1
+	ag.BorderSizePixel = 0
+	ag.Size = UDim2.fromOffset(58, 46)
+	ag.Parent = ic
+	local al = {
+		seg(ag, { 52, 62 }, { 112, 62 }, 3, HUDRED),
+		seg(ag, { 94, 44 }, { 112, 62 }, 3, HUDRED),
+		seg(ag, { 112, 62 }, { 94, 80 }, 3, HUDRED),
+	}
+	HX.anim[#HX.anim + 1] = function(t)
+		local p = (t * 0.9) % 1
+		ag.Position = UDim2.fromOffset(p * 9 - 3, 0)
+		local tr = 0
+		if p > 0.65 then tr = (p - 0.65) / 0.35 elseif p < 0.15 then tr = (0.15 - p) / 0.15 end
+		for _, l in ipairs(al) do l.BackgroundTransparency = tr end
+	end
 end
 track(enterBtn.Activated:Connect(function()
 	if car and not car.driver then enterCar(car) end
@@ -3992,6 +4471,8 @@ local function updateHud(dt)
 		if rpart then near = (rpart.Position - c.pos).Magnitude < Config.BoardRadius * S end
 	end
 	enterBtn.Visible = near
+	local nowT = os.clock()
+	for _, f in ipairs(HX.anim) do f(nowT) end
 	if toastL.Visible and os.clock() > toastT then toastL.Visible = false end
 	if not seated then return end
 	local kmh = math.abs(c.vF)
@@ -4012,14 +4493,14 @@ local function updateHud(dt)
 	for i = 1, 16 do
 		segs[i].BackgroundTransparency = 0.85 * (1 - math.clamp(lit - (i - 1), 0, 1))
 	end
-	shifter.set(modeIndex(shown))
-	gearLever.set(6 - gear)
-	for _, L in ipairs(levers) do L.tick() end
+	shifter.setState(shown, gear)
+	shifter.tick(nowT)
 	pedalStroke.Color = (c.notch > 0) and HUDRED or PEDIDLE
 	brakeBtn.Size = UDim2.fromOffset(52, PEDH * (1 - 0.05 * c.notch))
 	for i = 1, 6 do
 		ribs[i].BackgroundColor3 = ((7 - i) <= c.notch * 2) and HUDRED or PEDIDLE
 	end
+	HX.brakeFx(c, dt)
 	K.setLamp(c.lamps)
 end
 local __editorToggle
@@ -4809,7 +5290,6 @@ local function driveArms(c, dt)
 	ARMS.shRaw = (ARMS.shRaw or 0) + math.clamp(want - (ARMS.shRaw or 0), -rate * dt, rate * dt)
 	local sb = ARMS.shRaw * ARMS.shRaw * (3 - 2 * ARMS.shRaw)
 	if sb > 0.001 and c.shiftW then
-		-- mao agarra o topo do cambio e acompanha o movimento da alavanca (kick de marcha / P-R-N-D)
 		local kn = c.cf * (c.shiftW.C0 * CFrame.new(c.shiftKn))
 		local push = 0
 		if c.gearKick then
@@ -4900,8 +5380,6 @@ RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, funct
 	end
 	updateHud(dt)
 end)
--- IGUAL AO RICK PORTAL GUN (handConn): as juntas dos bracos sao escritas no Stepped.
--- No RenderStepped o Animator (animacao de sentar) sobrescreve o Transform antes do frame ser aplicado.
 track(RunService.Stepped:Connect(function(_, dt)
 	dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
 	local c = car

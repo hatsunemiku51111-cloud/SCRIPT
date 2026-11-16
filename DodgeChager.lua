@@ -3028,6 +3028,30 @@ local function refreshFilter()
 	end
 	rp.FilterDescendantsInstances = list
 end
+local RAYC = {}
+RAYC.HS = { 2.2 * S, 3.6 * S }
+RAYC.HW = 3.6 * S
+RAYC.HL = 10 * S
+function RAYC.wallHit(o, d)
+	local h = workspace:Raycast(o, d, rp)
+	if h and math.abs(h.Normal.Y) < 0.6 then return h end
+	return nil
+end
+function RAYC.sweep(origin, dir, len)
+	local u = Vector3.new(dir.X, 0, dir.Z)
+	if u.Magnitude < 1e-4 then return len end
+	u = u.Unit
+	local side = Vector3.new(-u.Z, 0, u.X)
+	local best = len
+	local hw = RAYC.HW
+	for _, off in ipairs({ 0, -hw, hw, -hw * 0.5, hw * 0.5 }) do
+		for _, hh in ipairs(RAYC.HS) do
+			local h = RAYC.wallHit(origin + side * off + Vector3.new(0, hh, 0), u * len)
+			if h and h.Distance < best then best = h.Distance end
+		end
+	end
+	return best
+end
 local hudApi = {}
 local MODES = { "P", "R", "N", "D" }
 local function modeIndex(m)
@@ -4432,18 +4456,35 @@ function CINE.buildIn(F, psiF, sg, dist, T, FX)
 end
 function CINE.pathClear(P, Fy)
 	local N = P.N
-	local step = math.max(1, math.floor(N / 14))
-	local prev = nil
-	for i = 0, N, step do
+	local step = math.max(1, math.floor(N / 36))
+	local hs = RAYC.HS
+	local hw = RAYC.HW
+	local prevG, prevP = nil, nil
+	local i = 0
+	while true do
 		local p = P.pos[i]
 		local g = workspace:Raycast(p + Vector3.new(0, 50, 0), Vector3.new(0, -140, 0), rp)
 		if not g or math.abs(g.Position.Y - Fy) > 16 then return false end
-		local o = Vector3.new(p.X, g.Position.Y + 3 * S, p.Z)
-		if prev then
-			local h = workspace:Raycast(prev, o - prev, rp)
-			if h and math.abs(h.Normal.Y) < 0.6 then return false end
+		local gp = Vector3.new(p.X, g.Position.Y, p.Z)
+		if prevG then
+			local seg = Vector3.new(gp.X - prevG.X, 0, gp.Z - prevG.Z)
+			local sl = seg.Magnitude
+			if math.abs(gp.Y - prevG.Y) > sl * 1.5 + 1 then return false end
+			if sl > 1e-3 then
+				local u = seg.Unit
+				local side = Vector3.new(-u.Z, 0, u.X)
+				for _, off in ipairs({ 0, -hw, hw }) do
+					for _, hh in ipairs(hs) do
+						local a = prevG + side * off + Vector3.new(0, hh, 0)
+						local b = gp + side * off + Vector3.new(0, hh, 0)
+						if RAYC.wallHit(a, b - a) then return false end
+					end
+				end
+			end
 		end
-		prev = o
+		prevG = gp
+		if i >= N then break end
+		i = math.min(i + step, N)
 	end
 	return true
 end
@@ -4457,7 +4498,7 @@ function CINE.startIn(c)
 	if first ~= 1 and first ~= -1 then first = (math.random() < 0.5) and 1 or -1 end
 	refreshFilter()
 	local P = nil
-	for _, k in ipairs({ 1, 0.72, 0.5, 0.36 }) do
+	for _, k in ipairs({ 1, 0.8, 0.62, 0.48, 0.36, 0.26, 0.18 }) do
 		for _, sg in ipairs({ first, -first }) do
 			local cand = CINE.buildIn(F, psiF, sg, (FX.InDist or 120) * k, T, FX)
 			if cand and CINE.pathClear(cand, F.Y) then
@@ -4493,8 +4534,38 @@ function CINE.startIn(c)
 	CINE.smokeStyle(c, true)
 	return true
 end
+function CINE.lookIn(c, X, dt)
+	local now = os.clock()
+	if not X.rayAt or now - X.rayAt > 0.04 then
+		X.rayAt = now
+		local vel = c.vel or Vector3.zero
+		local sp = Vector3.new(vel.X, 0, vel.Z).Magnitude
+		local tgt = 1
+		if sp > 1 then
+			local dir = Vector3.new(vel.X, 0, vel.Z).Unit
+			local L = math.max(30, sp * 0.8)
+			local d = RAYC.sweep(c.pos + dir * RAYC.HL, dir, L)
+			if d < L then tgt = math.clamp((d - 4) / (L - 4), 0.1, 1) end
+		end
+		X.advT = tgt
+	end
+	local a = X.adv or 1
+	a = a + ((X.advT or 1) - a) * (1 - math.exp(-9 * dt))
+	X.adv = a
+	if a < 0.2 then
+		X.blocked = (X.blocked or 0) + dt
+	else
+		X.blocked = 0
+	end
+	return a
+end
 function CINE.stepIn(c, X, dt)
-	X.t = X.t + dt
+	local adv = CINE.lookIn(c, X, dt)
+	if (X.blocked or 0) > 1.2 then
+		CINE.finishIn(c)
+		return
+	end
+	X.t = X.t + dt * adv
 	local P = X.P
 	local N = P.N
 	local u = math.clamp(X.t / X.T, 0, 1)
@@ -4558,13 +4629,8 @@ function CINE.startOut(c)
 	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
 	local want = FX.OutDist or 420
 	local clear = want
-	local base = c.pos + Vector3.new(0, 1.9 * S, 0)
-	for _, off in ipairs({ 0, 2.8 * S, -2.8 * S }) do
-		local h = workspace:Raycast(base + right * off, fwd * (want + 14), rp)
-		if h and math.abs(h.Normal.Y) < 0.6 then
-			clear = math.min(clear, h.Distance - 14)
-		end
-	end
+	local dW = RAYC.sweep(c.pos, fwd, want + RAYC.HL + 20)
+	clear = math.min(clear, dW - RAYC.HL - 18)
 	for d = 25, want, 25 do
 		local g = workspace:Raycast(c.pos + fwd * d + Vector3.new(0, 40, 0), Vector3.new(0, -140, 0), rp)
 		if not g then
@@ -4654,6 +4720,18 @@ function CINE.stepOut(c, X, dt)
 	c.burnV = X.burnV
 	X.rpm = rpm
 	CINE.flameRate(c, rate)
+	if tau >= 0 then
+		local now = os.clock()
+		if not X.rayAt or now - X.rayAt > 0.04 then
+			X.rayAt = now
+			local hd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			local look = math.max(60, v * 0.6)
+			local d = RAYC.sweep(c.pos, hd, look + RAYC.HL)
+			if d < look + RAYC.HL then
+				X.clear = math.min(X.clear, X.dist + d - RAYC.HL - 6 - v * 0.06)
+			end
+		end
+	end
 	if tau >= 0 and (X.dist >= X.clear - 1 or tau >= X.Tl + 0.5) then
 		CINE.finishOut(c)
 	end

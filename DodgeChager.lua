@@ -3614,6 +3614,7 @@ local function exhaustStep(c)
 			state = 2
 		end
 	end
+	if c.waterOn then rate = 0 end
 	rate = rate * I.SmokeMul
 	rate = math.floor(rate + 0.5)
 	if c.exhRate ~= rate then
@@ -3631,7 +3632,7 @@ local function exhaustStep(c)
 	end
 	if c.kickT and c.kickEmit ~= c.kickT then
 		c.kickEmit = c.kickT
-		for _, e in ipairs(ex) do e:Emit(math.floor(26 * I.SmokeMul + 0.5)) end
+		if not c.waterOn then for _, e in ipairs(ex) do e:Emit(math.floor(26 * I.SmokeMul + 0.5)) end end
 	end
 end
 local ANIM = {}
@@ -3879,8 +3880,507 @@ local function landImpact(c, imp, nrm, yaw)
 	landFx(c, imp, imp * 0.16 / 10.5 > 1.3)
 	return 1 - math.clamp((imp - 50) / 900, 0, RJ.LandLoss)
 end
+RAYC.W = { empty = {}, enabled = true, t = 0, list = {}, dirty = true, extra = {}, wc = setmetatable({}, { __mode = "k" }) }
+RAYC.W.wrp = RaycastParams.new()
+RAYC.W.wrp.FilterType = Enum.RaycastFilterType.Exclude
+RAYC.W.wrp.IgnoreWater = false
+RAYC.W.wrp.RespectCanCollide = false
+RAYC.W.plain = { "agua", "\u{E1}gua", "water", "lake", "lago", "ocean", "oceano", "piscina", "swim", "nadar", "river", "pond", "lagoa" }
+RAYC.W.word = { "sea", "mar", "rio" }
+function RAYC.W.hasWord(n, w)
+	local s = " " .. string.gsub(n, "[^%a\128-\255]", " ") .. " "
+	return string.find(s, " " .. w .. " ", 1, true) ~= nil
+end
+function RAYC.W.isWater(inst)
+	local o = inst
+	for _ = 1, 3 do
+		if not o or o == workspace then break end
+		local n = string.lower(o.Name)
+		for _, k in ipairs(RAYC.W.plain) do
+			if string.find(n, k, 1, true) then return true end
+		end
+		for _, k in ipairs(RAYC.W.word) do
+			if RAYC.W.hasWord(n, k) then return true end
+		end
+		o = o.Parent
+	end
+	return false
+end
+function RAYC.W.probe(c, pos)
+	local W = RAYC.W
+	if W.dirty then
+		W.wrp.FilterDescendantsInstances = W.list
+		W.dirty = false
+	end
+	local o = Vector3.new(pos.X, c.pos.Y + 14 * S, pos.Z)
+	local dir = Vector3.new(0, -40 * S, 0)
+	for _ = 1, 5 do
+		local h = workspace:Raycast(o, dir, W.wrp)
+		if not h then return nil end
+		local ins = h.Instance
+		if ins:IsA("Terrain") then
+			if h.Material == Enum.Material.Water then return h.Position.Y end
+			return nil
+		end
+		local wv = W.wc[ins]
+		if wv == nil then
+			wv = RAYC.W.isWater(ins)
+			W.wc[ins] = wv
+		end
+		if wv then return h.Position.Y end
+		if ins.CanCollide then return nil end
+		W.list[#W.list + 1] = ins
+		W.extra[#W.extra + 1] = ins
+		W.wrp.FilterDescendantsInstances = W.list
+	end
+	return nil
+end
+Config.Water = { Time = 0.15, Drop = 0.5, Tilt = 0.4, Lift = 0.95, Shift = 0.9, CoverT = 0.22, CoverBottom = 0.95, Sink = 1.8, PlaneLift = 0.2 }
+function RAYC.W.mk(c, cls)
+	local p = Instance.new(cls)
+	p.Name = "WheelCover"
+	p.Size = Vector3.new(0.2, 0.2, 0.2)
+	p.Material = Enum.Material.SmoothPlastic
+	p.Color = c._body or Config.Tweaks.BodyColor or Config.BodyColor
+	p.Reflectance = 0.12
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = c.model
+	local wd = Instance.new("Weld")
+	wd.Part0 = c.root
+	wd.Part1 = p
+	wd.Parent = p
+	return { p = p, w = wd }
+end
+RAYC.W.ARCH = {
+	front = { z0 = -7.1, dz = 0.2, top = { 2.1395, 2.4280, 2.6180, 2.7540, 2.8510, 2.9165, 2.9545, 2.9670, 2.9670, 2.9545, 2.9165, 2.8510, 2.7540, 2.6180, 2.4280, 2.1395 }, x = { 3.543, 3.544, 3.545, 3.547, 3.548, 3.549, 3.549, 3.548, 3.547, 3.545, 3.544, 3.543, 3.541, 3.540, 3.539, 3.537 } },
+	rear = { z0 = 3.9, dz = 0.2, top = { 1.9780, 2.4090, 2.6660, 2.9175, 3.0365, 3.1225, 3.1815, 3.2160, 3.2270, 3.2270, 3.2160, 3.1815, 3.1225, 3.0365, 2.9175, 2.7575, 2.5370, 2.1930 }, x = { 3.515, 3.525, 3.535, 3.610, 3.613, 3.615, 3.618, 3.621, 3.623, 3.626, 3.629, 3.628, 3.624, 3.620, 3.616, 3.612, 3.608, 3.604 }, th = { 0.35, 0.35, 0.35 } },
+}
+function RAYC.W.cover(c, w)
+	if w.cover then return w.cover end
+	local WC = Config.Water
+	local A = w.front and RAYC.W.ARCH.front or RAYC.W.ARCH.rear
+	local n = #A.top
+	local function th(i) return (A.th and A.th[i]) or WC.CoverT end
+	local cols = {}
+	local i = 1
+	while i <= n do
+		local j = i + 1
+		local e = RAYC.W.mk(c, "Part")
+		if j <= n and th(j) == th(i) then
+			e.z = (A.z0 + (i - 1) * A.dz + A.dz / 2) * S
+			e.x = w.side * (A.x[i] + A.x[j]) / 2 * S
+			e.top = math.max(A.top[i], A.top[j])
+			e.len = (A.dz + 0.23) * S
+			i = i + 2
+		else
+			e.z = (A.z0 + (i - 1) * A.dz) * S
+			e.x = w.side * A.x[i] * S
+			e.top = A.top[i]
+			e.len = 0.23 * S
+			i = i + 1
+		end
+		e.th = th(i - 1)
+		e.hmax = e.top - WC.CoverBottom
+		e.H = e.hmax * S
+		e.p.Size = Vector3.new(e.th * S, e.H, e.len)
+		e.w.C0 = CFrame.new(e.x, (e.top - e.hmax / 2) * S, e.z)
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Brick
+		mesh.Parent = e.p
+		e.mesh = mesh
+		cols[#cols + 1] = e
+	end
+	local m = #cols
+	for k, e in ipairs(cols) do
+		e.mid = math.abs(k - (m + 1) / 2) / (m / 2)
+	end
+	w.cover = cols
+	return cols
+end
+function RAYC.W.sm(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function RAYC.W.fold(c, w, idx, dt, sv)
+	local WC = Config.Water
+	local goal = (c.wheelWet and c.wheelWet[idx]) and 1 or 0
+	if goal ~= (w.goalPrev or 0) then
+		w.goalPrev = goal
+		if idx == 1 then playSound(Config.SoundDial, 0.35, 0.7) end
+	end
+	local r = w.ret or 0
+	if r == 0 and goal == 0 then return end
+	local step = dt / WC.Time
+	r = r + math.clamp(goal - r, -step, step)
+	w.ret = r
+	local sm = RAYC.W.sm
+	local pFold = sm(r / 0.4)
+	local pLift = sm((r - 0.15) / 0.4)
+	local pc = math.clamp((r - 0.45) / 0.55, 0, 1)
+	local sd = w.side
+	local sh = CFrame.new(-sd * WC.Shift * S * pLift, WC.Lift * S * pLift, 0)
+	w.kw.C0 = sh * w.base * CFrame.Angles(0, sv * (1 - pFold), 0) * CFrame.Angles(0, 0, sd * math.rad(90) * pFold)
+	w.covT = (w.covT or 0) - dt
+	if (pc > 0 or w.coverOn) and (w.covT <= 0 or pc <= 0 or pc >= 1) then
+		w.covT = 1 / 30
+		local cols = RAYC.W.cover(c, w)
+		local recolor = pc > 0 and not w.coverOn
+		w.coverOn = pc > 0
+		for _, e in ipairs(cols) do
+			local t = math.clamp(pc * 1.5 - e.mid * 0.5, 0, 1)
+			t = t * t * (3 - 2 * t)
+			t = math.floor(t * 10 + 0.5) / 10
+			if e.tq ~= t or recolor then
+				e.tq = t
+				if recolor and c._body then e.p.Color = c._body end
+				if t < 0.01 then
+					e.p.Transparency = 1
+				else
+					e.p.Transparency = 0
+					e.mesh.Scale = Vector3.new(1, t, 1)
+					e.mesh.Offset = Vector3.new(0, e.H * (1 - t) / 2, 0)
+				end
+			end
+		end
+	end
+end
+function RAYC.W.wave(x, z, t, a)
+	return a * (math.sin(x * 0.33 + t * 1.7) + 0.6 * math.sin(z * 0.27 - t * 1.3 + x * 0.11))
+end
+RAYC.W.TEX = {}
+RAYC.W.TEXN = 96
+function RAYC.W.hash(i, j, k)
+	local s = math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453
+	return s - math.floor(s)
+end
+function RAYC.W.ss(a, b, x)
+	local t = math.clamp((x - a) / (b - a), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+RAYC.W.TEXF = {
+	foam = function(u, v, r)
+		local n = math.noise(u * 2.6 + 7.3, v * 2.6 + 1.9, 0.5) * 0.6 + math.noise(u * 5.5 + 3.1, v * 5.5 + 8.2, 2.5) * 0.3 + math.noise(u * 11 + 1.7, v * 11 + 5.9, 4.1) * 0.12
+		local a = RAYC.W.ss(0, 0.55, (1 - r) + n * 0.55 - 0.12) * RAYC.W.ss(1, 0.7, r) * 0.92
+		return a, 0.88 + 0.12 * n
+	end,
+	mist = function(u, v, r)
+		local n = math.noise(u * 1.6 + 4.2, v * 1.6 + 9.1, 3.3) * 0.6 + math.noise(u * 3.2 + 1.3, v * 3.2 + 6.4, 7.7) * 0.3
+		return RAYC.W.ss(0, 0.9, (1 - r) + n * 0.5) * RAYC.W.ss(1, 0.5, r) * 0.55, 0.97
+	end,
+	ripple = function(u, v, r)
+		local ring = math.exp(-(((r - 0.72) / 0.09) ^ 2))
+		local ring2 = math.exp(-(((r - 0.5) / 0.05) ^ 2)) * 0.45
+		return (ring + ring2) * RAYC.W.ss(1, 0.88, r), 1
+	end,
+	spray = function(u, v, r)
+		local best = 0
+		local gx, gy = u * 4.5, v * 4.5
+		local ci, cj = math.floor(gx), math.floor(gy)
+		for di = -1, 1 do
+			for dj = -1, 1 do
+				local i, j = ci + di, cj + dj
+				local px = i + 0.2 + RAYC.W.hash(i, j, 1) * 0.6
+				local py = j + 0.2 + RAYC.W.hash(i, j, 2) * 0.6
+				local rad = 0.12 + RAYC.W.hash(i, j, 3) * 0.2
+				local d = math.sqrt((gx - px) ^ 2 + (gy - py) ^ 2)
+				local val = RAYC.W.ss(rad, rad * 0.45, d)
+				if val > best then best = val end
+			end
+		end
+		local hz = RAYC.W.ss(1, 0.2, r) * 0.18
+		return math.max(best * RAYC.W.ss(1, 0.6, r), hz), 1
+	end,
+	drop = function(u, v, r)
+		local R = 0.78
+		local body = RAYC.W.ss(R, R - 0.08, r)
+		local rim = RAYC.W.ss(0.35, R, r)
+		local sx, sy = u + 0.28, v + 0.3
+		local spec = RAYC.W.ss(0.26, 0, math.sqrt(sx * sx + sy * sy))
+		return math.clamp(body * (0.4 + 0.5 * rim + 0.6 * spec), 0, 1), 0.82 + 0.18 * spec
+	end,
+	burst = function(u, v, r)
+		local th = math.atan2(v, u)
+		local sp = 0.5 + 0.5 * math.sin(th * 7 + math.noise(u * 2 + 3.3, v * 2 + 1.1, 9.1) * 4)
+		local sp2 = 0.5 + 0.5 * math.sin(th * 13 + 1.7 + math.noise(u * 3 + 6.1, v * 3 + 2.7, 5.3) * 5)
+		local reach = 0.32 + 0.6 * sp ^ 1.6 * (0.6 + 0.4 * sp2)
+		local n = math.noise(u * 6 + 2.2, v * 6 + 4.4, 1.3)
+		local a = RAYC.W.ss(reach, reach * 0.5, r) * (0.85 + 0.4 * n)
+		return math.clamp(a, 0, 1), 0.9 + 0.1 * n
+	end,
+}
+function RAYC.W.texMake(kind)
+	local fn = RAYC.W.TEXF[kind]
+	if not fn then return nil end
+	local N = RAYC.W.TEXN
+	local ok, ei = pcall(function()
+		return game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(N, N) })
+	end)
+	if not ok or not ei then return nil end
+	local buf = buffer.create(N * N * 4)
+	local o = 0
+	for y = 0, N - 1 do
+		for x = 0, N - 1 do
+			local u = (x + 0.5) / N * 2 - 1
+			local v = (y + 0.5) / N * 2 - 1
+			local a, b = fn(u, v, math.sqrt(u * u + v * v))
+			local c8 = math.floor(math.clamp(b, 0, 1) * 255 + 0.5)
+			buffer.writeu8(buf, o, c8)
+			buffer.writeu8(buf, o + 1, c8)
+			buffer.writeu8(buf, o + 2, c8)
+			buffer.writeu8(buf, o + 3, math.floor(math.clamp(a, 0, 1) * 255 + 0.5))
+			o = o + 4
+		end
+	end
+	local wrote = pcall(function() ei:WritePixelsBuffer(Vector2.zero, Vector2.new(N, N), buf) end)
+	if not wrote then
+		local ok2 = pcall(function()
+			local t = table.create(N * N * 4)
+			for i = 0, N * N * 4 - 1 do t[i + 1] = buffer.readu8(buf, i) / 255 end
+			ei:WritePixels(Vector2.zero, Vector2.new(N, N), t)
+		end)
+		if not ok2 then
+			pcall(function() ei:Destroy() end)
+			return nil
+		end
+	end
+	return ei
+end
+function RAYC.W.texProc(pe, kind)
+	if not kind then return false end
+	local T = RAYC.W.TEX
+	if T[kind] == nil then
+		local okT, r = pcall(RAYC.W.texMake, kind)
+		T[kind] = okT and r or false
+	end
+	local ei = T[kind]
+	if not ei then return false end
+	return (pcall(function() pe.TextureContent = Content.fromObject(ei) end))
+end
+function RAYC.W.fxBuild(c)
+	local F = { all = {} }
+	local g = workspace.Gravity
+	local function add(x, z, rot, dir, cfg)
+		local m = RAYC.W.mk(c, "Part")
+		m.p.Name = "WaterFx"
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = cfg.tex or "rbxasset://textures/particles/smoke_main.dds"
+		if cfg.orient then e.Orientation = cfg.orient end
+		e.Rate = 0
+		e.EmissionDirection = dir
+		e.Lifetime = cfg.life
+		e.Speed = cfg.speed
+		e.SpreadAngle = cfg.spread
+		e.Drag = cfg.drag or 0
+		e.Acceleration = cfg.acc or Vector3.zero
+		e.Rotation = NumberRange.new(0, 360)
+		e.RotSpeed = NumberRange.new(-30, 30)
+		e.LightInfluence = 0.5
+		e.Color = ColorSequence.new(Color3.fromRGB(240, 248, 255))
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, cfg.t0), NumberSequenceKeypoint.new(1, 1) })
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, cfg.s0 * S), NumberSequenceKeypoint.new(1, cfg.s1 * S) })
+		e.Parent = m.p
+		local o = { w = m.w, pe = e, x = x, z = z, rot = rot, ek = cfg.ek }
+		F.all[#F.all + 1] = o
+		return o
+	end
+	local bow = { life = NumberRange.new(1.2, 2.0), speed = NumberRange.new(5, 10), spread = Vector2.new(20, 20), drag = 1.6, t0 = 0.4, s0 = 0.5, s1 = 2.4, tex = "rbxassetid://78412385236447", ek = "foam" }
+	local stern = { life = NumberRange.new(1.6, 2.6), speed = NumberRange.new(3, 6), spread = Vector2.new(12, 12), drag = 1.2, t0 = 0.5, s0 = 0.9, s1 = 3.6, tex = "rbxassetid://78412385236447", ek = "foam" }
+		local mist = { life = NumberRange.new(1.2, 2), speed = NumberRange.new(2, 5), spread = Vector2.new(25, 25), drag = 1, t0 = 0.7, s0 = 1.2, s1 = 4.5, tex = "rbxassetid://94828464667334", ek = "mist" }
+		local rip = { life = NumberRange.new(0.9, 1.4), speed = NumberRange.new(0.5, 0.5), spread = Vector2.new(0, 0), t0 = 0.3, s0 = 2, s1 = 16, tex = "rbxassetid://79584576349303", ek = "ripple", orient = Enum.ParticleOrientation.VelocityPerpendicular }
+	local tail = { life = NumberRange.new(0.6, 1.0), speed = NumberRange.new(22, 34), spread = Vector2.new(14, 14), acc = Vector3.new(0, -g * 0.7, 0), t0 = 0.1, s0 = 0.7, s1 = 1.9, tex = "rbxassetid://92308089132693", ek = "spray" }
+	local spl = { life = NumberRange.new(0.7, 1.2), speed = NumberRange.new(18, 32), spread = Vector2.new(60, 60), acc = Vector3.new(0, -g * 0.8, 0), t0 = 0.1, s0 = 0.8, s1 = 2.2, tex = "rbxassetid://86404614759677", ek = "burst" }
+	local tilt = CFrame.Angles(math.rad(50), 0, 0)
+	F.bow = { add(-3.4, -6.2, CFrame.identity, Enum.NormalId.Left, bow), add(3.4, -6.2, CFrame.identity, Enum.NormalId.Right, bow) }
+	F.stern = { add(-2.4, 8.4, CFrame.identity, Enum.NormalId.Back, stern), add(2.4, 8.4, CFrame.identity, Enum.NormalId.Back, stern) }
+	F.tail = { add(-1.7, 10.5, tilt, Enum.NormalId.Top, tail), add(1.7, 10.5, tilt, Enum.NormalId.Top, tail) }
+	F.splash = add(0, -1, CFrame.identity, Enum.NormalId.Top, spl)
+	F.mist = { add(-2.4, 8.4, CFrame.identity, Enum.NormalId.Back, mist), add(2.4, 8.4, CFrame.identity, Enum.NormalId.Back, mist) }
+	F.ripple = add(0, 0, CFrame.identity, Enum.NormalId.Top, rip)
+	local dr = { life = NumberRange.new(0.5, 0.9), speed = NumberRange.new(0.3, 1.5), spread = Vector2.new(35, 35), acc = Vector3.new(0, -g * 0.5, 0), t0 = 0.25, s0 = 0.14, s1 = 0.1, tex = "rbxassetid://111383448207291", ek = "drop" }
+	F.drip = {}
+	for _, p in ipairs({ { -3.5, -4 }, { 3.5, -4 }, { -3.5, 6 }, { 3.5, 6 } }) do
+		local o = add(p[1], p[2], CFrame.identity, Enum.NormalId.Bottom, dr)
+		o.fy = 1.0
+		o.pe.Color = ColorSequence.new(Color3.fromRGB(200, 225, 255))
+		F.drip[#F.drip + 1] = o
+	end
+	task.spawn(function()
+		local CP = game:GetService("ContentProvider")
+		local smoke = "rbxasset://textures/particles/smoke_main.dds"
+		local byUrl = {}
+		local kinds = {}
+		for _, o in ipairs(F.all) do
+			local u = o.pe.Texture
+			if u ~= smoke then
+				byUrl[u] = byUrl[u] or {}
+				table.insert(byUrl[u], o.pe)
+				kinds[u] = o.ek
+			end
+		end
+		for url, pes in pairs(byUrl) do
+			task.spawn(function()
+				for attempt = 1, 3 do
+					pcall(function() CP:PreloadAsync({ pes[1] }) end)
+					local okS, st = pcall(function() return CP:GetAssetFetchStatus(url) end)
+					if not okS or st ~= Enum.AssetFetchStatus.Failure then return end
+					task.wait(attempt * 3)
+					for _, pe in ipairs(pes) do
+						if pe.Parent then
+							pe.Texture = ""
+							pe.Texture = url
+						end
+					end
+				end
+				warn("[WaterFx] textura falhou: " .. tostring(url))
+				for _, pe in ipairs(pes) do
+					if pe.Parent then
+						pe.Texture = smoke
+						RAYC.W.texProc(pe, kinds[url])
+					end
+				end
+			end)
+		end
+	end)
+	return F
+end
+function RAYC.W.rate(o, r)
+	r = math.floor(r * 2 + 0.5) / 2
+	if o.r ~= r then
+		o.r = r
+		o.pe.Rate = r
+	end
+end
+function RAYC.W.fx(c, dt, was, hv)
+	local on = c.waterOn
+	local F = c.wfx
+	if not F then
+		F = RAYC.W.fxBuild(c)
+		c.wfx = F
+	end
+	if on then
+		local sk = Config.Water.Sink * (1 - Config.Water.PlaneLift * (c.plane or 0)) * S
+		if F.sk == nil or math.abs(sk - F.sk) > 0.02 then
+			F.sk = sk
+			for _, e in ipairs(F.all) do
+				e.w.C0 = CFrame.new(e.x * S, e.fy and e.fy * S or sk, e.z * S) * e.rot
+			end
+		end
+	end
+	local lq = (Config.LiteMode == "super" and 0.35) or (LITE and 0.6) or 1
+	local mv = on and math.clamp((hv - 5) / 25, 0, 1) or 0
+	local pl = c.plane or 0
+	local th = c.throttle or 0
+	local rb = mv * (6 + hv * 0.3) * lq
+	local rs = mv * (4 + hv * 0.22) * lq
+	local rt = on and pl * (10 + th * 70) * lq or 0
+	local setR = RAYC.W.rate
+	setR(F.bow[1], rb)
+	setR(F.bow[2], rb)
+	setR(F.stern[1], rs)
+	setR(F.stern[2], rs)
+	setR(F.tail[1], rt)
+	setR(F.tail[2], rt)
+	setR(F.mist[1], rs * 0.3)
+	setR(F.mist[2], rs * 0.3)
+	setR(F.ripple, mv * 1.6 * lq)
+	if on then c.wetT = 4 else c.wetT = math.max((c.wetT or 0) - dt, 0) end
+	local wet = c.wetT / 4
+	local rd = on and 0 or wet * (8 + hv * 0.12) * lq
+	for _, o in ipairs(F.drip) do setR(o, rd) end
+	local lt = on and 1 or 0
+	c.wLamp = (c.wLamp or 0) + (lt - (c.wLamp or 0)) * (1 - math.exp(-3 * dt))
+	local la = c.wLamp
+	if math.abs(la - (c.wLampA or 0)) > 0.01 then
+		c.wLampA = la
+		local cb = Color3.fromRGB(165, 215, 255)
+		for _, l in ipairs(c.lampList) do
+			local L = l.light
+			if L and L.Parent then
+				l.b0 = l.b0 or L.Brightness
+				l.c0 = l.c0 or L.Color
+				L.Brightness = l.b0 * (1 + 0.9 * la)
+				L.Color = l.c0:Lerp(cb, la)
+			end
+		end
+	end
+	if (was or false) ~= on then
+		F.splash.pe:Emit(math.floor(math.clamp(10 + hv * 0.5, 12, 60) * lq))
+		F.ripple.pe:Emit(2)
+	end
+end
+function RAYC.W.step(c, dt)
+	local W = RAYC.W
+	if W.enabled and c.wheels and (c.coverN or 0) < 4 then
+		c.coverN = (c.coverN or 0) + 1
+		local w0 = c.wheels[c.coverN]
+		if w0 then RAYC.W.cover(c, w0) end
+	end
+	W.t = W.t - dt
+	if W.t <= 0 then
+		W.t = 0.12
+		W.lt = (W.lt or 0) - 0.12
+		if W.lt <= 0 then
+			W.lt = 4
+			if #W.extra > 300 then W.extra = {} end
+			local nl = table.clone(rp.FilterDescendantsInstances)
+			for _, x in ipairs(W.extra) do nl[#nl + 1] = x end
+			W.list = nl
+			W.dirty = true
+		end
+		c.waterSurf = W.enabled and W.probe(c, c.pos) or nil
+		c.wheelWet = c.wheelWet or {}
+		c.wheelDry = c.wheelDry or {}
+		local cfY = CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+		for i = 1, 4 do
+			local off = c.wheelOff and c.wheelOff[i]
+			local wyi = W.enabled and off and W.probe(c, cfY:PointToWorldSpace(off)) or nil
+			c.wheelWY = c.wheelWY or {}
+			if wyi then
+				c.wheelWet[i] = true
+				c.wheelDry[i] = 0
+				c.wheelWY[i] = wyi
+			else
+				c.wheelDry[i] = (c.wheelDry[i] or 0) + 0.12
+				if c.wheelDry[i] > 0.1 or not W.enabled then c.wheelWet[i] = false end
+				if not c.wheelWet[i] then c.wheelWY[i] = nil end
+			end
+		end
+	end
+	local rm = 0
+	if c.wheels then
+		for i = 1, 4 do
+			local wi = c.wheels[i]
+			if wi and wi.ret and wi.ret > rm then rm = wi.ret end
+		end
+	end
+	c.wRet = rm
+	local wy = c.waterSurf
+	local was = c.waterOn
+	if W.enabled and wy then
+		local h = c.pos.Y - wy
+		if c.waterOn then
+			c.waterOn = h < 7 * S
+		else
+			c.waterOn = h < 3 * S
+		end
+	else
+		c.waterOn = false
+	end
+	local hv = Vector3.new(c.vel.X, 0, c.vel.Z).Magnitude
+	local pt = c.waterOn and math.clamp((hv - 28) / 80, 0, 1) or 0
+	c.plane = (c.plane or 0) + (pt - (c.plane or 0)) * (1 - math.exp(-2.5 * dt))
+	pcall(RAYC.W.fx, c, dt, was, hv)
+end
 local function stepCar(c, dt)
 	ignStep(c, dt)
+	RAYC.W.step(c, dt)
 	local g = workspace.Gravity
 	local driving = c.driver and not c.boardFrom and not c.exiting
 	local throttle, brakePed, steerIn = 0, 0, 0
@@ -3944,6 +4444,7 @@ local function stepCar(c, dt)
 			resist = resist + 6
 		end
 		if not grounded then resist = 0.00015 * vF * vF end
+		if c.waterOn then resist = resist + (5 + 0.0005 * vF * vF) * (1 - 0.6 * (c.plane or 0)) end
 		local sgn = vF > 0 and 1 or -1
 		local dec = math.min(resist * dt, math.abs(vF))
 		vF = vF + acc * dt - sgn * dec
@@ -3995,6 +4496,7 @@ local function stepCar(c, dt)
 		local right2 = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
 		vF, vR = vw:Dot(fwd2), vw:Dot(right2)
 		local grip = (c.notch > 0) and Config.DriftGrip[c.notch] or Config.Grip
+		if c.waterOn then grip = grip * 0.35 end
 		if grounded then vR = vR * math.exp(-grip * dt) end
 		fwd, right = fwd2, right2
 		vel = fwd * vF + right * vR
@@ -4059,6 +4561,11 @@ local function stepCar(c, dt)
 			end
 		end
 	end
+	if c.waterOn and not c.engineOn then
+		local td = os.clock()
+		posN = posN + Vector3.new(math.sin(td * 0.21 + 1), 0, math.cos(td * 0.17)) * 1.6 * dt
+		yaw = yaw + math.sin(td * 0.13) * 0.05 * dt
+	end
 	local cfY = CFrame.new(posN) * CFrame.Angles(0, yaw, 0)
 	local hits, pts = {}, {}
 	for i = 1, 4 do
@@ -4090,7 +4597,40 @@ local function stepCar(c, dt)
 			nrm = nil
 		end
 	end
-	if targetY and c.grounded then
+	if c.waterOn and c.waterSurf then
+		local tt = os.clock()
+		local pl = c.plane or 0
+		local amp = (0.07 + 0.05 * pl) * S * (c.engineOn and 1 or 1.8)
+		local wv, hsum = {}, 0
+		for i = 1, 4 do
+			local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+			local h = ((c.wheelWY and c.wheelWY[i]) or c.waterSurf) + RAYC.W.wave(wp.X, wp.Z, tt, amp)
+			wv[i] = Vector3.new(wp.X, h, wp.Z)
+			hsum = hsum + h
+		end
+		targetY = hsum / 4 - Config.Water.Sink * S * (1 - Config.Water.PlaneLift * pl)
+		local nW = (wv[2] - wv[3]):Cross(wv[1] - wv[4])
+		if nW.Magnitude < 1e-4 then
+			nW = Vector3.yAxis
+		else
+			nW = nW.Unit
+			if nW.Y < 0 then nW = -nW end
+		end
+		local flW = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+		local rvW = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+		local hsW = Vector3.new(vel.X, 0, vel.Z).Magnitude
+		local accW = (vF - (c.wPrevVF or vF)) / math.max(dt, 1e-3)
+		c.wPrevVF = vF
+		c.wAcc = (c.wAcc or 0) + (accW - (c.wAcc or 0)) * (1 - math.exp(-4 * dt))
+		local pit = (0.09 * math.sin(math.pi * math.clamp((hsW - 15) / 100, 0, 1)) + 0.03 * pl + math.clamp(c.wAcc * 0.0012, -0.1, 0.1)) * Config.Water.Tilt
+		local rol = math.clamp(yawRate * math.abs(vF) * 0.0009, -0.3, 0.3) * Config.Water.Tilt
+		nrm = (nW - flW * math.tan(pit) - rvW * math.tan(rol)).Unit
+		c.hits = RAYC.W.empty
+	end
+	if targetY and not c.waterOn and (c.wRet or 0) > 0 then
+		targetY = targetY - Config.Water.Drop * S * RAYC.W.sm(c.wRet)
+	end
+	if targetY and c.grounded and not c.waterOn then
 		local nd = noseNeed(c, cfY, posN)
 		if nd and nd > targetY then targetY = nd end
 	end
@@ -4164,7 +4704,7 @@ local function stepCar(c, dt)
 		c.vy = c.vy - gA * dt
 		y = y + c.vy * dt
 	end
-	if not c.grounded and c.vy <= 0 then
+	if not c.grounded and c.vy <= 0 and not c.waterOn then
 		local nd = noseNeed(c, cfY, posN)
 		if nd and nd > y and nd - y < 4 * S then
 			y = nd
@@ -4519,12 +5059,13 @@ local function carVisuals(c, dt)
 		if w.front then
 			w.kw.C0 = lift * w.base * CFrame.Angles(0, sv, 0)
 			w.tw.C0 = CFrame.Angles(c.spinF, 0, 0)
-			updateWheelFx(w, omega0, c.heat)
+			if (w.ret or 0) < 0.3 then updateWheelFx(w, omega0, c.heat) end
 		else
 			w.kw.C0 = lift * w.base
 			w.tw.C0 = CFrame.Angles(c.spinR, 0, 0)
-			updateWheelFx(w, rearLocked and 0 or ((math.abs(vF) + (c.burnV or 0)) / WR), c.heat)
+			if (w.ret or 0) < 0.3 then updateWheelFx(w, rearLocked and 0 or ((math.abs(vF) + (c.burnV or 0)) / WR), c.heat) end
 		end
+		RAYC.W.fold(c, w, i, dt, sv)
 	end
 	c.swW.C0 = c.swBase * CFrame.Angles(c.steer * 2.6, 0, 0)
 	if c.nS then c.nS.C0 = c.nSBase * CFrame.Angles(0, 0, -math.rad(270 * math.clamp(math.abs(c.vF) / 240, 0, 1.03))) end
@@ -4699,7 +5240,7 @@ local function carVisuals(c, dt)
 		end
 	end
 	local slip = math.abs(c.vR) + ((c.notch >= 2 and math.abs(c.vF) > 25) and math.abs(c.vF) * 0.3 or 0)
-	local sliding = c.grounded and (slip > 12 or c.fxSlide == true)
+	local sliding = c.grounded and not c.waterOn and (slip > 12 or c.fxSlide == true)
 	for _, pe in ipairs(c.smoke) do
 		local want = sliding and math.floor(45 * (c.smokeMul or 1)) or 0
 		if pe.Rate ~= want then pe.Rate = want end
@@ -4796,7 +5337,7 @@ local function carVisuals(c, dt)
 		local rpS = (Config.RunPitchSpan and Config.RunPitchSpan[gear]) or 0.8
 		local rp = rpB + math.min(gr, 1) * rpS - (1 - c.runMix) * 0.1
 		local sk = 0
-		if drv and c.grounded then
+		if drv and c.grounded and not c.waterOn then
 			if sliding then
 				sk = math.clamp(slip / 40, 0.35, 1)
 			elseif (c.notch > 0 or c.brakePed > 0) and kmh > 18 then
@@ -6483,6 +7024,8 @@ track(brakeBtn.InputEnded:Connect(function(i)
 	if isPress(i) then held.brakeUi = false end
 end))
 track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
+HX.waterBtn = { Visible = false }
+function HX.waterFx() end
 local quickF = frame(gui, 0, 0, 322, 60, PANEL, 1)
 quickF.AnchorPoint = Vector2.new(1, 1)
 quickF.Position = UDim2.new(1, -8, 1, -252)
@@ -6726,6 +7269,7 @@ local function updateHud(dt)
 	rpmF.Visible = seated
 	rightF.Visible = seated
 	quickF.Visible = seated
+	HX.waterBtn.Visible = not not seated
 	local zone = nil
 	if c and not c.driver and not c.boardFrom and not c.exiting then zone = HX.nearZone(c) end
 	enterBtn.Visible = zone == "door"
@@ -6773,6 +7317,7 @@ local function updateHud(dt)
 		ribs[i].BackgroundColor3 = ((7 - i) <= c.notch * 2) and HUDRED or PEDIDLE
 	end
 	HX.brakeFx(c, dt)
+	HX.waterFx(c)
 	HX.setEngine(c.engineOn or c.ign ~= nil)
 	K.setLamp(c.lamps)
 	K.setWin(c.winP or 0)

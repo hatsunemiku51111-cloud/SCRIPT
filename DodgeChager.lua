@@ -6652,40 +6652,56 @@ do
 		if keyTool then pcall(function() keyTool:Destroy() end) end
 	end
 end
-local gaugeF = frame(gui, 0, 0, 150, 150, PANEL, 0.15, 75)
+local gaugeF = frame(gui, 0, 0, 284, 140, PANEL, 1)
 gaugeF.AnchorPoint = Vector2.new(0, 0)
 gaugeF.Position = UDim2.new(0, 10, 0, 56)
-stroke(gaugeF, 2.5, ACC, 0.2)
-addScale(gaugeF, 0.6)
-for i = 0, 13 do
-	local a = -135 + i * (270 / 13)
-	local cont = frame(gaugeF, 0, 0, 150, 150, PANEL, 1)
-	cont.Rotation = a
-	local major = (i % 2 == 0)
-	frame(cont, 74, 5, 2, major and 9 or 5, i >= 10 and HUDRED or WHITE, 0)
-	if major then
-		local rad = math.rad(a)
-		local lx = 75 + math.sin(rad) * 50
-		local ly = 75 - math.cos(rad) * 50
-		label(gaugeF, tostring(i * 20), 9, i >= 10 and HUDRED or WHITE, lx - 12, ly - 6, 24, 12)
+addScale(gaugeF, 0.55)
+local CLU = { D = 140 }
+local FACEC = Color3.fromRGB(9, 11, 15)
+local CHROME = Color3.fromRGB(168, 176, 188)
+local function dial(cx, vmax, majorStep, minorStep, labelDiv, redFrom, caption)
+	local D = CLU.D
+	local R = D / 2
+	local face = frame(gaugeF, cx - R, 0, D, D, FACEC, 0, R)
+	local st = stroke(face, 3, CHROME, 0.1)
+	local inner = frame(face, 8, 8, D - 16, D - 16, FACEC, 1, R - 8)
+	stroke(inner, 1, ACC, 0.65)
+	local nMinor = math.floor(vmax / minorStep + 0.5)
+	for i = 0, nMinor do
+		local v = i * minorStep
+		local a = -135 + 270 * v / vmax
+		local major = math.abs(v / majorStep - math.floor(v / majorStep + 0.5)) < 1e-6
+		local red = redFrom and v >= redFrom
+		local len = major and 11 or 6
+		local rr = R - 5 - len / 2
+		local t = frame(gaugeF, 0, 0, major and 2.5 or 1.5, len, red and HUDRED or WHITE, 0)
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.fromOffset(cx + math.sin(math.rad(a)) * rr, R - math.cos(math.rad(a)) * rr)
+		t.Rotation = a
+		t.ZIndex = 2
+		if major then
+			local lr = R - 27
+			local l = label(gaugeF, tostring(math.floor(v / labelDiv + 0.5)), 10, red and HUDRED or WHITE, cx + math.sin(math.rad(a)) * lr - 14, R - math.cos(math.rad(a)) * lr - 7, 28, 14)
+			l.ZIndex = 2
+		end
 	end
+	local cap = label(gaugeF, caption, 8, METALC, cx - 35, R + 24, 70, 10)
+	cap.ZIndex = 2
+	local nc = frame(gaugeF, cx - R, 0, D, D, PANEL, 1)
+	nc.ZIndex = 4
+	nc.Rotation = -135
+	local nd = frame(nc, R - 1.5, 9, 3, R - 9, HUDRED, 0, 1)
+	nd.ZIndex = 4
+	local tl = frame(nc, R - 1.5, R, 3, 16, HUDRED, 0, 1)
+	tl.ZIndex = 4
+	local hb = frame(gaugeF, cx - 8, R - 8, 16, 16, CHROME, 0, 8)
+	hb.ZIndex = 5
+	local hb2 = frame(hb, 4, 4, 8, 8, FACEC, 0, 4)
+	hb2.ZIndex = 5
+	return nc, st
 end
-local needleC = frame(gaugeF, 0, 0, 150, 150, PANEL, 1)
-needleC.Rotation = -135
-frame(needleC, 73.5, 16, 3, 59, HUDRED, 0, 1)
-local hub = frame(gaugeF, 69, 69, 12, 12, METALC, 0, 6)
-hub.ZIndex = 3
-local speedTxt = label(gaugeF, "0", 28, WHITE, 25, 78, 100, 30)
-label(gaugeF, "KM/H", 9, METALC, 25, 105, 100, 10)
-local gearTxt = label(gaugeF, "MARCHA 5", 9, ACC, 25, 116, 100, 10)
-local modeTxt = label(gaugeF, "P", 22, HUDRED, 50, 38, 50, 26)
-local rpmF = frame(gaugeF, 3, 156, 144, 8, PANEL, 1)
-local segs = {}
-for i = 1, 16 do
-	local col = i <= 10 and GREEN or (i <= 13 and AMBER or HUDRED)
-	local s = frame(rpmF, (i - 1) * 9, 0, 7, 8, col, 0.85, 2)
-	segs[i] = s
-end
+local needleT, tachStroke = dial(70, 8000, 1000, 500, 1000, 6500, "RPM x1000")
+local needleC = dial(214, 280, 40, 10, 1, nil, "KM/H")
 local rightF = frame(gui, 0, 0, 206, 176, PANEL, 1)
 rightF.AnchorPoint = Vector2.new(1, 1)
 rightF.Position = UDim2.new(1, -8, 1, -12)
@@ -7027,8 +7043,8 @@ track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
 HX.waterBtn = { Visible = false }
 function HX.waterFx() end
 local quickF = frame(gui, 0, 0, 322, 60, PANEL, 1)
-quickF.AnchorPoint = Vector2.new(1, 1)
-quickF.Position = UDim2.new(1, -8, 1, -252)
+quickF.AnchorPoint = Vector2.new(0.5, 0)
+quickF.Position = UDim2.new(0.5, 0, 0, 6)
 addScale(quickF)
 local camT = HX.shell(quickF, 0, 0, 58, 60, "CAMERA  (V)")
 local lampT = HX.shell(quickF, 66, 0, 58, 60, "LUZ  (L)")
@@ -7266,7 +7282,6 @@ local function updateHud(dt)
 	local c = car
 	local seated = c ~= nil and c.driver and not c.boardFrom and not c.exiting
 	gaugeF.Visible = seated
-	rpmF.Visible = seated
 	rightF.Visible = seated
 	quickF.Visible = seated
 	HX.waterBtn.Visible = not not seated
@@ -7278,37 +7293,22 @@ local function updateHud(dt)
 	for _, f in ipairs(HX.anim) do f(nowT) end
 	if not seated then return end
 	local kmh = math.abs(c.vF)
-	local kq = math.floor(kmh + 0.5)
-	if HUDC.kq ~= kq then
-		HUDC.kq = kq
-		speedTxt.Text = tostring(kq)
-		needleC.Rotation = -135 + math.clamp(kmh / 260, 0, 1) * 270
+	local ns = math.floor((-135 + math.clamp(kmh / 280, 0, 1.02) * 270) * 4 + 0.5) / 4
+	if HUDC.ns ~= ns then
+		HUDC.ns = ns
+		needleC.Rotation = ns
+	end
+	local nt = math.floor((-135 + math.clamp(c.rpm / 8000, 0, 1.03) * 270) * 4 + 0.5) / 4
+	if HUDC.nt ~= nt then
+		HUDC.nt = nt
+		needleT.Rotation = nt
+	end
+	local red = c.rpm >= 6500
+	if HUDC.red ~= red then
+		HUDC.red = red
+		tachStroke.Color = red and HUDRED or Color3.fromRGB(168, 176, 188)
 	end
 	local shown = c.parkPending and "P" or c.mode
-	local mcol = shown == "P" and HUDRED or (shown == "R" and AMBER or (shown == "N" and WHITE or GREEN))
-	if HUDC.shown ~= shown then
-		HUDC.shown = shown
-		modeTxt.Text = shown
-		modeTxt.TextColor3 = mcol
-	end
-	if c.parkPending then
-		modeTxt.TextTransparency = (math.floor(os.clock() * 5) % 2 == 0) and 0 or 0.7
-	else
-		modeTxt.TextTransparency = 0
-	end
-	local gkey = (shown == "P") and "P" or gear
-	if HUDC.gkey ~= gkey then
-		HUDC.gkey = gkey
-		gearTxt.Text = (shown == "P") and "TRAVADO" or ("MARCHA " .. gear)
-		gearTxt.TextColor3 = (shown == "P") and HUDRED or ACC
-	end
-	local lit = math.floor(math.clamp(c.rpm / 7500, 0, 1) * 16 * 2 + 0.5) / 2
-	if HUDC.lit ~= lit then
-		HUDC.lit = lit
-		for i = 1, 16 do
-			segs[i].BackgroundTransparency = 0.85 * (1 - math.clamp(lit - (i - 1), 0, 1))
-		end
-	end
 	shifter.setState(shown, gear)
 	shifter.tick(nowT)
 	pedalStroke.Color = (c.notch > 0) and HUDRED or PEDIDLE

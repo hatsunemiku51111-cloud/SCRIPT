@@ -6616,12 +6616,16 @@ do
 		tool.Grip = CFrame.new(Config.KeyGrip) * rot * CFrame.Angles(math.rad(e.X), math.rad(e.Y), math.rad(e.Z))
 		tool.Activated:Connect(keyUse)
 		tool.Equipped:Connect(function()
+			K.keyOn = true
 			slotStroke.Color = WHITE
 			playSound(Config.SoundKeyEquip, 0.5)
 			if not (car and car.driver) then
 			end
 		end)
-		tool.Unequipped:Connect(function() slotStroke.Color = ACC end)
+		tool.Unequipped:Connect(function()
+			K.keyOn = false
+			slotStroke.Color = ACC
+		end)
 		pcall(function() tool.Parent = backpack end)
 		keyTool = tool
 	end
@@ -7257,6 +7261,219 @@ end))
 track(winBtn.Activated:Connect(function()
 	if car and car.driver then car.winT = (car.winT == 1) and 0 or 1 end
 end))
+do
+	local function build()
+		local ORIG = (Config.Tweaks and Config.Tweaks.BodyColor) or Config.BodyColor
+		local YELLOW = Color3.fromRGB(245, 197, 0)
+		local STRIPE = Color3.fromRGB(12, 12, 14)
+		local themes = {
+			{ body = ORIG, stripes = false },
+			{ body = YELLOW, stripes = true },
+		}
+		local cur = 1
+		local THEME_FILE = "CHARGER_SCRIPT/tema.txt"
+		local function saveTheme(n)
+			pcall(function()
+				if not writefile then return end
+				if makefolder and isfolder and not isfolder("CHARGER_SCRIPT") then makefolder("CHARGER_SCRIPT") end
+				writefile(THEME_FILE, tostring(n))
+			end)
+		end
+		local function loadTheme()
+			local okR, v = pcall(function()
+				if isfile and readfile and isfile(THEME_FILE) then return tonumber(readfile(THEME_FILE)) end
+			end)
+			if okR and v and themes[v] then return v end
+			return 1
+		end
+		cur = loadTheme()
+		Config.Tweaks.BodyColor = themes[cur].body
+		local function clearStripes(c)
+			if c._stripeF then
+				pcall(function() c._stripeF:Destroy() end)
+				c._stripeF = nil
+			end
+		end
+		local STRIPE_W = 0.5
+		local STRIPE_X = 0.4
+		local STRIPE_T = 0.03
+		local STRIPE_LIFT = 0.018
+		local STRIPE_STEP = 0.2
+		local STRIPE_Z0, STRIPE_Z1 = -10.1, 10.1
+		local function addStripes(c)
+			clearStripes(c)
+			local root, model = c.root, c.model
+			if not (root and root.Parent and model and model.Parent) then return end
+			if (c.hoodA or 0) > 0.01 or (c.hoodT or 0) > 0 then return end
+			if os.clock() < (c._stripeNext or 0) then return end
+			local folder = Instance.new("Folder")
+			folder.Name = "ThemeStripes"
+			folder.Parent = model
+			c._stripeF = folder
+			local saved = {}
+			for _, p in ipairs(model:GetDescendants()) do
+				if p:IsA("BasePart") then
+					saved[#saved + 1] = { p, p.CanQuery }
+					p.CanQuery = true
+				end
+			end
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Include
+			rp.FilterDescendantsInstances = { model }
+			local cf = root.CFrame
+			local up = cf.UpVector
+			local body = c._body
+			local function probe(sx, z)
+				local o = cf:PointToWorldSpace(Vector3.new(sx * S, 14 * S, z * S))
+				local r = workspace:Raycast(o, -up * 20 * S, rp)
+				if r and r.Instance.Color == body and r.Instance.Transparency < 0.5 and r.Normal:Dot(up) > 0.5 then
+					return r
+				end
+				return nil
+			end
+			local function mk(r)
+				return { r = r, l = cf:PointToObjectSpace(r.Position) }
+			end
+			local function edge(sx, zIn, zOut)
+				for _ = 1, 7 do
+					local zm = (zIn + zOut) / 2
+					if probe(sx, zm) then zIn = zm else zOut = zm end
+				end
+				return probe(sx, zIn)
+			end
+			local made = {}
+			local ok, err = pcall(function()
+				for _, sx in ipairs({ -STRIPE_X, STRIPE_X }) do
+					local seq = {}
+					local pz, pe
+					local z = STRIPE_Z0
+					while z <= STRIPE_Z1 do
+						local h = probe(sx, z)
+						local en = h and mk(h) or false
+						if pz ~= nil then
+							if en and not pe then
+								local eh = edge(sx, z, pz)
+								if eh then seq[#seq + 1] = mk(eh) end
+							elseif pe and not en then
+								local eh = edge(sx, pz, z)
+								if eh then seq[#seq + 1] = mk(eh) end
+							end
+						end
+						seq[#seq + 1] = en
+						pz, pe = z, en
+						z = z + STRIPE_STEP
+					end
+					for i = 1, #seq - 1 do
+						local a, b = seq[i], seq[i + 1]
+						if a and b then
+							local d = b.r.Position - a.r.Position
+							local len = d.Magnitude
+							local dy = math.abs(a.l.Y - b.l.Y)
+							local dz = math.abs(a.l.Z - b.l.Z)
+							if len > 0.004 * S and dy < 0.5 * S and dy <= 0.9 * dz + 0.01 * S then
+								local t = d / len
+								local nn = a.r.Normal + b.r.Normal
+								local upv = nn - t * nn:Dot(t)
+								if upv.Magnitude < 0.01 then upv = up - t * up:Dot(t) end
+								upv = upv.Unit
+								local rightv = upv:Cross(t).Unit
+								upv = t:Cross(rightv).Unit
+								local pos = (a.r.Position + b.r.Position) / 2 + upv * (STRIPE_LIFT * S)
+								made[#made + 1] = { pos = pos, x = rightv, y = upv, z = t, len = len, part = a.r.Instance }
+							end
+						end
+					end
+				end
+			end)
+			for _, e in ipairs(saved) do
+				pcall(function() e[1].CanQuery = e[2] end)
+			end
+			if not ok or #made == 0 then
+				warn("[Charger] faixas Camaro: nada gerado (" .. tostring(err) .. ")")
+				clearStripes(c)
+				c._stripeNext = os.clock() + 3
+				return
+			end
+			for _, m in ipairs(made) do
+				local st = Instance.new("Part")
+				st.Name = "ThemeStripe"
+				st.Size = Vector3.new(STRIPE_W * S, STRIPE_T * S, m.len + 0.03 * S)
+				st.Color = STRIPE
+				st.Material = Enum.Material.SmoothPlastic
+				st.Reflectance = 0.12
+				st.Anchored = false
+				st.CanCollide = false
+				st.CanQuery = false
+				st.CanTouch = false
+				st.Massless = true
+				st.CastShadow = false
+				st.CFrame = CFrame.fromMatrix(m.pos, m.x, m.y, m.z)
+				st.Parent = folder
+				local w = Instance.new("Weld")
+				w.Part0 = m.part
+				w.Part1 = st
+				w.C0 = m.part.CFrame:ToObjectSpace(st.CFrame)
+				w.Parent = st
+			end
+		end
+		local bar = frame(gui, 0, 0, 200, 60, PANEL, 1)
+		bar.AnchorPoint = Vector2.new(0.5, 0)
+		bar.Position = UDim2.new(0.5, 0, 0, 6)
+		bar.Visible = false
+		addScale(bar)
+		HX.themeF = bar
+		local btns = {}
+		local function paintBtns()
+			for i, T in ipairs(btns) do
+				T.st.Transparency = (i == cur) and 0 or 1
+				T.st.Color = ACC
+			end
+		end
+		local function setTheme(n)
+			cur = n
+			saveTheme(n)
+			Config.Tweaks.BodyColor = themes[n].body
+			if car and car.apply then pcall(car.apply, Config.Tweaks) end
+			if car then
+				car._stripeNext = nil
+				if themes[n].stripes then pcall(addStripes, car) else clearStripes(car) end
+			end
+			paintBtns()
+		end
+		local function swatch(T, col, stripes)
+			local sw = frame(T.ic, 18, 8, 60, 30, col, 0, 8)
+			stroke(sw, 1.4, Color3.fromRGB(46, 55, 68), 0)
+			if stripes then
+				frame(sw, 0, 9, 60, 4, STRIPE, 0)
+				frame(sw, 0, 17, 60, 4, STRIPE, 0)
+			end
+		end
+		local t1 = HX.shell(bar, 0, 0, 96, 60, "1  ORIGINAL")
+		local t2 = HX.shell(bar, 104, 0, 96, 60, "2  CAMARO")
+		btns[1], btns[2] = t1, t2
+		swatch(t1, ORIG, false)
+		swatch(t2, YELLOW, true)
+		track(t1.b.Activated:Connect(function() setTheme(1) end))
+		track(t2.b.Activated:Connect(function() setTheme(2) end))
+		paintBtns()
+		task.spawn(function()
+			while K.alive do
+				task.wait(0.6)
+				local c = car
+				if c and c.model and c.model.Parent and c.root and c.root.Parent then
+					local th = themes[cur]
+					if c._body ~= th.body then pcall(c.apply, Config.Tweaks) end
+					if th.stripes and not c._stripeF then
+						pcall(addStripes, c)
+					elseif not th.stripes and c._stripeF then
+						clearStripes(c)
+					end
+				end
+			end
+		end)
+	end
+	build()
+end
 updateScale()
 track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
 local HUDC = {}
@@ -7266,6 +7483,7 @@ local function updateHud(dt)
 	gaugeF.Visible = seated
 	rightF.Visible = seated
 	quickF.Visible = seated
+	if HX.themeF then HX.themeF.Visible = (K.keyOn and not seated) and true or false end
 	HX.waterBtn.Visible = not not seated
 	local zone = nil
 	if c and not c.driver and not c.boardFrom and not c.exiting then zone = HX.nearZone(c) end

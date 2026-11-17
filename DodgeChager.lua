@@ -6968,7 +6968,8 @@ brakeBtn.BorderSizePixel = 0
 brakeBtn.AnchorPoint = Vector2.new(0.5, 1)
 brakeBtn.Position = UDim2.fromOffset(166, 172)
 brakeBtn.Size = UDim2.fromOffset(52, PEDH)
-brakeBtn.BackgroundTransparency = 1
+brakeBtn.BackgroundTransparency = 0
+brakeBtn.BackgroundColor3 = Color3.fromRGB(19, 23, 29)
 brakeBtn.ClipsDescendants = true
 brakeBtn.Text = ""
 local pedalStroke
@@ -6980,57 +6981,38 @@ do
 end
 brakeBtn.Parent = rightF
 local ribs = {}
-for i = 1, 6 do
-	local r = Instance.new("Frame")
-	r.BorderSizePixel = 0
-	r.AnchorPoint = Vector2.new(0.5, 0.5)
-	r.Position = UDim2.fromScale(0.5, 0.40 + (i - 1) * 0.105)
-	r.Size = UDim2.new(0.66, 0, 0, 4)
-	r.BackgroundColor3 = PEDIDLE
-	local rc = Instance.new("UICorner")
-	rc.CornerRadius = UDim.new(1, 0)
-	rc.Parent = r
-	r.Parent = brakeBtn
-	ribs[i] = r
-end
 do
-	local discG = Instance.new("Frame")
-	discG.BackgroundTransparency = 1
-	discG.BorderSizePixel = 0
-	discG.AnchorPoint = Vector2.new(0.5, 0)
-	discG.Position = UDim2.new(0.5, -3, 0, 6)
-	discG.Size = UDim2.fromOffset(26, 26)
-	discG.Parent = brakeBtn
-	local ringF = Instance.new("Frame")
-	ringF.BackgroundTransparency = 1
-	ringF.BorderSizePixel = 0
-	ringF.Size = UDim2.fromScale(1, 1)
-	do
-		local rc = Instance.new("UICorner")
-		rc.CornerRadius = UDim.new(1, 0)
-		rc.Parent = ringF
+	local function build()
+		local CHB = Color3.fromRGB(201, 210, 221)
+		local DKB = Color3.fromRGB(11, 13, 17)
+		local GRB = Color3.fromRGB(123, 134, 150)
+		local rod = frame(brakeBtn, 23, 12, 6, 26, GRB, 0, 2)
+		HX.circ(brakeBtn, 26, 9, 12, CHB, 0)
+		HX.circ(brakeBtn, 26, 9, 5, DKB, 0)
+		local padG = Instance.new("Frame")
+		padG.BackgroundTransparency = 1
+		padG.BorderSizePixel = 0
+		padG.Size = UDim2.fromScale(1, 1)
+		padG.Parent = brakeBtn
+		local rim = frame(padG, 6, 38, 40, 54, CHB, 0, 6)
+		frame(padG, 9, 41, 34, 48, DKB, 0, 4)
+		for i = 1, 5 do
+			ribs[i] = frame(padG, 12, 47 + 9 * (i - 1), 28, 4, CHB, 0, 2)
+		end
+		local heat = 0
+		function HX.brakeFx(c, dt)
+			local want = (c.notch > 0 or (c.brakePed or 0) > 0 or held.brakeUi) and 1 or 0
+			heat = heat + (want - heat) * math.min(1, dt * 10)
+			padG.Position = UDim2.fromOffset(0, 5 * heat)
+			rod.Size = UDim2.fromOffset(6, 26 + 5 * heat)
+			rim.BackgroundColor3 = CHB:Lerp(HUDRED, heat)
+			local n = math.max(math.floor(heat * 5 + 0.5), math.min(5, c.notch * 2))
+			for i = 1, 5 do
+				ribs[i].BackgroundColor3 = ((6 - i) <= n) and HUDRED or CHB
+			end
+		end
 	end
-	local ringStroke = stroke(ringF, 2.6, METALC, 0)
-	ringF.Parent = discG
-	for i = 1, 6 do
-		local a = math.rad(i * 60)
-		HX.circ(discG, 13 + 7.5 * math.cos(a), 13 + 7.5 * math.sin(a), 3.4, Color3.fromRGB(8, 10, 14), 0)
-	end
-	HX.circ(discG, 13, 13, 7, METALC, 0)
-	local caliper = frame(brakeBtn, 0, 0, 8, 17, PEDIDLE, 0, 3)
-	caliper.AnchorPoint = Vector2.new(0.5, 0.5)
-	caliper.Position = UDim2.new(0.5, 14, 0, 19)
-	local spin, heat = 0, 0
-	function HX.brakeFx(c, dt)
-		spin = (spin + math.abs(c.vF or 0) * dt * 3) % 360
-		discG.Rotation = spin
-		local want = (c.notch > 0 or (c.brakePed or 0) > 0 or held.brakeUi) and 1 or 0
-		heat = heat + (want - heat) * math.min(1, dt * 10)
-		ringStroke.Color = METALC:Lerp(HUDRED, heat)
-		caliper.BackgroundColor3 = PEDIDLE:Lerp(HUDRED, heat)
-		local k = 1 + 0.12 * heat
-		caliper.Size = UDim2.fromOffset(8 * k, 17 * k)
-	end
+	build()
 end
 label(rightF, "FREIO (B)", 9, METALC, 128, 60, 76, 12)
 track(brakeBtn.InputBegan:Connect(function(i)
@@ -7312,10 +7294,6 @@ local function updateHud(dt)
 	shifter.setState(shown, gear)
 	shifter.tick(nowT)
 	pedalStroke.Color = (c.notch > 0) and HUDRED or PEDIDLE
-	brakeBtn.Size = UDim2.fromOffset(52, PEDH * (1 - 0.05 * c.notch))
-	for i = 1, 6 do
-		ribs[i].BackgroundColor3 = ((7 - i) <= c.notch * 2) and HUDRED or PEDIDLE
-	end
 	HX.brakeFx(c, dt)
 	HX.waterFx(c)
 	HX.setEngine(c.engineOn or c.ign ~= nil)

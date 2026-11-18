@@ -6828,6 +6828,8 @@ State.MortyFollow = {
 	TeleportDistance = 55,   -- se ficar mais longe que isso (portal, teleporte), ele aparece do seu lado
 	MaxCarrySize = 60,       -- tamanho maximo (diagonal, em studs) do que o Morty consegue pegar
 	MaxCarryMass = 50000,    -- massa maxima do que ele consegue pegar (mesmo limite do EMOTZ-HAND)
+	PiggyUp = 0.55,
+	PiggyBack = 0.12,
 	Prompt = false,          -- true = mostra o botao "Falar" perto dele (alternativa ao clique)
 	Hair = "110659739210853",
 	Face = "84682879107771",
@@ -7109,7 +7111,91 @@ State._buildFollowMorty = function(character, Z, newGui)
 		somPouso = "rbxassetid://83323788759262",
 		volumePouso = 0.3,
 		folder = nil,
+		hand = nil,   -- alvo das maos (espaco do root do Morty): { r = Vector3, l = Vector3 }
 	}
+
+	-- ---------- falas do Morty (usa o mesmo sistema de falas do Rick) ----------
+	PG.FALAS = {
+		ir = {
+			{ "Beleza, Rick! Já tô indo!", "animado", 1 },
+			{ "Deixa comigo, Rick!", "animado", 1 },
+			{ "Pegar isso? Ah geez, tá bom...", "nervoso", 1 },
+		},
+		pegou = {
+			{ "Peguei! Aqui, Rick!", "animado", 1 },
+			{ "Consegui! Eu acho...", "nervoso", 1 },
+			{ "Até que é leve, né?", "calmo", 1 },
+		},
+		pegouPesado = {
+			{ "Ah geez, isso é pesado, Rick!", "grito", 2 },
+			{ "Geez, isso pesa uma tonelada!", "grito", 2 },
+			{ "Ugh... quem deixou isso aqui?!", "nervoso", 2 },
+		},
+		largou = {
+			{ "Pronto, aqui!", "calmo", 1 },
+			{ "Pode pegar, Rick!", "animado", 1 },
+			{ "Larguei!", "calmo", 1 },
+		},
+		largouPesado = {
+			{ "Ufa! Minhas costas, geez!", "nervoso", 2 },
+			{ "*ufa* Finalmente!", "burp", 1 },
+			{ "Isso era pesado demais!", "grito", 2 },
+		},
+		perdeu = {
+			{ "Ah geez, escapou!", "grito", 2 },
+			{ "Ei! Volta aqui!", "grito", 2 },
+			{ "Eu não deixei cair! ...tá, deixei.", "nervoso", 1 },
+		},
+		falhou = {
+			{ "Não dá, Rick: {motivo}!", "erro", 1 },
+			{ "Geez, {motivo}... eu não consigo!", "erro", 1 },
+		},
+		portal = {
+			{ "AAAH! Isso de novo, Rick?!", "grito", 2 },
+			{ "Geez! Espera por mim, Rick!", "grito", 2 },
+			{ "Eu odeio portais! *grita*", "nervoso", 2 },
+			{ "Ah geez, meu estômago!", "nervoso", 1 },
+		},
+		costas = {
+			{ "Ah geez, Rick, não me deixa cair!", "nervoso", 1 },
+			{ "Uau, daqui de cima dá pra ver tudo!", "animado", 1 },
+			{ "Segura firme, Rick!", "nervoso", 1 },
+		},
+		desceu = {
+			{ "Ufa, valeu pela carona, Rick!", "calmo", 1 },
+			{ "Isso foi estranhamente confortável.", "calmo", 1 },
+		},
+		portalCarga = {
+			{ "Rick! Tô passando pelo portal com isso na mão!", "grito", 2 },
+			{ "Ah geez, não deixa cair, não deixa cair!", "nervoso", 2 },
+			{ "Isso vai dar muito errado... *segura firme*", "nervoso", 1 },
+		},
+	}
+	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, desceu = 1 }
+	PG.MF = nil
+	pcall(function()
+		if Z.fala and Z.fala.criar then
+			PG.MF = Z.fala.criar(function() return head end, PG.FALAS, PG.CHANCE,
+				function() return Z.alive and rig.Parent ~= nil end, 1.6, 90)
+		end
+	end)
+	function PG.diz(cat, vars)
+		if PG.MF then pcall(PG.MF.dizer, cat, vars) end
+	end
+
+	-- angulos (z = levantar, y = fechar pro centro) do ombro do Morty pra a mao apontar pro alvo.
+	-- sgn = 1 braco direito, -1 braco esquerdo; tgt no espaco do root. Retorna theta, psi.
+	function PG.armAim(sgn, tgt)
+		local d = tgt - V3(sgn * S, 0.5 * S, 0)
+		local dj
+		if sgn > 0 then dj = V3(-d.Z, d.Y, d.X) else dj = V3(d.Z, d.Y, -d.X) end
+		local m = dj.Magnitude
+		if m < 1e-4 then return 0, 0 end
+		dj = dj / m
+		local th = sgn * math.acos(math.clamp(-dj.Y, -1, 1))
+		local psi = math.atan2(-dj.Z * sgn, dj.X * sgn)
+		return th, psi
+	end
 
 	local function bboxOf(obj)
 		if obj:IsA("Model") then
@@ -7260,7 +7346,10 @@ State._buildFollowMorty = function(character, Z, newGui)
 				pcall(PG.efeitoPouso, raiz, c.tam, c.conjunto)
 			end
 		end
-		if not silent then pcall(print, "[RickPortalGun] Morty largou: " .. tostring(c.name)) end
+		if not silent then
+			pcall(print, "[RickPortalGun] Morty largou: " .. tostring(c.name))
+			PG.diz(c.pesado and "largouPesado" or "largou")
+		end
 	end
 
 	-- chamado todo frame (RenderStepped via stepFn e Stepped): leva a assembly pra frente do Morty
@@ -7276,6 +7365,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		if t >= 1 and (raiz.Position - c.ultimoCF.Position).Magnitude > 6 then
 			releaseCarry(true)
 			pcall(print, "[RickPortalGun] Morty perdeu o objeto: " .. tostring(c.name))
+			PG.diz("perdeu")
 			return
 		end
 		local e = 1 - (1 - t) * (1 - t)
@@ -7305,6 +7395,11 @@ State._buildFollowMorty = function(character, Z, newGui)
 		local relRaiz = cfRoot:ToObjectSpace(raiz.CFrame)
 		local alvoCF = CF(V3(0, yo, -front) - centroBox) * relRaiz
 
+		-- maos nas laterais da caixa (altura limitada pro braco curto do Morty)
+		local hx = math.max(0.2, meio.X * 0.9)
+		local hy = math.clamp(yo, -0.4 * S, 0.7 * S)
+		PG.hand = { r = V3(hx, hy, -front), l = V3(-hx, hy, -front) }
+
 		local pasta = PG.pasta()
 		local ncs = {}
 		local partesChar = {}
@@ -7330,7 +7425,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		c.conn2 = RunService.Stepped:Connect(function()
 			carryStep(root.CFrame)
 		end)
-		return true
+		return true, c.pesado
 	end
 
 	-- ---------- escolher o que pegar ----------
@@ -7422,6 +7517,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 			return
 		end
 		ctl.fetch = { obj = target, phase = "go", name = target.Name }
+		PG.diz("ir")
 		stopPick()
 	end
 
@@ -7432,6 +7528,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 	end
 
 	local closeMenu
+	local PB = {}
 	local function buildMenu()
 		destroyMenu()
 		local g = newGui("RickMortyFollowMenu", 30)
@@ -7542,6 +7639,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		-- Pega
 		local ORG = C3(255, 170, 60)
 		local bP = make3D(3, C3(48, 26, 92), ORG, function()
+			if ctl.piggy or ctl.piggyWant then PB.stop() end
 			if ctl.fetch then
 				ctl.fetch = nil
 				closeMenu()
@@ -7565,8 +7663,25 @@ State._buildFollowMorty = function(character, Z, newGui)
 		menuRefs.pegaDesc = label(bP, "", 12, Enum.Font.Gotham, ORG,
 			UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 18))
 
+		local CYA = C3(90, 210, 255)
+		local bR = make3D(4, C3(48, 26, 92), CYA, function()
+			closeMenu()
+			PB.toggle()
+		end)
+		local swR = Instance.new("Frame")
+		swR.Size = UDim2.new(0, 8, 1, -18)
+		swR.Position = UDim2.new(0, 10, 0, 9)
+		swR.BackgroundColor3 = CYA
+		swR.BorderSizePixel = 0
+		swR.Parent = bR
+		Instance.new("UICorner", swR).CornerRadius = UDim.new(1, 0)
+		menuRefs.rideTitle = label(bR, "Levantar o Morty", 16, Enum.Font.GothamBold, Color3.new(1, 1, 1),
+			UDim2.new(0, 28, 0, 6), UDim2.new(1, -36, 0, 22))
+		menuRefs.rideDesc = label(bR, "", 12, Enum.Font.Gotham, CYA,
+			UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 18))
+
 		-- Fechar
-		local cb = make3D(4, C3(80, 36, 84), C3(255, 160, 210), function() closeMenu() end)
+		local cb = make3D(5, C3(80, 36, 84), C3(255, 160, 210), function() closeMenu() end)
 		local cl = label(cb, "Deixa pra lá", 15, Enum.Font.GothamBold, C3(255, 205, 230),
 			UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 1, 0))
 		cl.TextXAlignment = Enum.TextXAlignment.Center
@@ -7584,6 +7699,18 @@ State._buildFollowMorty = function(character, Z, newGui)
 			menuRefs.followSw.BackgroundColor3 = C3(255, 110, 110)
 			menuRefs.followDesc.TextColor3 = C3(255, 150, 150)
 			menuRefs.followDesc.Text = "Parado - toque pra ele te seguir"
+		end
+		if menuRefs.rideTitle then
+			if ctl.piggy then
+				menuRefs.rideTitle.Text = "Descer"
+				menuRefs.rideDesc.Text = "Ele está nas suas costas"
+			elseif ctl.piggyWant then
+				menuRefs.rideTitle.Text = "Cancelar"
+				menuRefs.rideDesc.Text = "Morty indo até você"
+			else
+				menuRefs.rideTitle.Text = "Levantar o Morty"
+				menuRefs.rideDesc.Text = "Pegar o Morty nas costas"
+			end
 		end
 		if ctl.fetch then
 			menuRefs.pegaTitle.Text = "Cancelar"
@@ -7728,16 +7855,20 @@ State._buildFollowMorty = function(character, Z, newGui)
 	end
 
 	local function ctlDestroy()
+		if PB.cleanup then pcall(PB.cleanup) end
 		for _, c in ipairs(cons) do pcall(function() c:Disconnect() end) end
 		cons = {}
 		releaseCarry(true)
 		ctl.menuOpen, ctl.mode, ctl.fetch = false, "idle", nil
+		if PG.MF then pcall(PG.MF.destruir) end
 		if pickGui then pcall(function() pickGui:Destroy() end) end
 		destroyMenu()
 	end
 
 	State.followMorty = {
 		rig = rig,
+		-- chamado quando voce atravessa um portal: o Morty (e o que ele carrega) vai junto
+		onTeleport = function() ctl.warp = true end,
 		destroy = function() pcall(ctlDestroy) pcall(function() rig:Destroy() end) end,
 		-- a arma consulta isso pra nao atirar quando o clique e no Morty / escolhendo o que pegar
 		blockFire = function(p)
@@ -7753,6 +7884,397 @@ State._buildFollowMorty = function(character, Z, newGui)
 	local filterT, lastErr = 0, 0
 	local STOP, FOLLOW = CFG.StopDistance, CFG.FollowDistance
 	local BIND = "RickMortyFollowStep"
+
+
+	local pgAmt = 0
+	local function sg(t, a, b)
+		local x = math.clamp((t - a) / (b - a), 0, 1)
+		return x * x * (3 - 2 * x)
+	end
+	local function bez(a, b, c, u)
+		local i = 1 - u
+		return a * (i * i) + b * (2 * i * u) + c * (u * u)
+	end
+	local function isJ(d)
+		return d:IsA("Motor6D") or d:IsA("AnimationConstraint")
+	end
+	local function rotOnly(cf)
+		return cf - cf.Position
+	end
+	local function rotFromTo(a, b)
+		a, b = a.Unit, b.Unit
+		local axis = a:Cross(b)
+		local dp = a:Dot(b)
+		if axis.Magnitude < 1e-5 then
+			if dp > 0 then return CF() end
+			local perp = math.abs(a.X) < 0.9 and V3(1, 0, 0) or V3(0, 1, 0)
+			return CFrame.fromAxisAngle(a:Cross(perp).Unit, math.pi)
+		end
+		return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+	end
+	local function pLimbJoints(ch)
+		local map = { waist = { "UpperTorso" }, neck = { "Head" } }
+		local J = {}
+		for _, d in ipairs(ch:GetDescendants()) do
+			if isJ(d) and d.Part0 and d.Part1 then
+				for key, names in pairs(map) do
+					if not J[key] then
+						for _, n in ipairs(names) do
+							if d.Part1.Name == n then J[key] = d end
+						end
+					end
+				end
+			end
+		end
+		return J
+	end
+	local function pArmJoints(ch)
+		local J = { right = { extra = {} }, left = { extra = {} } }
+		local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
+		local motors = {}
+		for _, d in ipairs(ch:GetDescendants()) do
+			if isJ(d) and d.Part0 and d.Part1 then
+				motors[#motors + 1] = d
+				for side, list in pairs(names) do
+					if d.Part1.Name == list[1] or d.Part1.Name == list[2] then
+						J[side].shoulder = J[side].shoulder or d
+					end
+				end
+			end
+		end
+		for _, j in pairs(J) do
+			local cur = j.shoulder
+			for _ = 1, 2 do
+				if not cur then break end
+				local nxt
+				for _, m in ipairs(motors) do
+					if m ~= cur and m.Part0 == cur.Part1 and not m.Part1:IsA("Accessory") then
+						local nm = m.Part1.Name:lower()
+						if nm:find("arm") or nm:find("hand") or nm:find("elbow") or nm:find("wrist") then nxt = m break end
+					end
+				end
+				if not nxt then break end
+				table.insert(j.extra, nxt)
+				if not j.elbow then j.elbow = nxt else j.hand = nxt end
+				cur = nxt
+			end
+		end
+		return J
+	end
+	local function pArmChain(j)
+		local sh = j.shoulder
+		if not (sh and sh.Parent and sh.Part0 and sh.Part1) then return nil end
+		local elbow, hand = j.elbow, j.hand
+		if elbow and not (elbow.Parent and elbow.Part0 == sh.Part1 and elbow.Part1) then elbow = nil end
+		if hand and not (elbow and hand.Parent and hand.Part0 == elbow.Part1 and hand.Part1) then hand = nil end
+		local rrSh = rotOnly(sh.C0) * rotOnly(sh.C1):Inverse()
+		local v1 = elbow and (elbow.C0.Position - sh.C1.Position) or V3(0, -1, 0)
+		if v1.Magnitude < 1e-3 then v1 = V3(0, -1, 0) end
+		local k = { sh = sh, elbow = elbow, rrSh = rrSh, d0 = rrSh * v1, L1 = sh.Part1.Size.Y * 0.95 }
+		if elbow then
+			k.L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
+			k.L2 = elbow.Part1.Size.Y * 0.9
+			local v2 = V3(0, -1, 0)
+			if hand then
+				local hv = hand.C0.Position - elbow.C1.Position
+				if hv.Magnitude > 1e-3 then v2 = hv end
+				k.L2 = hv.Magnitude + hand.Part1.Size.Y * 0.4
+			end
+			k.rrEl = rotOnly(elbow.C0) * rotOnly(elbow.C1):Inverse()
+			k.d2 = k.rrEl * v2
+		end
+		return k
+	end
+	local function pSolveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
+		local sh, elbow = k.sh, k.elbow
+		local P = p0n * sh.C0.Position
+		local toT = tgt - P
+		local dist = toT.Magnitude
+		if dist < 0.05 then return end
+		local dirT = toT / dist
+		local uW, lW = dirT, nil
+		if k.L2 then
+			local L1, L2 = k.L1, k.L2
+			local d = math.min(dist, (L1 + L2) * 0.999)
+			local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+			local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+			local pole = bodyRight * (0.45 * sgn) - bodyUp + bodyBack * 0.2
+			pole = pole - dirT * pole:Dot(dirT)
+			pole = pole.Magnitude > 1e-3 and pole.Unit or -bodyUp
+			local E = P + dirT * a + pole * h
+			uW = (E - P).Unit
+			local lv = (P + dirT * d) - E
+			lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+		end
+		local R = rotFromTo(k.d0, p0n:VectorToObjectSpace(uW))
+		local CF1 = CF(sh.C0.Position) * R * k.rrSh * CF(-sh.C1.Position)
+		local B = sh.C0:Inverse() * CF1 * sh.C1
+		sh.Transform = sh.Transform:Lerp(B, ez)
+		if elbow and lW and k.d2 then
+			local upperCF = p0n * CF1
+			local R2 = rotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+			local CF2 = CF(elbow.C0.Position) * R2 * k.rrEl * CF(-elbow.C1.Position)
+			local eb = elbow.C0:Inverse() * CF2 * elbow.C1
+			elbow.Transform = CFrame.new():Lerp(eb, ez)
+		end
+	end
+
+	PB.PICK = 2.1
+	PB.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, ap = {} }
+
+	function PB.torso()
+		return character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or rootPart
+	end
+	function PB.rideCF()
+		local tp = PB.torso()
+		local z = tp.Size.Z * 0.5 + 0.275 + (CFG.PiggyBack or 0.12)
+		return tp.CFrame * CF(0, CFG.PiggyUp or 0.55, z)
+	end
+	function PB.spot()
+		local c = rootPart.CFrame
+		return c.Position + c.RightVector * 1.7 - c.LookVector * 0.4
+	end
+	function PB.lock()
+		if PB.saved or not playerHum then return end
+		PB.saved = { ws = playerHum.WalkSpeed, jp = playerHum.JumpPower, jh = playerHum.JumpHeight }
+		playerHum.WalkSpeed = 0
+		pcall(function()
+			playerHum.JumpPower = 0
+			playerHum.JumpHeight = 0
+		end)
+	end
+	function PB.unlock()
+		local s = PB.saved
+		if not s then return end
+		PB.saved = nil
+		if not playerHum then return end
+		playerHum.WalkSpeed = s.ws
+		pcall(function()
+			playerHum.JumpPower = s.jp
+			playerHum.JumpHeight = s.jh
+		end)
+	end
+	function PB.request()
+		if seated then return end
+		releaseCarry(true)
+		ctl.fetch = nil
+		ctl.piggyWant = true
+	end
+	function PB.begin()
+		if not ctl.piggyWant or ctl.piggy then return end
+		ctl.piggyWant = false
+		local f = root.CFrame
+		local tp = PB.torso()
+		local fa, fb = f * V3(0.7, 0, 0), f * V3(-0.7, 0, 0)
+		local sR, sL = tp.CFrame * V3(1, 0.5, 0), tp.CFrame * V3(-1, 0.5, 0)
+		local swap = (fa - sR).Magnitude + (fb - sL).Magnitude > (fb - sR).Magnitude + (fa - sL).Magnitude
+		ctl.piggy = {
+			ph = "pick",
+			t0 = os.clock(),
+			from = f,
+			fl = swap and { V3(-0.7, 0, 0), V3(0.7, 0, 0) } or { V3(0.7, 0, 0), V3(-0.7, 0, 0) },
+		}
+		PB.lock()
+		for _, d in ipairs(rig:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.CanCollide, d.CanTouch, d.CanQuery, d.Massless = false, false, false, true
+			end
+		end
+	end
+	function PB.stop()
+		local was = ctl.piggy or ctl.piggyWant
+		local rode = ctl.piggy ~= nil
+		ctl.piggy, ctl.piggyWant = nil, false
+		PB.unlock()
+		if not was then return end
+		if rode and not seated then
+			local pcf = rootPart.CFrame
+			local pos = pcf.Position
+			local lk = V3(pcf.LookVector.X, 0, pcf.LookVector.Z)
+			if lk.Magnitude < 0.01 then lk = V3(0, 0, -1) else lk = lk.Unit end
+			local rt = lk:Cross(V3(0, 1, 0))
+			local tx = pos - lk * (STOP * 0.6) - rt * (STOP * 0.8)
+			local gy = feetY()
+			local res = workspace:Raycast(V3(tx.X, pos.Y + 2, tx.Z), V3(0, -80, 0), rp)
+			if res then gy = res.Position.Y end
+			yaw = math.atan2(-(pos.X - tx.X), -(pos.Z - tx.Z))
+			cur = V3(tx.X, 0, tx.Z)
+			groundY = gy
+			hop = { t = 0, dur = 0.6, fromCF = root.CFrame, to = V3(tx.X, gy + 3 * S, tx.Z) }
+			PG.diz("desceu")
+		end
+	end
+	function PB.toggle()
+		if ctl.piggy or ctl.piggyWant then PB.stop() else PB.request() end
+	end
+	function PB.pose(now)
+		local pg = ctl.piggy
+		local tp = PB.torso()
+		local ride = PB.rideCF()
+		local head = character:FindFirstChild("Head")
+		local u = 1
+		if pg.ph == "pick" then
+			u = math.clamp((now - pg.t0) / PB.PICK, 0, 1)
+			if u >= 1 then
+				pg.ph = "ride"
+				PB.unlock()
+				PG.diz("costas")
+			end
+		end
+		local sh = tp.CFrame
+		local function headPt(s)
+			local hc = head and head.CFrame or (sh * CF(0, 1.5, 0))
+			return hc * V3(s * 0.72, -0.1, 0.15)
+		end
+		local function shPt(s)
+			return sh * V3(s * 1.1, 1.0, 0.45)
+		end
+		local k = { sp = 0.85, lz = 1.3, u = u }
+		local rcf, a, b
+		if pg.ph == "pick" then
+			local pu = sg(u, 0.22, 0.82)
+			local P0, P2 = pg.from.Position, ride.Position
+			local mid = sh.Position + sh.UpVector * 2.3 + sh.RightVector * 0.9
+			local pos = bez(P0, mid * 2 - (P0 + P2) * 0.5, P2, pu)
+			local rot = pg.from.Rotation:Lerp(ride.Rotation, sg(u, 0.3, 0.88))
+			rcf = CF(pos) * rot * ANG(0, 0, -0.6 * math.sin(math.pi * pu))
+			local env = sg(u, 0.25, 0.4) * (1 - sg(u, 0.8, 0.95))
+			k.sp = 0.85 * sg(u, 0.4, 0.95)
+			k.lz = 0.35 + 0.95 * sg(u, 0.3, 1) + 0.35 * math.sin(now * 16) * env
+			local bl = sg(u, 0.72, 1)
+			local wob = V3(0, 0.3 * math.sin(now * 12) * env, 0)
+			a = shPt(1):Lerp(headPt(1), bl) + wob
+			b = shPt(-1):Lerp(headPt(-1), bl) + wob
+			local hb = sg(u, 0.68, 0.95)
+			k.pr = (rcf * pg.fl[1]):Lerp(ride * V3(0.78, -0.72, -0.25), hb)
+			k.pl = (rcf * pg.fl[2]):Lerp(ride * V3(-0.78, -0.72, -0.25), hb)
+		else
+			rcf = ride * ANG(0, 0, math.sin(now * 1.7) * 0.03)
+			k.lz = 1.3 + 0.04 * math.sin(now * 2.2)
+			a, b = headPt(1), headPt(-1)
+			k.pr = ride * V3(0.78, -0.72, -0.25)
+			k.pl = ride * V3(-0.78, -0.72, -0.25)
+		end
+		if rcf:PointToObjectSpace(a).X >= rcf:PointToObjectSpace(b).X then
+			k.hr, k.hl = a, b
+		else
+			k.hr, k.hl = b, a
+		end
+		PB.k = k
+		return rcf
+	end
+	function PB.targets()
+		local tgt, arms = {}, {}
+		local pg, k = ctl.piggy, PB.k
+		if not (pg and k) then return tgt, arms end
+		local u = k.u
+		local w = 1
+		if pg.ph == "pick" then
+			w = sg(u, 0, 0.2)
+			local env = sg(u, 0, 0.2) * (1 - sg(u, 0.55, 0.85))
+			tgt.waist = V3(-32 * env, 0, 0)
+			tgt.neck = V3(22 * env, 0, 0)
+		end
+		arms.R = { pos = k.pr, w = w }
+		arms.L = { pos = k.pl, w = w }
+		return tgt, arms
+	end
+	function PB.release()
+		local L = PB.L
+		if L.J then
+			for key, m in pairs(L.J) do
+				if m.Parent and (L.jw[key] or 0) > 0 then m.Transform = CFrame.new() end
+			end
+		end
+		if L.AJ then
+			for _, side in pairs(L.AJ) do
+				if side.shoulder and side.shoulder.Parent then side.shoulder.Transform = CFrame.new() end
+				for _, m in ipairs(side.extra) do
+					if m.Parent then m.Transform = CFrame.new() end
+				end
+			end
+		end
+		L.J, L.AJ, L.ch = nil, nil, nil
+		L.cur, L.jw, L.aw, L.ap = {}, {}, { R = 0, L = 0 }, {}
+	end
+	function PB.cleanup()
+		ctl.piggy, ctl.piggyWant = nil, false
+		PB.unlock()
+		PB.release()
+	end
+	function PB.limbStep(dt)
+		if not (Z.alive and rig.Parent) then return end
+		if not (playerHum and playerHum.Health > 0 and rootPart.Parent) then return end
+		local L = PB.L
+		local tgt, arms = PB.targets()
+		local any = next(tgt) ~= nil or next(arms) ~= nil
+		if not any and not L.J then return end
+		if L.ch ~= character or not L.J then
+			L.ch = character
+			L.J = pLimbJoints(character)
+			L.AJ = pArmJoints(character)
+			L.cur, L.jw, L.aw, L.ap = {}, {}, { R = 0, L = 0 }, {}
+		end
+		local active = false
+		local k = math.min(1, dt * 12)
+		for key, m in pairs(L.J) do
+			if m.Parent and m.Part0 and m.Part1 then
+				local want = tgt[key]
+				local jw = L.jw[key] or 0
+				jw = jw + ((want and 1 or 0) - jw) * math.min(1, dt * 8)
+				if not want and jw < 0.01 then jw = 0 end
+				L.jw[key] = jw
+				if want then L.cur[key] = (L.cur[key] or want):Lerp(want, k) end
+				local cu = L.cur[key]
+				if jw > 0 and cu then
+					active = true
+					local c0 = rotOnly(m.C0)
+					local T = c0:Inverse() * ANG(math.rad(cu.X), math.rad(cu.Y), math.rad(cu.Z)) * c0
+					local e = jw * jw * (3 - 2 * jw)
+					m.Transform = m.Transform:Lerp(T, e)
+				end
+			end
+		end
+		local sk = rootPart.CFrame
+		local bR, bU, bB = sk.RightVector, sk.UpVector, -sk.LookVector
+		local waist = L.J.waist
+		local upper
+		if waist and waist.Parent and waist.Part0 and waist.Part1 then
+			upper = waist.Part0.CFrame * waist.C0 * waist.Transform * waist.C1:Inverse()
+		end
+		for _, s in ipairs({ { "R", "right", 1 }, { "L", "left", -1 } }) do
+			local key, name, sgn = s[1], s[2], s[3]
+			local want = arms[key]
+			if want then L.ap[key] = want.pos end
+			local wt = want and want.w or 0
+			local w0 = L.aw[key] or 0
+			w0 = w0 + (wt - w0) * math.min(1, dt * 10)
+			if wt <= 0 and w0 < 0.01 then w0 = 0 end
+			L.aw[key] = w0
+			if w0 > 0 and L.ap[key] and L.AJ and L.AJ[name] then
+				local chn = pArmChain(L.AJ[name])
+				if chn then
+					active = true
+					local p0 = chn.sh.Part0.CFrame
+					if upper and waist and chn.sh.Part0 == waist.Part1 then p0 = upper end
+					pSolveArm(chn, p0, L.ap[key], sgn, bR, bU, bB, w0 * w0 * (3 - 2 * w0))
+				end
+			end
+		end
+		if not active and not any then PB.release() end
+	end
+	cons[#cons + 1] = RunService.Stepped:Connect(function(_, dt)
+		dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
+		pcall(PB.limbStep, dt)
+	end)
+	cons[#cons + 1] = RunService.Stepped:Connect(function()
+		if not (ctl.piggy and playerHum and rootPart.Parent) then return end
+		if playerHum.MoveDirection.Magnitude < 0.05 then
+			local v = rootPart.AssemblyLinearVelocity
+			rootPart.AssemblyLinearVelocity = V3(0, v.Y, 0)
+			rootPart.AssemblyAngularVelocity = V3()
+		end
+	end)
 
 	local function stepFn(dt)
 		dt = math.min(dt, 0.1)
@@ -7792,9 +8314,20 @@ State._buildFollowMorty = function(character, Z, newGui)
 			hop = { t = 0, dur = 0.5, fromCF = root.CFrame, to = V3(tx.X, gy + 3 * S, tx.Z) }
 		end
 		sitAmt = sitAmt + ((seated and 1 or 0) - sitAmt) * math.min(1, dt * 9)
+		if (ctl.piggy or ctl.piggyWant) and (seated or (playerHum and playerHum.Health <= 0)) then
+			ctl.piggy, ctl.piggyWant = nil, false
+			PB.unlock()
+		end
 
 		local rcf
-		if seated then
+		if ctl.piggy and not seated then
+			ctl.warp = false
+			walking, amt = false, 0
+			rcf = PB.pose(now)
+			yaw = math.atan2(-rcf.LookVector.X, -rcf.LookVector.Z)
+			cur = V3(rcf.Position.X, 0, rcf.Position.Z)
+		elseif seated then
+			ctl.warp = false
 			walking, amt = false, 0
 			if hop then
 				hop.t = hop.t + dt
@@ -7820,7 +8353,8 @@ State._buildFollowMorty = function(character, Z, newGui)
 			local d = flat.Magnitude
 
 			-- teleporte (portal, respawn longe etc.)
-			if ctl.follow and not (ctl.fetch and ctl.fetch.phase ~= "back") and (d > CFG.TeleportDistance or math.abs(groundY - feetY()) > 80) then
+			if ctl.follow and not (ctl.fetch and ctl.fetch.phase ~= "back") and (ctl.warp or d > CFG.TeleportDistance or math.abs(groundY - feetY()) > 80) then
+				if ctl.warp then PG.diz(ctl.carry and "portalCarga" or "portal") end
 				local back = -V3(pcf.LookVector.X, 0, pcf.LookVector.Z)
 				if back.Magnitude < 0.01 then back = V3(0, 0, 1) else back = back.Unit end
 				cur = pos + back * STOP
@@ -7829,6 +8363,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 				d = STOP
 				walking = false
 			end
+			ctl.warp = false
 			if d < 0.01 then flat = V3(1, 0, 0) d = 0.01 end
 
 			local fetch = ctl.fetch
@@ -7837,7 +8372,18 @@ State._buildFollowMorty = function(character, Z, newGui)
 			if fetch and fetch.phase == "go" and not (fetch.obj and fetch.obj.Parent) then
 				ctl.fetch, fetch = nil, nil
 			end
-			if fetch then
+			if ctl.piggyWant then
+				local sp = PB.spot()
+				local tv = V3(sp.X - cur.X, 0, sp.Z - cur.Z)
+				gd, gstop = tv.Magnitude, 0.1
+				if gd > 0.01 then gdir = tv.Unit end
+				if gd < 0.35 then
+					walking = false
+					PB.begin()
+				else
+					walking = true
+				end
+			elseif fetch then
 				if fetch.phase == "go" then
 					local bcf, bsz = bboxOf(fetch.obj)
 					local tv = V3(bcf.Position.X - cur.X, 0, bcf.Position.Z - cur.Z)
@@ -7849,8 +8395,10 @@ State._buildFollowMorty = function(character, Z, newGui)
 						local okC, whyC = startCarry(fetch.obj)   -- pegou: espera um instante e volta
 						if okC then
 							fetch.phase, fetch.wait = "wait", 0.5
+							PG.diz(whyC and "pegouPesado" or "pegou")
 						else
 							ctl.fetch = nil
+							PG.diz("falhou", { motivo = tostring(whyC) })
 							pcall(print, "[RickPortalGun] Morty nao conseguiu pegar: " .. tostring(whyC))
 						end
 						walking = false
@@ -7908,12 +8456,36 @@ State._buildFollowMorty = function(character, Z, newGui)
 		local idle = math.sin(now * 2) * 0.04 * (1 - amt) * (1 - sitAmt)
 		local leg = sitAmt * (math.pi / 2)
 		carryAmt = carryAmt + ((ctl.carry and 1 or 0) - carryAmt) * math.min(1, dt * 8)
-		local arm = sitAmt * 0.7 + carryAmt * 1.4
+		pgAmt = pgAmt + ((ctl.piggy and 1 or 0) - pgAmt) * math.min(1, dt * 8)
+		if not ctl.piggy and pgAmt < 0.02 then PB.k = nil end
+		local arm = sitAmt * 0.7
 		local swA = sw * (1 - carryAmt * 0.85)
-		rHip.Transform = ANG(0, 0, sw + leg)
-		lHip.Transform = ANG(0, 0, sw - leg)
-		rSh.Transform = ANG(0, 0, -swA * 0.8 + idle + arm)
-		lSh.Transform = ANG(0, 0, -swA * 0.8 + idle - arm)
+		local pk = PB.k
+		if pk and pgAmt > 0.01 then
+			rHip.Transform = ANG(0, -pk.sp * pgAmt, sw + leg + pk.lz * pgAmt)
+			lHip.Transform = ANG(0, pk.sp * pgAmt, sw - leg - pk.lz * pgAmt)
+		else
+			rHip.Transform = ANG(0, 0, sw + leg)
+			lHip.Transform = ANG(0, 0, sw - leg)
+		end
+		local zR = -swA * 0.8 + idle + arm
+		local zL = -swA * 0.8 + idle - arm
+		if carryAmt > 0.01 and PG.hand then
+			-- bracos apontam pras laterais do objeto (mesma ideia do Pegar.pose do EMOTZ)
+			local thR, psR = PG.armAim(1, PG.hand.r)
+			local thL, psL = PG.armAim(-1, PG.hand.l)
+			rSh.Transform = ANG(0, psR * carryAmt, zR + (thR - zR) * carryAmt)
+			lSh.Transform = ANG(0, psL * carryAmt, zL + (thL - zL) * carryAmt)
+		else
+			rSh.Transform = ANG(0, 0, zR)
+			lSh.Transform = ANG(0, 0, zL)
+		end
+		if pk and pk.hr and pgAmt > 0.01 then
+			local thR, psR = PG.armAim(1, rcf:PointToObjectSpace(pk.hr))
+			local thL, psL = PG.armAim(-1, rcf:PointToObjectSpace(pk.hl))
+			rSh.Transform = ANG(0, psR * pgAmt, zR + (thR - zR) * pgAmt)
+			lSh.Transform = ANG(0, psL * pgAmt, zL + (thL - zL) * pgAmt)
+		end
 		root.CFrame = rcf
 		carryStep(rcf)
 	end
@@ -15962,6 +16534,10 @@ local function setupRickGun(character)
 		playSound(Config.SoundTeleport, 1.1, rootPart)
 		Z.fala.dizer("tp")
 		State.mortyEvent("onTeleport", fromCF.Position, toCF.Position)
+		pcall(function()
+			local fm = State.followMorty
+			if fm and fm.onTeleport then fm.onTeleport() end
+		end)
 		if Config.Elastic then
 			pcall(wobblePortal, fromP, false)
 			pcall(wobblePortal, toP, true)

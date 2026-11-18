@@ -6158,6 +6158,16 @@ State.buildShipSystem = function(ctx)
 		end)
 	end
 
+	-- banco do passageiro: o Morty seguidor senta aqui enquanto voce esta na nave
+	function api.passengerCF(mortyScale)
+		local S = ship
+		if destroyed or not S or not inShip() then return nil end
+		local ms = mortyScale or 1
+		-- mesma referencia do seu assento: o quadril/pernas ficam na superficie do banco (SEAT_REL.Y - 1.5 do boneco R6)
+		local y = SEAT_REL.Position.Y - 1.5 + 1.5 * ms
+		return S.cf * CFrame.new(2.3 * SCALE, y, 1.2 * SCALE)
+	end
+
 	function api.board(manual)
 		local S = ship
 		if destroyed or not S or busy or S.state ~= "landed" then return end
@@ -6803,6 +6813,996 @@ State.buildKeySystem = function(ctx)
 		pcall(function() tool:Destroy() end)
 	end
 	return api
+end
+
+-- ===== MORTY PEQUENO QUE TE SEGUE (v60) =====
+-- Tudo e acessorio (cabelo, rosto, bracos, torso), menos a camisa e a calca (roupas classicas).
+-- Mude Scale para ajustar o tamanho; Enabled = false desliga o Morty seguidor.
+State.MortyFollow = {
+	Enabled = true,
+	Scale = 0.55,            -- 1 = tamanho de um personagem R6 normal
+	FollowDistance = 7,      -- distancia a partir da qual ele comeca a andar ate voce
+	StopDistance = 4,        -- distancia em que ele para do seu lado
+	MaxSpeed = 30,
+	SeatOffsetY = 0,         -- ajuste fino da altura no banco da nave (negativo = desce, positivo = sobe)
+	TeleportDistance = 55,   -- se ficar mais longe que isso (portal, teleporte), ele aparece do seu lado
+	MaxCarrySize = 60,       -- tamanho maximo (diagonal, em studs) do que o Morty consegue pegar
+	Prompt = false,          -- true = mostra o botao "Falar" perto dele (alternativa ao clique)
+	Hair = "110659739210853",
+	Face = "84682879107771",
+	Ears = "12803207370",
+	RightArm = "96326104567437",
+	LeftArm = "78636210882968",
+	Torso = "103238352520348",
+	Shirt = "116602284680784",
+	Pants = "95918196449493",
+}
+
+State._buildFollowMorty = function(character, Z, newGui)
+	local CFG = State.MortyFollow
+	if not (CFG and CFG.Enabled) then return end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local playerHum = character:FindFirstChildOfClass("Humanoid")
+	if not rootPart then return end
+	if State.followMorty then
+		pcall(State.followMorty.destroy)
+		State.followMorty = nil
+	end
+
+	local S = CFG.Scale
+	local V3, CF, ANG = Vector3.new, CFrame.new, CFrame.Angles
+	local SKIN = Color3.fromRGB(250, 208, 160)
+	local MYEL = Color3.fromRGB(255, 214, 52)
+	local MBLU = Color3.fromRGB(44, 84, 168)
+
+	local rig = Instance.new("Model")
+	rig.Name = "MortyFollower"
+
+	local function MP(name, size, col, anchored)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size * S
+		p.Color = col
+		p.Material = Enum.Material.SmoothPlastic
+		p.Anchored = anchored or false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.CastShadow = false
+		p.Parent = rig
+		return p
+	end
+
+	-- posicao inicial: atras e um pouco a esquerda de voce
+	local pp = rootPart.Position
+	local look = V3(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	if look.Magnitude < 0.01 then look = V3(0, 0, -1) else look = look.Unit end
+	local right = look:Cross(V3(0, 1, 0))
+	local cur = pp - look * CFG.StopDistance - right * (CFG.StopDistance * 0.6)
+	local yaw = math.atan2(-look.X, -look.Z)
+
+	local root = MP("HumanoidRootPart", V3(2, 2, 1), MYEL, true)
+	root.Transparency = 1
+	local torso = MP("Torso", V3(2, 2, 1), MYEL)
+	local head = MP("Head", V3(2, 1, 1), SKIN)
+	local lArm = MP("Left Arm", V3(1, 2, 1), SKIN)
+	local rArm = MP("Right Arm", V3(1, 2, 1), SKIN)
+	local lLeg = MP("Left Leg", V3(1, 2, 1), MBLU)
+	local rLeg = MP("Right Leg", V3(1, 2, 1), MBLU)
+
+	local hm = Instance.new("SpecialMesh")
+	hm.MeshType = Enum.MeshType.Head
+	hm.Scale = V3(1.25, 1.25, 1.25)
+	hm.Parent = head
+
+	local function joint(name, p0, p1, c0, c1)
+		local m = Instance.new("Motor6D")
+		m.Name = name
+		m.Part0, m.Part1 = p0, p1
+		m.C0, m.C1 = c0, c1
+		m.Parent = p0
+		return m
+	end
+	local RJ = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
+	joint("RootJoint", root, torso, RJ, RJ)
+	joint("Neck", torso, head,
+		CFrame.new(0, 1 * S, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0),
+		CFrame.new(0, -0.5 * S, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0))
+	local rSh = joint("Right Shoulder", torso, rArm,
+		CFrame.new(1 * S, 0.5 * S, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(-0.5 * S, 0.5 * S, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0))
+	local lSh = joint("Left Shoulder", torso, lArm,
+		CFrame.new(-1 * S, 0.5 * S, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(0.5 * S, 0.5 * S, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0))
+	local rHip = joint("Right Hip", torso, rLeg,
+		CFrame.new(1 * S, -1 * S, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(0.5 * S, 1 * S, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0))
+	local lHip = joint("Left Hip", torso, lLeg,
+		CFrame.new(-1 * S, -1 * S, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(-0.5 * S, 1 * S, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0))
+
+	-- attachments (os acessorios se encaixam pelo nome do attachment do Handle)
+	local rigAtt = {}
+	local function AT(part, name, pos)
+		local at = Instance.new("Attachment")
+		at.Name = name
+		at.Position = pos * S
+		at.Parent = part
+		rigAtt[name] = at
+	end
+	AT(head, "FaceCenterAttachment", V3(0, 0, 0))
+	AT(head, "FaceFrontAttachment", V3(0, 0, -0.6))
+	AT(head, "HairAttachment", V3(0, 0.6, 0))
+	AT(head, "HatAttachment", V3(0, 0.6, 0))
+	AT(torso, "NeckAttachment", V3(0, 1, 0))
+	AT(torso, "BodyFrontAttachment", V3(0, 0, -0.5))
+	AT(torso, "BodyBackAttachment", V3(0, 0, 0.5))
+	AT(torso, "LeftCollarAttachment", V3(-1, 1, 0))
+	AT(torso, "RightCollarAttachment", V3(1, 1, 0))
+	AT(torso, "WaistFrontAttachment", V3(0, -1, -0.5))
+	AT(torso, "WaistCenterAttachment", V3(0, -1, 0))
+	AT(torso, "WaistBackAttachment", V3(0, -1, 0.5))
+	for _, side in ipairs({ { "Right", rArm }, { "Left", lArm } }) do
+		local n, arm = side[1], side[2]
+		AT(arm, n .. "ShoulderAttachment", V3(0, 1, 0))
+		AT(arm, n .. "ShoulderRigAttachment", V3(0, 1, 0))
+		AT(arm, n .. "UpperArmAttachment", V3(0, 0.5, 0))
+		AT(arm, n .. "ElbowRigAttachment", V3(0, 0, 0))
+		AT(arm, n .. "ElbowAttachment", V3(0, 0, 0))
+		AT(arm, n .. "GripAttachment", V3(0, -1, 0))
+		AT(arm, n .. "WristRigAttachment", V3(0, -1, 0))
+	end
+
+	local hum = Instance.new("Humanoid")
+	pcall(function() hum.RigType = Enum.HumanoidRigType.R6 end)
+	pcall(function() hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end)
+	pcall(function() hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff end)
+	pcall(function() hum.EvaluateStateMachine = false end)
+	pcall(function() hum.BreakJointsOnDeath = false end)
+	hum.Parent = rig
+	rig.PrimaryPart = root
+
+	-- chao
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	pcall(function() rp.RespectCanCollide = true end)
+	local function refreshFilter()
+		local list = { rig }
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr.Character then list[#list + 1] = plr.Character end
+		end
+		rp.FilterDescendantsInstances = list
+	end
+	refreshFilter()
+	local function feetY()
+		return rootPart.Position.Y - rootPart.Size.Y / 2 - (playerHum and playerHum.HipHeight or 2)
+	end
+	local groundY = feetY()
+	do
+		local res = workspace:Raycast(V3(cur.X, pp.Y + 2, cur.Z), V3(0, -60, 0), rp)
+		if res then groundY = res.Position.Y end
+	end
+	root.CFrame = CF(cur.X, groundY + 3 * S, cur.Z) * ANG(0, yaw, 0)
+	rig.Parent = workspace
+
+	-- roupas classicas (camisa e calca)
+	local function clothing(cls, prop, id)
+		local obj = fetchAccessoryModel(id)
+		local item
+		if obj then
+			item = obj:IsA(cls) and obj or obj:FindFirstChildWhichIsA(cls, true)
+		end
+		if not item then
+			item = Instance.new(cls)
+			pcall(function() item[prop] = "rbxassetid://" .. tostring(id) end)
+		end
+		if not rig.Parent then
+			pcall(function() item:Destroy() end)
+		else
+			item.Parent = rig
+		end
+		if obj and obj ~= item then pcall(function() obj:Destroy() end) end
+	end
+
+	-- acessorios (cabelo, rosto, bracos, torso)
+	local function dress(label, id, fbPart, fbC0)
+		local obj, err = fetchAccessoryModel(id)
+		if not obj then
+			warnRG("Morty seguidor: nao foi possivel carregar " .. label .. " (" .. tostring(err) .. ")")
+			return
+		end
+		local acc = obj:IsA("Accessory") and obj or obj:FindFirstChildWhichIsA("Accessory", true)
+		local src = acc and acc:FindFirstChild("Handle")
+		if not src then
+			src = (obj:IsA("BasePart") and obj) or obj:FindFirstChild("Handle", true)
+		end
+		if not (src and src:IsA("BasePart")) then
+			pcall(function() obj:Destroy() end)
+			warnRG("Morty seguidor: " .. label .. " sem Handle")
+			return
+		end
+		local h = src:Clone()
+		local ap = acc and acc.AttachmentPoint or CFrame.new()
+		pcall(function() obj:Destroy() end)
+		if not rig.Parent then h:Destroy() return end
+		for _, d in ipairs(h:GetDescendants()) do
+			if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Sound")
+				or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Motor6D") then
+				d:Destroy()
+			end
+		end
+		h.Anchored, h.CanCollide, h.CanQuery, h.CanTouch, h.Massless = false, false, false, false, true
+		h.CastShadow = false
+		h.Size = h.Size * S
+		for _, d in ipairs(h:GetChildren()) do
+			if d:IsA("SpecialMesh") then
+				d.Scale = d.Scale * S
+				d.Offset = d.Offset * S
+			elseif d:IsA("Attachment") then
+				d.Position = d.Position * S
+			end
+		end
+		local part0, c0, c1, used
+		for _, d in ipairs(h:GetChildren()) do
+			if d:IsA("Attachment") and rigAtt[d.Name] then
+				part0, c0, c1, used = rigAtt[d.Name].Parent, rigAtt[d.Name].CFrame, d.CFrame, d.Name
+				break
+			end
+		end
+		if not part0 then
+			part0 = fbPart
+			c0 = fbC0 or CF()
+			c1 = CF(ap.Position * S) * (ap - ap.Position)
+			used = "(sem attachment compativel, usei a posicao padrao)"
+		end
+		pcall(print, "[RickPortalGun] Morty seguidor: " .. label .. " preso em " .. used)
+		h.CFrame = part0.CFrame * c0 * c1:Inverse()
+		local w = Instance.new("Weld")
+		w.Part0, w.Part1, w.C0, w.C1 = part0, h, c0, c1
+		w.Parent = h
+		h.Parent = rig
+	end
+
+	task.spawn(clothing, "Shirt", "ShirtTemplate", CFG.Shirt)
+	task.spawn(clothing, "Pants", "PantsTemplate", CFG.Pants)
+	task.spawn(dress, "torso", CFG.Torso, torso, CF())
+	task.spawn(dress, "braco direito", CFG.RightArm, rArm, CF())
+	task.spawn(dress, "braco esquerdo", CFG.LeftArm, lArm, CF())
+	task.spawn(dress, "cabelo", CFG.Hair, head, CF(0, 0.6 * S, 0))
+	task.spawn(dress, "rosto", CFG.Face, head, CF(0, 0, -0.5 * S))
+	task.spawn(dress, "orelhas", CFG.Ears, head, CF())
+
+	-- ===== MENU DO MORTY: SEGUIR / PEGA (v67) =====
+	-- Clique (ou toque) no Morty, ou use o prompt "Falar", pra abrir o menu.
+	--  Seguir: liga/desliga. Desligado = ele fica parado onde esta.
+	--  Pega:   o Morty fica em destaque; clique em algo (objeto ou jogador) e ele
+	--          carrega ate voce tocar em "Largar" no menu.
+	local MS = State.MortyState
+	if not MS then MS = { follow = true }; State.MortyState = MS end
+	local ctl = { follow = MS.follow ~= false, menuOpen = false, mode = "idle", carry = nil }
+	local cons = {}
+	local carryAmt = 0
+	local C3 = Color3.fromRGB
+	local GRN = C3(110, 255, 120)
+	local MAX_CARRY = CFG.MaxCarrySize or 60
+	local menuGui, menuFrame, menuItems, menuRefs
+	local pickGui, prompt
+
+	local pickRP = RaycastParams.new()
+	pickRP.FilterType = Enum.RaycastFilterType.Exclude
+	pickRP.FilterDescendantsInstances = { rig, character }
+
+	local function refreshPrompt()
+		if prompt then prompt.Enabled = (not ctl.menuOpen) and ctl.mode == "idle" end
+	end
+
+	-- ---------- carregar ----------
+	local function bboxOf(obj)
+		if obj:IsA("Model") then
+			local cf, sz = obj:GetBoundingBox()
+			return cf, sz
+		end
+		return obj.CFrame, obj.Size
+	end
+
+	local function partsOf(obj)
+		if obj:IsA("BasePart") then return { obj } end
+		local t = {}
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("BasePart") then t[#t + 1] = d end
+		end
+		return t
+	end
+
+	local function pivotOf(obj)
+		if obj:IsA("Model") then return obj:GetPivot() end
+		return obj.CFrame
+	end
+
+	local function setPivot(obj, cf)
+		if obj:IsA("Model") then obj:PivotTo(cf) else obj.CFrame = cf end
+	end
+
+	local function releaseCarry(silent)
+		local c = ctl.carry
+		if not c then return end
+		ctl.carry = nil
+		local obj = c.obj
+		if obj and obj.Parent then
+			-- pousa no chao
+			pcall(function()
+				local bcf, bsz = bboxOf(obj)
+				local res = workspace:Raycast(bcf.Position, V3(0, -200, 0), pickRP)
+				if res then
+					local dy = (res.Position.Y + bsz.Y / 2 + 0.05) - bcf.Position.Y
+					setPivot(obj, pivotOf(obj) + V3(0, dy, 0))
+				end
+			end)
+			for _, st in ipairs(c.saved) do
+				if st.part and st.part.Parent then
+					pcall(function()
+						st.part.Anchored = st.anchored
+						st.part.CanCollide = st.canCollide
+						st.part.AssemblyLinearVelocity = V3()
+						st.part.AssemblyAngularVelocity = V3()
+					end)
+				end
+			end
+		end
+		if not silent then pcall(print, "[RickPortalGun] Morty largou: " .. tostring(c.name)) end
+	end
+
+	local function startCarry(obj)
+		releaseCarry(true)
+		local saved = {}
+		for _, p in ipairs(partsOf(obj)) do
+			saved[#saved + 1] = { part = p, anchored = p.Anchored, canCollide = p.CanCollide }
+			p.Anchored = true
+			p.CanCollide = false
+		end
+		local bcf, bsz = bboxOf(obj)
+		local piv = pivotOf(obj)
+		ctl.carry = {
+			obj = obj, name = obj.Name, saved = saved,
+			off = piv:ToObjectSpace(bcf),      -- pivo -> centro da caixa
+			size = bsz, rel = nil, t = 0,
+			startCenter = bcf,
+		}
+	end
+
+	local function carryStep(rcf, dt)
+		local c = ctl.carry
+		if not c then return end
+		local obj = c.obj
+		if not (obj and obj.Parent) then ctl.carry = nil return end
+		local sx, sy, sz = c.size.X, c.size.Y, c.size.Z
+		local front = 0.6 * S + math.sqrt(sx * sx + sz * sz) / 2
+		local yo = math.max(0.5 * S, sy / 2 - 3 * S + 0.2)
+		local rot = rcf - rcf.Position
+		if not c.rel then c.rel = rot:Inverse() * (c.startCenter - c.startCenter.Position) end
+		local target = CF(rcf.Position) * rot * CF(0, yo, -front) * c.rel
+		c.t = math.min(c.t + dt, 0.4)
+		local k = c.t / 0.4
+		k = k * k * (3 - 2 * k)
+		local center = c.startCenter:Lerp(target, k)
+		if c.t >= 0.4 then c.startCenter = target end
+		setPivot(obj, center * c.off:Inverse())
+		for _, st in ipairs(c.saved) do
+			if st.part and st.part.Parent then
+				st.part.AssemblyLinearVelocity = V3()
+				st.part.AssemblyAngularVelocity = V3()
+			end
+		end
+	end
+
+	-- ---------- escolher o que pegar ----------
+	local function chooseTarget(hit)
+		if hit:IsA("Terrain") then return nil, "terreno nao da pra pegar" end
+		-- outro jogador?
+		local m = hit:FindFirstAncestorOfClass("Model")
+		while m do
+			local plr = Players:GetPlayerFromCharacter(m)
+			if plr then return m end
+			m = m:FindFirstAncestorOfClass("Model")
+		end
+		-- sobe pelos Models enquanto couber no limite de tamanho
+		local best = nil
+		local cur = hit:FindFirstAncestorOfClass("Model")
+		while cur and cur ~= workspace do
+			local okS, size = pcall(function() local _, s = cur:GetBoundingBox() return s end)
+			if okS and size.Magnitude <= MAX_CARRY then best = cur else break end
+			cur = cur:FindFirstAncestorOfClass("Model")
+		end
+		if best then return best end
+		if hit.Size.Magnitude <= MAX_CARRY then return hit end
+		return nil, "grande demais pro Morty"
+	end
+
+	local function stopPick()
+		ctl.mode = "idle"
+		if pickGui then pickGui.Enabled = false end
+		refreshPrompt()
+	end
+
+	local pickMsg
+	local function buildPickGui()
+		if pickGui and pickGui.Parent then return end
+		local g = newGui("RickMortyPick", 31)
+		g.Enabled = false
+		local fr = Instance.new("Frame")
+		fr.AnchorPoint = Vector2.new(0.5, 0)
+		fr.Position = UDim2.new(0.5, 0, 0, 70)
+		fr.Size = UDim2.new(0, 330, 0, 84)
+		fr.BackgroundColor3 = C3(12, 6, 30)
+		fr.BackgroundTransparency = 0.12
+		fr.BorderSizePixel = 0
+		fr.Parent = g
+		Instance.new("UICorner", fr).CornerRadius = UDim.new(0, 12)
+		local st = Instance.new("UIStroke", fr)
+		st.Color = GRN
+		st.Thickness = 2
+		local tx = Instance.new("TextLabel")
+		tx.BackgroundTransparency = 1
+		tx.Position = UDim2.new(0, 10, 0, 6)
+		tx.Size = UDim2.new(1, -20, 0, 38)
+		tx.Font = Enum.Font.GothamBold
+		tx.TextSize = 15
+		tx.TextWrapped = true
+		tx.TextColor3 = GRN
+		tx.Text = "Clique no que o Morty vai pegar"
+		tx.Parent = fr
+		pickMsg = tx
+		local cb = Instance.new("TextButton")
+		cb.AnchorPoint = Vector2.new(0.5, 0)
+		cb.Position = UDim2.new(0.5, 0, 0, 48)
+		cb.Size = UDim2.new(0, 140, 0, 28)
+		cb.BackgroundColor3 = C3(80, 36, 84)
+		cb.Font = Enum.Font.GothamBold
+		cb.TextSize = 14
+		cb.TextColor3 = C3(255, 205, 230)
+		cb.Text = "Cancelar"
+		cb.AutoButtonColor = true
+		cb.Parent = fr
+		Instance.new("UICorner", cb).CornerRadius = UDim.new(0, 8)
+		cb.Activated:Connect(stopPick)
+		pickGui = g
+	end
+
+	local function startPick()
+		ctl.mode = "pick"
+		buildPickGui()
+		if pickMsg then
+			pickMsg.Text = "Clique no que o Morty vai buscar"
+			pickMsg.TextColor3 = GRN
+		end
+		pickGui.Enabled = true
+		refreshPrompt()
+	end
+
+	local function pickAt(origin, dir)
+		local res = workspace:Raycast(origin, dir * 400, pickRP)
+		if not res then return end
+		local target, why = chooseTarget(res.Instance)
+		if not target then
+			if pickMsg then
+				pickMsg.Text = "Nao da: " .. tostring(why)
+				pickMsg.TextColor3 = C3(255, 120, 110)
+			end
+			return
+		end
+		ctl.fetch = { obj = target, phase = "go", name = target.Name }
+		stopPick()
+	end
+
+	-- ---------- menu ----------
+	local function destroyMenu()
+		if menuGui then pcall(function() menuGui:Destroy() end) end
+		menuGui, menuFrame, menuItems, menuRefs = nil, nil, nil, nil
+	end
+
+	local closeMenu
+	local function buildMenu()
+		destroyMenu()
+		local g = newGui("RickMortyFollowMenu", 30)
+		g.Enabled = false
+		menuItems = {}
+		menuRefs = {}
+
+		local frame = Instance.new("Frame")
+		frame.Name = "Menu"
+		frame.AnchorPoint = Vector2.new(0, 0.5)
+		frame.Position = UDim2.new(0, 14, 0.5, 0)
+		frame.Size = UDim2.new(0.4, 0, 0, 0)
+		frame.AutomaticSize = Enum.AutomaticSize.Y
+		frame.BackgroundTransparency = 1
+		frame.BorderSizePixel = 0
+		frame.Parent = g
+		menuFrame = frame
+		local sc = Instance.new("UISizeConstraint")
+		sc.MinSize = Vector2.new(190, 0)
+		sc.MaxSize = Vector2.new(270, 10000)
+		sc.Parent = frame
+		local lay = Instance.new("UIListLayout")
+		lay.Padding = UDim.new(0, 6)
+		lay.SortOrder = Enum.SortOrder.LayoutOrder
+		lay.Parent = frame
+
+		local function label(parent, text, size, font, color, pos, sz)
+			local l = Instance.new("TextLabel")
+			l.BackgroundTransparency = 1
+			l.Position = pos
+			l.Size = sz
+			l.Text = text
+			l.TextSize = size
+			l.Font = font
+			l.TextColor3 = color
+			l.TextXAlignment = Enum.TextXAlignment.Left
+			l.TextStrokeColor3 = Color3.new(0, 0, 0)
+			l.TextStrokeTransparency = 0.35
+			l.Parent = parent
+			return l
+		end
+
+		local q = label(frame, "Morty: e aí, " .. tostring(player.DisplayName or player.Name) .. "?", 19, Enum.Font.GothamBlack, GRN,
+			UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 0))
+		q.TextWrapped = true
+		q.AutomaticSize = Enum.AutomaticSize.Y
+		q.LayoutOrder = 1
+
+		local H3, DEPTH = 52, 7
+		local function make3D(order, base, accent, onClick)
+			local wrap = Instance.new("Frame")
+			wrap.BackgroundTransparency = 1
+			wrap.Size = UDim2.new(1, 0, 0, H3 + DEPTH + 4)
+			wrap.LayoutOrder = order
+			wrap.Parent = frame
+			local sh = Instance.new("Frame")
+			sh.Size = UDim2.new(1, 0, 0, H3)
+			sh.Position = UDim2.new(0, 0, 0, DEPTH + 4)
+			sh.BackgroundColor3 = base:Lerp(Color3.new(0, 0, 0), 0.65)
+			sh.BorderSizePixel = 0
+			sh.Parent = wrap
+			Instance.new("UICorner", sh).CornerRadius = UDim.new(0, 12)
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(1, 0, 0, H3)
+			b.BackgroundColor3 = base
+			b.AutoButtonColor = false
+			b.Text = ""
+			b.BorderSizePixel = 0
+			b.Parent = wrap
+			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+			local gr = Instance.new("UIGradient")
+			gr.Rotation = 90
+			gr.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.62, 0.62, 0.7))
+			gr.Parent = b
+			local st = Instance.new("UIStroke")
+			st.Color = accent
+			st.Thickness = 2
+			st.Transparency = 0.2
+			st.Parent = b
+			local item = { b = b, sh = sh, ph = order * 0.9, down = false, stroke = st }
+			b.MouseButton1Down:Connect(function() item.down = true end)
+			b.MouseButton1Up:Connect(function() item.down = false end)
+			b.MouseLeave:Connect(function() item.down = false end)
+			b.Activated:Connect(onClick)
+			menuItems[#menuItems + 1] = item
+			return b, item
+		end
+
+		-- Seguir
+		local bF, itF = make3D(2, C3(48, 26, 92), GRN, function()
+			ctl.follow = not ctl.follow
+			MS.follow = ctl.follow
+			closeMenu()
+		end)
+		local swF = Instance.new("Frame")
+		swF.Size = UDim2.new(0, 8, 1, -18)
+		swF.Position = UDim2.new(0, 10, 0, 9)
+		swF.BorderSizePixel = 0
+		swF.Parent = bF
+		Instance.new("UICorner", swF).CornerRadius = UDim.new(1, 0)
+		label(bF, "Seguir", 16, Enum.Font.GothamBold, Color3.new(1, 1, 1),
+			UDim2.new(0, 28, 0, 6), UDim2.new(1, -36, 0, 22))
+		menuRefs.followSw = swF
+		menuRefs.followDesc = label(bF, "", 12, Enum.Font.Gotham, GRN,
+			UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 18))
+		menuRefs.followItem = itF
+
+		-- Pega
+		local ORG = C3(255, 170, 60)
+		local bP = make3D(3, C3(48, 26, 92), ORG, function()
+			if ctl.fetch then
+				ctl.fetch = nil
+				closeMenu()
+			elseif ctl.carry then
+				releaseCarry()
+				closeMenu()
+			else
+				closeMenu()
+				startPick()
+			end
+		end)
+		local swP = Instance.new("Frame")
+		swP.Size = UDim2.new(0, 8, 1, -18)
+		swP.Position = UDim2.new(0, 10, 0, 9)
+		swP.BackgroundColor3 = ORG
+		swP.BorderSizePixel = 0
+		swP.Parent = bP
+		Instance.new("UICorner", swP).CornerRadius = UDim.new(1, 0)
+		menuRefs.pegaTitle = label(bP, "Pega", 16, Enum.Font.GothamBold, Color3.new(1, 1, 1),
+			UDim2.new(0, 28, 0, 6), UDim2.new(1, -36, 0, 22))
+		menuRefs.pegaDesc = label(bP, "", 12, Enum.Font.Gotham, ORG,
+			UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 18))
+
+		-- Fechar
+		local cb = make3D(4, C3(80, 36, 84), C3(255, 160, 210), function() closeMenu() end)
+		local cl = label(cb, "Deixa pra lá", 15, Enum.Font.GothamBold, C3(255, 205, 230),
+			UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 1, 0))
+		cl.TextXAlignment = Enum.TextXAlignment.Center
+
+		menuGui = g
+	end
+
+	local function refreshMenuTexts()
+		if not menuRefs then return end
+		if ctl.follow then
+			menuRefs.followSw.BackgroundColor3 = GRN
+			menuRefs.followDesc.TextColor3 = GRN
+			menuRefs.followDesc.Text = "Ligado - toque pra ele ficar parado"
+		else
+			menuRefs.followSw.BackgroundColor3 = C3(255, 110, 110)
+			menuRefs.followDesc.TextColor3 = C3(255, 150, 150)
+			menuRefs.followDesc.Text = "Parado - toque pra ele te seguir"
+		end
+		if ctl.fetch then
+			menuRefs.pegaTitle.Text = "Cancelar"
+			menuRefs.pegaDesc.Text = "Indo buscar: " .. tostring(ctl.fetch.name)
+		elseif ctl.carry then
+			menuRefs.pegaTitle.Text = "Largar"
+			menuRefs.pegaDesc.Text = "Carregando: " .. tostring(ctl.carry.name)
+		else
+			menuRefs.pegaTitle.Text = "Pega"
+			menuRefs.pegaDesc.Text = "Escolha algo pro Morty carregar"
+		end
+	end
+
+	closeMenu = function()
+		if not ctl.menuOpen then return end
+		ctl.menuOpen = false
+		refreshPrompt()
+		local g, fr = menuGui, menuFrame
+		if g and fr and g.Parent then
+			pcall(function()
+				TweenService:Create(fr, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ Position = UDim2.new(0, -320, 0.5, 0) }):Play()
+			end)
+			task.delay(0.3, function() if g.Parent then g.Enabled = false end end)
+		end
+	end
+
+	local function openMenu()
+		if ctl.menuOpen or ctl.mode ~= "idle" or not (Z.alive and rig.Parent) then return end
+		if not (menuGui and menuGui.Parent) then buildMenu() end
+		refreshMenuTexts()
+		ctl.menuOpen = true
+		refreshPrompt()
+		menuFrame.Position = UDim2.new(0, -320, 0.5, 0)
+		TweenService:Create(menuFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(0, 14, 0.5, 0) }):Play()
+		for i, it in ipairs(menuItems) do
+			UIAnim.getScale(it.b).Scale = 0
+			task.delay(0.05 + i * 0.07, function()
+				if it.b.Parent then UIAnim.scaleTo(it.b, 1, 0.35) end
+			end)
+		end
+		menuGui.Enabled = true
+		task.spawn(function()
+			local t0 = os.clock()
+			while ctl.menuOpen and Z.alive and rig.Parent and menuGui and menuGui.Parent do
+				local hrp = character:FindFirstChild("HumanoidRootPart")
+				if not hrp or (playerHum and playerHum.Health <= 0) then break end
+				if (hrp.Position - root.Position).Magnitude > 45 then break end
+				local t = os.clock()
+				for _, it in ipairs(menuItems) do
+					local off = it.down and 5 or (2 + 3 * math.sin(t * 2 + it.ph))
+					it.b.Position = UDim2.new(0, 0, 0, off)
+					it.sh.BackgroundTransparency = it.down and 0.3 or 0.1 + 0.1 * (0.5 + 0.5 * math.sin(t * 2 + it.ph))
+				end
+				RunService.Heartbeat:Wait()
+			end
+			closeMenu()
+		end)
+	end
+
+	-- ---------- clique no Morty ----------
+	local function rayBox(origin, dir, boxCF, size)
+		local o = boxCF:PointToObjectSpace(origin)
+		local d = boxCF:VectorToObjectSpace(dir)
+		local h = size / 2
+		local tmin, tmax = 0, math.huge
+		for _, ax in ipairs({ "X", "Y", "Z" }) do
+			local oa, da, ha = o[ax], d[ax], h[ax]
+			if math.abs(da) < 1e-6 then
+				if math.abs(oa) > ha then return nil end
+			else
+				local t1, t2 = (-ha - oa) / da, (ha - oa) / da
+				if t1 > t2 then t1, t2 = t2, t1 end
+				tmin = math.max(tmin, t1)
+				tmax = math.min(tmax, t2)
+				if tmin > tmax then return nil end
+			end
+		end
+		return tmin
+	end
+
+	local function hitMorty(p)
+		if not (Z.alive and rig.Parent) then return false end
+		local cam = workspace.CurrentCamera
+		if not cam then return false end
+		if (rootPart.Position - root.Position).Magnitude > 60 then return false end
+		local r = cam:ScreenPointToRay(p.X, p.Y)
+		local o, dir = r.Origin, r.Direction.Unit
+		local tM = rayBox(o, dir, root.CFrame * CF(0, -0.25 * S, 0), V3(4, 6, 4) * S)
+		if not tM then return false end
+		return workspace:Raycast(o, dir * math.max(tM - 0.3, 0.1), pickRP) == nil
+	end
+
+	local function onClick(p)
+		if not (Z.alive and rig.Parent) then return end
+		if ctl.mode == "pick" then
+			local cam = workspace.CurrentCamera
+			if not cam then return end
+			local r = cam:ScreenPointToRay(p.X, p.Y)
+			pickAt(r.Origin, r.Direction.Unit)
+		elseif not ctl.menuOpen and hitMorty(p) then
+			openMenu()
+		end
+	end
+
+	local downs = {}
+	local function keyOf(input)
+		return input.UserInputType == Enum.UserInputType.Touch and input or "mouse"
+	end
+	cons[#cons + 1] = UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		local ut = input.UserInputType
+		if ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch then
+			downs[keyOf(input)] = { pos = Vector2.new(input.Position.X, input.Position.Y), t = os.clock() }
+		end
+	end)
+	cons[#cons + 1] = UserInputService.InputEnded:Connect(function(input)
+		local ut = input.UserInputType
+		if ut ~= Enum.UserInputType.MouseButton1 and ut ~= Enum.UserInputType.Touch then return end
+		local k = keyOf(input)
+		local d = downs[k]
+		if not d then return end
+		downs[k] = nil
+		local p = Vector2.new(input.Position.X, input.Position.Y)
+		if (p - d.pos).Magnitude > 14 or os.clock() - d.t > 0.5 then return end
+		onClick(p)
+	end)
+
+	-- alternativa sem clique (a arma tambem usa o clique quando esta equipada)
+	if CFG.Prompt == true then
+		pcall(function()
+			prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Falar"
+			prompt.ObjectText = "Morty"
+			prompt.HoldDuration = 0
+			prompt.MaxActivationDistance = 10
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = torso
+			cons[#cons + 1] = prompt.Triggered:Connect(openMenu)
+		end)
+	end
+
+	local function ctlDestroy()
+		for _, c in ipairs(cons) do pcall(function() c:Disconnect() end) end
+		cons = {}
+		releaseCarry(true)
+		ctl.menuOpen, ctl.mode, ctl.fetch = false, "idle", nil
+		if pickGui then pcall(function() pickGui:Destroy() end) end
+		destroyMenu()
+	end
+
+	State.followMorty = {
+		rig = rig,
+		destroy = function() pcall(ctlDestroy) pcall(function() rig:Destroy() end) end,
+		-- a arma consulta isso pra nao atirar quando o clique e no Morty / escolhendo o que pegar
+		blockFire = function(p)
+			if ctl.mode == "pick" then return true end
+			local ok, hit = pcall(hitMorty, Vector2.new(p.X, p.Y))
+			return ok and hit or false
+		end,
+	}
+
+	-- loop de seguir + animacao de andar (+ senta no banco do passageiro da nave)
+	local walking, amt, phase = false, 0, 0
+	local sitAmt, seated, hop = 0, false, nil
+	local filterT, lastErr = 0, 0
+	local STOP, FOLLOW = CFG.StopDistance, CFG.FollowDistance
+	local BIND = "RickMortyFollowStep"
+
+	local function stepFn(dt)
+		dt = math.min(dt, 0.1)
+		local now = os.clock()
+		if now - filterT > 2 then
+			filterT = now
+			refreshFilter()
+		end
+		local pcf = rootPart.CFrame
+		local pos = pcf.Position
+
+		-- banco do passageiro (so existe enquanto voce esta dentro da nave)
+		local seatCF = nil
+		local shp = State.ship
+		if shp and shp.passengerCF then
+			seatCF = shp.passengerCF(S)
+			if seatCF then seatCF = seatCF * CF(0, CFG.SeatOffsetY or 0, 0) end
+		end
+		if not ctl.follow and not seated then seatCF = nil end
+
+		if seatCF and not seated then
+			seated = true
+			ctl.fetch = nil
+			hop = { t = 0, dur = 0.45, fromCF = root.CFrame }
+		elseif seated and not seatCF then
+			seated = false
+			local lk = V3(pcf.LookVector.X, 0, pcf.LookVector.Z)
+			if lk.Magnitude < 0.01 then lk = V3(0, 0, -1) else lk = lk.Unit end
+			local rt = lk:Cross(V3(0, 1, 0))
+			local tx = pos - lk * (STOP * 0.6) - rt * (STOP * 0.8)
+			local gy = feetY()
+			local res = workspace:Raycast(V3(tx.X, pos.Y + 2, tx.Z), V3(0, -80, 0), rp)
+			if res then gy = res.Position.Y end
+			yaw = math.atan2(-(pos.X - tx.X), -(pos.Z - tx.Z))
+			cur = V3(tx.X, 0, tx.Z)
+			groundY = gy
+			hop = { t = 0, dur = 0.5, fromCF = root.CFrame, to = V3(tx.X, gy + 3 * S, tx.Z) }
+		end
+		sitAmt = sitAmt + ((seated and 1 or 0) - sitAmt) * math.min(1, dt * 9)
+
+		local rcf
+		if seated then
+			walking, amt = false, 0
+			if hop then
+				hop.t = hop.t + dt
+				local e = math.min(hop.t / hop.dur, 1)
+				local se = e * e * (3 - 2 * e)
+				rcf = hop.fromCF:Lerp(seatCF, se) + V3(0, math.sin(e * math.pi) * 2.5 * S, 0)
+				if e >= 1 then hop = nil end
+			else
+				rcf = seatCF
+			end
+			yaw = math.atan2(-seatCF.LookVector.X, -seatCF.LookVector.Z)
+			cur = V3(seatCF.Position.X, 0, seatCF.Position.Z)
+		elseif hop then
+			walking, amt = false, 0
+			hop.t = hop.t + dt
+			local e = math.min(hop.t / hop.dur, 1)
+			local se = e * e * (3 - 2 * e)
+			local fin = CF(hop.to) * ANG(0, yaw, 0)
+			rcf = hop.fromCF:Lerp(fin, se) + V3(0, math.sin(e * math.pi) * 2.5 * S, 0)
+			if e >= 1 then hop = nil end
+		else
+			local flat = V3(cur.X - pos.X, 0, cur.Z - pos.Z)
+			local d = flat.Magnitude
+
+			-- teleporte (portal, respawn longe etc.)
+			if ctl.follow and not (ctl.fetch and ctl.fetch.phase ~= "back") and (d > CFG.TeleportDistance or math.abs(groundY - feetY()) > 80) then
+				local back = -V3(pcf.LookVector.X, 0, pcf.LookVector.Z)
+				if back.Magnitude < 0.01 then back = V3(0, 0, 1) else back = back.Unit end
+				cur = pos + back * STOP
+				groundY = feetY()
+				flat = back * STOP
+				d = STOP
+				walking = false
+			end
+			if d < 0.01 then flat = V3(1, 0, 0) d = 0.01 end
+
+			local fetch = ctl.fetch
+			local gdir, gd, gstop = -flat.Unit, d, STOP
+			local dirToPlayer = -flat.Unit
+			if fetch and fetch.phase == "go" and not (fetch.obj and fetch.obj.Parent) then
+				ctl.fetch, fetch = nil, nil
+			end
+			if fetch then
+				if fetch.phase == "go" then
+					local bcf, bsz = bboxOf(fetch.obj)
+					local tv = V3(bcf.Position.X - cur.X, 0, bcf.Position.Z - cur.Z)
+					gd = tv.Magnitude
+					gstop = math.sqrt(bsz.X * bsz.X + bsz.Z * bsz.Z) / 2 + 1.3 * S
+					if gd > 0.01 then gdir = tv.Unit end
+					fetch.face = gdir
+					if gd <= gstop + 0.3 then
+						startCarry(fetch.obj)       -- pegou: espera um instante e volta
+						fetch.phase, fetch.wait = "wait", 0.5
+						walking = false
+					else
+						walking = true
+					end
+				elseif fetch.phase == "wait" then
+					walking = false
+					gdir = fetch.face or gdir
+					fetch.wait = fetch.wait - dt
+					if fetch.wait <= 0 then fetch.phase = "back" end
+				else -- back
+					if d <= STOP + 0.3 then
+						ctl.fetch = nil
+						walking = false
+					else
+						walking = true
+					end
+				end
+			elseif not ctl.follow or ctl.menuOpen or ctl.mode == "pick" then
+				walking = false
+			elseif walking then
+				if d < STOP + 0.4 then walking = false end
+			elseif d > FOLLOW then
+				walking = true
+			end
+
+			local spd = 0
+			if walking then
+				spd = math.clamp((gd - gstop) * 4, 5, CFG.MaxSpeed)
+				local step = math.min(spd * dt, math.max(gd - gstop, 0))
+				cur = cur + gdir * step
+			end
+			local faceDir = (ctl.fetch and (walking or ctl.fetch.phase == "wait")) and gdir or dirToPlayer
+			local wantYaw = math.atan2(-faceDir.X, -faceDir.Z)
+			local delta = (wantYaw - yaw + math.pi) % (2 * math.pi) - math.pi
+			yaw = yaw + delta * math.min(1, dt * (walking and 12 or 6))
+
+			-- altura do chao
+			local gy = feetY()
+			local res = workspace:Raycast(V3(cur.X, groundY + 3 * S + 4, cur.Z), V3(0, -60, 0), rp)
+			if res then gy = res.Position.Y end
+			groundY = groundY + (gy - groundY) * math.min(1, dt * 18)
+
+			amt = amt + ((walking and 1 or 0) - amt) * math.min(1, dt * 10)
+			if walking then
+				phase = phase + dt * math.min(spd / (S * 1.2), 30)
+			end
+			local bob = math.abs(math.sin(phase)) * 0.12 * S * amt
+			rcf = CF(cur.X, groundY + 3 * S + bob, cur.Z) * ANG(0, yaw, 0)
+		end
+
+		-- poses: andar / parado / sentado
+		local sw = math.sin(phase) * 0.9 * amt
+		local idle = math.sin(now * 2) * 0.04 * (1 - amt) * (1 - sitAmt)
+		local leg = sitAmt * (math.pi / 2)
+		carryAmt = carryAmt + ((ctl.carry and 1 or 0) - carryAmt) * math.min(1, dt * 8)
+		local arm = sitAmt * 0.7 + carryAmt * 1.4
+		local swA = sw * (1 - carryAmt * 0.85)
+		rHip.Transform = ANG(0, 0, sw + leg)
+		lHip.Transform = ANG(0, 0, sw - leg)
+		rSh.Transform = ANG(0, 0, -swA * 0.8 + idle + arm)
+		lSh.Transform = ANG(0, 0, -swA * 0.8 + idle - arm)
+		root.CFrame = rcf
+		carryStep(rcf, dt)
+	end
+
+	pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+	-- roda depois do passo da nave (Camera - 2) para nao tremer em voo
+	RunService:BindToRenderStep(BIND, Enum.RenderPriority.Camera.Value - 1, function(dt)
+		if not Z.alive or not rig.Parent then return end
+		local okL, errL = pcall(stepFn, dt)
+		if not okL and os.clock() - lastErr > 5 then
+			lastErr = os.clock()
+			warnRG("Morty seguidor (loop):", errL)
+		end
+	end)
+	State.followMorty.destroy = function()
+		pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+		pcall(ctlDestroy)
+		pcall(function() rig:Destroy() end)
+	end
+end
+
+State.startFollowMorty = function(character, Z, newGui)
+	local ok, e = pcall(State._buildFollowMorty, character, Z, newGui)
+	if not ok then warnRG("Morty seguidor falhou ao montar:", e) end
 end
 
 local function setupRickGun(character)
@@ -17361,6 +18361,8 @@ local function setupRickGun(character)
 	track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed or not isEquipped then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			local fm = State.followMorty
+			if fm and fm.blockFire and fm.blockFire(input.Position) then return end
 			fire()
 		elseif input.KeyCode == Enum.KeyCode.X then
 			closeAllPortals()
@@ -17402,6 +18404,8 @@ local function setupRickGun(character)
 		removeHolster()
 		pcall(restoreScale)
 	end))
+
+	State.startFollowMorty(character, Z, newGui)
 
 	local lastErr = 0
 	pcall(function() RunService:UnbindFromRenderStep(STEP_NAME) end)
@@ -17470,6 +18474,7 @@ local function setupRickGun(character)
 		pcall(function() if State.key then State.key.destroy(); State.key = nil end end)
 		pcall(function() if State.ship then State.ship.destroy(); State.ship = nil end end)
 		pcall(function() if State.drinkStop then State.drinkStop() end end)
+		pcall(function() if State.followMorty then State.followMorty.destroy(); State.followMorty = nil end end)
 		State.morty = nil
 		pcall(function() Z.fala.destruir() end)
 		pcall(stopCamSlide)

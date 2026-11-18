@@ -73,10 +73,10 @@ local Config = {
 	BoardAnim = true,
 	Board = {
 		OpenAngle = 64,
-		OpenTime = 0.5,
-		InTime = 0.65,
-		SettleTime = 0.2,
-		CloseTime = 0.4,
+		OpenTime = 1.0,
+		InTime = 2.1,
+		SettleTime = 0.15,
+		CloseTime = 0.9,
 		StandX = -4.6,
 		StandZ = 1.6,
 	},
@@ -92,10 +92,10 @@ local Config = {
 	},
 	ExitAnim = true,
 	Exit = {
-		OpenTime = 0.45,
-		OutTime = 0.7,
-		CloseDelay = 0.35,
-		CloseTime = 0.4,
+		OpenTime = 0.9,
+		OutTime = 2.0,
+		CloseDelay = 0.25,
+		CloseTime = 0.8,
 		MaxSpeed = 3,
 	},
 	UseHiddenGui = true,
@@ -3298,93 +3298,6 @@ local function easeIO(x)
 	x = math.clamp(x, 0, 1)
 	return x * x * (3 - 2 * x)
 end
-local function boardStep(c, B, ch, hum, rpart, seatCF)
-	local cfg = Config.Board or {}
-	local now = os.clock()
-	local t = now - B.t0
-	if now - B.tStart > 9 then
-		ghostChar(ch)
-		pcall(function() hum.AutoRotate = false; hum.Sit = true end)
-		endBoard(c)
-		return true
-	end
-	local ph = B.ph
-	if ph == "walk" then
-		local stand = c.cf:PointToWorldSpace(B.standRel.Position)
-		local tgt = B.wp[B.i] or stand
-		local pos = rpart.Position
-		local d = Vector3.new(tgt.X - pos.X, 0, tgt.Z - pos.Z).Magnitude
-		local timeout = (now - B.tStart) > B.walkMax
-		if not timeout and d > 1.3 then
-			pcall(function() hum:MoveTo(tgt) end)
-			return false
-		end
-		if not timeout and B.wp[B.i] then
-			B.i = B.i + 1
-			return false
-		end
-		pcall(function() hum.AutoRotate = false end)
-		if timeout then
-			local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
-			rpart.CFrame = CFrame.new(stand.X, stand.Y + h, stand.Z) * rpart.CFrame.Rotation
-		end
-		pcall(function() hum:MoveTo(rpart.Position) end)
-		B.ph = "open"
-		B.t0 = now
-		B.o0 = rpart.CFrame.Rotation
-		playSound(Config.SoundDoorOpen, 0.8)
-		return false
-	elseif ph == "open" then
-		doorSet(c, math.rad(cfg.OpenAngle or 64) * easeIO(t / (cfg.OpenTime or 0.5)))
-		local pos = rpart.Position
-		local face = c.cf.RightVector * Vector3.new(1, 0, 1)
-		if face.Magnitude > 0.01 then
-			local want = CFrame.lookAt(pos, pos + face.Unit)
-			local cur = CFrame.new(pos) * B.o0
-			rpart.CFrame = cur:Lerp(want, easeIO(t / 0.25))
-		end
-		local v = rpart.AssemblyLinearVelocity
-		rpart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
-		if t >= (cfg.OpenTime or 0.5) then
-			B.ph = "in"
-			B.t0 = now
-			B.p0 = rpart.Position
-			B.o0 = rpart.CFrame.Rotation
-			ghostChar(ch)
-		end
-		return false
-	elseif ph == "in" then
-		local x = t / (cfg.InTime or 0.65)
-		local e = easeIO(x)
-		if x >= 0.3 and not hum.Sit then hum.Sit = true end
-		local pos = B.p0:Lerp(seatCF.Position, e) + Vector3.new(0, math.sin(e * math.pi) * 0.6, 0)
-		local rot = B.o0:Lerp(seatCF.Rotation, e) * CFrame.Angles(-0.35 * math.sin(e * math.pi), 0, 0)
-		rpart.CFrame = CFrame.new(pos) * rot
-		rpart.AssemblyLinearVelocity = Vector3.zero
-		rpart.AssemblyAngularVelocity = Vector3.zero
-		if x >= 1 then
-			B.ph = "settle"
-			B.t0 = now
-		end
-		return false
-	elseif ph == "settle" then
-		if t >= (cfg.SettleTime or 0.2) then
-			B.ph = "close"
-			B.t0 = now
-		end
-		return true
-	else
-		local x = t / (cfg.CloseTime or 0.4)
-		if x >= 1 then
-			doorSet(c, 0)
-			playSound(Config.SoundDoorClose, 0.9)
-			endBoard(c)
-			return true
-		end
-		doorSet(c, math.rad(cfg.OpenAngle or 64) * (1 - x * x))
-		return true
-	end
-end
 local function enterCar(c)
 	if not c or c.driver or c.cine then return end
 	local ch, hum, rpart = charParts()
@@ -3666,13 +3579,118 @@ function ANIM.exitCarNow(c, keepDoor, noTeleport)
 	end
 	setMode("P")
 end
+function ANIM.boardStep(c, B, ch, hum, rpart, seatCF)
+	local cfg = Config.Board or {}
+	local now = os.clock()
+	local t = now - B.t0
+	local seg = ANIM.seg
+	local OA = math.rad(cfg.OpenAngle or 64)
+	if now - B.tStart > 14 then
+		ghostChar(ch)
+		pcall(function() hum.AutoRotate = false; hum.Sit = true end)
+		endBoard(c)
+		return true
+	end
+	local ph = B.ph
+	if ph == "walk" then
+		local stand = c.cf:PointToWorldSpace(B.standRel.Position)
+		local tgt = B.wp[B.i] or stand
+		local pos = rpart.Position
+		local d = Vector3.new(tgt.X - pos.X, 0, tgt.Z - pos.Z).Magnitude
+		local timeout = (now - B.tStart) > B.walkMax
+		if not timeout and d > 1.3 then
+			pcall(function() hum:MoveTo(tgt) end)
+			return false
+		end
+		if not timeout and B.wp[B.i] then
+			B.i = B.i + 1
+			return false
+		end
+		pcall(function() hum.AutoRotate = false end)
+		local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
+		if timeout then
+			rpart.CFrame = CFrame.new(stand.X, stand.Y + h, stand.Z) * rpart.CFrame.Rotation
+		end
+		pcall(function() hum:MoveTo(rpart.Position) end)
+		B.h = h
+		B.gy = rpart.Position.Y - h
+		B.base = rpart.Position
+		B.ph = "open"
+		B.t0 = now
+		B.o0 = rpart.CFrame.Rotation
+		return false
+	elseif ph == "open" then
+		local T = cfg.OpenTime or 1.0
+		local u = math.clamp(t / T, 0, 1)
+		if u >= 0.3 and not B.snd then
+			B.snd = true
+			playSound(Config.SoundDoorOpen, 0.8)
+		end
+		doorSet(c, OA * seg(u, 0.3, 1.0))
+		local off = c.cf:VectorToWorldSpace(Vector3.new((0.25 * seg(u, 0, 0.3) - 0.35 * seg(u, 0.45, 1)) * S, 0, 0.5 * S * seg(u, 0.4, 1)))
+		local pos = B.base + off
+		local face = c.cf.RightVector * Vector3.new(1, 0, 1)
+		local cur = CFrame.new(pos) * B.o0
+		if face.Magnitude > 0.01 then
+			cur = cur:Lerp(CFrame.lookAt(pos, pos + face.Unit), seg(t, 0, 0.3))
+		end
+		rpart.CFrame = cur
+		local v = rpart.AssemblyLinearVelocity
+		rpart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		if u >= 1 then
+			B.ph = "in"
+			B.t0 = now
+			B.p0 = rpart.Position
+			B.o0 = rpart.CFrame.Rotation
+			local gnd = Vector3.new(B.p0.X, B.gy, B.p0.Z)
+			local lk = c.cf.LookVector
+			B.R0l = c.cf:PointToObjectSpace(gnd - lk * (0.3 * S))
+			B.L0l = c.cf:PointToObjectSpace(gnd + lk * (0.3 * S))
+			ghostChar(ch)
+		end
+		return false
+	elseif ph == "in" then
+		local u = t / (cfg.InTime or 2.1)
+		if u >= 0.2 and not hum.Sit then hum.Sit = true end
+		local R = ANIM.inPose(c, B, math.min(u, 1), seatCF)
+		rpart.CFrame = CFrame.new(R.pos) * R.rot
+		rpart.AssemblyLinearVelocity = Vector3.zero
+		rpart.AssemblyAngularVelocity = Vector3.zero
+		if u >= 1 then
+			B.ph = "settle"
+			B.t0 = now
+		end
+		return false
+	elseif ph == "settle" then
+		B.shiftV = nil
+		if t >= (cfg.SettleTime or 0.15) then
+			B.ph = "close"
+			B.t0 = now
+		end
+		return true
+	else
+		local u = t / (cfg.CloseTime or 0.9)
+		if u >= 1 then
+			doorSet(c, 0)
+			playSound(Config.SoundDoorClose, 0.9)
+			B.shiftV = nil
+			endBoard(c)
+			return true
+		end
+		doorSet(c, OA * (1 - seg(u, 0.25, 0.95)))
+		local lean = seg(u, 0, 0.3) * (1 - seg(u, 0.62, 1))
+		B.shiftV = c.cf:VectorToWorldSpace(Vector3.new(-0.35 * S * lean, 0, 0))
+		return true
+	end
+end
 function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
 	local cfgB = Config.Board or {}
 	local cfgX = Config.Exit or {}
 	local now = os.clock()
 	local t = now - X.t0
+	local seg = ANIM.seg
 	local OA = math.rad(cfgB.OpenAngle or 64)
-	if now - X.tStart > 6 then
+	if now - X.tStart > 8 then
 		ANIM.exitCarNow(c)
 		return
 	end
@@ -3680,14 +3698,15 @@ function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
 	rpart.AssemblyAngularVelocity = Vector3.zero
 	if not hum.Sit then hum.Sit = true end
 	if X.ph == "open" then
-		if not X.snd then
+		local ot = cfgX.OpenTime or 0.9
+		local u = math.clamp(t / ot, 0, 1)
+		if u >= 0.25 and not X.snd then
 			X.snd = true
 			playSound(Config.SoundDoorOpen, 0.8)
 		end
-		local ot = cfgX.OpenTime or 0.45
-		doorSet(c, OA * easeIO(t / ot))
-		rpart.CFrame = seatCF
-		if t >= ot then
+		doorSet(c, OA * seg(u, 0.25, 1))
+		rpart.CFrame = seatCF + c.cf:VectorToWorldSpace(Vector3.new(-0.2 * S * seg(u, 0.1, 0.5), 0, 0))
+		if u >= 1 then
 			X.ph = "out"
 			X.t0 = now
 			local st = c.cf:PointToWorldSpace(Vector3.new((cfgB.StandX or -4.6) * S - 0.5 * S, 0, (cfgB.StandZ or 1.6) * S))
@@ -3701,22 +3720,20 @@ function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
 			end)
 			local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
 			X.standPos = Vector3.new(st.X, gy + h + 0.1, st.Z)
-			X.p0 = seatCF.Position
+			X.gnd = Vector3.new(st.X, gy, st.Z)
 			X.r0 = seatCF.Rotation
 			local out = -c.cf.RightVector * Vector3.new(1, 0, 1)
 			if out.Magnitude < 0.01 then out = Vector3.new(-1, 0, 0) end
 			X.outRot = CFrame.lookAt(Vector3.zero, out.Unit).Rotation
 		end
 	else
-		local x = t / (cfgX.OutTime or 0.7)
-		local e = easeIO(x)
-		local pos = X.p0:Lerp(X.standPos, e) + Vector3.new(0, math.sin(e * math.pi) * 0.7, 0)
-		local rot = X.r0:Lerp(X.outRot, easeIO(math.clamp(x * 1.25, 0, 1)))
-		rpart.CFrame = CFrame.new(pos) * rot
-		if x >= 1 then
+		local u = math.clamp(t / (cfgX.OutTime or 2.0), 0, 1)
+		local R = ANIM.outPose(c, X, u, seatCF)
+		rpart.CFrame = CFrame.new(R.pos) * R.rot
+		if u >= 1 then
 			rpart.CFrame = CFrame.new(X.standPos) * X.outRot
 			ANIM.exitCarNow(c, true, true)
-			c.doorClose = { t0 = now + (cfgX.CloseDelay or 0.35) }
+			c.doorClose = { t0 = now + (cfgX.CloseDelay or 0.25) }
 		end
 	end
 end
@@ -5380,7 +5397,7 @@ local function holdChar(c)
 		return
 	end
 	if B then
-		local ok, res = pcall(boardStep, c, B, ch, hum, rpart, seatCF)
+		local ok, res = pcall(ANIM.boardStep, c, B, ch, hum, rpart, seatCF)
 		if not ok then
 			ghostChar(ch)
 			pcall(function() hum.AutoRotate = false end)
@@ -5388,7 +5405,7 @@ local function holdChar(c)
 			res = true
 		end
 		if not res then return end
-		rpart.CFrame = seatCF
+		rpart.CFrame = seatCF + (B.shiftV or Vector3.zero)
 	elseif c.boardFrom then
 		local e = math.clamp((os.clock() - c.boardT0) / 0.3, 0, 1)
 		e = e * e * (3 - 2 * e)
@@ -7973,8 +7990,32 @@ local function driveArms(c, dt)
 	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
 	ARMS.chk = { sh = chR.sh, tf = chR.sh.Transform }
 end
-ANIM.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, ik = 0 }
+ANIM.L = { J = nil, AJ = nil, ank = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, lw = { R = 0, L = 0 }, ap = {}, lp = {}, ik = 0 }
+ANIM.P = {
+	RestHand = Vector3.new(-3.0, 3.6, 2.3),
+	RoofL = Vector3.new(-2.9, 3.9, 0.4),
+	FloorR = Vector3.new(-1.25, 1.25, 0.15),
+	FloorL = Vector3.new(-1.95, 1.25, 0.25),
+	ApexR = Vector3.new(-3.3, 2.4, 1.4),
+	ApexL = Vector3.new(-3.0, 2.6, 0.8),
+	DangleL = Vector3.new(-3.2, 1.7, 1.3),
+}
 function ANIM.limbRot(cf) return cf - cf.Position end
+function ANIM.seg(t, a, b)
+	local x = math.clamp((t - a) / (b - a), 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function ANIM.mild(x)
+	x = math.clamp(x, 0, 1)
+	return x + (x * x * (3 - 2 * x) - x) * 0.55
+end
+function ANIM.bez(a, b, c, u)
+	local i = 1 - u
+	return a * (i * i) + b * (2 * i * u) + c * (u * u)
+end
+function ANIM.arc(a, m, b, v)
+	return ANIM.bez(a, m * 2 - (a + b) * 0.5, b, v)
+end
 function ANIM.limbJoints(ch)
 	local map = {
 		ls = { "LeftUpperArm", "Left Arm" }, rh = { "RightUpperLeg", "Right Leg" },
@@ -7996,100 +8037,214 @@ function ANIM.limbJoints(ch)
 	return J
 end
 function ANIM.limbRelease()
-	local J = ANIM.L.J
+	local L = ANIM.L
+	local J = L.J
 	if J then
 		for key, m in pairs(J) do
-			if m.Parent and (ANIM.L.jw[key] or 0) > 0 then m.Transform = CFrame.new() end
+			if m.Parent and (L.jw[key] or 0) > 0 then m.Transform = CFrame.new() end
 		end
 	end
-	ANIM.L.cur, ANIM.L.jw, ANIM.L.ik = {}, {}, 0
+	L.cur, L.jw, L.aw, L.lw, L.ap, L.lp, L.ik = {}, {}, { R = 0, L = 0 }, { R = 0, L = 0 }, {}, {}, 0
 end
 function ANIM.doorHandleW(c)
 	local X = c.doorX or CFrame.new()
 	return c.cf:PointToWorldSpace(X:PointToWorldSpace(Vector3.new(-3.75 * S, 2.45 * S, 1.2 * S)))
 end
-function ANIM.limbTargets(c, now)
+function ANIM.wheelGrip(c, sd)
+	local base = c.swBase and (c.cf * c.swBase) or (c.cf * CFrame.new(-1.55 * S, 3.0 * S, -0.85 * S))
+	local a = (sd == "right") and GRIP_A or -GRIP_A
+	local rim = 0.62 * S
+	return base * Vector3.new(0, rim * math.cos(a), rim * math.sin(a))
+end
+function ANIM.solveLeg(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyFront, ez, footRotW, kneeOut)
+	local hip, knee, ankle = k.sh, k.elbow, k.ankle
+	local P = p0n * hip.C0.Position
+	local toT = tgt - P
+	local dist = toT.Magnitude
+	if dist < 0.05 then return end
+	local dirT = toT / dist
+	local L1, L2 = k.L1, k.L2
+	local d = math.min(dist, (L1 + L2) * 0.999)
+	local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+	local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+	local pole = bodyFront + bodyRight * (kneeOut * sgn) + bodyUp * 0.1
+	pole = pole - dirT * pole:Dot(dirT)
+	pole = pole.Magnitude > 1e-3 and pole.Unit or bodyFront
+	local E = P + dirT * a + pole * h
+	local uW = (E - P).Unit
+	local lv = (P + dirT * d) - E
+	local lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+	local Ru = armRotFromTo(k.d0, p0n:VectorToObjectSpace(uW))
+	local CF1 = CFrame.new(hip.C0.Position) * Ru * k.rrSh * CFrame.new(-hip.C1.Position)
+	hip.Transform = hip.Transform:Lerp(hip.C0:Inverse() * CF1 * hip.C1, ez)
+	local upperCF = p0n * CF1
+	local R2 = armRotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+	local CF2 = CFrame.new(knee.C0.Position) * R2 * k.rrEl * CFrame.new(-knee.C1.Position)
+	knee.Transform = CFrame.new():Lerp(knee.C0:Inverse() * CF2 * knee.C1, ez)
+	if ankle and ankle.Parent and footRotW then
+		local lowerCF = upperCF * CF2
+		local function rot(cf) return cf - cf.Position end
+		local T = rot(ankle.C0):Inverse() * rot(lowerCF):Inverse() * footRotW * rot(ankle.C1)
+		ankle.Transform = CFrame.new():Lerp(T, ez)
+	end
+end
+function ANIM.inPose(c, B, u, seatCF)
+	local seg, P = ANIM.seg, ANIM.P
+	local pT = seatCF.Position
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
+	local function cv(x, y, z) return c.cf:VectorToWorldSpace(Vector3.new(x, y, z) * S) end
+	local R = {}
+	local kA = B.p0:Lerp(pT, 0.42) + cv(0, -0.45, 0)
+	local kB = pT + cv(-0.5, 0.85, 0.2)
+	if u < 0.28 then R.pos = B.p0:Lerp(kA, ANIM.mild(u / 0.28))
+	elseif u < 0.58 then R.pos = kA:Lerp(kB, ANIM.mild((u - 0.28) / 0.3))
+	elseif u < 0.8 then R.pos = kB:Lerp(pT, ANIM.mild((u - 0.58) / 0.22))
+	else R.pos = pT end
+	R.rot = B.o0:Lerp(seatCF.Rotation, seg(u, 0.25, 0.75))
+	local env = seg(u, 0, 0.22) * (1 - seg(u, 0.5, 0.82))
+	R.waist = Vector3.new(-42 * env, 0, 0)
+	R.neck = Vector3.new(26 * env, 0, 0)
+	local R0 = c.cf:PointToWorldSpace(B.R0l)
+	local L0 = c.cf:PointToWorldSpace(B.L0l)
+	local fR, fL = cl(P.FloorR), cl(P.FloorL)
+	local carRot = c.cf.Rotation
+	local posR = ANIM.arc(R0, cl(P.ApexR), fR, seg(u, 0.1, 0.55))
+	local posL
+	if u < 0.62 then
+		local v = seg(u, 0.3, 0.62)
+		posL = L0:Lerp(cl(P.DangleL), v) + Vector3.yAxis * (math.sin(math.pi * v) * 0.5 * S)
+	else
+		posL = ANIM.arc(cl(P.DangleL), cl(P.ApexL), fL, seg(u, 0.8, 1))
+	end
+	R.legR = { pos = posR, rot = B.o0:Lerp(carRot, seg(u, 0.1, 0.55)), w = 1 }
+	R.legL = { pos = posL, rot = B.o0:Lerp(carRot, seg(u, 0.8, 1)), w = 1 }
+	local RP, roofL, handle = cl(P.RestHand), cl(P.RoofL), ANIM.doorHandleW(c)
+	R.armR = { pos = RP:Lerp(ANIM.wheelGrip(c, "right"), seg(u, 0.5, 0.85)), w = 1 }
+	local lp
+	if u < 0.25 then lp = handle:Lerp(roofL, seg(u, 0, 0.25))
+	elseif u < 0.8 then lp = roofL
+	else lp = roofL:Lerp(handle, seg(u, 0.8, 1)) end
+	R.armL = { pos = lp, w = 1 }
+	return R
+end
+function ANIM.outPose(c, X, u, seatCF)
+	local seg, P = ANIM.seg, ANIM.P
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
+	local function cv(x, y, z) return c.cf:VectorToWorldSpace(Vector3.new(x, y, z) * S) end
+	local pT = seatCF.Position + cv(-0.2, 0, 0)
+	local stand = X.standPos
+	local kM = pT:Lerp(stand, 0.55) + cv(0, 0.2, 0)
+	local R = {}
+	if u < 0.45 then R.pos = pT:Lerp(kM, ANIM.mild(u / 0.45)) else R.pos = kM:Lerp(stand, ANIM.mild((u - 0.45) / 0.55)) end
+	R.rot = X.r0:Lerp(X.outRot, seg(u, 0, 0.5))
+	local env = seg(u, 0.08, 0.4) * (1 - seg(u, 0.62, 0.95))
+	R.waist = Vector3.new(-36 * env, 0, 0)
+	R.neck = Vector3.new(22 * env, 0, 0)
+	local lk = c.cf.LookVector
+	local GR = X.gnd + lk * (0.3 * S)
+	local GL = X.gnd - lk * (0.3 * S)
+	local carRot = c.cf.Rotation
+	R.legL = { pos = ANIM.arc(cl(P.FloorL), cl(P.ApexL), GL, seg(u, 0.05, 0.42)), rot = carRot:Lerp(X.outRot, seg(u, 0.2, 0.45)), w = 1 }
+	R.legR = { pos = ANIM.arc(cl(P.FloorR), cl(P.ApexR), GR, seg(u, 0.3, 0.78)), rot = carRot:Lerp(X.outRot, seg(u, 0.5, 0.78)), w = 1 }
+	R.armR = { pos = ANIM.wheelGrip(c, "right"):Lerp(cl(P.RestHand), seg(u, 0.25, 0.55)), w = 1 - seg(u, 0.75, 0.95) }
+	R.armL = { pos = ANIM.doorHandleW(c):Lerp(cl(P.RoofL), seg(u, 0, 0.3)), w = 1 - seg(u, 0.55, 0.8) }
+	return R
+end
+function ANIM.limbTargets(c, now, rpart)
 	local B, X, D = c.board, c.exiting, c.doorClose
 	local cfgB, cfgX = Config.Board or {}, Config.Exit or {}
-	local tgt, ik = {}, false
-	local V3 = Vector3.new
+	local V3, seg, P = Vector3.new, ANIM.seg, ANIM.P
+	local tgt, arms, legs = {}, {}, {}
+	local seatCF = c.cf * SEAT_REL
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
 	if B and B.ph ~= "walk" then
 		local t = now - B.t0
 		if B.ph == "open" then
-			local p = easeIO(t / (cfgB.OpenTime or 0.5))
-			ik = true
-			tgt.waist = V3(-8 * p, 0, 0)
-			tgt.ls = V3(18 * p, 0, -8 * p)
-		elseif B.ph == "in" then
-			local e = easeIO(t / (cfgB.InTime or 0.65))
-			local sn = math.sin(e * math.pi)
-			ik = e < 0.55
-			tgt.waist = V3(-30 * sn, 0, 0)
-			tgt.neck = V3(18 * sn, 0, 0)
-			tgt.ls = V3(110 * sn, 0, -10 * sn)
-			tgt.rh = V3(78 * e + 14 * sn, 0, 0)
-			tgt.rk = V3(-(70 * e + 20 * sn), 0, 0)
-			tgt.lh = V3(80 * e * e, 0, 0)
-			tgt.lk = V3(-80 * e * e, 0, 0)
-		elseif B.ph == "close" then
-			ik = true
-			tgt.waist = V3(-6, 0, 0)
+			local u = math.clamp(t / (cfgB.OpenTime or 1.0), 0, 1)
+			tgt.waist = V3(-14 * seg(u, 0, 0.3), 0, 0)
+			arms.L = { pos = ANIM.doorHandleW(c), w = seg(u, 0, 0.3) }
+			arms.R = { pos = cl(P.RestHand), w = seg(u, 0.1, 0.4) }
+		else
+			local u = 1
+			if B.ph == "in" then u = math.clamp(t / (cfgB.InTime or 2.1), 0, 1) end
+			local R = ANIM.inPose(c, B, u, seatCF)
+			legs.R, legs.L = R.legR, R.legL
+			if B.ph == "in" then
+				tgt.waist, tgt.neck = R.waist, R.neck
+				arms.R, arms.L = R.armR, R.armL
+			else
+				arms.R = { pos = ANIM.wheelGrip(c, "right"), w = 1 }
+				if B.ph == "close" then
+					local cu = math.clamp(t / (cfgB.CloseTime or 0.9), 0, 1)
+					local lean = seg(cu, 0, 0.3) * (1 - seg(cu, 0.62, 1))
+					tgt.waist = V3(-8 * lean, 0, 22 * lean)
+					tgt.neck = V3(6 * lean, 24 * lean, 0)
+					arms.L = { pos = ANIM.doorHandleW(c), w = seg(cu, 0, 0.2) * (1 - seg(cu, 0.85, 1)) }
+				end
+			end
 		end
 	elseif X then
 		local t = now - X.t0
 		if X.ph == "open" then
-			local p = easeIO(t / (cfgX.OpenTime or 0.45))
-			ik = true
-			tgt.waist = V3(-6 * p, 0, 0)
+			local u = math.clamp(t / (cfgX.OpenTime or 0.9), 0, 1)
+			tgt.waist = V3(-3 * seg(u, 0, 0.5), 0, 16 * seg(u, 0.1, 0.6))
+			tgt.neck = V3(0, 18 * seg(u, 0.1, 0.6), 0)
+			arms.R = { pos = ANIM.wheelGrip(c, "right"), w = 1 }
+			arms.L = { pos = ANIM.doorHandleW(c), w = seg(u, 0, 0.3) }
+			local rot = c.cf.Rotation
+			legs.R = { pos = cl(P.FloorR), rot = rot, w = 1 }
+			legs.L = { pos = cl(P.FloorL), rot = rot, w = 1 }
 		else
-			local e = easeIO(t / (cfgX.OutTime or 0.7))
-			local sn = math.sin(e * math.pi)
-			ik = e < 0.5
-			tgt.waist = V3(-26 * sn, 0, 0)
-			tgt.neck = V3(14 * sn, 0, 0)
-			tgt.ls = V3(35 * sn, 0, -12 * sn)
-			tgt.rh = V3(85 * (1 - e), 0, 0)
-			tgt.rk = V3(-85 * (1 - e), 0, 0)
-			tgt.lh = V3(85 * (1 - e) * (1 - e), 0, 0)
-			tgt.lk = V3(-85 * (1 - e) * (1 - e), 0, 0)
+			local u = math.clamp(t / (cfgX.OutTime or 2.0), 0, 1)
+			local R = ANIM.outPose(c, X, u, seatCF)
+			tgt.waist, tgt.neck = R.waist, R.neck
+			arms.R, arms.L, legs.R, legs.L = R.armR, R.armL, R.legR, R.legL
 		end
 	elseif D then
-		ik = true
-		tgt.waist = V3(-6, 0, 0)
+		local tau = now - D.t0
+		local CT = cfgX.CloseTime or 0.8
+		local env = seg(tau, -0.35, 0.05) * (1 - seg(tau, CT * 0.75, CT + 0.1))
+		local handle = ANIM.doorHandleW(c)
+		if rpart and (handle - rpart.Position).Magnitude < 7 * S then
+			arms.R = { pos = handle, w = env }
+			tgt.waist = V3(-6, -22 * env, 0)
+		end
 	elseif c.driver and not c.boardFrom and (c.revLook or 0) > 0.02 then
 		local yaw = (Config.DriveAnim and Config.DriveAnim.RevLookYaw) or 75
 		tgt.neck = V3(0, -yaw * c.revLook, 0)
 	end
-	return tgt, ik
+	return tgt, arms, legs
 end
 function ANIM.limbStep(c, dt)
 	if Config.LimbAnim == false then return end
 	local ch, hum, rpart = charParts()
 	local now = os.clock()
-	local tgt, ik = {}, false
-	if ch then tgt, ik = ANIM.limbTargets(c, now) end
-	local any = next(tgt) ~= nil or ik
-	if not any and not ANIM.L.J then return end
-	if not ch then ANIM.L.J, ANIM.L.AJ, ANIM.L.ch = nil, nil, nil return end
-	if ANIM.L.ch ~= ch or not ANIM.L.J then
-		ANIM.L.ch = ch
-		ANIM.L.J = ANIM.limbJoints(ch)
-		ANIM.L.AJ = armJoints(ch)
-		ANIM.L.cur, ANIM.L.jw, ANIM.L.ik = {}, {}, 0
+	local L = ANIM.L
+	local tgt, arms, legs = {}, {}, {}
+	if ch then tgt, arms, legs = ANIM.limbTargets(c, now, rpart) end
+	local any = next(tgt) ~= nil or next(arms) ~= nil or next(legs) ~= nil
+	if not any and not L.J then return end
+	if not ch then L.J, L.AJ, L.ank, L.ch = nil, nil, nil, nil return end
+	if L.ch ~= ch or not L.J then
+		L.ch = ch
+		L.J = ANIM.limbJoints(ch)
+		L.AJ = armJoints(ch)
+		L.ank = nil
+		L.cur, L.jw, L.aw, L.lw, L.ap, L.lp = {}, {}, { R = 0, L = 0 }, { R = 0, L = 0 }, {}, {}
 	end
 	local active = false
 	local k = math.min(1, dt * 12)
-	for key, m in pairs(ANIM.L.J) do
+	for key, m in pairs(L.J) do
 		if m.Parent and m.Part0 and m.Part1 then
 			local want = tgt[key]
-			local jw = ANIM.L.jw[key] or 0
+			local jw = L.jw[key] or 0
 			jw = jw + ((want and 1 or 0) - jw) * math.min(1, dt * 8)
 			if not want and jw < 0.01 then jw = 0 end
-			ANIM.L.jw[key] = jw
+			L.jw[key] = jw
 			if want then
-				ANIM.L.cur[key] = (ANIM.L.cur[key] or want):Lerp(want, k)
+				L.cur[key] = (L.cur[key] or want):Lerp(want, k)
 			end
-			local cur = ANIM.L.cur[key]
+			local cur = L.cur[key]
 			if jw > 0 and cur then
 				active = true
 				local c0 = ANIM.limbRot(m.C0)
@@ -8099,19 +8254,67 @@ function ANIM.limbStep(c, dt)
 			end
 		end
 	end
-	ANIM.L.ik = ANIM.L.ik + ((ik and 1 or 0) - ANIM.L.ik) * math.min(1, dt * 9)
-	if not ik and ANIM.L.ik < 0.01 then ANIM.L.ik = 0 end
-	if ANIM.L.ik > 0 and ANIM.L.AJ and ch then
-		active = true
-		local chn = armChain(ANIM.L.AJ.right)
-		if chn then
-			local p0 = chn.sh.Part0.CFrame
-			local ez = ANIM.L.ik * ANIM.L.ik * (3 - 2 * ANIM.L.ik)
-			solveArm(chn, p0, ANIM.doorHandleW(c), 1, p0.RightVector, p0.UpVector, -p0.LookVector, ez)
+	local sk = rpart.CFrame
+	local bR, bU, bB, bF = sk.RightVector, sk.UpVector, -sk.LookVector, sk.LookVector
+	local J = L.J
+	local waist = J.waist
+	local upper
+	if waist and waist.Parent and waist.Part0 and waist.Part1 then
+		upper = waist.Part0.CFrame * waist.C0 * waist.Transform * waist.C1:Inverse()
+	end
+	for _, s in ipairs({ { "R", "right", 1 }, { "L", "left", -1 } }) do
+		local key, name, sgn = s[1], s[2], s[3]
+		local want = arms[key]
+		if want then L.ap[key] = want.pos end
+		local wt = want and want.w or 0
+		local w0 = L.aw[key] or 0
+		w0 = w0 + (wt - w0) * math.min(1, dt * 10)
+		if wt <= 0 and w0 < 0.01 then w0 = 0 end
+		L.aw[key] = w0
+		if w0 > 0 and L.ap[key] and L.AJ and L.AJ[name] then
+			local chn = armChain(L.AJ[name])
+			if chn then
+				active = true
+				local p0 = chn.sh.Part0.CFrame
+				if upper and chn.sh.Part0 == waist.Part1 then p0 = upper end
+				solveArm(chn, p0, L.ap[key], sgn, bR, bU, bB, w0 * w0 * (3 - 2 * w0))
+			end
+		end
+	end
+	if J.rh and J.rk and J.lh and J.lk then
+		if not L.ank then
+			L.ank = {}
+			for _, d in ipairs(ch:GetDescendants()) do
+				if ARMS.isJoint(d) and d.Part0 and d.Part1 then
+					if d.Part1.Name == "RightFoot" then L.ank.R = d
+					elseif d.Part1.Name == "LeftFoot" then L.ank.L = d end
+				end
+			end
+		end
+		for _, s in ipairs({ { "R", J.rh, J.rk, 1 }, { "L", J.lh, J.lk, -1 } }) do
+			local key, hip, knee, sgn = s[1], s[2], s[3], s[4]
+			local want = legs[key]
+			if want then L.lp[key] = want end
+			local wt = want and want.w or 0
+			local w0 = L.lw[key] or 0
+			w0 = w0 + (wt - w0) * math.min(1, dt * 10)
+			if wt <= 0 and w0 < 0.01 then w0 = 0 end
+			L.lw[key] = w0
+			local ank = L.ank[key]
+			if w0 > 0 and L.lp[key] and ank and ank.Parent and hip.Parent and knee.Parent then
+				local kk = armChain({ shoulder = hip, elbow = knee, hand = ank })
+				if kk and kk.elbow and kk.L2 then
+					kk.ankle = ank
+					active = true
+					local lift = ank.Part1.Size.Y * 0.5 + 0.05
+					local p = L.lp[key].pos + Vector3.yAxis * lift
+					ANIM.solveLeg(kk, hip.Part0.CFrame, p, sgn, bR, bU, bF, w0 * w0 * (3 - 2 * w0), L.lp[key].rot, 0.3)
+				end
+			end
 		end
 	end
 	if not active and not any then
-		ANIM.L.J = nil
+		L.J = nil
 		ANIM.limbRelease()
 	end
 end
@@ -8322,7 +8525,6 @@ track(RunService.Stepped:Connect(function(_, dt)
 	if c and c.model and c.model.Parent then
 		local okL, errL = pcall(ANIM.limbStep, c, dt)
 		if not okL then armWarn("limb:", errL) end
-		if c.exiting and ARMS.on then pcall(releaseArms) end
 		if c.driver or ARMS.on then
 			local okA, errA = pcall(driveArms, c, dt)
 			if not okA then armWarn(errA) end

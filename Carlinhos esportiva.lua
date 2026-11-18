@@ -33,7 +33,7 @@ local Config = {
 	ForkSteer = 0.5,
 	MaxLean = 0.85,
 
-	Wheelbase = 5.6,
+	Wheelbase = 6.2, -- V14: informativo; o calculo real usa FCEN/RCEN (eixos assimetricos)
 
 	Jump = { Enabled = true, Tol = 0.8, MinVy = 10, MaxVy = 300, Gain = 1.0, LandLoss = 0.15, LandSus = 40, AirK = 6 },
 
@@ -150,9 +150,12 @@ local function charParts()
 end
 
 local R = 1.35
-local FA, RA = 0.9, 1.15
+local FA, RA = 0.66, 0.82 -- V19: pneus mais finos (eram 0.9 / 1.15), proporcao da referencia 3D
+local FX = 1.15 -- V19: posicao X das pernas do garfo (era 1.38)
+local DF, DR = 0.3, 0.34 -- V20: profundidade do aro dentro do pneu (frente / tras)
+local SWX = RA + 0.48 -- V19: posicao X dos bracos da balanca (era 1.56)
 local FCEN = V3(0, R, -2.8)
-local RCEN = V3(0, R, 2.8)
+local RCEN = V3(0, R, 3.4) -- V14: roda traseira recuada (era 2.8), junto da rabeta como na referencia
 local HEAD = V3(0, 3.7, -1.5)
 local dF = FCEN - HEAD
 local RAKE = atan2(-dF.Z, -dF.Y)
@@ -160,9 +163,85 @@ local FL = dF.Magnitude
 local PIV = V3(0, 1.5, 0.9)
 local ARM_Z = RCEN.Z - PIV.Z
 local ARM_Y = R - PIV.Y
-local SEAT_TOP = 3.03
+local SEAT_TOP = 2.94 -- V14: banco mais baixo (era 3.03)
 local SHOCK_A = V3(0, 2.55, 0.55)
 local SHOCK_B = V3(0, 0.35, 0.55)
+
+-- V23: TRANSMISSAO (coroa do motor + coroa traseira + corrente de elos)
+local CH = { NR = 36, NM = 14, rR = 0.78 }
+CH.XC = -(RA + 0.08) -- plano da corrente (lado esquerdo)
+CH.pitch = 2 * math.pi * CH.rR / CH.NR
+CH.rM = CH.NM * CH.pitch / (2 * math.pi)
+CH.mc = V3(CH.XC, 1.7, 0.2) -- centro da coroa do motor (preso ao motor)
+
+-- caminho fechado da corrente no plano (z, y): 2 retas tangentes + arco em cada coroa
+local function chainPath(A, B, r1, r2)
+	local dz, dy = B.Z - A.Z, B.Y - A.Y
+	local d = math.sqrt(dz * dz + dy * dy)
+	local uz, uy = dz / d, dy / d
+	local nz, ny = -uy, uz
+	local k = clamp((r1 - r2) / d, -0.95, 0.95)
+	local beta = math.acos(k)
+	local run = d * math.sin(beta)
+	local l2 = r2 * 2 * beta
+	local l4 = r1 * (2 * math.pi - 2 * beta)
+	return { Az = A.Z, Ay = A.Y, Bz = B.Z, By = B.Y, r1 = r1, r2 = r2, uz = uz, uy = uy, nz = nz, ny = ny,
+		beta = beta, run = run, l2 = l2, l4 = l4, L = 2 * run + l2 + l4 }
+end
+-- posicao (z, y) e direcao (z, y) no ponto s do caminho
+local function chainPos(P, s)
+	s = s % P.L
+	local cb, sb = math.cos(P.beta), math.sin(P.beta)
+	if s < P.run then
+		local mz, my = P.uz * cb + P.nz * sb, P.uy * cb + P.ny * sb
+		local z1, y1 = P.Az + P.r1 * mz, P.Ay + P.r1 * my
+		local z2, y2 = P.Bz + P.r2 * mz, P.By + P.r2 * my
+		local t = s / P.run
+		return z1 + (z2 - z1) * t, y1 + (y2 - y1) * t, (z2 - z1) / P.run, (y2 - y1) / P.run
+	elseif s < P.run + P.l2 then
+		local phi = P.beta - (s - P.run) / P.r2
+		local c, sn = math.cos(phi), math.sin(phi)
+		return P.Bz + P.r2 * (P.uz * c + P.nz * sn), P.By + P.r2 * (P.uy * c + P.ny * sn), P.uz * sn - P.nz * c, P.uy * sn - P.ny * c
+	elseif s < 2 * P.run + P.l2 then
+		local mz, my = P.uz * cb - P.nz * sb, P.uy * cb - P.ny * sb
+		local z2, y2 = P.Bz + P.r2 * mz, P.By + P.r2 * my
+		local z1, y1 = P.Az + P.r1 * mz, P.Ay + P.r1 * my
+		local t = (s - P.run - P.l2) / P.run
+		return z2 + (z1 - z2) * t, y2 + (y1 - y2) * t, (z1 - z2) / P.run, (y1 - y2) / P.run
+	else
+		local phi = -P.beta - (s - 2 * P.run - P.l2) / P.r1
+		local c, sn = math.cos(phi), math.sin(phi)
+		return P.Az + P.r1 * (P.uz * c + P.nz * sn), P.Ay + P.r1 * (P.uy * c + P.ny * sn), P.uz * sn - P.nz * c, P.uy * sn - P.ny * c
+	end
+end
+local function chainPathAt(rotS)
+	local Aw = V3(CH.mc.X * S, CH.mc.Y * S, CH.mc.Z * S)
+	local Bw = V3(PIV.X * S, PIV.Y * S, PIV.Z * S) + rotS:VectorToWorldSpace(V3(0, ARM_Y * S, ARM_Z * S))
+	return Aw, chainPath(Aw, Bw, CH.rM * S, CH.rR * S)
+end
+-- atualiza coroa do motor + todos os elos (chamado todo frame)
+local function updateChain(cc, M, dt, rotS)
+	if not M.chain then return end
+	local Aw, P = chainPathAt(rotS)
+	local dsp = -cc.vF * dt / (R * S) -- mesmo giro da roda traseira
+	cc.mAng = ((cc.mAng or 0) + dsp * CH.NR / CH.NM) % (2 * math.pi)
+	cc.chS = ((cc.chS or 0) + dsp * CH.rR * S) % P.L
+	M.wMotor.C0 = CFrame.new(Aw) * CFrame.Angles(cc.mAng, 0, 0)
+	local n = #M.chain
+	local x = CH.XC * S
+	local rootCF = M.root.CFrame
+	local cfs = M.chainCF
+	for i = 1, n do
+		local pz, py, dz, dy = chainPos(P, cc.chS + (i - 1) * P.L / n)
+		local pp = V3(x, py, pz)
+		if i % 2 == 1 then
+			cfs[i] = rootCF * CFrame.new(pp)
+		else
+			cfs[i] = rootCF * CFrame.lookAt(pp, pp + V3(0, dy, dz), V3(1, 0, 0))
+		end
+	end
+	workspace:BulkMoveTo(M.chain, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+end
 
 local PURPLE = Config.BodyColor
 local YEL = Config.AccentColor
@@ -308,33 +387,156 @@ local function buildModel()
 	local PI = math.pi
 	detectWedge()
 
-	wedge(root, "Queixo", V3(0.9, 0.8, 1.7), CFrame.new(0, 2.75, -2.0), CARBON, SP, 0.1)
-
-	add(root, "Quilha", V3(1.0, 0.3, 2.4), CFrame.new(0, 0.85, 0.2), CARBON, SP, nil, 0.1)
-
-	M.leds = {}
-	local function ledBar(p0, p1)
-		local b = bar(root, "LED", p0, p1, 0.07, WHITE_LED, NEON)
-		M.leds[#M.leds + 1] = b
-		return b
+	local BLUEL = Color3.fromRGB(150, 205, 255)
+	local STCH = Color3.fromRGB(70, 70, 78)
+	local function cr(p0, p1, p2, p3, t)
+		return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t)
 	end
-	for _, sx in ipairs({ -1, 1 }) do
-		wedge(root, "Bochecha", V3(0.4, 0.5, 1.0), CFrame.new(sx * 0.82, 3.45, -2.35), PURPLE, METAL, 0.3)
-		local a = ledBar(V3(0, 3.22, -3.17), V3(sx * 0.45, 3.25, -3.12))
-		ledBar(V3(sx * 0.45, 3.25, -3.12), V3(sx * 0.95, 3.33, -2.88))
-		if sx == -1 then M.ledL = a else M.ledR = a end
+	local function smooth(list, sub)
+		local out = {}
+		for i = 1, #list - 1 do
+			local p0, p1, p2, p3 = list[math.max(i - 1, 1)], list[i], list[i + 1], list[math.min(i + 2, #list)]
+			for s = 0, sub - 1 do
+				local row = {}
+				for k = 1, #p1 do row[k] = cr(p0[k], p1[k], p2[k], p3[k], s / sub) end
+				out[#out + 1] = row
+			end
+		end
+		out[#out + 1] = list[#list]
+		return out
 	end
-	local lamp = add(root, "Luz", V3(0.2, 0.2, 0.2), CFrame.new(0, 3.4, -3.2), WHITE_LED, SP, nil, 0, 1)
-	local spot = Instance.new("SpotLight")
-	spot.Face = Enum.NormalId.Front
-	spot.Range = Config.Headlight.Range
-	spot.Brightness = Config.Headlight.Brightness
-	spot.Angle = Config.Headlight.Angle
-	spot.Color = Color3.fromRGB(235, 244, 255)
-	spot.Enabled = false
-	spot.Parent = lamp
-	M.spot = spot
-
+	local function tri(parent, a, b, c, th, color, mat, refl, trans)
+		local ab, ac, bc = b - a, c - a, c - b
+		local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+		if abd > acd and abd > bcd then c, a = a, c elseif acd > bcd and acd > abd then a, b = b, a end
+		ab, ac, bc = b - a, c - a, c - b
+		local rc = ac:Cross(ab)
+		if rc.Magnitude < 1e-5 or bc.Magnitude < 1e-5 then return end
+		local right = rc.Unit
+		local up = bc:Cross(right).Unit
+		local back = bc.Unit
+		local height = math.abs(ab:Dot(up))
+		local flip = (WTALL == 1) and CFrame.new() or CFrame.Angles(0, math.pi, 0)
+		local l1, l2 = math.abs(ab:Dot(back)), math.abs(ac:Dot(back))
+		if height < 0.004 then return end
+		if l1 > 0.004 then
+			local p = newPart("Cunha", V3(th, height, l1), color, mat, nil, refl, trans, "WedgePart")
+			weld(parent, p, sCF(CFrame.fromMatrix((a + b) / 2, right, up, back) * flip))
+		end
+		if l2 > 0.004 then
+			local p = newPart("Cunha", V3(th, height, l2), color, mat, nil, refl, trans, "WedgePart")
+			weld(parent, p, sCF(CFrame.fromMatrix((a + c) / 2, -right, up, -back) * flip))
+		end
+	end
+	local function mq(parent, a, b, c, d, th, color, mat, refl, trans)
+		tri(parent, a, b, c, th, color, mat, refl, trans)
+		tri(parent, a, c, d, th, color, mat, refl, trans)
+	end
+	local function quad(a, b, c, d, th, color, mat, refl, trans)
+		mq(root, a, b, c, d, th, color, mat or METAL, refl or 0.3, trans)
+	end
+	-- V31: carenagem lateral facetada so de cunhas: percurso suavizado (z, y, largura, x), crista central e borda com chanfro para dentro (sem tubos pretos)
+	local function band(sx, pts, ws, th, color, lipCol, mat, refl, bulge, surf, soff)
+		local L = {}
+		for i = 1, #pts do L[i] = { pts[i][1], pts[i][2], ws[i], pts[i][3] } end
+		local S2 = smooth(L, 3)
+		local N = #S2
+		local us = { -1, 0.1, 0.6, 1 }
+		local hs = { 0, 1, 0.45, 0 }
+		local function cp(i, u, h, dx)
+			local p = S2[i]
+			local a, b = S2[math.max(i - 1, 1)], S2[math.min(i + 1, N)]
+			local tz, ty = b[1] - a[1], b[2] - a[2]
+			local l = math.sqrt(tz * tz + ty * ty)
+			tz, ty = tz / l, ty / l
+			local env = math.max(0, math.sin(math.pi * (i - 1) / (N - 1))) ^ 0.5
+			local zz, yy = p[1] - u * ty * p[3] / 2, p[2] + u * tz * p[3] / 2
+			local bx = surf and (surf(zz, yy) + soff) or p[4] -- V34: com surf, cada vertice acompanha a superficie do tanque
+			return V3(sx * (bx + bulge * h * env + (dx or 0)), yy, zz)
+		end
+		for i = 1, N - 1 do
+			for j = 1, #us - 1 do
+				quad(cp(i, us[j], hs[j]), cp(i + 1, us[j], hs[j]), cp(i + 1, us[j + 1], hs[j + 1]), cp(i, us[j + 1], hs[j + 1]), th, color, mat, refl)
+			end
+			for _, u in ipairs({ -1, 1 }) do
+				quad(cp(i, u, 0), cp(i + 1, u, 0), cp(i + 1, u, 0, -0.12), cp(i, u, 0, -0.12), 0.05, lipCol, mat, refl)
+			end
+		end
+	end
+	-- V37: pan = fita central (largura em X) que segue um percurso (z, y, largura) no perfil; une queixo + quilha + barriga num painel so
+	local function pan(pts, th, color, ridgeCol, mat, refl, camber)
+		local S2 = smooth(pts, 3)
+		local N = #S2
+		local us = { -1, -0.5, 0, 0.5, 1 }
+		local function cp(i, u)
+			local p = S2[i]
+			return V3(u * p[3] / 2, p[2] + camber * (1 - u * u), p[1])
+		end
+		for i = 1, N - 1 do
+			for j = 1, #us - 1 do
+				local col = (j == 2 or j == 3) and ridgeCol or color
+				mq(root, cp(i, us[j]), cp(i + 1, us[j]), cp(i + 1, us[j + 1]), cp(i, us[j + 1]), th, col, mat, refl)
+			end
+		end
+	end
+	local function loft(st, sub, nT, n, colSide, colTop, mat, refl, capFront, edgeCol)
+		local rows = smooth(st, sub)
+		local rings = {}
+		for i, s in ipairs(rows) do
+			local r = {}
+			for k = 0, nT do
+				local t = math.pi * k / nT
+				local c, sn = math.cos(t), math.sin(t)
+				local x = s[2] * (c < 0 and -1 or 1) * math.abs(c) ^ (2 / n)
+				local y = s[4] + (s[3] - s[4]) * math.abs(sn) ^ (2 / n)
+				r[k] = V3(x, y, s[1])
+			end
+			rings[i] = r
+		end
+		for i = 1, #rings - 1 do
+			for k = 0, nT - 1 do
+				local mid = (k + 0.5) / nT
+				local col = (mid > 0.3 and mid < 0.7) and colTop or colSide
+				mq(root, rings[i][k], rings[i + 1][k], rings[i + 1][k + 1], rings[i][k + 1], 0.1, col, mat, refl)
+			end
+			if false then -- V31: sem linhas pretas de borda
+				tube(root, "LoftBorda", rings[i][0], rings[i + 1][0], 0.07, edgeCol, SP)
+				tube(root, "LoftBorda", rings[i][nT], rings[i + 1][nT], 0.07, edgeCol, SP)
+			end
+		end
+		if capFront then
+			local r, s = rings[1], rows[1]
+			local ctr = V3(0, (s[3] + s[4]) / 2, s[1] - 0.01)
+			for k = 0, nT - 1 do tri(root, ctr, r[k], r[k + 1], 0.1, colSide, mat, refl) end
+		end
+		return rows, rings
+	end
+	local function rowAt(rows, z)
+		for i = 1, #rows - 1 do
+			if z <= rows[i + 1][1] then
+				local t = (z - rows[i][1]) / (rows[i + 1][1] - rows[i][1])
+				local o = {}
+				for k = 1, 4 do o[k] = rows[i][k] + (rows[i + 1][k] - rows[i][k]) * t end
+				return o
+			end
+		end
+		return rows[#rows]
+	end
+	local function surfX(rows, n, z, y)
+		local s = rowAt(rows, z)
+		local f = math.clamp((y - s[4]) / (s[3] - s[4]), 0, 1)
+		local sn = f ^ (n / 2)
+		return s[2] * math.sqrt(math.max(1 - sn * sn, 0)) ^ (2 / n)
+	end
+	local function spline(parent, name, pts, d, color, mat, refl, sub)
+		local L = {}
+		for i, p in ipairs(pts) do L[i] = { p.X, p.Y, p.Z } end
+		local S2 = smooth(L, sub or 4)
+		for i = 1, #S2 - 1 do
+			tube(parent, name, V3(S2[i][1], S2[i][2], S2[i][3]), V3(S2[i + 1][1], S2[i + 1][2], S2[i + 1][3]), d, color, mat, refl)
+			ball(parent, name .. "J", d * 1.02, V3(S2[i + 1][1], S2[i + 1][2], S2[i + 1][3]), color, mat, refl)
+		end
+	end
 	local function shield(x, y, z, k, sx)
 		local d45 = CFrame.Angles(math.pi / 4, 0, 0)
 		add(root, "EmblemaContorno", V3(0.04 * k, 0.42 * k, 0.58 * k), CFrame.new(x, y + 0.13 * k, z), BLACK, SP)
@@ -354,95 +556,291 @@ local function buildModel()
 		hp("CavaloRabo", V3(0, 0.2, 0.045), V3(0, 0.1, 0.22), 0.9)
 	end
 
-	for _, sx in ipairs({ -1, 1 }) do
-		add(root, "VentCarbono", V3(0.06, 0.7, 1.1), CFrame.new(sx * 0.95, 2.45, -0.3), CARBON, SP, nil, 0.1)
-		for i = 1, 5 do
-			add(root, "VentRisco", V3(0.02, 0.03, 0.95), CFrame.new(sx * 0.985, 2.15 + i * 0.11, -0.3) * CFrame.Angles(0.6, 0, 0), GREY, METAL, nil, 0.3)
+
+	-- ===== CORPO: NARIZ FACETADO (REFERENCIA) + TANQUE =====
+	local NB = 2.8
+	local bodyRows, bodyRings = loft({
+		{ -1.9, 0.95, 3.85, 3.0 }, { -1.2, 0.92, 3.78, 2.95 }, { -0.6, 0.9, 3.68, 2.9 }, { 0.0, 0.85, 3.5, 2.85 }, { 0.5, 0.75, 3.32, 2.85 },
+	}, 3, 8, NB, PURPLE, HIGH, METAL, 0.35, false, CARBON)
+	-- V37: queixo + quilha + barriga unificados num painel central unico (desce do nariz, passa atras da roda e vira o fundo do motor)
+	pan({ { -1.00, 0.84, 0.90 }, { -0.40, 0.82, 0.90 }, { 0.40, 0.78, 1.00 }, { 1.20, 0.80, 0.90 }, { 1.50, 0.86, 0.60 } },
+		0.1, CARBON, DEEP, SP, 0.1, -0.1)
+	-- V17: para-brisa removido (moto aberta na frente, como na referencia)
+
+	-- nariz em bico, facetas planas como na referencia
+	do
+		local R0 = bodyRings[1]
+		local Vt = {
+			B = V3(0, 3.74, -2.5), C = V3(0, 3.56, -3.05), D = V3(0, 3.44, -3.22), E = V3(0, 3.1, -3.02), F = V3(0, 2.9, -2.45),
+			H = V3(0.5, 3.68, -2.55), H2 = V3(0.52, 3.52, -3.0), I = V3(0.92, 3.6, -2.45), J = V3(0.97, 3.48, -2.4),
+			K = V3(0.86, 3.44, -3.0), K2 = V3(0.82, 3.28, -2.85), L = V3(0.98, 3.0, -2.3), M = V3(0.5, 3.3, -3.1), N2 = V3(0.55, 3.0, -2.7),
+		}
+		local function pb(pts, d, col, mat, nm)
+			local out = {}
+			for i = 1, #pts - 1 do
+				local br = bar(root, nm, pts[i], pts[i + 1], d, col, mat)
+				if br then out[#out + 1] = br end
+				out[#out + 1] = ball(root, nm, d, pts[i + 1], col, mat)
+			end
+			return out
 		end
-		shield(sx * 0.93, 2.75, -1.45, 1.0, sx)
-		for i = 0, 5 do
-			cylX(root, "Rebite", 0.05, 0.07, CFrame.new(sx * 0.93, 2.15, -1.8 + i * 0.45), YEL, SP)
+		for _, sx in ipairs({ -1, 1 }) do
+			local function P(k) local v = Vt[k] return V3(sx * v.X, v.Y, v.Z) end
+			local function r(k) return sx == 1 and R0[k] or R0[8 - k] end
+			local function g(a, b, c, d, col) mq(root, a, b, c, d, 0.1, col, METAL, 0.35) end
+			local function t3(a, b, c, col) tri(root, a, b, c, 0.1, col, METAL, 0.3) end
+			g(r(4), P("B"), P("H"), r(3), HIGH)
+			g(P("B"), P("C"), P("H2"), P("H"), HIGH)
+			g(r(3), P("H"), P("I"), r(2), PURPLE)
+			g(P("H"), P("H2"), P("K"), P("I"), HIGH)
+			g(r(2), P("I"), P("J"), r(1), PURPLE)
+			g(r(1), P("J"), P("L"), r(0), PURPLE)
+			-- V37: facetas laterais I-K-J / J-K-L / K-K2-L removidas: agora fazem parte do painel unico (band)
+			g(P("H2"), P("K"), P("K2"), P("M"), PURPLE)
+			t3(P("C"), P("D"), P("H2"), HIGH)
+			t3(P("D"), P("M"), P("H2"), DEEP)
+			t3(P("D"), P("E"), P("M"), DEEP)
+			t3(P("E"), P("N2"), P("M"), CARBON)
+			t3(P("M"), P("K2"), P("N2"), CARBON)
+			t3(P("E"), P("F"), P("N2"), CARBON)
+			for _, e in ipairs({ { "B", "C" }, { "C", "D" }, { "D", "H2" }, { "H2", "K" }, { "D", "M" }, { "M", "K2" }, { "I", "K" }, { "H", "I" }, { "K", "L" } }) do
+				tube(root, "NarizVinco", P(e[1]), P(e[2]), 0.05, CARBON, SP)
+			end
+			tube(root, "NarizFio", P("I") + V3(0, 0.03, 0), P("K") + V3(0, 0.03, 0), 0.04, YEL, METAL, 0.3)
+
+			-- V17: ORELHAS da frente (aletas pontudas facetadas, varridas para tras, como na referencia 3D)
+			do
+				local function E(x, y, z) return V3(sx * x, y, z) end
+				local O1 = E(0.46, 3.70, -2.80) -- base frontal interna
+				local O2 = E(0.60, 4.02, -2.55) -- crista frontal
+				local O3 = E(1.04, 4.30, -1.92) -- ponta da orelha (sobe e vai para tras)
+				local O4 = E(1.03, 3.62, -1.85) -- base traseira externa
+				local O5 = E(0.99, 3.58, -2.50) -- base frontal externa
+				local O6 = E(0.50, 3.80, -1.90) -- base traseira interna
+				tri(root, O1, O2, O5, 0.1, HIGH, METAL, 0.35)
+				mq(root, O2, O3, O4, O5, 0.1, PURPLE, METAL, 0.35)
+				mq(root, O1, O2, O3, O6, 0.1, DEEP, METAL, 0.3)
+				tri(root, O1, O6, O4, 0.1, CARBON, SP)
+				tube(root, "OrelhaBorda", O1, O2, 0.05, CARBON, SP)
+				tube(root, "OrelhaBorda", O2, O3, 0.05, CARBON, SP)
+				tube(root, "OrelhaBorda", O3, O4, 0.05, CARBON, SP)
+				tube(root, "OrelhaBorda", O2, O5, 0.05, CARBON, SP)
+				tube(root, "OrelhaFio", O2 + V3(0, 0.03, 0), O3 + V3(0, 0.03, 0), 0.035, YEL, METAL, 0.3)
+				ball(root, "OrelhaPonta", 0.07, O3, CARBON, SP)
+			end
+			local o = V3(0, 0, -0.035)
+			pb({ P("D") + V3(0, 0.0, -0.03), P("H2") + V3(0, 0.005, -0.035), P("K") + V3(0, 0.01, -0.035) }, 0.13, BLACK, SP, "FarolFundo")
+			local l1 = pb({ P("D") + V3(0, 0.0, -0.085), P("H2") + V3(0, 0.005, -0.085), P("K") + V3(0, 0.01, -0.08) }, 0.07, WHITE_LED, NEON, "LED") -- V51: LED encaixado na frente da sobrancelha (a barra preta tem a face frontal em ~-0.095: o LED entra 0.02 nela e sai 0.04, entao fica preso e visivel)
+			local l2 = pb({ P("D"):Lerp(P("M"), 0.1) + o, P("M") + o, P("K2") + o }, 0.045, BLUEL, NEON, "LEDInterno")
+			for _, b in ipairs(l1) do M.leds[#M.leds + 1] = b end
+			for _, b in ipairs(l2) do M.leds[#M.leds + 1] = b end
+			if sx == -1 then M.ledL = l1[1] else M.ledR = l1[1] end
+			add(root, "EntradaAr", V3(0.02, 0.16, 0.5), CFrame.new(sx * 0.995, 3.2, -2.1), BLACK, SP)
+			for k = 0, 3 do
+				add(root, "EntradaArGrade", V3(0.025, 0.02, 0.45), CFrame.new(sx * 1.005, 3.14 + k * 0.045, -2.1), GREY, METAL, nil, 0.3)
+			end
+			shield(sx * 0.99, 3.22, -2.3, 0.55, sx)
+			tube(root, "TanqueFio", V3(sx * (surfX(bodyRows, NB, -1.8, 3.6) + 0.05), 3.6, -1.8), V3(sx * (surfX(bodyRows, NB, -0.3, 3.4) + 0.05), 3.4, -0.3), 0.05, YEL, METAL, 0.3)
+		end
+	end
+	local lamp = add(root, "Luz", V3(0.2, 0.2, 0.2), CFrame.new(0, 3.45, -3.25), WHITE_LED, SP, nil, 0, 1)
+	local spot = Instance.new("SpotLight")
+	spot.Face = Enum.NormalId.Front
+	spot.Range = Config.Headlight.Range
+	spot.Brightness = Config.Headlight.Brightness
+	spot.Angle = Config.Headlight.Angle
+	spot.Color = Color3.fromRGB(235, 244, 255)
+	spot.Enabled = false
+	spot.Parent = lamp
+	M.spot = spot
+	-- V50: farol com versao LIGADA (LED neon branco + DRL azul + spot) e DESLIGADA (LEDs apagados, plastico escuro); comeca desligado
+	M.setLight = function(on)
+		spot.Enabled = on
+		for _, led in ipairs(M.leds) do
+			local onCol = (led.Name == "LEDInterno") and BLUEL or WHITE_LED
+			led.Color = on and onCol or Color3.fromRGB(58, 64, 76)
+			led.Material = on and NEON or SP
+			led.Reflectance = on and 0 or 0.25
+		end
+	end
+	M.setLight(false)
+	add(root, "EmblemaNariz", V3(0.18, 0.03, 0.22), CFrame.new(0, 3.72, -2.72) * CFrame.Angles(-0.3, 0, 0), YEL, SP)
+	add(root, "TanqueTampa", V3(0.3, 0.04, 0.3), CFrame.new(0, rowAt(bodyRows, -1.15)[3] + 0.025, -1.15) * CFrame.Angles(0.05, 0, 0), CARBON, METAL, nil, 0.4)
+
+	-- ===== PAINEIS LATERAIS (CHEVRON) =====
+	for _, sx in ipairs({ -1, 1 }) do
+		-- V36: carenagem unica: desce do lado do tanque, abraca o motor pela frente e faz a curva para tras virando o trilho inferior (um painel so)
+		band(sx, { { -3.00, 3.40, 0.86 }, { -2.70, 3.36, 0.92 }, { -2.40, 3.30, 0.96 }, { -2.10, 3.28, 0.90 }, { -1.45, 2.98, 0.84 }, { -0.90, 2.26, 0.76 }, { -0.80, 1.38, 0.66 }, { -0.60, 0.89, 0.58 }, { -0.10, 0.68, 0.54 }, { 0.80, 0.64, 0.52 }, { 1.40, 0.68, 0.52 }, { 1.60, 0.72, 0.52 } },
+			{ 0.22, 0.60, 0.62, 0.60, 0.68, 0.84, 0.66, 0.52, 0.40, 0.32, 0.22, 0.08 }, 0.1, PURPLE, DEEP, METAL, 0.3, 0.06)
+		add(root, "MalhaFundo", V3(0.04, 0.7, 1.4), CFrame.new(sx * 0.62, 1.5, -1.0), DARK, SP, nil, 0.05)
+		for r = 0, 4 do
+			for cI = 0, 8 do
+				if (r + cI) % 2 == 0 then
+					cylX(root, "MalhaPixel", 0.02, 0.11, CFrame.new(sx * 0.645, 1.2 + r * 0.12, -1.55 + cI * 0.14), GREY, METAL, 0.4)
+				end
+			end
 		end
 		cylX(root, "Pedaleira", 0.5, 0.2, CFrame.new(sx * 1.05, 1.05, 1.7), BLACK, METAL, 0.3)
 		tube(root, "PedaleiraBraco", V3(sx * 0.8, 1.35, 1.5), V3(sx * 0.95, 1.05, 1.7), 0.14, DARK, METAL, 0.2)
-		tube(root, "Subchassi", V3(sx * 0.45, 2.7, 0.8), V3(sx * 0.55, 2.55, 3.1), 0.14, DARK, METAL, 0.2)
+		tube(root, "PedaleiraSuporte", V3(sx * 0.5, 1.25, 0.6), V3(sx * 0.82, 1.35, 1.5), 0.18, DARK, METAL, 0.2) -- V23: prende a pedaleira na caixa do motor
+		ball(root, "PedaleiraJunta", 0.2, V3(sx * 0.82, 1.35, 1.5), DARK, METAL, 0.2)
+		tube(root, "Subchassi", V3(sx * 0.45, 2.7, 0.8), V3(sx * 0.55, 2.82, 3.0), 0.14, DARK, METAL, 0.2)
+		spline(root, "Chassi", { V3(sx * 0.4, 3.0, -1.0), V3(sx * 0.45, 2.0, -0.9), V3(sx * 0.5, 1.0, 0.4) }, 0.16, DARK, METAL, 0.2, 4)
 	end
-	add(root, "EmblemaNariz", V3(0.18, 0.03, 0.22), CFrame.new(0, 3.84, -2.3) * CFrame.Angles(-0.494, 0, 0), YEL, SP)
 
-	add(root, "Banco", V3(1.1, 0.28, 1.8), CFrame.new(0, 2.92, 1.2), BLACK, SP, nil, 0.1)
-	add(root, "BancoFaixa", V3(0.6, 0.03, 1.5), CFrame.new(0, 3.07, 1.2), DARK, SP)
-	add(root, "ParalamaTras", V3(1.6, 0.12, 1.8), CFrame.new(0, 2.9, 3.3), PURPLE, METAL, nil, 0.3)
-	add(root, "RabetaFaixa", V3(1.4, 0.22, 0.06), CFrame.new(0, 3.12, 4.21), BLACK, SP, nil, 0.2)
-	M.tails = {}
+	-- ===== BANCO + RABETA (LOFT) =====
+	M.seatRows = loft({ { 0.3, 0.45, 3.18, 2.9 }, { 0.9, 0.55, 3.04, 2.85 }, { 1.4, 0.56, 2.94, 2.72 }, { 1.9, 0.54, 2.95, 2.74 }, { 2.3, 0.5, 2.98, 2.76 } },
+		3, 8, 3, BLACK, DARK, SP, 0.1, false, CARBON)
+	-- V49: transicao tanque -> banco: a traseira do tanque (z=0.5) ficava aberta e mais alta/larga que o banco; este trecho de cunhas parte exatamente do ultimo anel do tanque e desce suave ate cobrir o inicio do banco
+	loft({ { 0.5, 0.75, 3.32, 2.85 }, { 0.92, 0.58, 3.07, 2.82 } }, 1, 8, NB, PURPLE, HIGH, METAL, 0.35, false, CARBON)
 	do
-		local pts = { { -0.75, 3.27 }, { -0.4, 3.38 }, { 0, 3.42 }, { 0.4, 3.38 }, { 0.75, 3.27 } }
-		for i = 1, 4 do
-			local t = bar(root, "Lanterna", V3(pts[i][1], pts[i][2], 4.235), V3(pts[i + 1][1], pts[i + 1][2], 4.235), 0.07, RED_DIM, NEON)
-			M.tails[#M.tails + 1] = t
+		-- V14: rabeta baixa e quase reta (como na referencia), acompanhando a roda traseira recuada
+		local st = { { 2.3, 0.5, 2.98, 0.03 }, { 2.8, 0.56, 3.06, 0.05 }, { 3.4, 0.62, 3.14, 0.06 }, { 4.0, 0.66, 3.22, 0.06 }, { 4.5, 0.58, 3.32, 0.04 }, { 4.75, 0.32, 3.38, 0.02 } }
+		local rows = smooth(st, 3)
+		local function pt(r, f, dy) return V3(r[2] * f, r[3] + r[4] * (1 - f * f) + dy, r[1]) end
+		-- V14: placa inferior mais fina (-0.26) e presa a saia lateral (sem vao flutuando)
+		local function pl(r, f) return V3(r[2] * f * 0.8, r[3] - 0.26 + r[4] * 0.5 * (1 - f * f), r[1] - 0.05) end
+		local F = { -1, -0.66, -0.33, 0, 0.33, 0.66, 1 }
+		for i = 1, #rows - 1 do
+			for j = 1, #F - 1 do
+				mq(root, pt(rows[i], F[j], 0), pt(rows[i + 1], F[j], 0), pt(rows[i + 1], F[j + 1], 0), pt(rows[i], F[j + 1], 0), 0.08, (j == 3 or j == 4) and HIGH or PURPLE, METAL, 0.3)
+				mq(root, pl(rows[i], F[j]), pl(rows[i + 1], F[j]), pl(rows[i + 1], F[j + 1]), pl(rows[i], F[j + 1]), 0.08, CARBON, SP, 0.1)
+			end
+			for _, sx in ipairs({ -1, 1 }) do
+				local e0, e1 = pt(rows[i], sx, 0), pt(rows[i + 1], sx, 0)
+				mq(root, e0, e1, pl(rows[i + 1], sx), pl(rows[i], sx), 0.08, PURPLE, METAL, 0.3)
+				tube(root, "RabetaFio", e0 + V3(0, 0.03, 0), e1 + V3(0, 0.03, 0), 0.04, YEL, METAL, 0.3)
+			end
+		end
+		local L = {}
+		local n0 = #rows - 5
+		for i = n0, #rows do local v = pt(rows[i], -1, -0.1) L[#L + 1] = { v.X, v.Y, v.Z } end
+		local le = rows[#rows]
+		L[#L + 1] = { 0, le[3] + le[4] - 0.08, le[1] + 0.05 }
+		for i = #rows, n0, -1 do local v = pt(rows[i], 1, -0.1) L[#L + 1] = { v.X, v.Y, v.Z } end
+		local sm = smooth(L, 2)
+		for i = 1, #sm - 1 do
+			local a, b = V3(sm[i][1], sm[i][2], sm[i][3]), V3(sm[i + 1][1], sm[i + 1][2], sm[i + 1][3])
+			local t = bar(root, "Lanterna", a, b, 0.07, RED_DIM, NEON)
+			if t then M.tails[#M.tails + 1] = t end
+			M.tails[#M.tails + 1] = ball(root, "Lanterna", 0.07, b, RED_DIM, NEON)
+		end
+		M.tail = M.tails[1]
+		for _, sx in ipairs({ -1, 1 }) do
+			ell(root, "Pisca", V3(0.12, 0.08, 0.14), CFrame.new(sx * 0.6, 3.12, 4.3), Color3.fromRGB(110, 55, 0), NEON)
+			tube(root, "RabetaApoio", V3(sx * 0.5, 2.75, 2.2), V3(sx * 0.58, 2.88, 3.3), 0.09, DARK, METAL, 0.2)
 		end
 	end
-	M.tail = M.tails[1]
+	-- V23: costura segue a curvatura do banco (antes era uma barra reta flutuando acima)
+	do
+	local function seatSurf(z, x)
+		local sr = rowAt(M.seatRows, z)
+		local cc = math.min(math.abs(x) / sr[2], 1) ^ 1.5
+		local sn = math.sqrt(math.max(1 - cc * cc, 0))
+		return sr[4] + (sr[3] - sr[4]) * sn ^ (2 / 3)
+	end
+	for i = -2, 2 do
+		local x = i * 0.2
+		local zz = 0.95
+		while zz < 2.05 do
+			local z2 = zz + 0.22
+			tube(root, "BancoCostura", V3(x, seatSurf(zz, x) + 0.012, zz), V3(x, seatSurf(z2, x) + 0.012, z2), 0.025, STCH, SP)
+			zz = z2
+		end
+	end
+	end
 
+	-- ===== MOTOR V-TWIN =====
 	cylX(root, "Carter", 1.4, 1.5, CFrame.new(0, 1.5, 0.2), BLACK, METAL, 0.15)
+	add(root, "Caixa", V3(1.1, 0.9, 1.6), CFrame.new(0, 1.2, 0.1), DARK, METAL, nil, 0.2)
 	for _, sx in ipairs({ -1, 1 }) do
 		cylX(root, "CarterTampa", 0.1, 1.3, CFrame.new(sx * 0.74, 1.5, 0.2), BLACK, METAL, 0.25)
-		cylX(root, "CarterAnel", 0.06, 1.0, CFrame.new(sx * 0.8, 1.5, 0.2), DARK, METAL, 0.3)
-		cylX(root, "CarterCentro", 0.07, 0.44, CFrame.new(sx * 0.82, 1.5, 0.2), YEL, METAL, 0.3)
-		add(root, "CarterEstrela", V3(0.075, 0.3, 0.05), CFrame.new(sx * 0.82, 1.5, 0.2), BLACK, SP)
-		add(root, "CarterEstrela", V3(0.075, 0.05, 0.3), CFrame.new(sx * 0.82, 1.5, 0.2), BLACK, SP)
-		for i = 0, 11 do
-			local a = i * (2 * math.pi / 12)
-			cylX(root, "CarterParafuso", 0.07, 0.075, CFrame.new(sx * 0.8, 1.5 + 0.58 * cos(a), 0.2 + 0.58 * sin(a)), CHROME, METAL, 0.5)
+		cylX(root, "CarterAnel", 0.06, 1.1, CFrame.new(sx * 0.8, 1.5, 0.2), DARK, METAL, 0.3)
+		cylX(root, "CarterAnelOuro", 0.04, 1.2, CFrame.new(sx * 0.785, 1.5, 0.2), GOLD, METAL, 0.45)
+		cylX(root, "CarterCentro", 0.07, 0.5, CFrame.new(sx * 0.84, 1.5, 0.2), YEL, METAL, 0.3)
+		for i = 0, 15 do
+			local a = i * (math.pi / 8)
+			add(root, "CarterNervura", V3(0.05, 0.3, 0.06), CFrame.new(sx * 0.83, 1.5, 0.2) * CFrame.Angles(a, 0, 0) * CFrame.new(0, 0.42, 0), BLACK, METAL, nil, 0.2)
+			cylX(root, "CarterParafuso", 0.07, 0.075, CFrame.new(sx * 0.82, 1.5 + 0.6 * cos(a), 0.2 + 0.6 * sin(a)), CHROME, METAL, 0.5)
 		end
+		add(root, "CavaloMini", V3(0.03, 0.22, 0.12), CFrame.new(sx * 0.885, 1.5, 0.2), BLACK, SP)
+		add(root, "CavaloMini", V3(0.03, 0.08, 0.22), CFrame.new(sx * 0.885, 1.43, 0.2), BLACK, SP)
+		-- coilovers
+		for _, zz in ipairs({ -1.0, -0.75 }) do
+			cylY(root, "AmortHasteMotor", 0.95, 0.12, CFrame.new(sx * 0.58, 2.5, zz), CHROME, METAL, 0.5)
+			for i = 0, 7 do cylY(root, "AmortMolaMotor", 0.05, 0.3, CFrame.new(sx * 0.58, 2.1 + i * 0.09, zz), i % 2 == 0 and GOLD or DARK, METAL, 0.4) end
+			cylY(root, "AmortTopo", 0.12, 0.2, CFrame.new(sx * 0.58, 3.0, zz), YEL, METAL, 0.3)
+		end
+		for _, zz in ipairs({ 0.5, 0.8 }) do
+			cylY(root, "AmortHasteMotor", 0.6, 0.1, CFrame.new(sx * 0.32, 2.52, zz), CHROME, METAL, 0.5) -- V14: abaixados p/ ficarem sob o banco
+		end
+		cylZ(root, "FiltroBase", 0.45, 0.22, CFrame.new(sx * 0.32, 0.95, -0.85), DARK, METAL, 0.3) -- V23: base prende o filtro na caixa
+		cylZ(root, "FiltroOleo", 0.5, 0.34, CFrame.new(sx * 0.32, 0.95, -1.25), GOLD, METAL, 0.45)
+		cylZ(root, "FiltroTampa", 0.06, 0.26, CFrame.new(sx * 0.32, 0.95, -1.52), CHROME, METAL, 0.5)
+		tube(root, "MangueiraOleo", V3(sx * 0.32, 1.1, -1.1), V3(sx * 0.62, 1.5, -0.52), 0.09, BLACK, SP)
+		ball(root, "ConexaoOleo", 0.14, V3(sx * 0.62, 1.5, -0.52), ORANGE, METAL, 0.4)
 	end
 	for _, d in ipairs({ { -0.6, -0.31 }, { 0.6, 0.71 } }) do
 		local pitch, cz = d[1], d[2]
 		local cfc = CFrame.new(0, 2.24, cz) * CFrame.Angles(pitch, 0, 0)
 		cylY(root, "Cilindro", 1.1, 0.6, cfc, BLACK, METAL, 0.2)
-		for f = -2, 2 do
-			cylY(root, "CilindroAleta", 0.05, 0.84, cfc * CFrame.new(0, f * 0.2, 0), DARK, METAL, 0.3)
-		end
+		for f = -2, 2 do cylY(root, "CilindroAleta", 0.05, 0.84, cfc * CFrame.new(0, f * 0.2, 0), DARK, METAL, 0.3) end
 		cylY(root, "CilindroCabeca", 0.18, 0.74, cfc * CFrame.new(0, 0.62, 0), DARK, METAL, 0.3)
 		cylY(root, "CilindroTampa", 0.06, 0.46, cfc * CFrame.new(0, 0.73, 0), YEL, METAL, 0.3)
-	end
-	add(root, "Barriga", V3(1.0, 0.45, 2.4), CFrame.new(0, 0.85, 0.2), CARBON, SP, nil, 0.1)
-	for _, sx in ipairs({ -1, 1 }) do
-		local pts = {
-			V3(sx * 0.4, 2.1, -0.95), V3(sx * 0.58, 1.4, -1.05), V3(sx * 0.75, 0.9, -0.6),
-			V3(sx * 1.05, 0.82, 0.1), V3(sx * 1.2, 0.8, 0.8),
-		}
-		for i = 1, #pts - 1 do
-			tube(root, "Coletor", pts[i], pts[i + 1], 0.24, DARK, METAL, 0.3)
-			ball(root, "ColetorJunta", 0.25, pts[i + 1], DARK, METAL, 0.3)
+		for _, sx in ipairs({ -1, 1 }) do
+			add(root, "CilindroTirante", V3(0.07, 0.8, 0.07), cfc * CFrame.new(sx * 0.3, 0.15, 0), CHROME, METAL, nil, 0.5)
+			cylY(root, "CilindroParafuso", 0.08, 0.1, cfc * CFrame.new(sx * 0.3, 0.7, 0.2), CHROME, METAL, 0.5)
+			cylY(root, "CilindroParafuso", 0.08, 0.1, cfc * CFrame.new(sx * 0.3, 0.7, -0.2), CHROME, METAL, 0.5)
+			tube(root, "CaboVela", V3(sx * 0.18, 2.95, cz), V3(sx * 0.5, 2.55, cz + 0.2), 0.04, BLACK, SP)
 		end
-		cylZ(root, "Escape", 1.0, 0.44, CFrame.new(sx * 1.2, 0.8, 1.0), BLACK, METAL, 0.25)
-		cylZ(root, "PonteiraEscape", 0.2, 0.48, CFrame.new(sx * 1.2, 0.8, 1.6), CHROME, METAL, 0.5)
 	end
+	ell(root, "Airbox", V3(0.7, 0.4, 0.8), CFrame.new(0, 2.9, 0.2), CARBON, METAL, 0.2)
 
+	-- ===== ESCAPES =====
+	for _, sx in ipairs({ -1, 1 }) do
+		local pts = { V3(sx * 0.4, 2.1, -0.95), V3(sx * 0.58, 1.4, -1.05), V3(sx * 0.75, 0.9, -0.6), V3(sx * 1.05, 0.82, 0.1), V3(sx * 1.2, 0.8, 0.8) }
+		spline(root, "Coletor", pts, 0.24, DARK, METAL, 0.3, 4)
+		tube(root, "ColetorProtetor", V3(sx * 0.75, 1.0, -0.55), V3(sx * 1.05, 0.95, 0.1), 0.12, CARBON, SP, 0.1)
+		cylZ(root, "Escape", 1.6, 0.5, CFrame.new(sx * 1.2, 0.85, 1.3), CARBON, METAL, 0.2)
+		for _, zz in ipairs({ 0.65, 1.0, 1.55 }) do cylZ(root, "EscapeBanda", 0.08, 0.54, CFrame.new(sx * 1.2, 0.85, zz), CHROME, METAL, 0.5) end
+		cylZ(root, "PonteiraEscape", 0.2, 0.52, CFrame.new(sx * 1.2, 0.85, 2.15), CHROME, METAL, 0.55)
+		cylZ(root, "EscapeBoca", 0.02, 0.36, CFrame.new(sx * 1.2, 0.85, 2.26), BLACK, SP)
+		add(root, "EscapeProtetor", V3(0.05, 0.22, 0.9), CFrame.new(sx * 1.2, 1.12, 1.0), CARBON, SP, nil, 0.1)
+	end
 	local fork = newPart("Fork", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wFork = weld(root, fork, sCF(CFrame.new(HEAD) * CFrame.Angles(RAKE, 0, 0)))
 	local slider = newPart("Slider", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wSlider = weld(fork, slider, CFrame.new(0, -FL * S, 0))
 
-	local function caliper(parent, sx)
-		local xc = 1.1
-		add(parent, "PincaCorpo", V3(0.22, 0.62, 0.84), CFrame.new(sx * xc, 0.02, 0.78), YEL, METAL, nil, 0.3)
-		add(parent, "PincaTopo", V3(0.4, 0.2, 0.7), CFrame.new(sx * (xc - 0.1), 0.3, 0.78), YEL, METAL, nil, 0.3)
-		add(parent, "PincaFaixa", V3(0.02, 0.1, 0.5), CFrame.new(sx * (xc + 0.115), 0.02, 0.78), BLACK, SP)
-		for i = -1, 1 do
-			cylX(parent, "PincaPistao", 0.05, 0.15, CFrame.new(sx * (xc + 0.1), -0.2 + (i + 1) * 0.23, 0.55), CHROME, METAL, 0.4)
+	-- V29: pinca radial compacta que abraca a pista do disco (corpo externo + interno + ponte + 4 pistoes)
+	local function brakeCaliper(parent, cy, cz, A, rI, rO, aDeg, anchor, hoseTo)
+		local base = CFrame.new(0, cy, cz) * CFrame.Angles(math.rad(aDeg), 0, 0) -- Y local = radial, Z local = tangente
+		local xd = A + 0.04
+		local rc = (rI + rO) / 2 + 0.03
+		add(parent, "PincaCorpo", V3(0.11, 0.27, 0.34), base * CFrame.new(xd + 0.095, rc, 0), YEL, METAL, nil, 0.3)
+		add(parent, "PincaInterna", V3(0.07, 0.25, 0.3), base * CFrame.new(xd - 0.065, rc - 0.01, 0), DARK, METAL, nil, 0.3)
+		add(parent, "PincaPonte", V3(0.27, 0.07, 0.34), base * CFrame.new(xd + 0.015, rO + 0.065, 0), YEL, METAL, nil, 0.3)
+		add(parent, "PincaFaixa", V3(0.015, 0.2, 0.025), base * CFrame.new(xd + 0.152, rc, 0), BLACK, SP)
+		for _, rr in ipairs({ -0.065, 0.065 }) do
+			for _, tt in ipairs({ -0.085, 0.085 }) do
+				cylX(parent, "PincaPistao", 0.03, 0.085, base * CFrame.new(xd + 0.155, rc + rr, tt), CHROME, METAL, 0.4)
+			end
 		end
-		tube(parent, "Flexivel", V3(sx * 1.14, 0.35, 0.78), V3(sx * 1.14, 1.4, 0.55), 0.06, BLACK, SP)
+		local p1 = (base * CFrame.new(xd + 0.15, rc, 0)).Position
+		tube(parent, "PincaSuporte", p1, anchor, 0.14, DARK, METAL, 0.3) -- presa na perna / eixo
+		if hoseTo then
+			tube(parent, "Flexivel", (base * CFrame.new(xd + 0.06, rO + 0.1, 0.05)).Position, hoseTo, 0.07, BLACK, SP)
+		end
 	end
 	for _, sx in ipairs({ -1, 1 }) do
-		cylY(fork, "TuboSuperior", 1.9, 0.44, CFrame.new(sx * 1.38, -1.05, 0), BLACK, METAL, 0.25)
-		cylY(slider, "PernaInferior", 1.8, 0.3, CFrame.new(sx * 1.38, 0.8, 0), CHROME, METAL, 0.5)
-		ball(slider, "EixoLuva", 0.4, V3(sx * 1.3, 0, 0), BLACK, METAL, 0.3)
-		cylX(slider, "EixoFrente", 0.5, 0.26, CFrame.new(sx * 1.2, 0, 0), BLACK, METAL, 0.3)
-		caliper(slider, sx)
+		cylY(fork, "TuboSuperior", 1.9, 0.44, CFrame.new(sx * FX, -1.05, 0), BLACK, METAL, 0.25)
+		cylY(slider, "PernaInferior", 1.8, 0.3, CFrame.new(sx * FX, 0.8, 0), CHROME, METAL, 0.5)
+		ball(slider, "EixoLuva", 0.4, V3(sx * (FX - 0.08), 0, 0), BLACK, METAL, 0.3)
+		cylX(slider, "EixoFrente", FX + 0.25 - (FA + 0.05), 0.26, CFrame.new(sx * ((FA + 0.05 + FX + 0.25) / 2), 0, 0), BLACK, METAL, 0.3)
+		if sx == 1 then brakeCaliper(slider, 0, 0, FA, 0.45, 0.66, 80, V3(FX - 0.05, 0.05, 0.1), V3(FX - 0.1, 1.3, 0.1)) end -- pinca so no lado direito
 	end
-	add(fork, "MesaSuperior", V3(3.3, 0.3, 0.6), CFrame.new(0, -0.1, 0), DARK, METAL, nil, 0.25)
-	add(fork, "MesaInferior", V3(3.1, 0.26, 0.5), CFrame.new(0, -0.85, 0), DARK, METAL, nil, 0.25)
+	add(fork, "MesaSuperior", V3(2 * FX + 0.5, 0.3, 0.6), CFrame.new(0, -0.1, 0), DARK, METAL, nil, 0.25)
+	add(fork, "MesaInferior", V3(2 * FX + 0.3, 0.26, 0.5), CFrame.new(0, -0.85, 0), DARK, METAL, nil, 0.25)
 	add(fork, "Riser", V3(0.34, 0.5, 0.34), CFrame.new(0, 0.15, 0.1), DARK, METAL, nil, 0.2)
 
 	for _, sx in ipairs({ -1, 1 }) do
@@ -454,7 +852,20 @@ local function buildModel()
 		ball(fork, "GuidaoJunta", 0.15, p1, BLACK, METAL, 0.2)
 		tube(fork, "Manopla", V3(sx * 1.75, 0.57, 0.65), V3(sx * 2.25, 0.66, 0.85), 0.22, BLACK, SP)
 		add(fork, "Comando", V3(0.2, 0.16, 0.34), CFrame.new(sx * 1.1, 0.46, 0.42), BLACK, SP, nil, 0.2)
-		tube(fork, "Manete", V3(sx * 1.6, 0.5, 0.5), V3(sx * 1.85, 0.42, -0.2), 0.07, CHROME, METAL, 0.4)
+		-- V45: MANETE refeita: cilindro mestre (base) preso no guidao + pino de pivo + alavanca que sai para a frente e curva ao longo do punho (direita = freio, esquerda = embreagem)
+		do
+			local bp = p1:Lerp(p2, 0.775) -- ponto do guidao logo antes do punho
+			local ext = (sx == 1) and 0.07 or 0 -- freio um pouco mais longa que a embreagem
+			add(fork, "ManeteBase", V3(0.3, 0.2, 0.3), CFrame.new(bp), DARK, METAL, nil, 0.3)
+			local A = bp + V3(0, -0.04, -0.12)
+			local B = V3(sx * 1.74, 0.47, 0.28)
+			local C = V3(sx * (2.08 + ext), 0.53, 0.44)
+			cylY(fork, "ManetePino", 0.2, 0.09, CFrame.new(A), CHROME, METAL, 0.5)
+			tube(fork, "Manete", A, B, 0.09, CHROME, METAL, 0.4)
+			ball(fork, "ManeteJunta", 0.1, B, CHROME, METAL, 0.4)
+			tube(fork, "Manete", B, C, 0.07, CHROME, METAL, 0.4)
+			ball(fork, "ManetePonta", 0.12, C, CHROME, METAL, 0.4)
+		end
 	end
 	add(fork, "Painel", V3(0.95, 0.2, 0.6), CFrame.new(0, 0.52, 0.12), BLACK, SP, nil, 0.15)
 	ball(fork, "PainelAlerta", 0.07, V3(0.28, 0.65, 0.12), Color3.fromRGB(255, 40, 40), NEON)
@@ -462,33 +873,100 @@ local function buildModel()
 	local rakeCF = CFrame.Angles(RAKE, 0, 0)
 	local wc = V3(0, -FL, 0)
 	local Rf = R + 0.26
-	local nSeg = 26
-	local a0, a1 = -1.1, 1.6
-	local da = (a1 - a0) / nSeg
-	local segL = Rf * da * 1.2
-	for i = 0, nSeg - 1 do
-		local a = a0 + (i + 0.5) * da
-		local rot = rakeCF:Inverse() * CFrame.Angles(-a, 0, 0)
-		local pw = V3(0, Rf * cos(a), -Rf * sin(a))
-		add(fork, "ParalamaArco", V3(1.95, 0.08, segL), CFrame.new(wc + rakeCF:VectorToObjectSpace(pw)) * rot, PURPLE, METAL, nil, 0.3)
-		local h = 0.62 * math.max(0.1, cos(((a - 0.25) / 1.35) * (math.pi / 2)))
-		local pw2 = V3(0, (Rf - h / 2) * cos(a), -(Rf - h / 2) * sin(a))
-		for _, sx in ipairs({ -1, 1 }) do
-			add(fork, "ParalamaAba", V3(0.08, h, segL), CFrame.new(wc + rakeCF:VectorToObjectSpace(pw2) + V3(sx * 0.97, 0, 0)) * rot, PURPLE, METAL, nil, 0.3)
+	-- V41: ponta larga e redonda (cantos arredondados, sem bico e sem descer), painel atras do paralama removido. V40: ponta redonda (semi-elipse em planta + desce na frente) e arco girado para tras. V39: PARALAMA DIANTEIRO: arco baixo e fino que acompanha o pneu (a V38 ficou alta/larga demais, parecia um capacete); curto, rombudo e com apoios nas pernas do garfo
+	do
+		local nA = 16
+		local a0, a1 = -0.57, 0.65 -- V40: girado ~0.25 rad para tras (antes -0.32 -> 0.9)
+		local Rg = R + 0.12 -- V39: raio do paralama colado no pneu (antes R+0.26)
+		local fr = { -1, -0.72, -0.34, 0, 0.34, 0.72, 1 }
+		local dr = { 1, 0.7, 0.2, 0, 0.2, 0.7, 1 }
+		local NC = #fr
+		local function wfOf(u)
+			local w = 0.92 + 0.08 * math.min(u / 0.25, 1)
+			if u > 0.7 then
+				local k = (u - 0.7) / 0.3
+				w = w * (0.55 + 0.45 * math.sqrt(math.max(1 - k * k, 0))) -- V41: frente larga com cantos redondos (nao fecha em bico)
+			end
+			return w
+		end
+		local function fp(i, j, e)
+			local u = i / nA
+			local a = a0 + (a1 - a0) * u
+			local wf = wfOf(u)
+			local t = (a - 0.3) / 0.9
+			local h = 0.10 + 0.14 * math.max(0, cos(t * (math.pi / 2))) -- V39: abas bem mais rasas (antes ate 0.64)
+			local lip = 0 -- V41: sem a borda caindo na frente -- borda da frente desce um pouco (sem o bico levantado)
+			local rad = Rg + 0.07 * (1 - dr[j]) + lip - h * dr[j] * (0.5 + 0.5 * wf) + (e or 0)
+			return wc + rakeCF:VectorToObjectSpace(V3((FA + 0.12) * wf * fr[j], rad * cos(a), -rad * sin(a)))
+		end
+		for i = 0, nA - 1 do
+			for j = 1, NC - 1 do
+				local mid = (j == 3 or j == 4)
+				mq(fork, fp(i, j), fp(i + 1, j), fp(i + 1, j + 1), fp(i, j + 1), 0.08, mid and HIGH or PURPLE, METAL, 0.3)
+			end
+			tube(fork, "ParalamaBorda", fp(i, 1), fp(i + 1, 1), 0.06, CARBON, SP)
+			tube(fork, "ParalamaBorda", fp(i, NC), fp(i + 1, NC), 0.06, CARBON, SP)
+			tube(fork, "ParalamaFio", fp(i, 4, 0.04), fp(i + 1, 4, 0.04), 0.04, YEL, METAL, 0.3)
+			tube(fork, "ParalamaVinco", fp(i, 2), fp(i + 1, 2), 0.035, CARBON, SP)
+			tube(fork, "ParalamaVinco", fp(i, NC - 1), fp(i + 1, NC - 1), 0.035, CARBON, SP)
+		end
+		tube(fork, "ParalamaPonta", fp(nA, 1), fp(nA, NC), 0.07, CARBON, SP)
+		tube(fork, "ParalamaPonta", fp(0, 1), fp(0, NC), 0.07, CARBON, SP)
+		-- V42: apoios presos de verdade: no angulo a = -RAKE o paralama fica exatamente sobre o eixo do garfo (z local = 0), entao o tubo vai direto na perna
+		local iS = math.clamp(math.floor(nA * ((-RAKE) - a0) / (a1 - a0) + 0.5), 0, nA)
+		for _, jj in ipairs({ 1, NC }) do
+			local pe = fp(iS, jj)
+			local sx = (jj == 1) and -1 or 1
+			local pl = V3(sx * FX, pe.Y, 0)
+			tube(fork, "ParalamaApoio", pe, pl, 0.2, DARK, METAL, 0.25)
+			ball(fork, "ParalamaApoioJunta", 0.26, pl, DARK, METAL, 0.25)
 		end
 	end
 
 	local TIRE = Color3.fromRGB(22, 22, 25)
 	local GROOVE = Color3.fromRGB(6, 6, 7)
-	local function buildTire(core, A, n, G)
+	-- V22: casca de revolucao (1 peca por faceta, inclinada seguindo o perfil) -> superficie lisa, sem "degraus" de bloco
+	local function shell(core, name, pts, nR, th, color, mat, refl)
+		for k = 1, #pts - 1 do
+			local x0, r0, x1, r1 = pts[k][1], pts[k][2], pts[k + 1][1], pts[k + 1][2]
+			local dx, dr = x1 - x0, r1 - r0
+			local L = math.sqrt(dx * dx + dr * dr)
+			if L > 0.001 then
+				local xm, rm = (x0 + x1) / 2, (r0 + r1) / 2
+				local tang = 2 * math.pi * math.max(r0, r1) / nR * 1.1
+				for i = 0, nR - 1 do
+					local a = (i + 0.5) * (2 * math.pi / nR)
+					local ca, sa = cos(a), sin(a)
+					local ex, er, et = V3(1, 0, 0), V3(0, ca, sa), V3(0, -sa, ca)
+					local n = (ex * (-dr) + er * dx) / L
+					add(core, name, V3(tang, th, L * 1.06), CFrame.fromMatrix(V3(xm, rm * ca, rm * sa), et, n), color, mat, nil, refl)
+				end
+			end
+		end
+	end
+	local function buildTire(core, A, n, G, D)
 		local Rc = 0.95
 		local B = R - Rc
-		local w = 2 * A / n
-		for i = 1, n do
-			local x = -A + (i - 0.5) * w
+		local Ac = A - D
+		-- V20: miolo macico so ate a profundidade do aro; as laterais sao aneis vazados (da pra ver dentro do aro)
+		local nC = math.max(8, math.floor(n * Ac / A + 0.5))
+		local w = 2 * Ac / nC
+		for i = 1, nC do
+			local x = -Ac + (i - 0.5) * w
 			local u = x / A
 			local rad = Rc + B * math.sqrt(math.max(1 - u * u, 0))
 			cylX(core, "Banda", w * 1.12, 2 * rad, CFrame.new(x, 0, 0), TIRE, SP)
+		end
+		-- V20/V22: laterais vazadas em casca lisa; dentro do buraco aparece o aro recuado
+		local function prof(x)
+			local u = x / A
+			return Rc + B * math.sqrt(math.max(1 - u * u, 0))
+		end
+		for _, sx in ipairs({ -1, 1 }) do
+			local xa, xb = Ac + D * 0.5, A - 0.03
+			shell(core, "Parede", {
+				{ sx * Ac, prof(Ac) }, { sx * xa, prof(xa) }, { sx * xb, prof(xb) }, { sx * A, 0.96 },
+			}, 40, 0.08, TIRE, SP, 0)
 		end
 		for gi = 0, G - 1 do
 			local th0 = gi * (2 * math.pi / G)
@@ -514,67 +992,166 @@ local function buildModel()
 	local function spokes(core, x, n, r0, r1, wd, th, color)
 		for i = 0, n - 1 do
 			local a = i * (2 * math.pi / n)
-			for _, dd in ipairs({ -0.11, 0.11 }) do
+			for _, dd in ipairs({ -0.09, 0.09 }) do
 				add(core, "Raio", V3(th, r1 - r0, wd), CFrame.Angles(a + dd, 0, 0) * CFrame.new(x, (r0 + r1) / 2, 0), color, METAL, nil, 0.3)
 			end
 		end
 	end
-	local function wheelSide(core, A, sx, kind)
-		local function X(d) return sx * (A + d) end
-		cylX(core, "Aro", 0.06, 1.94, CFrame.new(X(0.03), 0, 0), DARK, METAL, 0.25)
-		cylX(core, "Fundo", 0.05, 1.8, CFrame.new(X(0.06), 0, 0), BLACK, METAL, 0.1)
+	-- V19: anel (disco/coroa vazados) feito de pecinhas, deixa os raios aparecerem como na referencia
+	local function ringX(core, name, x, rIn, rOut, n, th, color, refl)
+		local rm = (rIn + rOut) / 2
+		local tang = 2 * math.pi * rm / n * 1.1
+		for i = 0, n - 1 do
+			local a = i * (2 * math.pi / n)
+			add(core, name, V3(th, rOut - rIn, tang), CFrame.Angles(a, 0, 0) * CFrame.new(x, rm, 0), color, METAL, nil, refl)
+		end
+	end
+	-- raios em Y (haste grossa que se divide em dois finos perto do aro), como no modelo 3D
+	local function ySpokes(core, x, n, hubR, forkR, rimR, color)
+		for i = 0, n - 1 do
+			local a = i * (2 * math.pi / n)
+			local a1 = a + 0.1
+			local function P(r, ang) return V3(x, r * cos(ang), r * sin(ang)) end
+			bar(core, "Raio", P(hubR, a), P(forkR, a1), 0.1, color, METAL, 0.3)
+			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 + 0.2), 0.055, color, METAL, 0.3)
+			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 - 0.2), 0.055, color, METAL, 0.3)
+		end
+	end
+	local function wheelSide(core, A, sx, kind, D, ds)
+		-- V22: aro preto recuado dentro do pneu (X), tambor interno prata; por fora so o disco do freio / coroa (XO)
+		local function X(d) return sx * (A - D + d) end
+		local function XO(d) return sx * (A + d) end
+		cylX(core, "Aro", 0.06, 1.94, CFrame.new(X(0.03), 0, 0), BLACK, METAL, 0.1)
+		cylX(core, "Fundo", 0.05, 1.8, CFrame.new(X(0.06), 0, 0), DARK, METAL, 0.1)
+		shell(core, "AroTambor", { { sx * (A - 0.02), 0.95 }, { sx * (A - D + 0.05), 0.915 } }, 40, 0.05, DISC, METAL, 0.55)
+		ySpokes(core, X(0.12), 10, 0.2, 0.52, 0.91, BLACK)
+		cylX(core, "Cubo", 0.2, 0.46, CFrame.new(X(0.12), 0, 0), BLACK, METAL, 0.25)
+		cylX(core, "CuboTubo", D + 0.12, 0.26, CFrame.new(sx * (A - D / 2 + 0.06), 0, 0), BLACK, METAL, 0.2)
+		cylX(core, "Porca", 0.14, 0.22, CFrame.new(XO(0.1), 0, 0), CHROME, METAL, 0.55)
 		if kind == "disc" then
-			cylX(core, "Disco", 0.05, 1.66, CFrame.new(X(0.09), 0, 0), DISC, METAL, 0.45)
-			cylX(core, "DiscoMiolo", 0.055, 1.14, CFrame.new(X(0.095), 0, 0), GOLD, METAL, 0.45)
-			for bi = 0, 9 do
-				local ang = bi * (2 * math.pi / 10)
-				cylX(core, "DiscoParafuso", 0.02, 0.07, CFrame.new(X(0.13), 0.5 * cos(ang), 0.5 * sin(ang)), BLACK, METAL, 0.3)
-			end
+			-- V29: disco flutuante menor (como na referencia): pista furada + cubo escuro com 6 bracos e bobinas
+			local k = ds or 1
+			local rI, rO = 0.45 * k, 0.66 * k
+			local DISC_D = Color3.fromRGB(112, 115, 122)
+			shell(core, "Disco", { { XO(0.04), rI }, { XO(0.04), rO } }, 48, 0.035, DISC_D, METAL, 0.3)
 			for hi = 0, 23 do
 				local ang = hi * (2 * math.pi / 24)
-				cylX(core, "Furo", 0.012, 0.075, CFrame.new(X(0.12), 0.65 * cos(ang), 0.65 * sin(ang)), BLACK, SP)
 				local ang2 = ang + math.pi / 24
-				cylX(core, "Furo", 0.012, 0.05, CFrame.new(X(0.12), 0.76 * cos(ang2), 0.76 * sin(ang2)), BLACK, SP)
+				local r1 = rI + (rO - rI) * 0.3
+				local r2 = rI + (rO - rI) * 0.7
+				cylX(core, "Furo", 0.012, 0.05, CFrame.new(XO(0.059), r1 * cos(ang), r1 * sin(ang)), BLACK, SP)
+				cylX(core, "Furo", 0.012, 0.05, CFrame.new(XO(0.059), r2 * cos(ang2), r2 * sin(ang2)), BLACK, SP)
 			end
-			spokes(core, X(0.14), 10, 0.14, 0.6, 0.12, 0.05, DARK)
-			for bi = 0, 9 do
-				local ang = bi * (2 * math.pi / 10) + 0.18
-				cylX(core, "Bobina", 0.06, 0.11, CFrame.new(X(0.145), 0.6 * cos(ang), 0.6 * sin(ang)), CHROME, METAL, 0.5)
+			shell(core, "DiscoCubo", { { XO(0.075), 0.24 }, { XO(0.075), 0.34 } }, 24, 0.05, DARK, METAL, 0.3)
+			for bi = 0, 5 do
+				local ang = bi * (2 * math.pi / 6)
+				local re = rI + 0.03
+				local ae = ang + 0.35
+				bar(core, "DiscoBraco", V3(XO(0.06), 0.3 * cos(ang), 0.3 * sin(ang)), V3(XO(0.05), re * cos(ae), re * sin(ae)), 0.08, BLACK, METAL, 0.3)
+				cylX(core, "DiscoBobina", 0.08, 0.075, CFrame.new(XO(0.07), re * cos(ae), re * sin(ae)), CHROME, METAL, 0.5)
+				cylX(core, "DiscoParafuso", 0.03, 0.05, CFrame.new(XO(0.1), 0.3 * cos(ang), 0.3 * sin(ang)), CHROME, METAL, 0.5)
 			end
-		else
-			cylX(core, "Coroa", 0.06, 1.56, CFrame.new(X(0.09), 0, 0), BLACK, METAL, 0.3)
-			cylX(core, "CoroaMiolo", 0.065, 1.0, CFrame.new(X(0.095), 0, 0), DARK, METAL, 0.2)
+		elseif kind == "sprocket" then
+			-- V23: coroa traseira = placa + dentes encaixados na placa (sem pecas soltas), no mesmo plano da corrente
+			local xs = XO(0.08)
+			shell(core, "CoroaPlaca", { { xs, 0.46 }, { xs, 0.76 } }, 36, 0.06, GREY, METAL, 0.35)
 			for ti = 0, 35 do
 				local a = ti * (2 * math.pi / 36)
-				add(core, "Dente", V3(0.07, 0.1, 0.1), CFrame.Angles(a, 0, 0) * CFrame.new(X(0.09), 0.8, 0), BLACK, METAL, nil, 0.2)
+				add(core, "Dente", V3(0.05, 0.14, 0.075), CFrame.Angles(a, 0, 0) * CFrame.new(xs, 0.79, 0), GREY, METAL, nil, 0.35) -- dentes quadrados (V26)
 			end
-			spokes(core, X(0.14), 8, 0.14, 0.5, 0.13, 0.05, DARK)
+			for hi = 0, 11 do
+				local a = hi * (2 * math.pi / 12) + 0.26
+				cylX(core, "CoroaFuro", 0.012, 0.15, CFrame.new(xs + sx * 0.033, 0.61 * cos(a), 0.61 * sin(a)), BLACK, SP) -- furos de alivio
+			end
+			for bi = 0, 7 do
+				local ang = bi * (2 * math.pi / 8)
+				tube(core, "CoroaBraco", V3(xs, 0.2 * cos(ang), 0.2 * sin(ang)), V3(xs, 0.5 * cos(ang + 0.12), 0.5 * sin(ang + 0.12)), 0.08, GREY, METAL, 0.35)
+			end
 		end
-		cylX(core, "Cubo", 0.14, 0.36, CFrame.new(X(0.14), 0, 0), BLACK, METAL, 0.2)
-		cylX(core, "Porca", 0.14, 0.22, CFrame.new(X(0.19), 0, 0), CHROME, METAL, 0.55)
 	end
 
 	local fcore = newPart("RodaFrente", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wFWheel = weld(slider, fcore, CFrame.new())
-	buildTire(fcore, FA, 25, 12)
-	wheelSide(fcore, FA, -1, "disc")
-	wheelSide(fcore, FA, 1, "disc")
+	buildTire(fcore, FA, 45, 12, DF)
+	wheelSide(fcore, FA, -1, "plain", DF) -- V23: sem disco de freio no lado esquerdo
+	wheelSide(fcore, FA, 1, "disc", DF)
 
 	local swing = newPart("Swing", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wSwing = weld(root, swing, sCF(CFrame.new(PIV)))
 	local rcore = newPart("RodaTras", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wRWheel = weld(swing, rcore, sCF(CFrame.new(0, ARM_Y, ARM_Z)))
 	M.rtireBase = CFrame.new(0, ARM_Y * S, ARM_Z * S)
-	buildTire(rcore, RA, 29, 14)
-	wheelSide(rcore, RA, -1, "sprocket")
-	wheelSide(rcore, RA, 1, "disc")
+	buildTire(rcore, RA, 53, 14, DR)
+	wheelSide(rcore, RA, -1, "sprocket", DR)
+	wheelSide(rcore, RA, 1, "disc", DR, 0.85)
 
-	for _, sx in ipairs({ -1, 1 }) do
-		tube(swing, "Braco", V3(sx * 1.56, 0, 0), V3(sx * 1.56, ARM_Y, ARM_Z), 0.34, BLACK, METAL, 0.25)
-		cylX(swing, "BracoPivo", 0.4, 0.46, CFrame.new(sx * 1.56, 0, 0), DARK, METAL, 0.3)
-		cylX(swing, "BracoEixo", 0.4, 0.44, CFrame.new(sx * 1.56, ARM_Y, ARM_Z), DARK, METAL, 0.3)
+	-- V46: BALANCA refeita (referencia 3D): braco em caixa facetada que afina do pivo ate o eixo (crista no topo, chanfro externo),
+	-- cubo/eixo grandes, placa do esticador de corrente com parafusos, travessa em caixa e apoio que prende o amortecedor
+	local armSt = {
+		{ 0.0, 0.10, 0.34, 0.20 }, -- { z, centro y, meia altura, meia largura }
+		{ 0.9, 0.03, 0.31, 0.18 },
+		{ 1.8, -0.07, 0.27, 0.16 },
+		{ ARM_Z, ARM_Y, 0.24, 0.14 },
+	}
+	-- V48: cubos octogonais de cunhas (no lugar dos cilindros): fecham a ponta do braco grosso sem deixar quina exposta
+	local function hub(parent, x0, x1, cy, cz, r, col, capCol)
+		local n = 8
+		local function P(x, k)
+			local a = (k + 0.5) * 2 * math.pi / n
+			return V3(x, cy + r * math.cos(a), cz + r * math.sin(a))
+		end
+		local c = V3(x1, cy, cz)
+		for k = 0, n - 1 do
+			mq(parent, P(x0, k), P(x1, k), P(x1, k + 1), P(x0, k + 1), 0.06, col, METAL, 0.3)
+			tri(parent, c, P(x1, k), P(x1, k + 1), 0.06, capCol or col, METAL, 0.3)
+		end
 	end
-	tube(swing, "BracoTravessa", V3(-1.56, 0, 0), V3(1.56, 0, 0), 0.26, BLACK, METAL, 0.25)
+	local function disc(parent, x, cy, cz, r, col)
+		local c = V3(x, cy, cz)
+		for k = 0, 7 do
+			local a0, a1 = (k + 0.5) * math.pi / 4, (k + 1.5) * math.pi / 4
+			tri(parent, c, V3(x, cy + r * math.cos(a0), cz + r * math.sin(a0)), V3(x, cy + r * math.cos(a1), cz + r * math.sin(a1)), 0.05, col, METAL, 0.45)
+		end
+	end
+	for _, sx in ipairs({ -1, 1 }) do
+		local rings = {}
+		for i, st in ipairs(armSt) do
+			local z, yc, hh, wx = st[1], st[2], st[3], st[4]
+			local xo, xi = sx * (SWX + wx), sx * (SWX - wx)
+			local yT, yB = yc + hh, yc - hh
+			rings[i] = {
+				V3(xo, yB, z), V3(xo, yT - 0.07, z), V3(xo - sx * 0.06, yT, z),
+				V3(sx * SWX, yT + 0.04, z), V3(xi, yT, z), V3(xi, yB, z),
+			}
+		end
+		local cols = { PURPLE, HIGH, HIGH, HIGH, CARBON, CARBON }
+		for i = 1, #rings - 1 do
+			for k = 1, 6 do
+				local k2 = (k % 6) + 1
+				mq(swing, rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2], 0.08, cols[k], METAL, 0.3)
+			end
+			tube(swing, "BracoFio", rings[i][4] + V3(0, 0.03, 0), rings[i + 1][4] + V3(0, 0.03, 0), 0.03, YEL, METAL, 0.3)
+		end
+		-- V47: tampas nas duas pontas do braco (antes ficava oco/aberto)
+		for _, ri in ipairs({ rings[1], rings[#rings] }) do
+			mq(swing, ri[1], ri[2], ri[3], ri[4], 0.08, CARBON, METAL, 0.3)
+			mq(swing, ri[1], ri[4], ri[5], ri[6], 0.08, CARBON, METAL, 0.3)
+		end
+		hub(swing, sx * (SWX - 0.2), sx * (SWX + 0.24), 0, 0, 0.30, DARK, CARBON)
+		disc(swing, sx * (SWX + 0.27), 0, 0, 0.2, GOLD)
+		hub(swing, sx * (SWX - 0.2), sx * (SWX + 0.14), ARM_Y, ARM_Z, 0.26, DARK, CARBON)
+		cylX(swing, "EixoTras", 0.7, 0.24, CFrame.new(sx * 1.1, ARM_Y, ARM_Z), DARK, METAL, 0.3) -- V23: eixo liga o cubo ao braco
+		add(swing, "BracoPlaca", V3(0.06, 0.52, 0.8), CFrame.new(sx * (SWX + 0.17), ARM_Y, ARM_Z - 0.1), DARK, METAL, nil, 0.3)
+		for _, dz in ipairs({ -0.38, 0.18 }) do
+			cylX(swing, "BracoParafuso", 0.1, 0.12, CFrame.new(sx * (SWX + 0.22), ARM_Y, ARM_Z - 0.1 + dz), CHROME, METAL, 0.5)
+		end
+		cylX(swing, "EixoPorca", 0.1, 0.34, CFrame.new(sx * (SWX + 0.32), ARM_Y, ARM_Z), CHROME, METAL, 0.5)
+	end
+	-- V47: eixo do pivo atravessa de um braco ao outro (liga a balanca ao motor) + caixa do pivo que emenda o eixo na travessa
+	cylX(swing, "BracoPivoEixo", 2 * SWX, 0.3, CFrame.new(0, 0, 0), DARK, METAL, 0.3)
+	add(swing, "BracoPivoCaixa", V3(1.2, 0.5, 0.45), CFrame.new(0, 0.05, 0.05), DARK, METAL, nil, 0.3)
+	add(swing, "BracoTravessa", V3(2 * SWX - 0.3, 0.3, 0.42), CFrame.new(0, 0.08, 0.38), CARBON, METAL, nil, 0.25)
+	add(swing, "AmortApoio", V3(0.3, 0.36, 0.3), CFrame.new(0, 0.2, 0.55), DARK, METAL, nil, 0.3)
 
 	local rod = newPart("AmortHaste", V3(1.0, 0.3, 0.3), DARK, METAL, CYL, 0.3)
 	M.wRod = weld(root, rod, CFrame.new())
@@ -586,164 +1163,65 @@ local function buildModel()
 	local BLUE_LED = Color3.fromRGB(150, 205, 255)
 	local AMBER = Color3.fromRGB(255, 130, 0)
 	local STITCH = Color3.fromRGB(70, 70, 78)
-
 	for _, sx in ipairs({ -1, 1 }) do
-		local nC = 20
-		local aS, aE = 0.25, 2.0
-		local dA = (aE - aS) / nC
-		for i = 0, nC - 1 do
-			local f = (i + 0.5) / nC
-			local a = aS + (i + 0.5) * dA
-			local th = 0.12 + 0.62 * math.sin(f * math.pi) ^ 0.8
-			local r0 = 1.5
-			local rm = r0 + th / 2
-			local pos = V3(sx * 0.99, FCEN.Y + rm * cos(a), FCEN.Z + rm * sin(a))
-			local cf = CFrame.new(pos) * CFrame.Angles(a, 0, 0)
-			add(root, "Crescente", V3(0.12, th, rm * dA * 1.18), cf, PURPLE, METAL, nil, 0.3)
-			local ro = r0 + th
-			local posO = V3(sx * 1.045, FCEN.Y + ro * cos(a), FCEN.Z + ro * sin(a))
-			add(root, "CrescenteBorda", V3(0.03, 0.05, ro * dA * 1.18), CFrame.new(posO) * CFrame.Angles(a, 0, 0), CARBON, SP, nil, 0.1)
-			if th > 0.4 then
-				local rc = r0 + th * 0.45
-				local posC = V3(sx * 1.05, FCEN.Y + rc * cos(a), FCEN.Z + rc * sin(a))
-				add(root, "CrescenteCarbono", V3(0.02, th * 0.5, rc * dA * 1.05), CFrame.new(posC) * CFrame.Angles(a, 0, 0), CARBON, SP, nil, 0.05)
-				if i % 2 == 0 then
-					local rr = r0 + th * 0.8
-					local posR = V3(sx * 1.06, FCEN.Y + rr * cos(a), FCEN.Z + rr * sin(a))
-					cylX(root, "CrescenteRebite", 0.04, 0.07, CFrame.new(posR), YEL, METAL, 0.3)
-				end
-			end
-		end
-		add(root, "CrescenteFundo", V3(0.05, 1.0, 1.2), CFrame.new(sx * 0.88, 1.55, -1.35), BLACK, SP)
-	end
-
-	do
-		local ctr = V3(0, 4.12, -1.95)
-		local rotW = CFrame.Angles(-0.85, 0, 0)
-		add(root, "ParaBrisa", V3(1.15, 0.035, 0.85), CFrame.new(ctr) * rotW, GLASS, SP, nil, 0.45, 0.3)
-		local zdir = rotW:VectorToWorldSpace(V3(0, 0, 1))
-		local pLo = ctr - zdir * 0.425
-		local pHi = ctr + zdir * 0.425
-		for _, sx in ipairs({ -1, 1 }) do
-			bar(root, "ParaBrisaBorda", pLo + V3(sx * 0.575, 0, 0), pHi + V3(sx * 0.575, 0, 0), 0.045, CARBON, SP)
-		end
-		bar(root, "ParaBrisaTopo", pHi + V3(-0.575, 0, 0), pHi + V3(0.575, 0, 0), 0.045, CARBON, SP)
-		bar(root, "ParaBrisaBase", pLo + V3(-0.575, 0, 0), pLo + V3(0.575, 0, 0), 0.06, CARBON, SP)
-	end
-
-	for _, sx in ipairs({ -1, 1 }) do
-		bar(root, "FarolFundo", V3(0, 3.22, -3.1), V3(sx * 0.45, 3.25, -3.05), 0.17, BLACK, SP, 0.3)
-		bar(root, "FarolFundo", V3(sx * 0.45, 3.25, -3.05), V3(sx * 0.95, 3.33, -2.8), 0.17, BLACK, SP, 0.3)
-		local b1 = bar(root, "LEDInterno", V3(0.05 * sx, 3.13, -3.15), V3(sx * 0.45, 3.16, -3.1), 0.04, BLUE_LED, NEON)
-		local b2 = bar(root, "LEDInterno", V3(sx * 0.45, 3.16, -3.1), V3(sx * 0.9, 3.23, -2.87), 0.04, BLUE_LED, NEON)
-		local b3 = bar(root, "LEDPonta", V3(sx * 0.95, 3.33, -2.88), V3(sx * 1.02, 3.42, -2.6), 0.06, WHITE_LED, NEON)
-		for _, b in ipairs({ b1, b2, b3 }) do M.leds[#M.leds + 1] = b end
-		bar(root, "Sobrancelha", V3(0, 3.38, -3.12), V3(sx * 0.5, 3.4, -3.05), 0.06, CARBON, SP)
-		add(root, "EntradaAr", V3(0.02, 0.16, 0.55), CFrame.new(sx * 1.03, 3.45, -2.3) * CFrame.Angles(0.15, 0, 0), BLACK, SP)
-		for k = 0, 3 do
-			add(root, "EntradaArGrade", V3(0.025, 0.02, 0.5), CFrame.new(sx * 1.035, 3.39 + k * 0.045, -2.3) * CFrame.Angles(0.15, 0, 0), GREY, METAL, nil, 0.3)
-		end
-	end
-
-
-	for i = -2, 2 do
-		add(root, "BancoCostura", V3(0.02, 0.012, 1.45), CFrame.new(i * 0.2, 3.095, 1.2), STITCH, SP)
-	end
-	for i = -3, 3 do
-		add(root, "BancoCosturaT", V3(0.9, 0.012, 0.02), CFrame.new(0, 3.095, 0.6 + (i + 3) * 0.2), STITCH, SP)
-	end
-	add(root, "BancoBorda", V3(1.14, 0.03, 1.82), CFrame.new(0, 2.8, 1.2), CARBON, SP, nil, 0.1)
-
-	add(root, "Difusor", V3(1.0, 0.1, 0.9), CFrame.new(0, 2.7, 3.85), CARBON, SP, nil, 0.1)
-	for i = -2, 2 do
-		add(root, "DifusorAleta", V3(0.03, 0.18, 0.85), CFrame.new(i * 0.2, 2.62, 3.85), CARBON, SP)
-	end
-	do
-		local pts = { { -0.6, 3.2 }, { -0.3, 3.27 }, { 0, 3.3 }, { 0.3, 3.27 }, { 0.6, 3.2 } }
-		for i = 1, 4 do
-			local t = bar(root, "Lanterna", V3(pts[i][1], pts[i][2], 4.235), V3(pts[i + 1][1], pts[i + 1][2], 4.235), 0.045, RED_DIM, NEON)
-			M.tails[#M.tails + 1] = t
-		end
-	end
-	for _, sx in ipairs({ -1, 1 }) do
-		ell(root, "Pisca", V3(0.12, 0.08, 0.14), CFrame.new(sx * 0.78, 3.12, 4.2), Color3.fromRGB(110, 55, 0), NEON)
-		add(root, "RabetaParafuso", V3(0.05, 0.05, 0.02), CFrame.new(sx * 0.55, 3.05, 4.215), CHROME, METAL, nil, 0.5)
-	end
-
-	for _, sx in ipairs({ -1, 1 }) do
-		cylZ(root, "FiltroOleo", 0.5, 0.34, CFrame.new(sx * 0.32, 0.95, -1.25), GOLD, METAL, 0.45)
-		cylZ(root, "FiltroTampa", 0.06, 0.26, CFrame.new(sx * 0.32, 0.95, -1.52), CHROME, METAL, 0.5)
-		tube(root, "MangueiraOleo", V3(sx * 0.32, 1.1, -1.1), V3(sx * 0.62, 1.55, -0.75), 0.07, BLACK, SP)
-		ball(root, "ConexaoOleo", 0.12, V3(sx * 0.62, 1.55, -0.75), ORANGE, METAL, 0.4)
-		tube(root, "CaboVela", V3(sx * 0.18, 2.95, -0.31), V3(sx * 0.5, 2.55, -0.1), 0.04, BLACK, SP)
-		tube(root, "CaboVela", V3(sx * 0.18, 2.95, 0.71), V3(sx * 0.5, 2.55, 0.5), 0.04, BLACK, SP)
-	end
-	for _, d in ipairs({ { -0.6, -0.31 }, { 0.6, 0.71 } }) do
-		local cfc = CFrame.new(0, 2.24, d[2]) * CFrame.Angles(d[1], 0, 0)
-		for _, sx in ipairs({ -1, 1 }) do
-			add(root, "CilindroTirante", V3(0.07, 0.8, 0.07), cfc * CFrame.new(sx * 0.3, 0.15, 0), CHROME, METAL, nil, 0.5)
-			cylY(root, "CilindroParafuso", 0.08, 0.1, cfc * CFrame.new(sx * 0.3, 0.7, 0.2), CHROME, METAL, 0.5)
-			cylY(root, "CilindroParafuso", 0.08, 0.1, cfc * CFrame.new(sx * 0.3, 0.7, -0.2), CHROME, METAL, 0.5)
-		end
-	end
-	for _, sx in ipairs({ -1, 1 }) do
-		cylX(root, "CarterAnelOuro", 0.04, 1.2, CFrame.new(sx * 0.785, 1.5, 0.2), GOLD, METAL, 0.45)
-		cylX(root, "CarterAnelPreto", 0.05, 1.12, CFrame.new(sx * 0.795, 1.5, 0.2), BLACK, METAL, 0.2)
-	end
-
-	for _, sx in ipairs({ -1, 1 }) do
-		cylZ(root, "EscapeBanda", 0.08, 0.5, CFrame.new(sx * 1.2, 0.8, 0.65), CHROME, METAL, 0.5)
-		cylZ(root, "EscapeBanda", 0.08, 0.5, CFrame.new(sx * 1.2, 0.8, 1.35), CHROME, METAL, 0.5)
-		cylZ(root, "EscapeBoca", 0.02, 0.34, CFrame.new(sx * 1.2, 0.8, 1.71), BLACK, SP)
-		add(root, "EscapeProtetor", V3(0.05, 0.22, 0.9), CFrame.new(sx * 1.2, 1.07, 1.0), CARBON, SP, nil, 0.1)
-		tube(root, "ColetorProtetor", V3(sx * 0.75, 1.0, -0.55), V3(sx * 1.05, 0.95, 0.1), 0.12, CARBON, SP, 0.1)
-	end
-
-	for _, sx in ipairs({ -1, 1 }) do
-		tube(fork, "EspelhoHaste", V3(sx * 1.55, 0.48, 0.45), V3(sx * 1.75, 0.95, 0.3), 0.05, BLACK, METAL, 0.3)
-		ell(fork, "EspelhoCaixa", V3(0.36, 0.2, 0.1), CFrame.new(sx * 1.8, 1.0, 0.3) * CFrame.Angles(-0.3, 0, 0), PURPLE, METAL, 0.3)
-		ell(fork, "EspelhoVidro", V3(0.3, 0.15, 0.04), CFrame.new(sx * 1.8, 1.0, 0.345) * CFrame.Angles(-0.3, 0, 0), Color3.fromRGB(150, 160, 175), METAL, 0.6)
-		add(fork, "Reservatorio", V3(0.16, 0.14, 0.2), CFrame.new(sx * 1.2, 0.6, 0.5), BLACK, SP, nil, 0.2)
-		add(fork, "ReservatorioTampa", V3(0.1, 0.03, 0.12), CFrame.new(sx * 1.2, 0.68, 0.5), YEL, METAL, nil, 0.3)
+		tube(fork, "EspelhoHaste", V3(sx * 1.55, 0.53, 0.58), V3(sx * 1.78, 0.98, 0.32), 0.08, BLACK, METAL, 0.3)
+		ball(fork, "EspelhoJunta", 0.14, V3(sx * 1.55, 0.53, 0.58), BLACK, METAL, 0.3)
+		ell(fork, "EspelhoCaixa", V3(0.5, 0.3, 0.1), CFrame.new(sx * 1.8, 1.04, 0.3) * CFrame.Angles(-0.3, 0, 0), PURPLE, METAL, 0.3)
+		ell(fork, "EspelhoVidro", V3(0.42, 0.23, 0.04), CFrame.new(sx * 1.8, 1.04, 0.345) * CFrame.Angles(-0.3, 0, 0), Color3.fromRGB(150, 160, 175), METAL, 0.6)
+		add(fork, "Reservatorio", V3(0.16, 0.14, 0.2), CFrame.new(sx * 1.62, 0.72, 0.58), BLACK, SP, nil, 0.2)
+		add(fork, "ReservatorioTampa", V3(0.1, 0.03, 0.12), CFrame.new(sx * 1.62, 0.795, 0.58), YEL, METAL, nil, 0.3)
 		for k = 0, 2 do
 			ball(fork, "Botao", 0.05, V3(sx * (0.98 + k * 0.1), 0.55, 0.3), CHROME, METAL, 0.5)
 		end
-		ball(fork, "BotaoInicio", 0.07, V3(sx * 0.9, 0.55, 0.32), Color3.fromRGB(255, 40, 40), NEON)
+		ball(fork, "BotaoInicio", 0.07, V3(sx * 1.1, 0.55, 0.48), Color3.fromRGB(255, 40, 40), NEON)
 	end
 
 	for _, sx in ipairs({ -1, 1 }) do
-		ball(fork, "TampaGarfo", 0.32, V3(sx * 1.38, -0.08, 0), GOLD, METAL, 0.45)
-		cylY(fork, "Ajustador", 0.16, 0.14, CFrame.new(sx * 1.38, 0.06, 0), CHROME, METAL, 0.5)
-		cylZ(fork, "ParafusoMesa", 0.12, 0.1, CFrame.new(sx * 1.18, -0.85, 0.3), CHROME, METAL, 0.5)
-		cylZ(fork, "ParafusoMesa", 0.12, 0.1, CFrame.new(sx * 1.18, -0.1, 0.3), CHROME, METAL, 0.5)
-		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * 1.38, 1.7, 0), GOLD, METAL, 0.4)
-		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * 1.38, -0.2, 0), GOLD, METAL, 0.4)
+		ball(fork, "TampaGarfo", 0.32, V3(sx * FX, -0.08, 0), GOLD, METAL, 0.45)
+		cylY(fork, "Ajustador", 0.16, 0.14, CFrame.new(sx * FX, 0.06, 0), CHROME, METAL, 0.5)
+		cylZ(fork, "ParafusoMesa", 0.12, 0.1, CFrame.new(sx * (FX - 0.2), -0.85, 0.3), CHROME, METAL, 0.5)
+		cylZ(fork, "ParafusoMesa", 0.12, 0.1, CFrame.new(sx * (FX - 0.2), -0.1, 0.3), CHROME, METAL, 0.5)
+		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * FX, 1.7, 0), GOLD, METAL, 0.4)
+		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * FX, -0.2, 0), GOLD, METAL, 0.4)
 	end
 	add(fork, "Painel", V3(0.95, 0.04, 0.6), CFrame.new(0, 0.605, 0.12), CARBON, SP, nil, 0.15)
 
 	do
-		local ax, ay, az = 1.34, ARM_Y, ARM_Z
-		add(swing, "PincaTras", V3(0.22, 0.42, 0.54), CFrame.new(ax, ay - 0.5, az - 0.5), YEL, METAL, nil, 0.3)
-		add(swing, "PincaTrasTopo", V3(0.34, 0.14, 0.46), CFrame.new(ax - 0.08, ay - 0.3, az - 0.5), YEL, METAL, nil, 0.3)
-		tube(swing, "PincaBraco", V3(ax, ay, az - 0.1), V3(ax, ay - 0.45, az - 0.55), 0.1, DARK, METAL, 0.3)
-		local bx = -1.27
-		cylX(swing, "CoroaMotor", 0.1, 0.58, CFrame.new(bx, 0.2, -0.7), CHROME, METAL, 0.5)
-		cylX(swing, "EixoMotor", 0.5, 0.16, CFrame.new(-1.0, 0.2, -0.7), DARK, METAL, 0.3)
-		bar(swing, "CorreiaTopo", V3(bx, 0.5, -0.7), V3(bx, ay + 0.86, az), 0.09, BLACK, SP)
-		bar(swing, "CorreiaBase", V3(bx, -0.1, -0.7), V3(bx, ay - 0.86, az), 0.09, BLACK, SP)
-		bar(swing, "ProtetorCorreia", V3(bx - 0.06, 0.64, -0.55), V3(bx - 0.06, ay + 1.0, az - 0.6), 0.1, CARBON, SP, 0.1)
+		brakeCaliper(swing, ARM_Y, ARM_Z, RA, 0.45 * 0.85, 0.66 * 0.85, 225, V3(RA + 0.3, ARM_Y, ARM_Z), nil) -- V29: pinca traseira menor, mesmo estilo
+		-- V23: eixo de saida do motor (preso no motor) + coroa do motor que GIRA presa a ele
+		cylX(root, "EixoMotor", 0.2, 0.16, CFrame.new(CH.XC + 0.03, CH.mc.Y, CH.mc.Z), DARK, METAL, 0.3)
+		local mcore = newPart("CoroaMotorCore", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
+		M.wMotor = weld(root, mcore, sCF(CFrame.new(CH.mc)))
+		shell(mcore, "CoroaMotorPlaca", { { 0, 0.1 }, { 0, CH.rM - 0.04 } }, 24, 0.06, GREY, METAL, 0.35)
+		for ti = 0, CH.NM - 1 do
+			local a = ti * (2 * math.pi / CH.NM)
+			add(mcore, "CoroaMotorDente", V3(0.05, 0.12, 0.08), CFrame.Angles(a, 0, 0) * CFrame.new(0, CH.rM + 0.01, 0), GREY, METAL, nil, 0.35) -- dentes quadrados (V26)
+		end
+		cylX(mcore, "CoroaMotorCubo", 0.14, 0.24, CFrame.new(-0.04, 0, 0), CHROME, METAL, 0.5)
+		-- corrente: elos individuais que percorrem o caminho fechado (acompanham a suspensao)
+		local _, P0 = chainPathAt(CFrame.new())
+		local NL = math.floor(P0.L / (CH.pitch * S) + 0.5)
+		M.chain = {}
+		local SILVER2 = Color3.fromRGB(168, 173, 181)
+		for i = 1, NL * 2 do
+			local lk
+			if i % 2 == 1 then
+				lk = newPart("EloRolete", V3(0.1, 0.1, 0.1), CHROME, METAL, CYL, 0.5) -- V23: rolete redondo
+			else
+				lk = newPart("EloPlaca", V3(0.07, 0.06, CH.pitch * 0.95), SILVER2, METAL, nil, 0.5)
+			end
+			lk.Anchored = true -- fora do assembly (sem Weld) -> movidos em lote
+			M.chain[i] = lk
+		end
+		M.chainCF = table.create(NL * 2, CFrame.new())
 	end
 
 	local function rimBolts(core, A, sx, n)
 		for i = 0, n - 1 do
 			local a = i * (2 * math.pi / n)
-			cylX(core, "AroParafuso", 0.035, 0.07, CFrame.new(sx * (A + 0.065), 0.88 * cos(a), 0.88 * sin(a)), CHROME, METAL, 0.5)
+			cylX(core, "AroParafuso", 0.035, 0.07, CFrame.new(sx * (A - 0.005), 0.9 * cos(a), 0.9 * sin(a)), CHROME, METAL, 0.5)
 		end
 	end
-	rimBolts(fcore, FA, -1, 16)
-	rimBolts(fcore, FA, 1, 16)
-	rimBolts(rcore, RA, -1, 16)
-	rimBolts(rcore, RA, 1, 16)
 
 	do
 		local tela = add(fork, "PainelTela", V3(0.8, 0.04, 0.46), CFrame.new(0, 0.65, 0.12), Color3.fromRGB(4, 6, 10), SP, nil, 0.1)
@@ -815,59 +1293,11 @@ local function buildModel()
 		add(fork, "PainelLed", V3(0.8, 0.02, 0.03), CFrame.new(0, 0.67, 0.37), BLUE_LED, NEON)
 	end
 
-	local function lerpT(t, z)
-		if z <= t[1][1] then return t[1][2] end
-		for i = 1, #t - 1 do
-			local a, b = t[i], t[i + 1]
-			if z <= b[1] then return a[2] + (b[2] - a[2]) * (z - a[1]) / (b[1] - a[1]) end
-		end
-		return t[#t][2]
-	end
-	local function shell(top, wid, bot, z0, z1, st, every)
-		local n, z = 0, z0
-		while z <= z1 do
-			n = n + 1
-			local yt, W, yb = lerpT(top, z), lerpT(wid, z), lerpT(bot, z)
-			local L = st * 1.2
-			add(root, "LatariaTopo", V3(W * 0.6, 0.12, L), CFrame.new(0, yt - 0.06, z), PURPLE, METAL, nil, 0.3)
-			local h = yt - 0.16 - yb
-			for _, sx in ipairs({ -1, 1 }) do
-				add(root, "LatariaOmbro", V3(W * 0.22, 0.1, L), CFrame.new(sx * W * 0.38, yt - 0.13, z) * CFrame.Angles(0, 0, -sx * 0.45), PURPLE, METAL, nil, 0.3)
-				if h > 0.05 then
-					add(root, "LatariaLado", V3(0.1, h, L), CFrame.new(sx * W / 2, yb + h / 2, z), PURPLE, METAL, nil, 0.3)
-					add(root, "LatariaBrilho", V3(0.02, 0.04, L), CFrame.new(sx * (W / 2 + 0.05), yt - 0.3, z), HIGH, METAL, nil, 0.5)
-					add(root, "LatariaBorda", V3(0.12, 0.04, L), CFrame.new(sx * W / 2, yb, z), CARBON, SP)
-					if n % every == 0 then
-						add(root, "LatariaJuntaV", V3(0.13, h, 0.025), CFrame.new(sx * W / 2, yb + h / 2, z), BLACK, SP)
-						cylX(root, "LatariaRebite", 0.04, 0.07, CFrame.new(sx * (W / 2 + 0.06), yb + 0.12, z), YEL, METAL, 0.3)
-					end
-				end
-			end
-			if n % every == 0 then
-				add(root, "LatariaJunta", V3(W * 0.95, 0.03, 0.025), CFrame.new(0, yt + 0.002, z), BLACK, SP)
-			end
-			z = z + st
-		end
-	end
-	shell({ { -3.0, 3.3 }, { -2.8, 3.5 }, { -2.4, 3.75 }, { -2.0, 3.7 }, { -1.5, 3.6 }, { -1.0, 3.7 }, { -0.4, 3.7 }, { 0.1, 3.45 }, { 0.7, 3.15 } },
-		{ { -3.0, 0.4 }, { -2.8, 0.8 }, { -2.2, 1.3 }, { -1.45, 1.8 }, { -0.6, 1.7 }, { 0.2, 1.3 }, { 0.7, 0.9 } },
-		{ { -3.0, 3.15 }, { -2.6, 3.05 }, { -2.0, 2.7 }, { -1.5, 2.2 }, { -0.6, 1.9 }, { 0.4, 2.4 }, { 0.7, 2.9 } },
-		-3.0, 0.7, 0.12, 8)
-	shell({ { 2.1, 3.15 }, { 2.8, 3.28 }, { 3.5, 3.5 }, { 4.15, 3.55 } },
-		{ { 2.1, 1.0 }, { 2.8, 1.3 }, { 3.5, 1.45 }, { 4.15, 1.2 } },
-		{ { 2.1, 2.9 }, { 3.5, 2.95 }, { 4.15, 3.15 } },
-		2.1, 4.15, 0.12, 8)
 	for _, sx in ipairs({ -1, 1 }) do
-		add(root, "MalhaFundo", V3(0.04, 0.85, 1.95), CFrame.new(sx * 0.99, 1.5, 0), CARBON, SP, nil, 0.05)
-		for r = 0, 5 do
-			for cI = 0, 12 do
-				if (r + cI) % 2 == 0 then
-					add(root, "MalhaPixel", V3(0.02, 0.11, 0.13), CFrame.new(sx * 1.015, 1.18 + r * 0.13, -0.85 + cI * 0.14), GREY, METAL, nil, 0.4)
-				end
-			end
-		end
-		add(root, "MalhaMoldura", V3(0.06, 0.05, 1.99), CFrame.new(sx * 0.99, 1.95, 0), PURPLE, METAL, nil, 0.3)
-		add(root, "MalhaMoldura", V3(0.06, 0.05, 1.99), CFrame.new(sx * 0.99, 1.07, 0), PURPLE, METAL, nil, 0.3)
+		cylY(fork, "Pod", 0.16, 0.5, CFrame.new(sx * 0.62, 0.5, 0.28), DARK, METAL, 0.3)
+		cylY(fork, "PodAnel", 0.04, 0.56, CFrame.new(sx * 0.62, 0.56, 0.28), CHROME, METAL, 0.55)
+		cylY(fork, "PodLed", 0.03, 0.42, CFrame.new(sx * 0.62, 0.595, 0.28), BLUE_LED, NEON)
+		cylX(fork, "BombaFreio", 0.3, 0.14, CFrame.new(sx * 1.45, 0.5, 0.45), CHROME, METAL, 0.5)
 	end
 	model.Parent = workspace
 	return M
@@ -1055,7 +1485,7 @@ local function stepBike(cc, dt)
 	if hsp > 1 then
 		local dir = vel.Unit
 		local o = cc.pos + V3(0, 1.4 * S, 0)
-		local hit = workspace:Raycast(o, dir * (hsp * dt + (vF >= 0 and 3.4 or 3.0) * S), rp)
+		local hit = workspace:Raycast(o, dir * (hsp * dt + (vF >= 0 and 3.4 or 3.6) * S), rp)
 		if hit and math.abs(hit.Normal.Y) < 0.55 then
 			local into = vel:Dot(hit.Normal)
 			if into < 0 then
@@ -1074,10 +1504,12 @@ local function stepBike(cc, dt)
 
 	local posN = cc.pos + V3(vel.X, 0, vel.Z) * dt
 
-	local WH = Config.Wheelbase * 0.5 * S
+	-- V14: eixos assimetricos (roda traseira recuada) -> distancias separadas
+	local WHF = -FCEN.Z * S
+	local WHR = RCEN.Z * S
 	local oy = cc.pos.Y + 3 * S
-	local hF = gRay(posN + fwd * WH, oy)
-	local hR = gRay(posN - fwd * WH, oy)
+	local hF = gRay(posN + fwd * WHF, oy)
+	local hR = gRay(posN - fwd * WHR, oy)
 	local hC = gRay(posN, oy)
 	if hF and hF.Normal.Y <= 0.3 then hF = nil end
 	if hR and hR.Normal.Y <= 0.3 then hR = nil end
@@ -1096,13 +1528,13 @@ local function stepBike(cc, dt)
 	end
 	local tY, gP, gR = nil, 0, 0
 	if yF then
-		tY = (yF + yR) / 2
-		gP = clamp(atan2(yF - yR, 2 * WH), -1.1, 1.1)
+		tY = (yF * WHR + yR * WHF) / (WHF + WHR)
+		gP = clamp(atan2(yF - yR, WHF + WHR), -1.1, 1.1)
 		gR = clamp(atan(-(nrm:Dot(right)) / math.max(nrm.Y, 0.2)), -0.8, 0.8)
 		local tanP = tan(clamp(cc.aP + cc.rkP, -1.2, 1.2))
 		local bodyY = cc.pos.Y + cc.susY
-		cc.relF = yF - (bodyY + tanP * WH)
-		cc.relR = yR - (bodyY - tanP * WH)
+		cc.relF = yF - (bodyY + tanP * WHF)
+		cc.relR = yR - (bodyY - tanP * WHR)
 	else
 		cc.relF, cc.relR = 0, 0
 	end
@@ -1295,6 +1727,7 @@ local function visualsBike(cc, dt)
 	local rotS = CFrame.Angles(th, 0, 0)
 	M.wSwing.C0 = CFrame.new(PIV.X * S, PIV.Y * S, PIV.Z * S) * rotS
 	M.wRWheel.C0 = M.rtireBase * CFrame.Angles(cc.spinR, 0, 0)
+	updateChain(cc, M, dt, rotS)
 
 	local aW = SHOCK_A * S
 	local bW = (PIV + rotS:VectorToWorldSpace(SHOCK_B)) * S
@@ -1872,9 +2305,7 @@ end
 local function toggleLight()
 	if not c then return end
 	c.headOn = not c.headOn
-	c.M.spot.Enabled = c.headOn
-	local col = c.headOn and WHITE_LED or Color3.fromRGB(120, 130, 140)
-	for _, led in ipairs(c.M.leds) do led.Color = col end
+	c.M.setLight(c.headOn)
 end
 local function isPress(i)
 	return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch

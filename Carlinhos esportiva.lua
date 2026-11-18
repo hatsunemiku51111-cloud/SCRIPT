@@ -1,11 +1,12 @@
 
-local ok0, err0 = pcall(function()
+local ok0, err0 = xpcall(function()
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
 if not game:IsLoaded() then game.Loaded:Wait() end
 local player = Players.LocalPlayer
 while not player do task.wait(); player = Players.LocalPlayer end
@@ -64,6 +65,23 @@ local Config = {
 
 	Headlight = { Range = 70, Brightness = 3, Angle = 70 },
 
+	MountRadius = 16, -- V52: distancia maxima da moto pra sentar manualmente e assumir o controle
+	KeyHotkey = Enum.KeyCode.B,
+	KeyToolName = "Chave da Moto",
+	KeyAccessoryId = 71337506344769,
+	KeyLength = 1.6,
+	KeyGrip = Vector3.new(0, 0, 0),
+	KeyRotation = Vector3.new(0, 0, 0),
+	KeyCooldown = 0.9,
+	KeyIcon = "\u{1F511}",
+	SoundKeyEquip = "rbxassetid://9113849492",
+
+	-- V52: otimizacoes (mesmo sistema do Charger)
+	EnginePerf = { Enabled = true, Hz = 20, LodDist = 120, Spin = true, Chain = true },
+	CacheDisk = true,
+	CheapGlass = true,
+	LiteMode = "off", -- "off" | "lite" | "super"  (no chat: -1 / -2 / -3)
+
 	UseHiddenGui = true,
 	SoundLand = "rbxassetid://7340406550",
 	SoundIdle = "rbxassetid://6399923126",
@@ -72,6 +90,17 @@ local Config = {
 	VolRun = 0.2,
 }
 local S = Config.Scale
+local LITE = Config.LiteMode ~= "off"
+local LITE_SKIP = {
+	AroParafuso = true, MalhaPixel = true, CoroaMotorDente = true, EntradaArGrade = true, CarterNervura = true,
+	ParafusoMesa = true, CilindroParafuso = true, Porca = true, EixoPorca = true, OrelhaFio = true, Furo = true,
+}
+local LITE_SKIP2 = {
+	Sulco = true, Dente = true, OrelhaBorda = true, OrelhaPonta = true, PernaAnel = true, PodLed = true, PodAnel = true,
+	ManetePino = true, RabetaFio = true, ParalamaFio = true, TanqueFio = true, NarizFio = true,
+	EmblemaContorno = true, CavaloMini = true,
+}
+local TIRE_PARTS = { Banda = true, Parede = true }
 
 local V3 = Vector3.new
 local exp, sin, cos, tan = math.exp, math.sin, math.cos, math.tan
@@ -219,28 +248,54 @@ local function chainPathAt(rotS)
 	local Bw = V3(PIV.X * S, PIV.Y * S, PIV.Z * S) + rotS:VectorToWorldSpace(V3(0, ARM_Y * S, ARM_Z * S))
 	return Aw, chainPath(Aw, Bw, CH.rM * S, CH.rR * S)
 end
--- atualiza coroa do motor + todos os elos (chamado todo frame)
-local function updateChain(cc, M, dt, rotS)
+-- atualiza coroa do motor + elos. V52: EnginePerf do Charger (recalcula em Hz fixo, LOD por distancia, parado = nao faz nada)
+local function updateChain(cc, M, dt, rotS, th)
 	if not M.chain then return end
-	local Aw, P = chainPathAt(rotS)
-	local dsp = -cc.vF * dt / (R * S) -- mesmo giro da roda traseira
-	cc.mAng = ((cc.mAng or 0) + dsp * CH.NR / CH.NM) % (2 * math.pi)
-	cc.chS = ((cc.chS or 0) + dsp * CH.rR * S) % P.L
-	M.wMotor.C0 = CFrame.new(Aw) * CFrame.Angles(cc.mAng, 0, 0)
 	local n = #M.chain
-	local x = CH.XC * S
-	local rootCF = M.root.CFrame
-	local cfs = M.chainCF
-	for i = 1, n do
-		local pz, py, dz, dy = chainPos(P, cc.chS + (i - 1) * P.L / n)
-		local pp = V3(x, py, pz)
-		if i % 2 == 1 then
-			cfs[i] = rootCF * CFrame.new(pp)
-		else
-			cfs[i] = rootCF * CFrame.lookAt(pp, pp + V3(0, dy, dz), V3(1, 0, 0))
+	if n == 0 then return end
+	local E = Config.EnginePerf
+	cc._chAcc = (cc._chAcc or 0) + dt
+	cc._chDsp = (cc._chDsp or 0) - cc.vF * dt / (R * S) -- mesmo giro da roda traseira
+	local interval = (E.Enabled and E.Hz and E.Hz > 0) and (1 / E.Hz) or 0
+	local first = M.chainLocal == nil
+	local due = first or cc._chAcc >= interval
+	if due then
+		local dsp = cc._chDsp
+		cc._chAcc, cc._chDsp = 0, 0
+		local calc = first or E.Chain ~= false
+		if calc and (first or dsp ~= 0 or math.abs(th - (cc._chTh or th)) > 0.002) then
+			local Aw, P = chainPathAt(rotS)
+			if E.Spin ~= false then
+				cc.mAng = ((cc.mAng or 0) + dsp * CH.NR / CH.NM) % (2 * math.pi)
+			end
+			cc.chS = ((cc.chS or 0) + dsp * CH.rR * S) % P.L
+			M.wMotor.C0 = CFrame.new(Aw) * CFrame.Angles(cc.mAng or 0, 0, 0)
+			local loc = M.chainLocal or table.create(n, CFrame.new())
+			local x = CH.XC * S
+			for i = 1, n do
+				local pz, py, dz, dy = chainPos(P, cc.chS + (i - 1) * P.L / n)
+				local pp = V3(x, py, pz)
+				if i % 2 == 1 then
+					loc[i] = CFrame.new(pp)
+				else
+					loc[i] = CFrame.lookAt(pp, pp + V3(0, dy, dz), V3(1, 0, 0))
+				end
+			end
+			M.chainLocal = loc
+			cc._chTh = th
+			cc._chDirty = true
 		end
 	end
+	local rootCF = M.root.CFrame
+	if not cc._chDirty and rootCF == cc._chRoot then return end
+	if E.Enabled and not due then
+		local cam = workspace.CurrentCamera
+		if cam and (cam.CFrame.Position - rootCF.Position).Magnitude > E.LodDist then return end
+	end
+	local cfs, loc = M.chainCF, M.chainLocal
+	for i = 1, n do cfs[i] = rootCF * loc[i] end
 	workspace:BulkMoveTo(M.chain, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+	cc._chRoot, cc._chDirty = rootCF, false
 end
 
 local PURPLE = Config.BodyColor
@@ -282,6 +337,7 @@ local function buildModel()
 		p.Size = V3(size.X * S, size.Y * S, size.Z * S)
 		p.Color = color
 		p.Material = mat or SP
+		if Config.CheapGlass and p.Material == Enum.Material.Glass then p.Material = SP end
 		if shape then p.Shape = shape end
 		p.Reflectance = refl or 0
 		p.Transparency = trans or 0
@@ -290,6 +346,7 @@ local function buildModel()
 		p.CanQuery = false
 		p.CanTouch = false
 		p.Massless = true
+		if Config.LiteMode == "super" or (p.Size.Magnitude < 1.6 * S and not TIRE_PARTS[name]) then p.CastShadow = false end
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Parent = model
@@ -304,6 +361,7 @@ local function buildModel()
 		return w
 	end
 	local function add(parent, name, size, cf, color, mat, shape, refl, trans)
+		if LITE and (LITE_SKIP[name] or (Config.LiteMode == "super" and LITE_SKIP2[name])) then return nil, nil end
 		local p = newPart(name, size, color, mat, shape, refl, trans)
 		local w = weld(parent, p, sCF(cf))
 		return p, w
@@ -1203,7 +1261,7 @@ local function buildModel()
 		local NL = math.floor(P0.L / (CH.pitch * S) + 0.5)
 		M.chain = {}
 		local SILVER2 = Color3.fromRGB(168, 173, 181)
-		for i = 1, NL * 2 do
+		for i = 1, (Config.LiteMode == "super") and 0 or NL * 2 do
 			local lk
 			if i % 2 == 1 then
 				lk = newPart("EloRolete", V3(0.1, 0.1, 0.1), CHROME, METAL, CYL, 0.5) -- V23: rolete redondo
@@ -1303,6 +1361,135 @@ local function buildModel()
 	return M
 end
 
+-- ===== V52: CACHE EM DISCO (mesmo sistema do Charger) =====
+local CACHE_VER = "m1"
+local CACHE_DIR = "MOTO_SCRIPT/modelos"
+local bikeTpl = nil
+local BLUEL_C = Color3.fromRGB(150, 205, 255)
+local function cachePath()
+	return CACHE_DIR .. "/moto_" .. CACHE_VER .. "_s" .. tostring(S) .. "_g" .. tostring(Config.CheapGlass and 1 or 0)
+		.. "_l" .. tostring(Config.LiteMode) .. "_b" .. Config.BodyColor:ToHex() .. "_a" .. Config.AccentColor:ToHex() .. ".rbxm"
+end
+local function tagK(o, k)
+	if o then o:SetAttribute("K", k) end
+end
+local function tagBike(M)
+	tagK(M.root, "root")
+	tagK(M.wFork, "wFork")
+	tagK(M.wSlider, "wSlider")
+	tagK(M.wFWheel, "wFWheel")
+	tagK(M.wSwing, "wSwing")
+	tagK(M.wRWheel, "wRWheel")
+	tagK(M.wRod, "wRod")
+	tagK(M.rod, "rod")
+	tagK(M.wSpring, "wSpring")
+	tagK(M.spring, "spring")
+	tagK(M.wMotor, "wMotor")
+	tagK(M.spot, "spot")
+	tagK(M.dashGear, "dG")
+	tagK(M.dashSpeed, "dS")
+	tagK(M.dashRev, "dV")
+	tagK(M.dashRed, "dR")
+	for i, p in ipairs(M.tails) do tagK(p, "tl:" .. i) end
+	for i, p in ipairs(M.leds) do tagK(p, "ld:" .. i) end
+	for i, p in ipairs(M.chain or {}) do tagK(p, "ch:" .. i) end
+end
+local function bindBike(model)
+	local K = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		local k = d:GetAttribute("K")
+		if k then K[k] = d end
+	end
+	local root = model.PrimaryPart or K.root
+	assert(root and K.wFork and K.wSlider and K.wFWheel and K.wSwing and K.wRWheel and K.wRod and K.rod
+		and K.wSpring and K.spring and K.wMotor and K.spot and K.dG and K.dS and K.dV and K.dR)
+	model.PrimaryPart = root
+	local M = { model = model, root = root, leds = {}, tails = {}, chain = {} }
+	M.wFork, M.wSlider, M.wFWheel = K.wFork, K.wSlider, K.wFWheel
+	M.wSwing, M.wRWheel, M.wRod, M.rod = K.wSwing, K.wRWheel, K.wRod, K.rod
+	M.wSpring, M.spring, M.wMotor, M.spot = K.wSpring, K.spring, K.wMotor, K.spot
+	M.dashGear, M.dashSpeed, M.dashRev, M.dashRed = K.dG, K.dS, K.dV, K.dR
+	M.rtireBase = CFrame.new(0, ARM_Y * S, ARM_Z * S)
+	local function list(prefix, out)
+		local i = 1
+		while K[prefix .. i] do
+			out[i] = K[prefix .. i]
+			i = i + 1
+		end
+	end
+	list("tl:", M.tails)
+	list("ld:", M.leds)
+	list("ch:", M.chain)
+	M.tail = M.tails[1]
+	M.chainCF = table.create(#M.chain, CFrame.new())
+	local spot = M.spot
+	M.setLight = function(on)
+		spot.Enabled = on
+		for _, led in ipairs(M.leds) do
+			local onCol = (led.Name == "LEDInterno") and BLUEL_C or WHITE_LED
+			led.Color = on and onCol or Color3.fromRGB(58, 64, 76)
+			led.Material = on and NEON or SP
+			led.Reflectance = on and 0 or 0.25
+		end
+	end
+	M.setLight(false)
+	model.Parent = workspace
+	return M
+end
+local function loadDisk()
+	if Config.CacheDisk == false then return nil end
+	if not (isfile and readfile and getcustomasset) then return nil end
+	local path = cachePath()
+	local okF, has = pcall(isfile, path)
+	if not (okF and has) then return nil end
+	local ok, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
+	if ok and type(objs) == "table" and objs[1] and objs[1]:IsA("Model") then return objs[1] end
+	if delfile then pcall(delfile, path) end
+	return nil
+end
+local function saveDisk(m)
+	if Config.CacheDisk == false then return end
+	if not (saveinstance and isfile and writefile) then return end
+	pcall(function()
+		if makefolder and isfolder then
+			if not isfolder("MOTO_SCRIPT") then makefolder("MOTO_SCRIPT") end
+			if not isfolder(CACHE_DIR) then makefolder(CACHE_DIR) end
+		end
+	end)
+	local path = cachePath()
+	local okH, has = pcall(isfile, path)
+	if okH and has then return end
+	local base = string.gsub(path, "%.rbxm$", "")
+	local attempts = {
+		{ Object = m, FilePath = base, FileName = base, IsModel = true, Decompile = false, SaveBytecode = false, ShowStatus = false, mode = "optimized" },
+		{ Object = m, FileName = path, IsModel = true, Decompile = false },
+	}
+	m.Parent = workspace
+	for _, opt in ipairs(attempts) do
+		pcall(saveinstance, opt)
+		local ok, h = pcall(isfile, path)
+		if ok and h then break end
+	end
+	m.Parent = nil
+end
+local function buildBike()
+	if not bikeTpl then bikeTpl = loadDisk() end
+	if bikeTpl then
+		local ok, M = pcall(function() return bindBike(bikeTpl:Clone()) end)
+		if ok and M then return M end
+		bikeTpl = nil
+		if delfile then pcall(delfile, cachePath()) end
+	end
+	local M = buildModel()
+	pcall(tagBike, M)
+	pcall(function() bikeTpl = M.model:Clone() end)
+	if bikeTpl then
+		local tpl = bikeTpl
+		task.delay(4, function() pcall(saveDisk, tpl) end)
+	end
+	return M
+end
+
 local function newState(M, pos, yaw)
 	return {
 		M = M, model = M.model, root = M.root,
@@ -1343,6 +1530,8 @@ local function releaseChar(teleport)
 	end
 end
 
+local mountBlock = 0
+-- V52: NAO senta mais sozinho. O jogador senta manualmente (botao de sentar do jogo) perto da moto e ela assume o controle.
 local function mountBike()
 	if not c or c.driver then return end
 	local ch, hum, rpart = charParts()
@@ -1358,17 +1547,30 @@ local function mountBike()
 			p.CanCollide = false
 		end
 	end
-	hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 	hum.AutoRotate = false
-	hum.Sit = true
 	c.driver = true
+	c.mountT = os.clock()
 end
 
 local function dismountBike()
 	if not c or not c.driver then return end
 	c.driver = false
+	mountBlock = os.clock() + 0.8
 	pcall(releaseArms)
 	releaseChar(true)
+end
+
+-- sentou manualmente (sem banco) perto da moto -> vira o piloto
+local function autoMount()
+	if not c or c.driver or os.clock() < mountBlock then return end
+	local ch, hum, rpart = charParts()
+	if not ch then return end
+	local sitting = hum.Sit or hum:GetState() == Enum.HumanoidStateType.Seated
+	if sitting and hum.SeatPart == nil
+		and (rpart.Position - c.pos).Magnitude < Config.MountRadius * S
+		and math.abs(c.vF) < 12 then
+		mountBike()
+	end
 end
 
 local function landImpact(cc, imp, gP, gR)
@@ -1727,20 +1929,26 @@ local function visualsBike(cc, dt)
 	local rotS = CFrame.Angles(th, 0, 0)
 	M.wSwing.C0 = CFrame.new(PIV.X * S, PIV.Y * S, PIV.Z * S) * rotS
 	M.wRWheel.C0 = M.rtireBase * CFrame.Angles(cc.spinR, 0, 0)
-	updateChain(cc, M, dt, rotS)
+	updateChain(cc, M, dt, rotS, th)
 
-	local aW = SHOCK_A * S
-	local bW = (PIV + rotS:VectorToWorldSpace(SHOCK_B)) * S
-	local len = math.max((bW - aW).Magnitude, 0.2)
-	local dir = (bW - aW) / len
-	M.rod.Size = V3(len * 0.9, 0.3 * S, 0.3 * S)
-	M.wRod.C0 = CFrame.lookAt((aW + bW) / 2, bW) * CFrame.Angles(0, math.pi / 2, 0)
-	M.spring.Size = V3(len * 0.55, 0.46 * S, 0.46 * S)
-	M.wSpring.C0 = CFrame.lookAt(aW + dir * len * 0.3, bW) * CFrame.Angles(0, math.pi / 2, 0)
+	if cc._shTh == nil or math.abs(th - cc._shTh) > 0.0015 then
+		cc._shTh = th
+		local aW = SHOCK_A * S
+		local bW = (PIV + rotS:VectorToWorldSpace(SHOCK_B)) * S
+		local len = math.max((bW - aW).Magnitude, 0.2)
+		local dir = (bW - aW) / len
+		M.rod.Size = V3(len * 0.9, 0.3 * S, 0.3 * S)
+		M.wRod.C0 = CFrame.lookAt((aW + bW) / 2, bW) * CFrame.Angles(0, math.pi / 2, 0)
+		M.spring.Size = V3(len * 0.55, 0.46 * S, 0.46 * S)
+		M.wSpring.C0 = CFrame.lookAt(aW + dir * len * 0.3, bW) * CFrame.Angles(0, math.pi / 2, 0)
+	end
 
 	local braking = cc.brakeIn > 0 and cc.driver
-	local tcol = braking and RED_HI or RED_DIM
-	for _, tp in ipairs(M.tails) do tp.Color = tcol end
+	if cc._brk ~= braking then
+		cc._brk = braking
+		local tcol = braking and RED_HI or RED_DIM
+		for _, tp in ipairs(M.tails) do tp.Color = tcol end
+	end
 
 	cc.seatCF = cf * CFrame.new(0, SEAT_TOP * S + Config.SitRise, Config.SeatZ * S) * CFrame.Angles(Config.SitPitch, 0, 0)
 end
@@ -2092,10 +2300,14 @@ local function holdRider(cc)
 	if not cc.driver then return end
 	local ch, hum, rpart = charParts()
 	if not ch then return end
+	-- levantou (pulou / botao de sentar do jogo) -> desce da moto
+	if not hum.Sit and os.clock() - (cc.mountT or 0) > 0.35 then
+		dismountBike()
+		return
+	end
 	rpart.CFrame = cc.seatCF
 	rpart.AssemblyLinearVelocity = V3(0, 0, 0)
 	rpart.AssemblyAngularVelocity = V3(0, 0, 0)
-	if not hum.Sit then hum.Sit = true end
 end
 
 local function makeSounds()
@@ -2155,7 +2367,7 @@ local function spawnBike()
 	local res = workspace:Raycast(p + V3(0, 15, 0), V3(0, -80, 0), pr)
 	local gy = res and res.Position.Y or (rpart.Position.Y - 3)
 	local yaw = atan2(-flat.X, -flat.Z)
-	local M = buildModel()
+	local M = buildBike()
 	c = newState(M, V3(p.X, gy, p.Z), yaw)
 	rp.FilterDescendantsInstances = { c.model, ch }
 	c.lastChar = ch
@@ -2201,9 +2413,197 @@ local function buildHud()
 		return b
 	end
 	h.bCall = mkBtn("MOTO", 1)
-	h.bMount = mkBtn("MONTAR", 2)
-	h.bLight = mkBtn("FAROL", 3)
-	h.bBrake = mkBtn("FREIO", 4)
+
+	-- V52: icones no estilo do Charger (so contorno, sem fundo, legenda embaixo)
+	local ACC = Config.AccentColor
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local METALC = Color3.fromRGB(150, 160, 172)
+	local GREENC = Color3.fromRGB(90, 235, 130)
+	local REDC = Color3.fromRGB(255, 70, 70)
+	local LEDW = Color3.fromRGB(235, 245, 255)
+	local LEDB = Color3.fromRGB(150, 205, 255)
+	local LAMPC = Color3.fromRGB(255, 226, 130)
+	h.anim = {}
+	local function isPress2(i)
+		return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+	end
+	local function line(parent, x1, y1, x2, y2, th, col)
+		local dx, dy = x2 - x1, y2 - y1
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
+		f.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + th * 0.6, th)
+		f.Rotation = math.deg(math.atan2(dy, dx))
+		f.BackgroundColor3 = col
+		local cn = Instance.new("UICorner")
+		cn.CornerRadius = UDim.new(1, 0)
+		cn.Parent = f
+		f.Parent = parent
+		return f
+	end
+	local function circ(parent, x, y, d, col, tr)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(d, d)
+		f.BackgroundColor3 = col
+		f.BackgroundTransparency = tr or 0
+		local cn = Instance.new("UICorner")
+		cn.CornerRadius = UDim.new(1, 0)
+		cn.Parent = f
+		f.Parent = parent
+		return f
+	end
+	local function arc(parent, cx, cy, r, n, th, col, a0, a1)
+		local out, prev = {}, nil
+		for i = 0, n do
+			local a = math.rad(a0 + (a1 - a0) * i / n)
+			local x, y = cx + r * math.sin(a), cy - r * math.cos(a)
+			if prev then out[#out + 1] = line(parent, prev[1], prev[2], x, y, th, col) end
+			prev = { x, y }
+		end
+		return out
+	end
+	local function shell(w, hh, caption)
+		local b = Instance.new("TextButton")
+		b.AutoButtonColor = false
+		b.BorderSizePixel = 0
+		b.Text = ""
+		b.ClipsDescendants = true
+		b.Size = UDim2.fromOffset(w, hh)
+		b.BackgroundTransparency = 1
+		local sc = Instance.new("UIScale")
+		sc.Parent = b
+		local ic = Instance.new("Frame")
+		ic.BackgroundTransparency = 1
+		ic.BorderSizePixel = 0
+		ic.Size = UDim2.fromOffset(w, hh - 14)
+		ic.ZIndex = 3
+		ic.Parent = b
+		local lb = Instance.new("TextLabel")
+		lb.BackgroundTransparency = 1
+		lb.Position = UDim2.fromOffset(0, hh - 15)
+		lb.Size = UDim2.fromOffset(w, 12)
+		lb.Font = Enum.Font.GothamBold
+		lb.TextSize = 9
+		lb.TextColor3 = METALC
+		lb.Text = caption
+		lb.ZIndex = 3
+		lb.Parent = b
+		local function paint(k)
+			TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Quad), { Scale = k }):Play()
+		end
+		local hover = false
+		track(b.MouseEnter:Connect(function() hover = true paint(1.06) end))
+		track(b.MouseLeave:Connect(function() hover = false paint(1) end))
+		track(b.InputBegan:Connect(function(i) if isPress2(i) then paint(0.92) end end))
+		track(b.InputEnded:Connect(function(i) if isPress2(i) then paint(hover and 1.06 or 1) end end))
+		b.Parent = g
+		return b, ic
+	end
+
+	-- SENTAR: so uma seta, esquerda da tela no centro (aparece perto da moto)
+	do
+		local b, ic = shell(58, 60, "SENTAR")
+		b.AnchorPoint = Vector2.new(0, 0.5)
+		b.Position = UDim2.new(0, 10, 0.5, 0)
+		b.Visible = false
+		local ag = Instance.new("Frame")
+		ag.BackgroundTransparency = 1
+		ag.BorderSizePixel = 0
+		ag.Size = UDim2.fromOffset(58, 46)
+		ag.Parent = ic
+		local al = {
+			line(ag, 29, 6, 29, 34, 3.2, GREENC),
+			line(ag, 19, 24, 29, 34, 3.2, GREENC),
+			line(ag, 29, 34, 39, 24, 3.2, GREENC),
+		}
+		h.anim[#h.anim + 1] = function(t)
+			if not b.Visible then return end
+			local p = (t * 0.9) % 1
+			ag.Position = UDim2.fromOffset(0, p * 8 - 3)
+			local tr = 0
+			if p > 0.65 then tr = (p - 0.65) / 0.35 elseif p < 0.15 then tr = (0.15 - p) / 0.15 end
+			for _, l in ipairs(al) do l.BackgroundTransparency = tr end
+		end
+		h.sitBtn = b
+	end
+
+	-- FAROL: igual ao farol 3D da moto (LED em "sobrancelha" + DRL azul + aleta), horizontal no centro do topo
+	do
+		local b, ic = shell(58, 60, "FAROL  (H)")
+		b.AnchorPoint = Vector2.new(0.5, 0)
+		b.Position = UDim2.new(0.5, 0, 0, 6)
+		b.Visible = false
+		local glow = circ(ic, 29, 25, 46, LAMPC, 1)
+		local parts = {}
+		local function seg(x1, y1, x2, y2, th, onCol, offCol, offTr)
+			local f = line(ic, x1, y1, x2, y2, th, offCol)
+			f.BackgroundTransparency = offTr or 0
+			parts[#parts + 1] = { f = f, on = onCol, off = offCol, offTr = offTr or 0 }
+		end
+		for _, sx in ipairs({ -1, 1 }) do
+			local function X(x) return 29 + sx * (x - 29) end
+			-- LED principal (barra branca em arco)
+			seg(X(31), 27, X(41), 22, 3.2, LEDW, OFFC)
+			seg(X(41), 22, X(52), 27, 3.2, LEDW, OFFC)
+			-- DRL interno (azul)
+			seg(X(32), 30, X(40), 35, 2.2, LEDB, OFFC, 0.35)
+			seg(X(40), 35, X(51), 36, 2.2, LEDB, OFFC, 0.35)
+			-- aleta pontuda
+			seg(X(38), 19, X(47), 8, 2.2, ACC, OFFC)
+			seg(X(47), 8, X(54), 17, 2.2, ACC, OFFC)
+		end
+		seg(29, 14, 29, 27, 2.2, ACC, OFFC)
+		local lampOn = false
+		h.setHl = function(on)
+			lampOn = on and true or false
+			for _, p in ipairs(parts) do
+				p.f.BackgroundColor3 = lampOn and p.on or p.off
+				p.f.BackgroundTransparency = lampOn and 0 or p.offTr
+			end
+			if not lampOn then glow.BackgroundTransparency = 1 end
+		end
+		h.anim[#h.anim + 1] = function(t)
+			if lampOn and b.Visible then glow.BackgroundTransparency = 0.8 + 0.08 * math.sin(t * 4) end
+		end
+		h.bLight = b
+	end
+
+	-- FREIO: igual ao freio 3D da moto (disco furado + pinca), vermelho quando freando
+	do
+		local b, ic = shell(58, 60, "FREIO  (ESPACO)")
+		b.AnchorPoint = Vector2.new(1, 0)
+		b.Position = UDim2.new(1, -41, 0.28, 52)
+		b.Visible = false
+		local cx, cy = 29, 23
+		local glow = circ(ic, cx, cy, 36, REDC, 1)
+		local discs = {}
+		for _, f in ipairs(arc(ic, cx, cy, 15, 28, 2.4, OFFC, 0, 360)) do discs[#discs + 1] = f end
+		for _, f in ipairs(arc(ic, cx, cy, 8.5, 20, 1.8, OFFC, 0, 360)) do discs[#discs + 1] = f end
+		discs[#discs + 1] = circ(ic, cx, cy, 5, OFFC, 0)
+		for i = 0, 9 do
+			local a = math.rad(i * 36 + 18)
+			discs[#discs + 1] = circ(ic, cx + 11.8 * math.sin(a), cy - 11.8 * math.cos(a), 2.6, OFFC, 0)
+		end
+		local cal = arc(ic, cx, cy, 14.5, 8, 6, OFFC, 28, 82)
+		local braking = false
+		h.setBrake = function(on)
+			on = on and true or false
+			if on == braking then return end
+			braking = on
+			for _, f in ipairs(discs) do f.BackgroundColor3 = on and REDC or OFFC end
+			for _, f in ipairs(cal) do f.BackgroundColor3 = on and REDC or ACC end
+			if not on then glow.BackgroundTransparency = 1 end
+		end
+		for _, f in ipairs(cal) do f.BackgroundColor3 = ACC end
+		h.anim[#h.anim + 1] = function(t)
+			if braking and b.Visible then glow.BackgroundTransparency = 0.8 + 0.1 * math.sin(t * 10) end
+		end
+		h.bBrake = b
+	end
 
 	local sp = Instance.new("Frame")
 	sp.Size = UDim2.fromOffset(150, 52)
@@ -2259,48 +2659,67 @@ local function buildHud()
 	return h
 end
 
+local function setTxt(o, t)
+	if o.Text ~= t then o.Text = t end
+end
 local function hudStep(cc)
 	if not hud then return end
 	local S2 = Config.Susp
 	if cc then
-		hud.speed.Text = tostring(math.floor(math.abs(cc.vF) * Config.SpeedMul + 0.5)) .. " km/h"
+		local spd = math.floor(math.abs(cc.vF) * Config.SpeedMul + 0.5)
+		setTxt(hud.speed, tostring(spd) .. " km/h")
 		local Mm = cc.M
 		if Mm and Mm.dashSpeed then
-			local spd = math.floor(math.abs(cc.vF) * Config.SpeedMul + 0.5)
 			local g = spd < 1 and "N" or tostring(clamp(math.floor(spd / (Config.TopSpeed / 6)) + 1, 1, 6))
-			Mm.dashSpeed.Text = tostring(spd)
-			Mm.dashGear.Text = g
-			Mm.dashRed.Visible = (g == "N")
-			Mm.dashRev.Size = UDim2.fromScale(clamp(math.abs(cc.vF) / Config.TopSpeed, 0.02, 1), 1)
+			setTxt(Mm.dashSpeed, tostring(spd))
+			setTxt(Mm.dashGear, g)
+			local isN = (g == "N")
+			if Mm.dashRed.Visible ~= isN then Mm.dashRed.Visible = isN end
+			local rv = math.floor(clamp(math.abs(cc.vF) / Config.TopSpeed, 0.02, 1) * 100 + 0.5) / 100
+			if cc._rv ~= rv then
+				cc._rv = rv
+				Mm.dashRev.Size = UDim2.fromScale(rv, 1)
+			end
 		end
-		local fr = (cc.fT + S2.ExtendF * S) / ((S2.TravelF + S2.ExtendF) * S)
-		local rr = (cc.rT + S2.ExtendR * S) / ((S2.TravelR + S2.ExtendR) * S)
-		hud.barF.Size = UDim2.fromScale(1, clamp(fr, 0.02, 1))
-		hud.barR.Size = UDim2.fromScale(1, clamp(rr, 0.02, 1))
-		hud.bMount.Text = cc.driver and "DESCER" or "MONTAR"
-		hud.bCall.Text = "GUARDAR"
+		local fr = math.floor(clamp((cc.fT + S2.ExtendF * S) / ((S2.TravelF + S2.ExtendF) * S), 0.02, 1) * 100 + 0.5) / 100
+		local rr = math.floor(clamp((cc.rT + S2.ExtendR * S) / ((S2.TravelR + S2.ExtendR) * S), 0.02, 1) * 100 + 0.5) / 100
+		if hud._bf ~= fr then hud._bf = fr; hud.barF.Size = UDim2.fromScale(1, fr) end
+		if hud._br ~= rr then hud._br = rr; hud.barR.Size = UDim2.fromScale(1, rr) end
+		setTxt(hud.bCall, "GUARDAR")
 	else
-		hud.speed.Text = "0 km/h"
-		hud.barF.Size = UDim2.fromScale(1, 0.3)
-		hud.barR.Size = UDim2.fromScale(1, 0.3)
-		hud.bMount.Text = "MONTAR"
-		hud.bCall.Text = "MOTO"
+		setTxt(hud.speed, "0 km/h")
+		if hud._bf ~= 0.3 then hud._bf = 0.3; hud.barF.Size = UDim2.fromScale(1, 0.3) end
+		if hud._br ~= 0.3 then hud._br = 0.3; hud.barR.Size = UDim2.fromScale(1, 0.3) end
+		setTxt(hud.bCall, "MOTO")
 	end
+	if hud.sitBtn then
+		local show = false
+		if cc and not cc.driver then
+			local ch, hum, rp = charParts()
+			if ch and not hum.Sit and (rp.Position - cc.pos).Magnitude < Config.MountRadius * S and math.abs(cc.vF) < 12 then
+				show = true
+			end
+		end
+		if hud.sitBtn.Visible ~= show then hud.sitBtn.Visible = show end
+	end
+	local drv = (cc ~= nil and cc.driver == true)
+	if hud.bLight.Visible ~= drv then hud.bLight.Visible = drv end
+	if hud.bBrake.Visible ~= drv then
+		hud.bBrake.Visible = drv
+		if not drv then held.brakeUi = false end
+	end
+	local on = (cc ~= nil and cc.headOn == true)
+	if hud._hl ~= on then
+		hud._hl = on
+		hud.setHl(on)
+	end
+	hud.setBrake(drv and (held.brake or held.brakeUi or (cc.brakeIn or 0) > 0))
+	local t = os.clock()
+	for _, f in ipairs(hud.anim) do f(t) end
 end
 
 local function toggleCall()
 	if c then despawnBike() else spawnBike() end
-end
-local function toggleMount()
-	if not c then spawnBike() return end
-	if c.driver then
-		dismountBike()
-	else
-		local ch, hum, rpart = charParts()
-		if ch and (rpart.Position - c.pos).Magnitude < 16 * S and math.abs(c.vF) < 12 then
-			mountBike()
-		end
-	end
 end
 local function toggleLight()
 	if not c then return end
@@ -2314,16 +2733,23 @@ end
 hud = buildHud()
 makeSounds()
 track(hud.bCall.Activated:Connect(toggleCall))
-track(hud.bMount.Activated:Connect(toggleMount))
 track(hud.bLight.Activated:Connect(toggleLight))
+track(hud.sitBtn.Activated:Connect(function()
+	if not c or c.driver then return end
+	local ch, hum, rpart = charParts()
+	if not ch then return end
+	if (rpart.Position - c.pos).Magnitude < Config.MountRadius * S and math.abs(c.vF) < 12 then
+		hum.Sit = true
+		mountBike()
+	end
+end))
 track(hud.bBrake.InputBegan:Connect(function(i) if isPress(i) then held.brakeUi = true end end))
 track(hud.bBrake.InputEnded:Connect(function(i) if isPress(i) then held.brakeUi = false end end))
 
 track(UIS.InputBegan:Connect(function(i, gpe)
 	if gpe then return end
 	if i.UserInputType ~= Enum.UserInputType.Keyboard then return end
-	if i.KeyCode == Enum.KeyCode.B then toggleCall()
-	elseif i.KeyCode == Enum.KeyCode.E then toggleMount()
+	if i.KeyCode == Config.KeyHotkey then toggleCall()
 	elseif i.KeyCode == Enum.KeyCode.H then toggleLight()
 	elseif i.KeyCode == Enum.KeyCode.Space then held.brake = true end
 end))
@@ -2340,9 +2766,435 @@ track(player.CharacterAdded:Connect(function()
 	LIMB.cur, LIMB.jw = {}, {}
 end))
 
+-- ===== V52: CHAVE DA MOTO (copiada do Charger): ferramenta na mochila + botao; usar = chamar / guardar a moto =====
+local KEY = { alive = true }
+do
+	local KEYDIR = "MOTO_SCRIPT"
+	local ACC = Config.AccentColor
+	local keyTpl, keyAxis, keyTried = nil, Vector3.zAxis, false
+	local keyTool = nil
+	local function keyPath(name)
+		pcall(function()
+			if makefolder and isfolder then
+				if not isfolder(KEYDIR) then makefolder(KEYDIR) end
+				if not isfolder(KEYDIR .. "/modelos") then makefolder(KEYDIR .. "/modelos") end
+			end
+		end)
+		return KEYDIR .. "/modelos/" .. name
+	end
+	local function fromDisk(id)
+		assert(writefile and readfile and isfile and getcustomasset)
+		local path = keyPath(tostring(id) .. ".rbxm")
+		for tentativa = 1, 2 do
+			if not isfile(path) then
+				local data = game:HttpGet("https://assetdelivery.roblox.com/v1/asset/?id=" .. tostring(id))
+				assert(type(data) == "string" and #data > 100)
+				writefile(path, data)
+			end
+			local okO, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
+			if okO and type(objs) == "table" and objs[1] then return objs[1] end
+			if delfile then pcall(delfile, path) end
+			if tentativa == 2 then error(0) end
+		end
+	end
+	local function fetchModel(id)
+		local lastErr = "desconhecido"
+		for attempt = 1, 3 do
+			local okD, m = pcall(fromDisk, id)
+			if okD and m then return m end
+			if not okD then lastErr = tostring(m) end
+			local okG, objs = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(id)) end)
+			if okG and type(objs) == "table" and objs[1] then return objs[1] end
+			if not okG then lastErr = tostring(objs) end
+			if attempt < 3 then task.wait(1) end
+		end
+		return nil, lastErr
+	end
+	local function fallbackKey()
+		local L = Config.KeyLength
+		local h = Instance.new("Part")
+		h.Name = "Handle"
+		h.Size = Vector3.new(0.22, 0.22, L)
+		h.Material = Enum.Material.Neon
+		h.Color = ACC
+		h.Anchored = false
+		h.CanCollide = false
+		h.CanQuery = false
+		h.CanTouch = false
+		h.Massless = true
+		local function piece(size, off, shape)
+			local q = Instance.new("Part")
+			q.Size = size
+			q.Shape = shape or Enum.PartType.Block
+			q.Material = Enum.Material.Neon
+			q.Color = ACC
+			q.CanCollide = false
+			q.CanQuery = false
+			q.CanTouch = false
+			q.Massless = true
+			q.CFrame = h.CFrame * CFrame.new(off)
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = h
+			w.Part1 = q
+			w.Parent = q
+			q.Parent = h
+		end
+		piece(Vector3.new(0.7, 0.7, 0.7), Vector3.new(0, 0, -L / 2), Enum.PartType.Ball)
+		piece(Vector3.new(0.5, 0.2, 0.2), Vector3.new(0.3, 0, L / 2 - 0.1))
+		piece(Vector3.new(0.4, 0.2, 0.2), Vector3.new(0.25, 0, L / 2 - 0.4))
+		keyAxis = Vector3.zAxis
+		return h
+	end
+	local function loadTemplate()
+		if keyTried then return keyTpl end
+		keyTried = true
+		local id = Config.KeyAccessoryId
+		if id then
+			local model, err = fetchModel(id)
+			if model then
+				local h
+				if model:IsA("BasePart") then
+					h = model
+				else
+					h = model:FindFirstChild("Handle", true) or model:FindFirstChildWhichIsA("BasePart", true)
+				end
+				if h then
+					local cl = h:Clone()
+					pcall(function() model:Destroy() end)
+					for _, d in ipairs(cl:GetDescendants()) do
+						if d:IsA("Attachment") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Script")
+							or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound")
+							or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke")
+							or d:IsA("Sparkles") or d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") or d:IsA("Highlight") then
+							d:Destroy()
+						end
+					end
+					cl.Name = "Handle"
+					cl.Anchored = false
+					cl.CanCollide = false
+					cl.CanQuery = false
+					cl.CanTouch = false
+					cl.Massless = true
+					cl.CastShadow = true
+					local sz = cl.Size
+					local f = Config.KeyLength / math.max(math.max(sz.X, sz.Y, sz.Z), 0.01)
+					cl.Size = sz * f
+					local sm = cl:FindFirstChildOfClass("SpecialMesh")
+					if sm then sm.Scale = sm.Scale * f end
+					local ns = cl.Size
+					if ns.X >= ns.Y and ns.X >= ns.Z then
+						keyAxis = Vector3.xAxis
+					elseif ns.Y >= ns.Z then
+						keyAxis = Vector3.yAxis
+					else
+						keyAxis = Vector3.zAxis
+					end
+					keyTpl = cl
+					return cl
+				end
+				pcall(function() model:Destroy() end)
+			end
+		end
+		keyTpl = fallbackKey()
+		return keyTpl
+	end
+	local slotBtn = Instance.new("TextButton")
+	slotBtn.Name = "Slot_ChaveDaMoto"
+	slotBtn.AutoButtonColor = false
+	slotBtn.BorderSizePixel = 0
+	slotBtn.BackgroundTransparency = 1
+	slotBtn.Text = ""
+	slotBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	slotBtn.Position = UDim2.new(0, 40, 0.28, 26)
+	slotBtn.Size = UDim2.fromOffset(52, 52)
+	do
+		local cn = Instance.new("UICorner")
+		cn.CornerRadius = UDim.new(0, 14)
+		cn.Parent = slotBtn
+	end
+	local slotStroke = Instance.new("UIStroke")
+	slotStroke.Color = ACC
+	slotStroke.Thickness = 2.5
+	slotStroke.Transparency = 0.1
+	slotStroke.Parent = slotBtn
+	slotBtn.Parent = hud.gui
+	local slotIcon = Instance.new("TextLabel")
+	slotIcon.BackgroundTransparency = 1
+	slotIcon.Size = UDim2.fromScale(1, 1)
+	slotIcon.Text = Config.KeyIcon
+	slotIcon.TextSize = 26
+	slotIcon.Parent = slotBtn
+	if Config.KeyAccessoryId then
+		local img = Instance.new("ImageLabel")
+		img.Name = "KeyThumb"
+		img.BackgroundTransparency = 1
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.fromScale(0.5, 0.5)
+		img.Size = UDim2.new(1, -10, 1, -10)
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Visible = false
+		img.Image = "rbxthumb://type=Asset&id=" .. tostring(Config.KeyAccessoryId) .. "&w=150&h=150"
+		img.Parent = slotBtn
+		task.spawn(function()
+			for _ = 1, 24 do
+				if not (KEY.alive and img.Parent) then return end
+				if img.IsLoaded then
+					img.Visible = true
+					slotIcon.Visible = false
+					return
+				end
+				task.wait(0.25)
+			end
+		end)
+	end
+	do
+		local lb = Instance.new("TextLabel")
+		lb.BackgroundTransparency = 1
+		lb.AnchorPoint = Vector2.new(0.5, 0)
+		lb.Position = UDim2.new(0, 40, 0.28, 56)
+		lb.Size = UDim2.fromOffset(70, 12)
+		lb.Font = Enum.Font.GothamBold
+		lb.TextSize = 9
+		lb.TextColor3 = Color3.fromRGB(200, 160, 255)
+		lb.Text = "CHAVE  (" .. Config.KeyHotkey.Name .. ")"
+		lb.Parent = hud.gui
+	end
+	local keyLast = 0
+	local function keyUse()
+		local ch = charParts()
+		if not ch then return end
+		if c and c.driver then return end
+		if os.clock() - keyLast < Config.KeyCooldown then return end
+		keyLast = os.clock()
+		pcall(function()
+			TweenService:Create(slotBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true),
+				{ Size = UDim2.fromOffset(60, 60) }):Play()
+		end)
+		toggleCall()
+	end
+	local function setupKey()
+		local ch, hum = charParts()
+		if not ch then return end
+		local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 10)
+		if not backpack then return end
+		for _, v in ipairs(backpack:GetChildren()) do
+			if v.Name == Config.KeyToolName then pcall(function() v:Destroy() end) end
+		end
+		local old = ch:FindFirstChild(Config.KeyToolName)
+		if old then pcall(function() old:Destroy() end) end
+		if keyTool then pcall(function() keyTool:Destroy() end) end
+		local tpl = loadTemplate()
+		if not tpl then return end
+		local tool = Instance.new("Tool")
+		tool.Name = Config.KeyToolName
+		tool.ToolTip = "Chama a moto"
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		local handle = tpl:Clone()
+		handle.Name = "Handle"
+		handle.Parent = tool
+		local rot = CFrame.new()
+		if keyAxis == Vector3.xAxis then
+			rot = CFrame.Angles(0, math.rad(90), 0)
+		elseif keyAxis == Vector3.yAxis then
+			rot = CFrame.Angles(math.rad(90), 0, 0)
+		end
+		local e = Config.KeyRotation
+		tool.Grip = CFrame.new(Config.KeyGrip) * rot * CFrame.Angles(math.rad(e.X), math.rad(e.Y), math.rad(e.Z))
+		tool.Activated:Connect(keyUse)
+		tool.Equipped:Connect(function()
+			KEY.keyOn = true
+			slotStroke.Color = Color3.new(1, 1, 1)
+			playSound(Config.SoundKeyEquip, 0.5)
+		end)
+		tool.Unequipped:Connect(function()
+			KEY.keyOn = false
+			slotStroke.Color = ACC
+		end)
+		pcall(function() tool.Parent = backpack end)
+		keyTool = tool
+	end
+	track(slotBtn.Activated:Connect(function()
+		local ch, hum = charParts()
+		if not (ch and hum and keyTool) then return end
+		pcall(function()
+			if keyTool.Parent == ch then hum:UnequipTools() else hum:EquipTool(keyTool) end
+		end)
+	end))
+	track(player.CharacterAdded:Connect(function()
+		task.wait(0.8)
+		if KEY.alive and keyTpl then setupKey() end
+	end))
+	task.spawn(function()
+		pcall(loadTemplate)
+		if KEY.alive then setupKey() end
+		while KEY.alive do
+			task.wait(1)
+			local bp, ch = player:FindFirstChildOfClass("Backpack"), player.Character
+			if keyTool and bp and ch and keyTool.Parent ~= bp and keyTool.Parent ~= ch then
+				pcall(function() keyTool.Parent = bp end)
+			end
+		end
+	end)
+	function KEY.destroy()
+		KEY.alive = false
+		if keyTool then pcall(function() keyTool:Destroy() end) end
+	end
+end
+
+-- ===== V52: MODO LITE por chat (-1 completo / -2 lite / -3 super lite), igual ao Charger =====
+do
+	local LITE_NAMES = { off = "LITE DESATIVADO (visual completo)", lite = "MODO LITE ATIVADO", super = "MODO SUPER LITE ATIVADO" }
+	local function say(msg)
+		pcall(function()
+			game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Moto] " .. msg, Color = Color3.fromRGB(80, 170, 255) })
+		end)
+		pcall(function()
+			local TCS = game:GetService("TextChatService")
+			local ch = TCS:FindFirstChild("TextChannels") and TCS.TextChannels:FindFirstChild("RBXGeneral")
+			if ch then ch:DisplaySystemMessage("[Moto] " .. msg) end
+		end)
+	end
+	local lastCmd, lastT = nil, 0
+	local function liteCmd(text)
+		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "-5" then
+			local ch, hum, rpart = charParts()
+			if not ch then say("sem personagem") return end
+			say("moto=" .. tostring(c ~= nil) .. " | motorista=" .. tostring(c ~= nil and c.driver)
+				.. " | dist=" .. (c and tostring(math.floor((rpart.Position - c.pos).Magnitude)) or "-") .. "/" .. tostring(Config.MountRadius * S)
+				.. " | Sit=" .. tostring(hum.Sit) .. " | estado=" .. tostring(hum:GetState().Name)
+				.. " | SeatPart=" .. tostring(hum.SeatPart and hum.SeatPart:GetFullName() or "nil")
+				.. " | vel=" .. (c and tostring(math.floor(math.abs(c.vF))) or "-"))
+			return
+		end
+		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
+		if not mode then return end
+		local now = os.clock()
+		if lastCmd == text and now - lastT < 0.6 then return end
+		lastCmd, lastT = text, now
+		Config.LiteMode = mode
+		LITE = mode ~= "off"
+		bikeTpl = nil
+		if c and not c.driver then
+			spawnBike()
+			say(LITE_NAMES[mode] .. " - moto reconstruida.")
+		elseif c then
+			say(LITE_NAMES[mode] .. " - vale a partir do proximo spawn.")
+		else
+			say(LITE_NAMES[mode] .. ".")
+		end
+	end
+	track(player.Chatted:Connect(liteCmd))
+	pcall(function()
+		local TCS = game:GetService("TextChatService")
+		track(TCS.MessageReceived:Connect(function(m)
+			if m.TextSource and m.TextSource.UserId == player.UserId then liteCmd(m.Text) end
+		end))
+	end)
+	task.delay(3, function()
+		local mname = (Config.LiteMode == "super" and "3 (SUPER LITE)") or (Config.LiteMode == "lite" and "2 (LITE)") or "1 (COMPLETO)"
+		say("Modo atual: " .. mname .. ". Digite no chat para trocar:")
+		say("-1 = COMPLETO: todos os detalhes da moto.")
+		say("-2 = LITE: tira detalhes pequenos (parafusos, furos dos discos, malha). Visual quase igual, mais leve.")
+		say("-3 = SUPER LITE: tira mais detalhes (frisos, desenho do pneu, dentes), sem sombras e sem a corrente. Para celular fraco.")
+		say("A moto e reconstruida ao trocar.")
+	end)
+end
+
+-- ===== V52: pre-carregamento de sons e texturas, com barra de progresso (igual ao Charger) =====
+do
+	local list, seen = {}, {}
+	local function add(v)
+		if type(v) == "string" and v:find("^rbx") and not seen[v] then
+			seen[v] = true
+			list[#list + 1] = v
+		end
+	end
+	for k, v in pairs(Config) do
+		if type(v) == "string" and tostring(k):find("Sound") then add(v) end
+	end
+	add("rbxasset://textures/particles/smoke_main.dds")
+	local total = #list
+	if total > 0 then
+		local PANEL, AMBER, DIMC, GREEN = Color3.fromRGB(20, 8, 36), Config.AccentColor, Color3.fromRGB(24, 30, 40), Color3.fromRGB(60, 220, 120)
+		local box = Instance.new("Frame")
+		box.Name = "PreloadBox"
+		box.AnchorPoint = Vector2.new(0.5, 0)
+		box.Position = UDim2.new(0.5, 0, 0, 70)
+		box.Size = UDim2.fromOffset(290, 62)
+		box.BackgroundColor3 = PANEL
+		box.BackgroundTransparency = 0.12
+		box.BorderSizePixel = 0
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(0, 10)
+		bc.Parent = box
+		local bs = Instance.new("UIStroke")
+		bs.Color = AMBER
+		bs.Thickness = 1.5
+		bs.Parent = box
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Position = UDim2.fromOffset(10, 6)
+		lbl.Size = UDim2.new(1, -20, 0, 28)
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = 15
+		lbl.TextColor3 = Color3.fromRGB(235, 235, 235)
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Text = "Moto: carregando recursos 0/" .. total
+		lbl.Parent = box
+		local barBg = Instance.new("Frame")
+		barBg.Position = UDim2.fromOffset(10, 40)
+		barBg.Size = UDim2.new(1, -20, 0, 8)
+		barBg.BackgroundColor3 = DIMC
+		barBg.BorderSizePixel = 0
+		local bgc = Instance.new("UICorner")
+		bgc.CornerRadius = UDim.new(1, 0)
+		bgc.Parent = barBg
+		barBg.Parent = box
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.fromScale(0, 1)
+		bar.BackgroundColor3 = AMBER
+		bar.BorderSizePixel = 0
+		local brc = Instance.new("UICorner")
+		brc.CornerRadius = UDim.new(1, 0)
+		brc.Parent = bar
+		bar.Parent = barBg
+		box.Parent = hud.gui
+		task.spawn(function()
+			local done = 0
+			pcall(function()
+				game:GetService("ContentProvider"):PreloadAsync(list, function()
+					done = done + 1
+					if box.Parent then
+						lbl.Text = "Moto: carregando recursos " .. math.min(done, total) .. "/" .. total
+						bar.Size = UDim2.fromScale(math.clamp(done / total, 0, 1), 1)
+					end
+				end)
+			end)
+			if box.Parent then
+				lbl.Text = "Moto: tudo carregado!"
+				bar.Size = UDim2.fromScale(1, 1)
+				bar.BackgroundColor3 = GREEN
+				task.wait(1.5)
+				pcall(function()
+					TweenService:Create(box, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(lbl, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
+					TweenService:Create(bs, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+					TweenService:Create(barBg, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(bar, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+				end)
+				task.wait(0.6)
+				box:Destroy()
+			end
+		end)
+	end
+end
+
 RunService:BindToRenderStep("MotoJXz", Enum.RenderPriority.Camera.Value - 1, function(dt)
 	dt = math.min(dt, 1 / 20)
 	if c and c.model.Parent then
+		autoMount()
 		stepBike(c, dt)
 		visualsBike(c, dt)
 		holdRider(c)
@@ -2363,6 +3215,7 @@ end))
 _G.__MOTO_JXZ_CLEANUP = function()
 	pcall(function() RunService:UnbindFromRenderStep("MotoJXz") end)
 	pcall(releaseArms)
+	pcall(KEY.destroy)
 	for _, cn in ipairs(conns) do pcall(function() cn:Disconnect() end) end
 	despawnBike()
 	if hud and hud.gui then pcall(function() hud.gui:Destroy() end) end
@@ -2371,5 +3224,10 @@ _G.__MOTO_JXZ_CLEANUP = function()
 	_G.__MOTO_JXZ_CLEANUP = nil
 end
 
-end)
-if not ok0 then warn("[MOTO] erro: " .. tostring(err0)) end
+end, debug.traceback)
+if not ok0 then
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Moto] ERRO FATAL: " .. tostring(err0), Color = Color3.fromRGB(255, 80, 80) })
+	end)
+	warn("[MOTO] erro: " .. tostring(err0))
+end

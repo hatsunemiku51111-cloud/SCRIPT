@@ -1319,18 +1319,20 @@ local function buildModel()
 			local a = i * (2 * math.pi / n)
 			local a1 = a + 0.1
 			local function P(r, ang) return V3(x, r * cos(ang), r * sin(ang)) end
-			bar(core, "Raio", P(hubR, a), P(forkR, a1), 0.1, color, METAL, 0.3)
-			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 + 0.2), 0.055, color, METAL, 0.3)
-			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 - 0.2), 0.055, color, METAL, 0.3)
+			bar(core, "Raio", P(hubR, a), P(forkR, a1), 0.1, color, METAL, 0.12)
+			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 + 0.2), 0.055, color, METAL, 0.12)
+			bar(core, "Raio", P(forkR - 0.02, a1), P(rimR, a1 - 0.2), 0.055, color, METAL, 0.12)
 		end
 	end
 	local function wheelSide(core, A, sx, kind, D, ds)
 
 		local function X(d) return sx * (A - D + d) end
 		local function XO(d) return sx * (A + d) end
-		shell(core, "AroBarril", { { sx * (A - D + 0.05), 0.915 }, { 0, 0.915 } }, 40, 0.05, DISC, METAL, 0.4)
-		shell(core, "AroTambor", { { sx * (A - 0.02), 0.95 }, { sx * (A - D + 0.05), 0.915 } }, 40, 0.05, DISC, METAL, 0.55)
-		ySpokes(core, X(0.12), 10, 0.2, 0.52, 0.91, BLACK)
+		-- aro e raios: cinza-escuro de verdade (nem cinza claro, nem preto); reflexo baixo pra nao lavar a cor
+		local RIM_DG = Color3.fromRGB(68, 70, 76)
+		shell(core, "AroBarril", { { sx * (A - D + 0.05), 0.915 }, { 0, 0.915 } }, 40, 0.05, RIM_DG, METAL, 0.12)
+		shell(core, "AroTambor", { { sx * (A - 0.02), 0.95 }, { sx * (A - D + 0.05), 0.915 } }, 40, 0.05, RIM_DG, METAL, 0.18)
+		ySpokes(core, X(0.12), 10, 0.2, 0.52, 0.91, RIM_DG)
 		cylX(core, "Cubo", 0.2, 0.46, CFrame.new(X(0.12), 0, 0), BLACK, METAL, 0.25)
 		cylX(core, "CuboTubo", D + 0.12, 0.26, CFrame.new(sx * (A - D / 2 + 0.06), 0, 0), BLACK, METAL, 0.2)
 		cylX(core, "Porca", 0.14, 0.22, CFrame.new(XO(0.1), 0, 0), CHROME, METAL, 0.55)
@@ -1601,7 +1603,7 @@ local function buildModel()
 	return M
 end
 
-local CACHE_VER = "m12"
+local CACHE_VER = "m13"
 local CACHE_DIR = "MOTO_SCRIPT/modelos"
 local bikeTpl = nil
 local BLUEL_C = Color3.fromRGB(150, 205, 255)
@@ -5290,13 +5292,8 @@ do
   function NEON.paint()
     for _, p in ipairs(NEON.tint) do p.Color = NEON.col end
     for _, l in ipairs(NEON.lights) do l.Color = NEON.col end
-    if NEON.btn then
-      local e = PAL[NEON.idx]
-      NEON.btn.Text = "COR: " .. e[1]
-      NEON.btn.BackgroundColor3 = NEON.col
-      local c = NEON.col
-      local lum = 0.3 * c.R + 0.59 * c.G + 0.11 * c.B
-      NEON.btn.TextColor3 = lum > 0.55 and Color3.new(0, 0, 0) or Color3.new(1, 1, 1)
+    if NEON.btnTint then
+      for _, f in ipairs(NEON.btnTint) do f.BackgroundColor3 = NEON.col end
     end
   end
   function NEON.apply()
@@ -5308,31 +5305,127 @@ do
 
   local function mkBtn()
     if not (hud and hud.gui) then return end
+    -- botao invisivel (so area de clique, SEM fundo) com a tampinha de valvula desenhada por cima
     local b = Instance.new("TextButton")
     b.Name = "NeonCor"
     b.AutoButtonColor = false
     b.AnchorPoint = Vector2.new(0.5, 0.5)
     local kp = Config.HudKeyPos
     b.Position = UDim2.new(kp.X.Scale, kp.X.Offset, kp.Y.Scale, kp.Y.Offset - 66)
-    b.Size = UDim2.fromOffset(150, 34)
+    b.Size = UDim2.fromOffset(46, 66)
+    b.BackgroundTransparency = 1
     b.BorderSizePixel = 0
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 13
     b.Text = ""
     b.Visible = false
-    local cn = Instance.new("UICorner")
-    cn.CornerRadius = UDim.new(1, 0)
-    cn.Parent = b
-    local st = Instance.new("UIStroke")
-    st.Color = Color3.new(1, 1, 1)
-    st.Thickness = 2
-    st.Parent = b
+
+    local cap = Instance.new("Frame")
+    cap.Name = "Tampinha"
+    cap.AnchorPoint = Vector2.new(0.5, 0.5)
+    cap.Position = UDim2.fromScale(0.5, 0.5)
+    cap.Size = UDim2.fromOffset(34, 52)
+    cap.BackgroundTransparency = 1
+    cap.BorderSizePixel = 0
+    cap.Active = false
+    cap.Parent = b
+    local pop = Instance.new("UIScale")
+    pop.Parent = cap
+
+    local tint = {}
+    local silver = Color3.fromRGB(205, 210, 218)
+    local y = 0
+    -- mesmo desenho da tampinha da roda: base prata, corpo colorido, 2 listras prateadas, ponta em cupula
+    local function piece(w, h, col, tinted, round)
+      local f = Instance.new("Frame")
+      f.Name = tinted and "Corpo" or "Prata"
+      f.AnchorPoint = Vector2.new(0.5, 0)
+      f.Position = UDim2.new(0.5, 0, 0, y)
+      f.Size = UDim2.fromOffset(w, h)
+      f.BackgroundColor3 = col
+      f.BorderSizePixel = 0
+      f.Active = false
+      if round then
+        local u = Instance.new("UICorner")
+        u.CornerRadius = UDim.new(0, round)
+        u.Parent = f
+      end
+      -- brilho de cilindro (centro claro, bordas escuras) sem mudar o tom da cor
+      local g = Instance.new("UIGradient")
+      g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 150, 150)),
+        ColorSequenceKeypoint.new(0.35, Color3.new(1, 1, 1)),
+        ColorSequenceKeypoint.new(0.6, Color3.fromRGB(235, 235, 235)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(125, 125, 125)),
+      })
+      g.Parent = f
+      local st = Instance.new("UIStroke")
+      st.Color = Color3.new(0, 0, 0)
+      st.Transparency = 0.45
+      st.Thickness = 1
+      st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+      st.Parent = f
+      f.Parent = cap
+      if tinted then tint[#tint + 1] = f end
+      y = y + h
+      return f
+    end
+    -- base quadrada (sem cantos arredondados) + corpo + 2 listras prateadas
+    piece(28, 5, silver, false)
+    piece(30, 11, NEON.col or silver, true)
+    piece(34, 3, silver, false)
+    piece(30, 11, NEON.col or silver, true)
+    piece(34, 3, silver, false)
+    piece(30, 12, NEON.col or silver, true)
+    -- ponta feita de cunhas: miolo reto + 1 cunha de cada lado (chanfro 45 graus), fundo chato, sem bico
+    local TW = 7 -- lado da cunha (altura da ponta = 7)
+    local tipY = y
+    local mid = piece(30 - 2 * TW, TW, NEON.col or silver, true)
+    local function wedgeGui(side)
+      local box = Instance.new("Frame")
+      box.Name = "Cunha"
+      box.BackgroundTransparency = 1
+      box.BorderSizePixel = 0
+      box.ClipsDescendants = true
+      box.Active = false
+      box.Size = UDim2.fromOffset(TW, TW)
+      -- esquerda: encosta no miolo pela direita; direita: encosta pela esquerda
+      box.Position = UDim2.fromOffset(side == -1 and 2 or (2 + 30 - TW), tipY)
+      local d = Instance.new("Frame")
+      d.Name = "Corpo"
+      d.AnchorPoint = Vector2.new(0.5, 0.5)
+      d.Size = UDim2.fromOffset(TW * 1.4143, TW * 1.4143) -- quadrado girado 45 = losango; o clip deixa so o triangulo
+      d.Position = UDim2.fromOffset(side == -1 and TW or 0, 0)
+      d.Rotation = 45
+      d.BackgroundColor3 = NEON.col or silver
+      d.BorderSizePixel = 0
+      d.Active = false
+      local g = Instance.new("UIGradient")
+      local shade = (side == -1) and 150 or 125
+      g.Color = ColorSequence.new(Color3.fromRGB(shade, shade, shade))
+      g.Parent = d
+      local st = Instance.new("UIStroke")
+      st.Color = Color3.new(0, 0, 0)
+      st.Transparency = 0.45
+      st.Thickness = 1
+      st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+      st.Parent = d
+      d.Parent = box
+      box.Parent = cap
+      tint[#tint + 1] = d
+    end
+    wedgeGui(-1)
+    wedgeGui(1)
+
     b.Parent = hud.gui
     track(b.Activated:Connect(function()
       NEON.idx = NEON.idx % #PAL + 1
       NEON.apply()
+      pcall(function()
+        pop.Scale = 0.8
+        TweenService:Create(pop, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+      end)
     end))
     NEON.btn = b
+    NEON.btnTint = tint
     NEON.paint()
   end
 

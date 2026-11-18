@@ -28,6 +28,26 @@ local Config = {
 	StepUp = 1.6,
 	GravMul = 1.15,
 	SpeedMul = 1.0,
+	-- V96: ANIMACAO DE ACELERACAO / FREADA (moto + piloto). Chat: nada, so ajustar aqui.
+	AccelAnim = {
+		Enabled = true,
+		AccRef = 30,        -- aceleracao (studs/s2) que conta como 100% do efeito
+		AccelPitch = 0.025, -- rad: nariz sobe ao acelerar (V96b: era 0.07, exagerado)
+		BrakePitch = 0.045, -- rad: nariz desce ao frear (mergulho)
+		FrontDive = 0.28,   -- studs (antes da escala): garfo comprime extra ao frear / estica ao acelerar
+		RearSquat = 0.2,    -- studs (antes da escala): traseira agacha ao acelerar / sobe ao frear
+		Rate = 7,           -- suavizacao (maior = resposta mais rapida)
+		ArmBack = 0.05,     -- rad: tronco do piloto vai pra tras ao acelerar (bracos esticam)
+		ArmBrake = 0.12,    -- rad: tronco extra pra frente ao frear forte
+		ArmPull = 0.07,     -- studs (antes da escala): bracos puxados no freio forte
+		ThrottleRoll = 0.65, -- rad: manopla do acelerador gira (parte de cima vem pro piloto)
+		LeverPull = 0.4,     -- rad: manete do freio (direita) fecha ao frear
+		WristRoll = 28,      -- graus: pulso direito gira junto com o acelerador (R15)
+		WristBrake = 10,     -- graus: pulso fecha um pouco ao puxar o freio
+		WristSign = 1,       -- 1 ou -1: inverte o sentido do pulso se ficar ao contrario
+		HeadTilt = 10,      -- graus: cabeca acompanha (sobe ao acelerar, olha pra frente ao frear)
+	},
+	FallRescue = false, -- V97 (chat: -4 liga/desliga) V96b: true = se cair no vazio a moto volta pro ultimo ponto seguro (teleporte); false = cai de verdade (o avatar morre no vazio do jogo)
 	ShiftTime = 0.22,   -- V70: duracao do corte de forca na troca de marcha (s)
 	SkidMinSpeed = 40,  -- V72: velocidade minima pra travar a roda na freada (Espaco / botao FREIO)
 	SkidSlip = 0.65,    -- V72: quanto a traseira escorrega freando travado e esterçando
@@ -1656,7 +1676,27 @@ local function saveDisk(m)
 	end
 	m.Parent = nil
 end
-local function buildBike()
+-- V96: acha manopla do acelerador (direita) e manete do freio (direita) pra animar
+local function collectHandles(M)
+	local fork = M.wFork and M.wFork.Part1
+	if not fork then return end
+	local H = { thr = {}, brk = {} }
+	for _, d in ipairs(M.model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local w = d:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == fork and w.C0.Position.X > 0.5 * S then
+				if d.Name == "Manopla" or d.Name == "ManoplaAnel" then
+					H.thr[#H.thr + 1] = { w = w, c0 = w.C0 }
+				elseif d.Name == "Manete" or d.Name == "ManeteJunta" or d.Name == "ManetePonta" then
+					H.brk[#H.brk + 1] = { w = w, c0 = w.C0 }
+				end
+			end
+		end
+	end
+	M.handles = H
+end
+
+local function buildBikeInner()
 	if not bikeTpl then bikeTpl = loadDisk() end
 	if bikeTpl then
 		local ok, M = pcall(function() return bindBike(bikeTpl:Clone()) end)
@@ -1671,6 +1711,12 @@ local function buildBike()
 		local tpl = bikeTpl
 		task.delay(4, function() pcall(saveDisk, tpl) end)
 	end
+	return M
+end
+
+local function buildBike()
+	local M = buildBikeInner()
+	pcall(collectHandles, M)
 	return M
 end
 
@@ -1797,7 +1843,7 @@ do
 		if A and A.hl then pcall(function() A.hl:Destroy() end) end
 		cc.arrive = nil
 		cc.kickIdle = 99 -- ja esta parada: o pe continua aberto
-		pcall(function() cc.M.setLight(cc.headOn == true) end)
+		pcall(function() cc.M.setLight(cc.headOn == true) end) -- V96: farois seguem o botao (chegada e parada com farol desligado)
 	end
 
 	-- E = ponto final (chao), yaw = direcao final
@@ -1852,7 +1898,8 @@ do
 			hl.Parent = cc.model
 			A.hl = hl
 		end)
-		pcall(function() cc.M.setLight(true) end)
+		cc.headOn = false -- V96: chega com os farois DESLIGADOS
+		pcall(function() cc.M.setLight(false) end)
 		cc.arrive = A
 	end
 
@@ -2342,7 +2389,7 @@ local function stepBike(cc, dt)
 	end
 	cc.up = (Vector3.yAxis - fwd * tan(cc.aP) - right * tan(cc.aR)).Unit
 
-	if y < workspace.FallenPartsDestroyHeight + 40 then
+	if Config.FallRescue and y < workspace.FallenPartsDestroyHeight + 40 then
 		posN = cc.lastSafe
 		y = posN.Y + 3
 		cc.vy = 0
@@ -2368,6 +2415,20 @@ local function stepBike(cc, dt)
 	cc.prevVF = cc.vF
 	cc.accS = cc.accS + (clamp(accL, -200, 200) - cc.accS) * (1 - exp(-6 * dt))
 	local tp = clamp(cc.accS * S2.LeanP, -0.1, 0.1)
+	-- V96: indice de aceleracao/freada suavizado (-1 freando forte ... +1 acelerando forte)
+	do
+		local AA = Config.AccelAnim
+		local aT = 0
+		if AA and AA.Enabled ~= false and grounded and not cc.dis and (cc.wheelP or 0) < 0.05 then
+			aT = clamp(cc.accS / (AA.AccRef or 30), -1, 1)
+			if cc.brakeIn > 0.1 and cc.vF > 3 then aT = math.min(aT, -cc.brakeIn * clamp(cc.vF / 25, 0.2, 1)) end
+			if cc.throttle > 0.1 and cc.vF > -1 then
+				aT = math.max(aT, cc.throttle * 0.7 * (1 - clamp(cc.vF / math.max(top, 1), 0, 0.85)))
+			end
+		end
+		local rate = (AA and AA.Rate) or 7
+		cc.aniAcc = (cc.aniAcc or 0) + (aT - (cc.aniAcc or 0)) * (1 - exp(-rate * dt))
+	end
 	local latA = cc.vF * yawRate
 	local tr = grounded and clamp(atan(latA / g) * 1.3, -Config.MaxLean, Config.MaxLean) or 0
 	cc.leanP = cc.leanP + (tp - cc.leanP) * (1 - exp(-8 * dt))
@@ -2521,6 +2582,12 @@ local function stepBike(cc, dt)
 	if grounded then
 		tF = clamp(cc.relF, -S2.ExtendF * S, S2.TravelF * S * 1.3) - cc.accS * S2.BrakeTransfer
 		tR = clamp(cc.relR, -S2.ExtendR * S, S2.TravelR * S * 1.3) + cc.accS * S2.AccelTransfer
+		local AA = Config.AccelAnim
+		if AA and AA.Enabled ~= false then -- V96: mergulho do garfo na freada / agacha da traseira na aceleracao
+			local a = cc.aniAcc or 0
+			tF = tF - a * (AA.FrontDive or 0.28) * S
+			tR = tR + a * (AA.RearSquat or 0.2) * S
+		end
 	else
 		tF, tR = -S2.ExtendF * S, -S2.ExtendR * S
 	end
@@ -2557,7 +2624,11 @@ local function visualsBike(cc, dt)
 	local right = fwd:Cross(up).Unit
 	local up2 = right:Cross(fwd)
 	local cf = CFrame.fromMatrix(cc.pos + up2 * cc.susY, right, up2, -fwd)
-		* CFrame.Angles(cc.leanP + cc.rkP, 0, cc.leanR + cc.rkR + (cc.parkRoll or 0) + (cc.kickRoll or 0))
+		* CFrame.Angles(cc.leanP + cc.rkP + (function()
+			local AA, a = Config.AccelAnim, cc.aniAcc or 0
+			if not (AA and AA.Enabled ~= false) then return 0 end
+			return a * ((a > 0) and (AA.AccelPitch or 0.025) or (AA.BrakePitch or 0.045))
+		end)(), 0, cc.leanR + cc.rkR + (cc.parkRoll or 0) + (cc.kickRoll or 0))
 	local wp = cc.wheelP or 0
 	if wp > 0.001 then
 		local pv = V3(0, 0, RCEN.Z * S)
@@ -2573,6 +2644,32 @@ local function visualsBike(cc, dt)
 	local steerAng = -(cc.steer + (cc.parkSteer or 0) + (cc.kickSteer or 0)) * Config.ForkSteer * (1 - clamp(math.abs(cc.vF) / 150, 0, 0.6))
 	M.wFork.C0 = CFrame.new(HEAD.X * S, HEAD.Y * S, HEAD.Z * S) * CFrame.Angles(RAKE, 0, 0) * CFrame.Angles(0, steerAng, 0)
 	M.wSlider.C0 = CFrame.new(0, -(FL * S - cc.fT), 0)
+
+	-- V96: manopla do acelerador gira e manete do freio fecha
+	do
+		local Hh, AA = M.handles, Config.AccelAnim
+		if Hh and AA and AA.Enabled ~= false then
+			local active = (cc.driver or cc.arrive ~= nil) and not cc.dis
+			local thT = active and (cc.throttle or 0) or 0
+			local brT = active and (cc.brakeIn or 0) or 0
+			local kk = 1 - exp(-12 * dt)
+			cc.thrW = (cc.thrW or 0) + (thT - (cc.thrW or 0)) * kk
+			cc.levW = (cc.levW or 0) + (brT - (cc.levW or 0)) * kk
+			if math.abs(cc.thrW - (cc._thrA or -1)) > 0.002 then
+				cc._thrA = cc.thrW
+				local pv = V3(1.38, 0.5, 0.56) * S
+				local ax = V3(0.42, 0.07, 0.17).Unit
+				local rot = CFrame.new(pv) * CFrame.fromAxisAngle(ax, cc.thrW * (AA.ThrottleRoll or 0.65)) * CFrame.new(-pv)
+				for _, r in ipairs(Hh.thr) do if r.w.Parent then r.w.C0 = rot * r.c0 end end
+			end
+			if math.abs(cc.levW - (cc._levA or -1)) > 0.002 then
+				cc._levA = cc.levW
+				local pv = V3(1.15, 0.4, 0.34):Lerp(V3(1.38, 0.5, 0.56), 0.85) * S
+				local rot = CFrame.new(pv) * CFrame.Angles(0, -cc.levW * (AA.LeverPull or 0.4), 0) * CFrame.new(-pv)
+				for _, r in ipairs(Hh.brk) do if r.w.Parent then r.w.C0 = rot * r.c0 end end
+			end
+		end
+	end
 
 	local th = -cc.rT / (ARM_Z * S)
 	local rotS = CFrame.Angles(th, 0, 0)
@@ -2997,6 +3094,15 @@ local function driveRider(cc, dt)
 	local DA = Config.DriveAnim or {}
 	local brakePull = (DA.BrakeArmPull or 0.08) * S * bw
 	local brakeLean = (DA.BrakeLean or 0.22) * bw
+	-- V96: acelerando = tronco vai pra tras e bracos esticam; freando forte = corpo cai pra frente e bracos travam/empurram
+	local AA = Config.AccelAnim
+	local aniA = (AA and AA.Enabled ~= false and not cc.dis) and (cc.aniAcc or 0) or 0
+	local accW, brkW = math.max(aniA, 0), math.max(-aniA, 0)
+	local accLeanAdj = 0
+	if AA then
+		accLeanAdj = -(AA.ArmBack or 0.05) * accW + (AA.ArmBrake or 0.12) * brkW
+		brakePull = brakePull + (AA.ArmPull or 0.07) * S * brkW
+	end
 	if bw > 0.01 then
 		local back = bodyBack
 		grips.right = grips.right + back * brakePull
@@ -3038,7 +3144,7 @@ local function driveRider(cc, dt)
 			need = th
 			if ((spin(th, tw) * p0u) * sr.C0.Position - grips.right).Magnitude <= chR.reach then break end
 		end
-		need = need + brakeLean
+		need = math.max(need + brakeLean + accLeanAdj, 0)
 		if cc.dis then need = need * (1 - sm01(cc.disOver or 0)) + (cc.disLean or 0) end -- V91: em pe do lado da moto: tronco reto
 		local lean = prevLean + (need * ez - prevLean) * math.min(1, dt * 10)
 		if lean > 0.002 or math.abs(tw) > 0.002 then
@@ -3075,6 +3181,14 @@ local function driveRider(cc, dt)
 		end
 	end
 	solveArm(chR, p0nOf(chR.sh), gR, 1, bodyRight, bodyUp, bodyBack, ez)
+	-- V96: pulso direito gira junto com a manopla (acelera) e fecha no freio
+	do
+		local hj = J.right.hand
+		if hj and hj.Parent and AA and AA.Enabled ~= false and not cc.dis then
+			local roll = ((AA.WristRoll or 28) * (cc.thrW or 0) - (AA.WristBrake or 10) * (cc.levW or 0)) * (AA.WristSign or 1)
+			hj.Transform = CFrame.new():Lerp(CFrame.Angles(math.rad(roll), 0, 0), ez)
+		end
+	end
 	solveArm(chL, p0nOf(chL.sh), gL, -1, bodyRight, bodyUp, bodyBack, ez)
 
 	-- pernas sentadas + cabeca pra frente
@@ -3092,6 +3206,7 @@ local function driveRider(cc, dt)
 	if lookMul == nil then lookMul = 1.0 end  -- 1.0 = cancela 100% do lean do tronco
 	local neckPitch = leanRad * (180 / math.pi) * lookMul   -- sobe a cabeca o mesmo que o tronco desceu
 		+ bw * 12                                   -- no freio olha um pouco mais pra frente
+		+ ((AA and AA.HeadTilt or 0) * (accW * 0.8 - brkW * 0.6)) -- V96: cabeca sobe ao acelerar, desce um pouco no mergulho
 		- bikePitch * (180 / math.pi) * 0.35        -- compensa pitch da moto parcialmente
 	local neckRoll = -bikeRoll * (180 / math.pi) * 0.85     -- cabeca quase nivelada com o chao na curva
 	local tgt = {
@@ -4574,6 +4689,7 @@ track(UIS.InputEnded:Connect(function(i)
 	if i.KeyCode == Enum.KeyCode.Space then held.brake = false end
 end))
 track(player.CharacterAdded:Connect(function()
+	if c and not (c.model and c.model.Parent) then c = nil end -- V96b: moto caiu no vazio e foi destruida
 	if c and c.driver then c.driver = false end
 	if c then c.dis = nil end
 	saved = nil
@@ -4876,37 +4992,9 @@ do
 	local lastCmd, lastT = nil, 0
 	local function liteCmd(text)
 		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-		if text == "-5" then
-			local ch, hum, rpart = charParts()
-			if not ch then say("sem personagem") return end
-			say("moto=" .. tostring(c ~= nil) .. " | motorista=" .. tostring(c ~= nil and c.driver)
-				.. " | dist=" .. (c and tostring(math.floor((rpart.Position - c.pos).Magnitude)) or "-") .. "/" .. tostring(Config.MountRadius * S)
-				.. " | Sit=" .. tostring(hum.Sit) .. " | estado=" .. tostring(hum:GetState().Name)
-				.. " | SeatPart=" .. tostring(hum.SeatPart and hum.SeatPart:GetFullName() or "nil")
-				.. " | vel=" .. (c and tostring(math.floor(math.abs(c.vF))) or "-"))
-			return
-		end
-		if text == "-6" then
-			local PK = Config.Park
-			PK.Enabled = not PK.Enabled
-			say("Pe no chao quando parado: " .. (PK.Enabled and "LIGADO" or "DESLIGADO"))
-			return
-		end
-		if text == "-10" then
-			local DM = Config.Dismount
-			DM.Enabled = not DM.Enabled
-			say("Sequencia de descer da moto (pe, perna por cima, bracos, pezinho): " .. (DM.Enabled and "LIGADA" or "DESLIGADA"))
-			return
-		end
-		if text == "-4" then
-			Config.Anim.Enabled = not Config.Anim.Enabled
-			say("Animacao de despawn (caixa de presente): " .. (Config.Anim.Enabled and "LIGADA" or "DESLIGADA"))
-			return
-		end
-		local wm = (text == "-7" and "random") or (text == "-8" and "v1") or (text == "-9" and "v2") or nil
-		if wm then
-			Config.WheelieVariant.Mode = wm
-			say("Empinar: " .. (wm == "random" and "ALEATORIO (V1 ou V2)" or wm == "v1" and "V1 (sentado, puxao)" or "V2 (em pe no banco)"))
+		if text == "-4" then -- V97: anti void liga/desliga
+			Config.FallRescue = not Config.FallRescue
+			say("Anti void (volta pro ultimo ponto seguro ao cair no vazio): " .. (Config.FallRescue and "LIGADO" or "DESLIGADO"))
 			return
 		end
 		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
@@ -4940,10 +5028,7 @@ do
 		say("-2 = LITE: tira detalhes pequenos (parafusos, furos dos discos, malha). Visual quase igual, mais leve.")
 		say("-3 = SUPER LITE: tira mais detalhes (frisos, desenho do pneu, dentes), sem sombras e sem a corrente. Para celular fraco.")
 		say("A moto e reconstruida ao trocar.")
-		say("Empinar: -7 = aleatorio (V1/V2), -8 = so V1 (sentado, puxao), -9 = so V2 (em pe no banco).")
-		say("-6 = liga/desliga o pe no chao quando a moto esta parada.")
-		say("-10 = liga/desliga a sequencia de descer da moto (Config.Dismount).")
-		say("-4 = liga/desliga a animacao de despawn (caixa que explode). A chegada da moto e o pezinho ficam em Config.Arrive / Config.Kickstand.")
+		say("-4 = ANTI VOID liga/desliga: ao cair no vazio a moto volta pro ultimo ponto seguro (padrao: desligado).")
 	end)
 end
 

@@ -854,16 +854,33 @@ local function buildModel()
 	end
 	ell(root, "Airbox", V3(0.7, 0.4, 0.8), CFrame.new(0, 2.9, 0.2), CARBON, METAL, 0.2)
 
-	-- ===== ESCAPES =====
+	-- ===== ESCAPES ===== (V63: caminho do coletor por FORA do motor/carenagem/corrente, silencioso baixo sob a balanca e acima do chao, tudo emendado: flange -> coletor -> abracadeira -> cone -> silencioso -> ponteira, preso na pedaleira)
 	for _, sx in ipairs({ -1, 1 }) do
-		local pts = { V3(sx * 0.4, 2.1, -0.95), V3(sx * 0.58, 1.4, -1.05), V3(sx * 0.75, 0.9, -0.6), V3(sx * 1.05, 0.82, 0.1), V3(sx * 1.2, 0.8, 0.8) }
-		spline(root, "Coletor", pts, 0.24, DARK, METAL, 0.3, 4)
-		tube(root, "ColetorProtetor", V3(sx * 0.75, 1.0, -0.55), V3(sx * 1.05, 0.95, 0.1), 0.12, CARBON, SP, 0.1)
-		cylZ(root, "Escape", 1.6, 0.5, CFrame.new(sx * 1.2, 0.85, 1.3), CARBON, METAL, 0.2)
-		for _, zz in ipairs({ 0.65, 1.0, 1.55 }) do cylZ(root, "EscapeBanda", 0.08, 0.54, CFrame.new(sx * 1.2, 0.85, zz), CHROME, METAL, 0.5) end
-		cylZ(root, "PonteiraEscape", 0.2, 0.52, CFrame.new(sx * 1.2, 0.85, 2.15), CHROME, METAL, 0.55)
-		cylZ(root, "EscapeBoca", 0.02, 0.36, CFrame.new(sx * 1.2, 0.85, 2.26), BLACK, SP)
-		add(root, "EscapeProtetor", V3(0.05, 0.22, 0.9), CFrame.new(sx * 1.2, 1.12, 1.0), CARBON, SP, nil, 0.1)
+		local pts = { V3(sx * 0.58, 2.55, -0.55), V3(sx * 1.0, 2.35, -0.3), V3(sx * 1.2, 1.7, -0.05), V3(sx * 1.2, 1.05, 0.1), V3(sx * 1.25, 0.6, 0.55) }
+		spline(root, "Coletor", pts, 0.26, DARK, METAL, 0.3, 4)
+		ball(root, "ColetorFlange", 0.36, pts[1], CHROME, METAL, 0.5)
+		for i = 2, 4 do
+			local dd = (pts[i + 1] - pts[i - 1]).Unit
+			tube(root, "ColetorBanda", pts[i] - dd * 0.05, pts[i] + dd * 0.05, 0.32, CHROME, METAL, 0.5)
+		end
+		-- silencioso: entrada = fim do coletor (sem vao); levemente inclinado para cima
+		local I, E = pts[5], V3(sx * 1.28, 0.7, 2.3)
+		local dir = (E - I).Unit
+		local function at(t) return I + (E - I) * t end
+		tube(root, "EscapeBanda", I - dir * 0.04, I + dir * 0.04, 0.34, CHROME, METAL, 0.5) -- abracadeira da juncao coletor/cone
+		tube(root, "EscapeCone", at(0), at(0.1), 0.3, DARK, METAL, 0.3)
+		tube(root, "EscapeCone", at(0.1), at(0.2), 0.4, DARK, METAL, 0.3)
+		tube(root, "Escape", at(0.2), at(0.92), 0.46, CARBON, METAL, 0.25)
+		for _, t in ipairs({ 0.2, 0.5, 0.8 }) do
+			tube(root, "EscapeBanda", at(t - 0.015), at(t + 0.015), 0.5, CHROME, METAL, 0.5)
+		end
+		tube(root, "EscapeFio", at(0.62), at(0.66), 0.485, YEL, METAL, 0.3)
+		tube(root, "PonteiraEscape", at(0.92), at(1.0), 0.54, CHROME, METAL, 0.55)
+		tube(root, "EscapeBoca", at(0.99), at(1.0) + dir * 0.015, 0.38, BLACK, SP)
+		-- suporte que prende o silencioso na junta da pedaleira (fixo no chassi)
+		local sb = at(0.5) + V3(0, 0.2, 0)
+		tube(root, "EscapeSuporteBraco", sb, V3(sx * 0.82, 1.35, 1.5), 0.08, DARK, METAL, 0.3)
+		ball(root, "EscapeSuporteJunta", 0.14, sb, CHROME, METAL, 0.5)
 	end
 	local fork = newPart("Fork", V3(0.2, 0.2, 0.2), BLACK, SP, nil, 0, 1)
 	M.wFork = weld(root, fork, sCF(CFrame.new(HEAD) * CFrame.Angles(RAKE, 0, 0)))
@@ -899,34 +916,51 @@ local function buildModel()
 	end
 	add(fork, "MesaSuperior", V3(2 * FX + 0.5, 0.3, 0.6), CFrame.new(0, -0.1, 0), DARK, METAL, nil, 0.25)
 	add(fork, "MesaInferior", V3(2 * FX + 0.3, 0.26, 0.5), CFrame.new(0, -0.85, 0), DARK, METAL, nil, 0.25)
-	add(fork, "Riser", V3(0.34, 0.5, 0.34), CFrame.new(0, 0.15, 0.1), DARK, METAL, nil, 0.2)
-
+	-- V58: GUIDAO compacto (clip-on fino, mais estreito): braçadeira redonda no garfo, barra fina ate a manopla
 	for _, sx in ipairs({ -1, 1 }) do
-		local p0 = V3(sx * 0.1, 0.38, 0.35)
-		local p1 = V3(sx * 1.0, 0.42, 0.4)
-		local p2 = V3(sx * 1.8, 0.58, 0.66)
-		tube(fork, "Guidao", p0, p1, 0.14, BLACK, METAL, 0.2)
-		tube(fork, "Guidao", p1, p2, 0.14, BLACK, METAL, 0.2)
-		ball(fork, "GuidaoJunta", 0.15, p1, BLACK, METAL, 0.2)
-		tube(fork, "Manopla", V3(sx * 1.75, 0.57, 0.65), V3(sx * 2.25, 0.66, 0.85), 0.22, BLACK, SP)
-		add(fork, "Comando", V3(0.2, 0.16, 0.34), CFrame.new(sx * 1.1, 0.46, 0.42), BLACK, SP, nil, 0.2)
-		-- V45: MANETE refeita: cilindro mestre (base) preso no guidao + pino de pivo + alavanca que sai para a frente e curva ao longo do punho (direita = freio, esquerda = embreagem)
+		local p0 = V3(sx * 0.8, 0.3, 0.1)
+		local p1 = V3(sx * 1.15, 0.4, 0.34)
+		local p2 = V3(sx * 1.38, 0.5, 0.56)
+		cylY(fork, "GuidaoCubo", 0.2, 0.5, CFrame.new(sx * FX, 0.18, 0.04), DARK, METAL, 0.3)
+		cylY(fork, "GuidaoCuboAnel", 0.04, 0.54, CFrame.new(sx * FX, 0.28, 0.04), CHROME, METAL, 0.5)
+		tube(fork, "Guidao", p0, p1, 0.1, BLACK, METAL, 0.2)
+		tube(fork, "Guidao", p1, p2, 0.1, BLACK, METAL, 0.2)
+		ball(fork, "GuidaoJunta", 0.12, p1, BLACK, METAL, 0.2)
+		ball(fork, "GuidaoPonta", 0.11, p0, CHROME, METAL, 0.5)
+		tube(fork, "GuidaoLigacao", V3(sx * 0.12, 0.26, 0.1), p0, 0.1, BLACK, METAL, 0.2)
+		-- manopla
+		local g0, g1 = p2, V3(sx * 1.8, 0.57, 0.73)
+		local gd = (g1 - g0).Unit
+		tube(fork, "Manopla", g0, g1, 0.19, BLACK, SP)
+		for k = 1, 4 do
+			local c = g0 + (g1 - g0) * (0.15 + k * 0.17)
+			tube(fork, "ManoplaAnel", c - gd * 0.015, c + gd * 0.015, 0.21, DARK, SP)
+		end
+		ball(fork, "ManoplaPeso", 0.17, g1 + gd * 0.02, CHROME, METAL, 0.5)
+		if sx == 1 then tube(fork, "AceleradorFlange", g0 + gd * 0.01, g0 + gd * 0.06, 0.25, DARK, METAL, 0.3) end
+		-- comando de botoes (pequeno) na barra
+		local cb = p1:Lerp(p2, 0.55)
+		add(fork, "Comando", V3(0.2, 0.12, 0.22), CFrame.new(cb), BLACK, SP, nil, 0.2)
+		for k = -1, 1 do
+			ball(fork, "Botao", 0.04, cb + V3(sx * k * 0.055, 0.07, 0.02), CHROME, METAL, 0.5)
+		end
+		ball(fork, "BotaoInicio", 0.05, cb + V3(0, 0.0, 0.115), (sx == 1) and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(255, 130, 0), NEON)
+		-- MANETE: cilindro mestre + reservatorio + alavanca fina curvando ao longo da manopla
 		do
-			local bp = p1:Lerp(p2, 0.775) -- ponto do guidao logo antes do punho
-			local ext = (sx == 1) and 0.07 or 0 -- freio um pouco mais longa que a embreagem
-			add(fork, "ManeteBase", V3(0.3, 0.2, 0.3), CFrame.new(bp), DARK, METAL, nil, 0.3)
-			local A = bp + V3(0, -0.04, -0.12)
-			local B = V3(sx * 1.74, 0.47, 0.28)
-			local C = V3(sx * (2.08 + ext), 0.53, 0.44)
-			cylY(fork, "ManetePino", 0.2, 0.09, CFrame.new(A), CHROME, METAL, 0.5)
-			tube(fork, "Manete", A, B, 0.09, CHROME, METAL, 0.4)
-			ball(fork, "ManeteJunta", 0.1, B, CHROME, METAL, 0.4)
-			tube(fork, "Manete", B, C, 0.07, CHROME, METAL, 0.4)
-			ball(fork, "ManetePonta", 0.12, C, CHROME, METAL, 0.4)
+			local bp = p1:Lerp(p2, 0.85)
+			local ext = (sx == 1) and 0.05 or 0
+			add(fork, "ManeteBase", V3(0.2, 0.14, 0.2), CFrame.new(bp), DARK, METAL, nil, 0.3)
+			add(fork, "Reservatorio", V3(0.11, 0.09, 0.13), CFrame.new(bp + V3(0, 0.1, 0)), BLACK, SP, nil, 0.2)
+			add(fork, "ReservatorioTampa", V3(0.07, 0.02, 0.09), CFrame.new(bp + V3(0, 0.15, 0)), YEL, METAL, nil, 0.3)
+			local A = bp + V3(0, -0.03, -0.09)
+			local B = V3(sx * 1.4, 0.43, 0.27)
+			local C = V3(sx * (1.66 + ext), 0.47, 0.4)
+			tube(fork, "Manete", A, B, 0.06, CHROME, METAL, 0.4)
+			ball(fork, "ManeteJunta", 0.07, B, CHROME, METAL, 0.4)
+			tube(fork, "Manete", B, C, 0.05, CHROME, METAL, 0.4)
+			ball(fork, "ManetePonta", 0.08, C, CHROME, METAL, 0.4)
 		end
 	end
-	add(fork, "Painel", V3(0.95, 0.2, 0.6), CFrame.new(0, 0.52, 0.12), BLACK, SP, nil, 0.15)
-	ball(fork, "PainelAlerta", 0.07, V3(0.28, 0.65, 0.12), Color3.fromRGB(255, 40, 40), NEON)
 
 	local rakeCF = CFrame.Angles(RAKE, 0, 0)
 	local wc = V3(0, -FL, 0)
@@ -1221,18 +1255,6 @@ local function buildModel()
 	local BLUE_LED = Color3.fromRGB(150, 205, 255)
 	local AMBER = Color3.fromRGB(255, 130, 0)
 	local STITCH = Color3.fromRGB(70, 70, 78)
-	for _, sx in ipairs({ -1, 1 }) do
-		tube(fork, "EspelhoHaste", V3(sx * 1.55, 0.53, 0.58), V3(sx * 1.78, 0.98, 0.32), 0.08, BLACK, METAL, 0.3)
-		ball(fork, "EspelhoJunta", 0.14, V3(sx * 1.55, 0.53, 0.58), BLACK, METAL, 0.3)
-		ell(fork, "EspelhoCaixa", V3(0.5, 0.3, 0.1), CFrame.new(sx * 1.8, 1.04, 0.3) * CFrame.Angles(-0.3, 0, 0), PURPLE, METAL, 0.3)
-		ell(fork, "EspelhoVidro", V3(0.42, 0.23, 0.04), CFrame.new(sx * 1.8, 1.04, 0.345) * CFrame.Angles(-0.3, 0, 0), Color3.fromRGB(150, 160, 175), METAL, 0.6)
-		add(fork, "Reservatorio", V3(0.16, 0.14, 0.2), CFrame.new(sx * 1.62, 0.72, 0.58), BLACK, SP, nil, 0.2)
-		add(fork, "ReservatorioTampa", V3(0.1, 0.03, 0.12), CFrame.new(sx * 1.62, 0.795, 0.58), YEL, METAL, nil, 0.3)
-		for k = 0, 2 do
-			ball(fork, "Botao", 0.05, V3(sx * (0.98 + k * 0.1), 0.55, 0.3), CHROME, METAL, 0.5)
-		end
-		ball(fork, "BotaoInicio", 0.07, V3(sx * 1.1, 0.55, 0.48), Color3.fromRGB(255, 40, 40), NEON)
-	end
 
 	for _, sx in ipairs({ -1, 1 }) do
 		ball(fork, "TampaGarfo", 0.32, V3(sx * FX, -0.08, 0), GOLD, METAL, 0.45)
@@ -1242,7 +1264,6 @@ local function buildModel()
 		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * FX, 1.7, 0), GOLD, METAL, 0.4)
 		cylY(slider, "PernaAnel", 0.06, 0.34, CFrame.new(sx * FX, -0.2, 0), GOLD, METAL, 0.4)
 	end
-	add(fork, "Painel", V3(0.95, 0.04, 0.6), CFrame.new(0, 0.605, 0.12), CARBON, SP, nil, 0.15)
 
 	do
 		brakeCaliper(swing, ARM_Y, ARM_Z, RA, 0.45 * 0.85, 0.66 * 0.85, 225, V3(RA + 0.3, ARM_Y, ARM_Z), nil) -- V29: pinca traseira menor, mesmo estilo
@@ -1281,8 +1302,12 @@ local function buildModel()
 		end
 	end
 
+	-- V60: PAINEL ORIGINAL (caixa preta + placa de carbono + tela plana) em tamanho menor (~60%)
 	do
-		local tela = add(fork, "PainelTela", V3(0.8, 0.04, 0.46), CFrame.new(0, 0.65, 0.12), Color3.fromRGB(4, 6, 10), SP, nil, 0.1)
+		add(fork, "Riser", V3(0.22, 0.3, 0.22), CFrame.new(0, 0.2, 0.1), DARK, METAL, nil, 0.2)
+		add(fork, "Painel", V3(0.6, 0.13, 0.38), CFrame.new(0, 0.45, 0.12), BLACK, SP, nil, 0.15)
+		add(fork, "Painel", V3(0.6, 0.025, 0.38), CFrame.new(0, 0.53, 0.12), CARBON, SP, nil, 0.15)
+		local tela = add(fork, "PainelTela", V3(0.5, 0.025, 0.29), CFrame.new(0, 0.56, 0.12), Color3.fromRGB(4, 6, 10), SP, nil, 0.1)
 		local sg = Instance.new("SurfaceGui")
 		sg.Face = Enum.NormalId.Top
 		sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
@@ -1348,21 +1373,25 @@ local function buildModel()
 		M.dashSpeed = spd
 		M.dashRev = fill
 		M.dashRed = red
-		add(fork, "PainelLed", V3(0.8, 0.02, 0.03), CFrame.new(0, 0.67, 0.37), BLUE_LED, NEON)
-	end
-
-	for _, sx in ipairs({ -1, 1 }) do
-		cylY(fork, "Pod", 0.16, 0.5, CFrame.new(sx * 0.62, 0.5, 0.28), DARK, METAL, 0.3)
-		cylY(fork, "PodAnel", 0.04, 0.56, CFrame.new(sx * 0.62, 0.56, 0.28), CHROME, METAL, 0.55)
-		cylY(fork, "PodLed", 0.03, 0.42, CFrame.new(sx * 0.62, 0.595, 0.28), BLUE_LED, NEON)
-		cylX(fork, "BombaFreio", 0.3, 0.14, CFrame.new(sx * 1.45, 0.5, 0.45), CHROME, METAL, 0.5)
+		add(fork, "PainelLed", V3(0.5, 0.012, 0.02), CFrame.new(0, 0.575, 0.3), BLUE_LED, NEON)
+		ball(fork, "PainelAlerta", 0.045, V3(0.27, 0.56, 0.0), Color3.fromRGB(255, 40, 40), NEON)
+		-- pods pequenos e escuros nas laterais (V58): anel fino + botao central + 2 botoes
+		for _, sx in ipairs({ -1, 1 }) do
+			local pc = CFrame.new(sx * 0.42, 0.47, 0.12)
+			cylY(fork, "Pod", 0.14, 0.24, pc, CARBON, METAL, 0.3)
+			cylY(fork, "PodAnel", 0.02, 0.26, pc * CFrame.new(0, 0.07, 0), CHROME, METAL, 0.55)
+			ball(fork, "PodCentro", 0.07, (pc * CFrame.new(0, 0.07, 0)).Position, DARK, METAL, 0.3)
+			ball(fork, "Botao", 0.035, (pc * CFrame.new(sx * 0.07, 0.07, -0.04)).Position, YEL, METAL, 0.3)
+			ball(fork, "Botao", 0.035, (pc * CFrame.new(sx * 0.07, 0.07, 0.05)).Position, CHROME, METAL, 0.5)
+			tube(fork, "PodSuporte", (pc * CFrame.new(0, -0.05, 0)).Position, V3(sx * 0.95, 0.22, 0.1), 0.12, DARK, METAL, 0.25)
+		end
 	end
 	model.Parent = workspace
 	return M
 end
 
 -- ===== V52: CACHE EM DISCO (mesmo sistema do Charger) =====
-local CACHE_VER = "m1"
+local CACHE_VER = "m9"
 local CACHE_DIR = "MOTO_SCRIPT/modelos"
 local bikeTpl = nil
 local BLUEL_C = Color3.fromRGB(150, 205, 255)
@@ -2138,8 +2167,8 @@ end
 
 -- Pontos de manopla no espaco local do Fork (antes da escala; S aplicado no CF do fork)
 local GRIP_LOCAL = {
-	right = V3(2.05, 0.62, 0.78),
-	left  = V3(-2.05, 0.62, 0.78),
+	right = V3(1.64, 0.54, 0.68),
+	left  = V3(-1.64, 0.54, 0.68),
 }
 -- Pedaleiras no espaco do root (antes da escala)
 local FOOT_LOCAL = {
@@ -2413,6 +2442,7 @@ local function buildHud()
 		return b
 	end
 	h.bCall = mkBtn("MOTO", 1)
+	h.bCall.Visible = false -- V65: botao MOTO/GUARDAR removido da tela (chamar/guardar continua pela Chave da Moto)
 
 	-- V52: icones no estilo do Charger (so contorno, sem fundo, legenda embaixo)
 	local ACC = Config.AccentColor

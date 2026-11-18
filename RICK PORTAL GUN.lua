@@ -6827,6 +6827,7 @@ State.MortyFollow = {
 	SeatOffsetY = 0,         -- ajuste fino da altura no banco da nave (negativo = desce, positivo = sobe)
 	TeleportDistance = 55,   -- se ficar mais longe que isso (portal, teleporte), ele aparece do seu lado
 	MaxCarrySize = 60,       -- tamanho maximo (diagonal, em studs) do que o Morty consegue pegar
+	MaxCarryMass = 50000,    -- massa maxima do que ele consegue pegar (mesmo limite do EMOTZ-HAND)
 	Prompt = false,          -- true = mostra o botao "Falar" perto dele (alternativa ao clique)
 	Hair = "110659739210853",
 	Face = "84682879107771",
@@ -7076,8 +7077,8 @@ State._buildFollowMorty = function(character, Z, newGui)
 	-- ===== MENU DO MORTY: SEGUIR / PEGA (v67) =====
 	-- Clique (ou toque) no Morty, ou use o prompt "Falar", pra abrir o menu.
 	--  Seguir: liga/desliga. Desligado = ele fica parado onde esta.
-	--  Pega:   o Morty fica em destaque; clique em algo (objeto ou jogador) e ele
-	--          carrega ate voce tocar em "Largar" no menu.
+	--  Pega:   clique numa peca solta (nao ancorada) e ele vai buscar e carrega
+	--          ate voce tocar em "Largar" no menu. Mesma mecanica do "Pegar" do EMOTZ-HAND.
 	local MS = State.MortyState
 	if not MS then MS = { follow = true }; State.MortyState = MS end
 	local ctl = { follow = MS.follow ~= false, menuOpen = false, mode = "idle", carry = nil }
@@ -7097,7 +7098,19 @@ State._buildFollowMorty = function(character, Z, newGui)
 		if prompt then prompt.Enabled = (not ctl.menuOpen) and ctl.mode == "idle" end
 	end
 
-	-- ---------- carregar ----------
+	-- ---------- carregar (v71: mesmo "Pegar" do EMOTZ-HAND) ----------
+	-- A peca fica SOLTA (nao ancorada). A cada frame (Stepped + RenderStepped) a raiz da
+	-- assembly recebe o CFrame na frente do Morty e a velocidade zerada. NoCollisionConstraint
+	-- impede o objeto de empurrar voce. Ao largar, a gravidade assume (poeira se for pesado).
+	local PG = {
+		massaLeve = 40,
+		massaMax = CFG.MaxCarryMass or 50000,
+		puxarTempo = 0.25,
+		somPouso = "rbxassetid://83323788759262",
+		volumePouso = 0.3,
+		folder = nil,
+	}
+
 	local function bboxOf(obj)
 		if obj:IsA("Model") then
 			local cf, sz = obj:GetBoundingBox()
@@ -7106,117 +7119,234 @@ State._buildFollowMorty = function(character, Z, newGui)
 		return obj.CFrame, obj.Size
 	end
 
-	local function partsOf(obj)
-		if obj:IsA("BasePart") then return { obj } end
-		local t = {}
-		for _, d in ipairs(obj:GetDescendants()) do
-			if d:IsA("BasePart") then t[#t + 1] = d end
+	function PG.ehPersonagem(p)
+		local a = p.Parent
+		while a and a ~= workspace do
+			if a:IsA("Model") and a:FindFirstChildOfClass("Humanoid") then return true end
+			a = a.Parent
 		end
-		return t
+		return false
 	end
 
-	local function pivotOf(obj)
-		if obj:IsA("Model") then return obj:GetPivot() end
-		return obj.CFrame
+	-- conjunto de pecas da assembly + caixa (no espaco de cfRoot) + se esta preso a algo ancorado
+	function PG.medir(raiz, cfRoot)
+		local conjunto, preso = {}, false
+		local minV = V3(math.huge, math.huge, math.huge)
+		local maxV = V3(-math.huge, -math.huge, -math.huge)
+		for _, q in ipairs(raiz:GetConnectedParts(true)) do
+			if q.AssemblyRootPart == raiz then
+				conjunto[#conjunto + 1] = q
+				local r = cfRoot:ToObjectSpace(q.CFrame)
+				local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = r:GetComponents()
+				local s = q.Size
+				local hx = (math.abs(r00) * s.X + math.abs(r01) * s.Y + math.abs(r02) * s.Z) * 0.5
+				local hy = (math.abs(r10) * s.X + math.abs(r11) * s.Y + math.abs(r12) * s.Z) * 0.5
+				local hz = (math.abs(r20) * s.X + math.abs(r21) * s.Y + math.abs(r22) * s.Z) * 0.5
+				local pos = r.Position
+				minV = V3(math.min(minV.X, pos.X - hx), math.min(minV.Y, pos.Y - hy), math.min(minV.Z, pos.Z - hz))
+				maxV = V3(math.max(maxV.X, pos.X + hx), math.max(maxV.Y, pos.Y + hy), math.max(maxV.Z, pos.Z + hz))
+			elseif q.AssemblyRootPart and q.AssemblyRootPart.Anchored then
+				preso = true
+			end
+		end
+		return conjunto, maxV - minV, (minV + maxV) * 0.5, preso
 	end
 
-	local function setPivot(obj, cf)
-		if obj:IsA("Model") then obj:PivotTo(cf) else obj.CFrame = cf end
+	function PG.pasta()
+		if PG.folder and PG.folder.Parent then return PG.folder end
+		local f = workspace:FindFirstChild("MortyPegarFolder")
+		if not f then
+			f = Instance.new("Folder")
+			f.Name = "MortyPegarFolder"
+			f.Parent = workspace
+		end
+		PG.folder = f
+		return f
+	end
+
+	function PG.poeira(pos, normal, cor, tam, vel)
+		local fx, fz = math.clamp(tam.X, 2, 10), math.clamp(tam.Z, 2, 10)
+		local part = Instance.new("Part")
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Transparency = 1
+		part.Size = V3(fx, 0.2, fz)
+		part.CFrame = CF(pos, pos + normal) * ANG(-math.pi / 2, 0, 0)
+		part.Parent = PG.pasta()
+
+		local s = math.clamp(vel / 25, 0.8, 2)
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		e.Color = ColorSequence.new(cor:Lerp(Color3.fromRGB(190, 190, 190), 0.5))
+		e.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1.0 * s),
+			NumberSequenceKeypoint.new(1, 3.5 * s),
+		})
+		e.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.4),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		e.Lifetime = NumberRange.new(0.6, 1.3)
+		e.Speed = NumberRange.new(4 * s, 10 * s)
+		e.SpreadAngle = Vector2.new(80, 80)
+		e.Drag = 3
+		e.Rotation = NumberRange.new(0, 360)
+		e.RotSpeed = NumberRange.new(-90, 90)
+		e.EmissionDirection = Enum.NormalId.Top
+		e.Rate = 0
+		e.Parent = part
+		e:Emit(math.clamp(math.floor(10 + fx * fz * 0.5), 12, 45))
+
+		local som = Instance.new("Sound")
+		som.SoundId = PG.somPouso
+		som.Volume = PG.volumePouso
+		som.RollOffMaxDistance = 80
+		som.Parent = part
+		som:Play()
+
+		task.delay(6, function()
+			if part.Parent then part:Destroy() end
+		end)
+	end
+
+	-- espera o objeto pesado tocar o chao e solta a poeira
+	function PG.efeitoPouso(raiz, tam, conjunto)
+		local excluir = { character, rig, PG.pasta() }
+		for _, q in ipairs(conjunto) do excluir[#excluir + 1] = q end
+		local rpP = RaycastParams.new()
+		rpP.FilterType = Enum.RaycastFilterType.Exclude
+		rpP.FilterDescendantsInstances = excluir
+
+		local meioY = tam.Y * 0.5
+		local t0 = os.clock()
+		local velAnt = 0
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if not raiz.Parent or os.clock() - t0 > 4 then
+				conn:Disconnect()
+				return
+			end
+			local res = workspace:Raycast(raiz.Position, V3(0, -(meioY + 0.5), 0), rpP)
+			if res then
+				conn:Disconnect()
+				PG.poeira(res.Position, res.Normal, res.Instance.Color, tam, math.max(velAnt, 12))
+				return
+			end
+			velAnt = math.abs(math.min(raiz.AssemblyLinearVelocity.Y, 0))
+		end)
 	end
 
 	local function releaseCarry(silent)
 		local c = ctl.carry
 		if not c then return end
 		ctl.carry = nil
-		local obj = c.obj
-		if obj and obj.Parent then
-			-- pousa no chao
-			pcall(function()
-				local bcf, bsz = bboxOf(obj)
-				local res = workspace:Raycast(bcf.Position, V3(0, -200, 0), pickRP)
-				if res then
-					local dy = (res.Position.Y + bsz.Y / 2 + 0.05) - bcf.Position.Y
-					setPivot(obj, pivotOf(obj) + V3(0, dy, 0))
-				end
+		if c.conn2 then pcall(function() c.conn2:Disconnect() end) end
+		-- as NoCollisionConstraints saem um instante depois, pro objeto nao "estourar" em voce
+		local ncs = c.ncs
+		if ncs then
+			task.delay(0.7, function()
+				for _, n in ipairs(ncs) do pcall(function() n:Destroy() end) end
 			end)
-			for _, st in ipairs(c.saved) do
-				if st.part and st.part.Parent then
-					pcall(function()
-						st.part.Anchored = st.anchored
-						st.part.CanCollide = st.canCollide
-						st.part.AssemblyLinearVelocity = V3()
-						st.part.AssemblyAngularVelocity = V3()
-					end)
-				end
+		end
+		local raiz = c.raiz
+		if raiz and raiz.Parent then
+			pcall(function()
+				raiz.AssemblyLinearVelocity = V3()
+				raiz.AssemblyAngularVelocity = V3()
+			end)
+			if c.pesado and not silent then
+				pcall(PG.efeitoPouso, raiz, c.tam, c.conjunto)
 			end
 		end
 		if not silent then pcall(print, "[RickPortalGun] Morty largou: " .. tostring(c.name)) end
 	end
 
-	local function startCarry(obj)
-		releaseCarry(true)
-		local saved = {}
-		for _, p in ipairs(partsOf(obj)) do
-			saved[#saved + 1] = { part = p, anchored = p.Anchored, canCollide = p.CanCollide }
-			p.Anchored = true
-			p.CanCollide = false
-		end
-		local bcf, bsz = bboxOf(obj)
-		local piv = pivotOf(obj)
-		ctl.carry = {
-			obj = obj, name = obj.Name, saved = saved,
-			off = piv:ToObjectSpace(bcf),      -- pivo -> centro da caixa
-			size = bsz, rel = nil, t = 0,
-			startCenter = bcf,
-		}
-	end
-
-	local function carryStep(rcf, dt)
+	-- chamado todo frame (RenderStepped via stepFn e Stepped): leva a assembly pra frente do Morty
+	local function carryStep(rcf)
 		local c = ctl.carry
 		if not c then return end
-		local obj = c.obj
-		if not (obj and obj.Parent) then ctl.carry = nil return end
-		local sx, sy, sz = c.size.X, c.size.Y, c.size.Z
-		local front = 0.6 * S + math.sqrt(sx * sx + sz * sz) / 2
-		local yo = math.max(0.5 * S, sy / 2 - 3 * S + 0.2)
-		local rot = rcf - rcf.Position
-		if not c.rel then c.rel = rot:Inverse() * (c.startCenter - c.startCenter.Position) end
-		local target = CF(rcf.Position) * rot * CF(0, yo, -front) * c.rel
-		c.t = math.min(c.t + dt, 0.4)
-		local k = c.t / 0.4
-		k = k * k * (3 - 2 * k)
-		local center = c.startCenter:Lerp(target, k)
-		if c.t >= 0.4 then c.startCenter = target end
-		setPivot(obj, center * c.off:Inverse())
-		for _, st in ipairs(c.saved) do
-			if st.part and st.part.Parent then
-				st.part.AssemblyLinearVelocity = V3()
-				st.part.AssemblyAngularVelocity = V3()
+		local raiz = c.raiz
+		if not (raiz and raiz.Parent) or raiz.Anchored then
+			releaseCarry(true)
+			return
+		end
+		local t = math.clamp((os.clock() - c.inicio) / PG.puxarTempo, 0, 1)
+		if t >= 1 and (raiz.Position - c.ultimoCF.Position).Magnitude > 6 then
+			releaseCarry(true)
+			pcall(print, "[RickPortalGun] Morty perdeu o objeto: " .. tostring(c.name))
+			return
+		end
+		local e = 1 - (1 - t) * (1 - t)
+		c.ultimoCF = c.cfIni:Lerp(rcf * c.alvoCF, e)
+		raiz.CFrame = c.ultimoCF
+		raiz.AssemblyLinearVelocity = V3()
+		raiz.AssemblyAngularVelocity = V3()
+	end
+
+	-- devolve true, ou false + motivo
+	local function startCarry(part)
+		releaseCarry(true)
+		if not (part and part.Parent) then return false, "sumiu" end
+		local raiz = part.AssemblyRootPart
+		if not raiz or raiz.Anchored then return false, "esta fixo no mapa" end
+		if raiz.AssemblyMass > PG.massaMax then return false, "pesado demais" end
+
+		local cfRoot = root.CFrame
+		local conjunto, tam, centroBox, preso = PG.medir(raiz, cfRoot)
+		if preso then return false, "esta preso no mapa" end
+		if tam.Magnitude > MAX_CARRY then return false, "grande demais pro Morty" end
+
+		-- caixa do objeto centrada na frente do Morty, base na altura dos pes dele
+		local meio = tam * 0.5
+		local front = 0.6 * S + meio.Z + 0.3
+		local yo = math.max(0.5 * S, meio.Y - 3 * S + 0.2)
+		local relRaiz = cfRoot:ToObjectSpace(raiz.CFrame)
+		local alvoCF = CF(V3(0, yo, -front) - centroBox) * relRaiz
+
+		local pasta = PG.pasta()
+		local ncs = {}
+		local partesChar = {}
+		for _, ch in ipairs(character:GetChildren()) do
+			if ch:IsA("BasePart") then partesChar[#partesChar + 1] = ch end
+		end
+		for i = 1, math.min(#conjunto, 30) do
+			for _, ch in ipairs(partesChar) do
+				local n = Instance.new("NoCollisionConstraint")
+				n.Part0, n.Part1 = conjunto[i], ch
+				n.Parent = pasta
+				ncs[#ncs + 1] = n
 			end
 		end
+
+		local c = {
+			raiz = raiz, conjunto = conjunto, tam = tam, ncs = ncs,
+			name = part.Name, pesado = raiz.AssemblyMass > PG.massaLeve,
+			alvoCF = alvoCF, cfIni = raiz.CFrame, ultimoCF = raiz.CFrame,
+			inicio = os.clock(),
+		}
+		ctl.carry = c
+		c.conn2 = RunService.Stepped:Connect(function()
+			carryStep(root.CFrame)
+		end)
+		return true
 	end
 
 	-- ---------- escolher o que pegar ----------
+	-- Mesmas regras do EMOTZ: so peca solta (nao ancorada), nao pode ser personagem,
+	-- nem estar presa ao mapa, nem pesada/grande demais. Retorna a peca clicada.
 	local function chooseTarget(hit)
 		if hit:IsA("Terrain") then return nil, "terreno nao da pra pegar" end
-		-- outro jogador?
-		local m = hit:FindFirstAncestorOfClass("Model")
-		while m do
-			local plr = Players:GetPlayerFromCharacter(m)
-			if plr then return m end
-			m = m:FindFirstAncestorOfClass("Model")
-		end
-		-- sobe pelos Models enquanto couber no limite de tamanho
-		local best = nil
-		local cur = hit:FindFirstAncestorOfClass("Model")
-		while cur and cur ~= workspace do
-			local okS, size = pcall(function() local _, s = cur:GetBoundingBox() return s end)
-			if okS and size.Magnitude <= MAX_CARRY then best = cur else break end
-			cur = cur:FindFirstAncestorOfClass("Model")
-		end
-		if best then return best end
-		if hit.Size.Magnitude <= MAX_CARRY then return hit end
-		return nil, "grande demais pro Morty"
+		if not hit:IsA("BasePart") then return nil, "nao da pra pegar isso" end
+		if PG.ehPersonagem(hit) then return nil, "jogador/NPC nao da pra pegar" end
+		local raiz = hit.AssemblyRootPart
+		if not raiz or raiz.Anchored then return nil, "esta fixo no mapa" end
+		if raiz.AssemblyMass > PG.massaMax then return nil, "pesado demais" end
+		local _, tam, _, preso = PG.medir(raiz, CF())
+		if preso then return nil, "esta preso no mapa" end
+		if tam.Magnitude > MAX_CARRY then return nil, "grande demais pro Morty" end
+		return hit
 	end
 
 	local function stopPick()
@@ -7716,8 +7846,13 @@ State._buildFollowMorty = function(character, Z, newGui)
 					if gd > 0.01 then gdir = tv.Unit end
 					fetch.face = gdir
 					if gd <= gstop + 0.3 then
-						startCarry(fetch.obj)       -- pegou: espera um instante e volta
-						fetch.phase, fetch.wait = "wait", 0.5
+						local okC, whyC = startCarry(fetch.obj)   -- pegou: espera um instante e volta
+						if okC then
+							fetch.phase, fetch.wait = "wait", 0.5
+						else
+							ctl.fetch = nil
+							pcall(print, "[RickPortalGun] Morty nao conseguiu pegar: " .. tostring(whyC))
+						end
 						walking = false
 					else
 						walking = true
@@ -7780,7 +7915,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		rSh.Transform = ANG(0, 0, -swA * 0.8 + idle + arm)
 		lSh.Transform = ANG(0, 0, -swA * 0.8 + idle - arm)
 		root.CFrame = rcf
-		carryStep(rcf, dt)
+		carryStep(rcf)
 	end
 
 	pcall(function() RunService:UnbindFromRenderStep(BIND) end)

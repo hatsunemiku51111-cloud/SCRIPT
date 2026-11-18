@@ -34,7 +34,7 @@ local Config = {
 		AccelPitch = 0.025,
 		BrakePitch = 0.045,
 		FrontDive = 0.28,
-		RearSquat = 0.2,
+		RearSquat = 0.1,
 		Rate = 7,
 		ArmBack = 0.05,
 		ArmBrake = 0.12,
@@ -79,6 +79,7 @@ local Config = {
 		RearK = 180, RearC = 12, TravelR = 0.8, ExtendR = 0.3,
 		BrakeTransfer = 0.010,
 		AccelTransfer = 0.008,
+		SquatMax = 0.06,
 		LeanP = 0.0012,
 	},
 
@@ -161,6 +162,16 @@ local Config = {
 	KeyGrip = Vector3.new(0, 0, 0),
 	KeyRotation = Vector3.new(0, 0, 0),
 	KeyCooldown = 0.9,
+
+	Neon = {
+		Enabled = true,
+		HueRate = 0.35,
+		Radius = 0.77,
+		Segments = 36,
+		Thickness = 0.08,
+		Persist = 0.1,
+		LightRange = 8,
+	},
 	KeyIcon = "\u{1F511}",
 	SoundKeyEquip = "rbxassetid://9113849492",
 
@@ -1264,14 +1275,14 @@ local function buildModel()
 		local B = R - Rc
 		local Ac = A - D
 
-		local nC = math.max(8, math.floor(n * Ac / A + 0.5))
-		local w = 2 * Ac / nC
-		for i = 1, nC do
-			local x = -Ac + (i - 0.5) * w
+		local nT = 8
+		local tp = {}
+		for i = 0, nT do
+			local x = -Ac + (2 * Ac) * i / nT
 			local u = x / A
-			local rad = Rc + B * math.sqrt(math.max(1 - u * u, 0))
-			cylX(core, "Banda", w * 1.12, 2 * rad, CFrame.new(x, 0, 0), TIRE, SP)
+			tp[#tp + 1] = { x, Rc + B * math.sqrt(math.max(1 - u * u, 0)) }
 		end
+		shell(core, "Banda", tp, 44, 0.12, TIRE, SP, 0)
 
 		local function prof(x)
 			local u = x / A
@@ -1283,26 +1294,7 @@ local function buildModel()
 				{ sx * Ac, prof(Ac) }, { sx * xa, prof(xa) }, { sx * xb, prof(xb) }, { sx * A, 0.96 },
 			}, 40, 0.08, TIRE, SP, 0)
 		end
-		for gi = 0, G - 1 do
-			local th0 = gi * (2 * math.pi / G)
-			for _, sx in ipairs({ -1, 1 }) do
-				local prev = nil
-				local off = (sx == 1) and (math.pi / G) or 0
-				for k = 0, 5 do
-					local t = k / 5
-					local phi = 0.08 + t * 1.28
-					local th = th0 + off + sx * 0.9 * t * t
-					local rho = Rc + B * cos(phi) + 0.012
-					local pt = V3(sx * A * sin(phi), rho * cos(th), rho * sin(th))
-					if prev then
-						local mid = (prev + pt) / 2
-						local len = (pt - prev).Magnitude
-						add(core, "Sulco", V3(0.05, 0.05, len + 0.03), CFrame.lookAt(mid, pt, V3(1, 0, 0)), GROOVE, SP)
-					end
-					prev = pt
-				end
-			end
-		end
+		-- sulcos pretos removidos do pneu
 	end
 	local function spokes(core, x, n, r0, r1, wd, th, color)
 		for i = 0, n - 1 do
@@ -1336,8 +1328,7 @@ local function buildModel()
 
 		local function X(d) return sx * (A - D + d) end
 		local function XO(d) return sx * (A + d) end
-		cylX(core, "Aro", 0.06, 1.94, CFrame.new(X(0.03), 0, 0), BLACK, METAL, 0.1)
-		cylX(core, "Fundo", 0.05, 1.8, CFrame.new(X(0.06), 0, 0), DARK, METAL, 0.1)
+		shell(core, "AroBarril", { { sx * (A - D + 0.05), 0.915 }, { 0, 0.915 } }, 40, 0.05, DISC, METAL, 0.4)
 		shell(core, "AroTambor", { { sx * (A - 0.02), 0.95 }, { sx * (A - D + 0.05), 0.915 } }, 40, 0.05, DISC, METAL, 0.55)
 		ySpokes(core, X(0.12), 10, 0.2, 0.52, 0.91, BLACK)
 		cylX(core, "Cubo", 0.2, 0.46, CFrame.new(X(0.12), 0, 0), BLACK, METAL, 0.25)
@@ -2633,13 +2624,16 @@ local function stepBike(cc, dt)
 	local tF, tR
 	if grounded then
 		tF = clamp(cc.relF, -S2.ExtendF * S, S2.TravelF * S * 1.3) - cc.accS * S2.BrakeTransfer
-		tR = clamp(cc.relR, -S2.ExtendR * S, S2.TravelR * S * 1.3) + cc.accS * S2.AccelTransfer
+		local accR = cc.accS * S2.AccelTransfer
 		local AA = Config.AccelAnim
 		if AA and AA.Enabled ~= false then
 			local a = cc.aniAcc or 0
 			tF = tF - a * (AA.FrontDive or 0.28) * S
-			tR = tR + a * (AA.RearSquat or 0.2) * S
+			accR = accR + a * (AA.RearSquat or 0.1) * S
 		end
+		-- limita o afundamento da traseira por aceleracao p/ a roda nao encostar na rabeta/banco
+		accR = math.min(accR, (S2.SquatMax or 0.06) * S)
+		tR = clamp(cc.relR, -S2.ExtendR * S, S2.TravelR * S * 1.3) + accR
 	else
 		tF, tR = -S2.ExtendF * S, -S2.ExtendR * S
 	end
@@ -5181,6 +5175,218 @@ do
 	end
 end
 
+local NEON = { idx = 1, hue = 0, col = nil, rainbow = false, wheels = nil, tint = {}, lights = {}, mdl = nil, btn = nil }
+do
+  local TAU = math.pi * 2
+  local SILVER = Color3.fromRGB(205, 210, 218)
+  local PAL = {
+    { "CINZA", Color3.fromRGB(150, 152, 158) },
+    { "AZUL", Color3.fromRGB(0, 110, 255) },
+    { "VERMELHO", Color3.fromRGB(255, 30, 40) },
+    { "DOURADO", Color3.fromRGB(255, 190, 0) },
+    { "VERDE", Color3.fromRGB(40, 255, 90) },
+    { "ROXO", Color3.fromRGB(170, 60, 255) },
+    { "ROSA", Color3.fromRGB(255, 60, 200) },
+    { "CIANO", Color3.fromRGB(0, 235, 255) },
+    { "LARANJA", Color3.fromRGB(255, 120, 0) },
+    { "BRANCO", Color3.fromRGB(255, 255, 255) },
+    { "ARCO-IRIS", nil },
+  }
+  NEON.col = PAL[NEON.idx][2]
+
+  local function mkPart(name, size, col)
+    local p = Instance.new("Part")
+    p.Name = name
+    p.Size = size
+    p.Color = col
+    p.Material = Enum.Material.Neon
+    p.CanCollide, p.CanQuery, p.CanTouch = false, false, false
+    p.CastShadow = false
+    p.Massless = true
+    p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+    return p
+  end
+  local function weldTo(core, part, localCF)
+    part.CFrame = core.CFrame * localCF
+    part.Parent = core.Parent
+    local w = Instance.new("WeldConstraint")
+    w.Part0, w.Part1 = core, part
+    w.Parent = part
+  end
+
+  -- tampa de valvula estilo "bala": corpo colorido, 2 listras prateadas e cupula
+  local function buildCap(core, sx, A, D)
+    local xc = sx * (A - D + 0.2) -- na lateral do aro, visivel por fora
+    local rb = 0.925 -- base colada no aro
+    local dir = V3(0, -1, 0)
+    local function atT(t) return V3(xc * S, (rb - t) * S, 0) end
+    local function cyl(name, t0, t1, dia, col, mat, tinted, refl)
+      local p = mkPart(name, V3((t1 - t0) * S, dia * S, dia * S), col)
+      p.Shape = Enum.PartType.Cylinder
+      p.Material = mat
+      if refl then p.Reflectance = refl end
+      local pos = atT((t0 + t1) / 2)
+      weldTo(core, p, CFrame.lookAt(pos, pos + dir) * CFrame.Angles(0, math.pi / 2, 0))
+      if tinted then NEON.tint[#NEON.tint + 1] = p end
+      return p
+    end
+    local M = Enum.Material.Metal
+    local N = Enum.Material.Neon
+    local W = 0.072 -- diametro do corpo (mais fino)
+    cyl("BicoBase", 0, 0.015, W * 0.8, SILVER, M, false, 0.5)
+    cyl("BicoCorpo", 0.015, 0.04, W, NEON.col, N, true)
+    cyl("BicoListra", 0.04, 0.048, W + 0.008, SILVER, M, false, 0.6)
+    cyl("BicoCorpo", 0.048, 0.072, W, NEON.col, N, true)
+    cyl("BicoListra", 0.072, 0.08, W + 0.008, SILVER, M, false, 0.6)
+    cyl("BicoCorpo", 0.08, 0.095, W, NEON.col, N, true)
+    -- ponta curtinha e achatada (ogiva baixa)
+    local t0, H, steps = 0.095, 0.03, 5
+    local tip
+    for i = 1, steps do
+      local u0, u1 = (i - 1) / steps, i / steps
+      local um = (u0 + u1) / 2
+      local dia = math.max(W * (1 - um ^ 2) ^ 0.55, 0.012)
+      tip = cyl("BicoPonta", t0 + H * u0, t0 + H * u1 + 0.001, dia, NEON.col, N, true)
+    end
+    return xc
+  end
+
+  local function neonBuild(cc)
+    local NC = Config.Neon
+    NEON.mdl = cc.model
+    NEON.tint, NEON.lights, NEON.wheels = {}, {}, {}
+    local N = NC.Segments
+    local rr = 0.8625 * S -- mesmo raio do centro da tampinha (rb 0.925 - meio do comprimento 0.125)
+    local th = NC.Thickness * S
+    local segLen = (TAU * rr / N) * 1.15
+    local defs = {
+      { core = cc.M.wFWheel.Part1, A = 0.66, D = 0.3 },
+      { core = cc.M.wRWheel.Part1, A = 0.82, D = 0.34 },
+    }
+    for _, d in ipairs(defs) do
+      local wh = { segs = {} }
+      for _, sx in ipairs({ -1, 1 }) do -- pino e circulo dos dois lados
+        local xc
+        if sx == 1 then
+          xc = buildCap(d.core, sx, d.A, d.D) -- so 1 pino por roda (lado direito)
+        else
+          xc = sx * (d.A - d.D + 0.2)
+        end
+        for i = 1, N do
+          local a = (i - 1) * TAU / N
+          local pos = V3(xc * S, rr * math.cos(a), rr * math.sin(a))
+          local tan = V3(0, -math.sin(a), math.cos(a))
+          local seg = mkPart("NeonAro", V3(th, th, segLen), NEON.col)
+          seg.Transparency = 1
+          weldTo(d.core, seg, CFrame.lookAt(pos, pos + tan))
+          NEON.tint[#NEON.tint + 1] = seg
+          wh.segs[#wh.segs + 1] = { p = seg, a = a, last = 1 }
+        end
+      end
+      NEON.wheels[#NEON.wheels + 1] = wh
+    end
+  end
+
+  function NEON.paint()
+    for _, p in ipairs(NEON.tint) do p.Color = NEON.col end
+    for _, l in ipairs(NEON.lights) do l.Color = NEON.col end
+    if NEON.btn then
+      local e = PAL[NEON.idx]
+      NEON.btn.Text = "COR: " .. e[1]
+      NEON.btn.BackgroundColor3 = NEON.col
+      local c = NEON.col
+      local lum = 0.3 * c.R + 0.59 * c.G + 0.11 * c.B
+      NEON.btn.TextColor3 = lum > 0.55 and Color3.new(0, 0, 0) or Color3.new(1, 1, 1)
+    end
+  end
+  function NEON.apply()
+    local e = PAL[NEON.idx]
+    NEON.rainbow = (e[2] == nil)
+    if e[2] then NEON.col = e[2] end
+    NEON.paint()
+  end
+
+  local function mkBtn()
+    if not (hud and hud.gui) then return end
+    local b = Instance.new("TextButton")
+    b.Name = "NeonCor"
+    b.AutoButtonColor = false
+    b.AnchorPoint = Vector2.new(0.5, 0.5)
+    local kp = Config.HudKeyPos
+    b.Position = UDim2.new(kp.X.Scale, kp.X.Offset, kp.Y.Scale, kp.Y.Offset - 66)
+    b.Size = UDim2.fromOffset(150, 34)
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.Text = ""
+    b.Visible = false
+    local cn = Instance.new("UICorner")
+    cn.CornerRadius = UDim.new(1, 0)
+    cn.Parent = b
+    local st = Instance.new("UIStroke")
+    st.Color = Color3.new(1, 1, 1)
+    st.Thickness = 2
+    st.Parent = b
+    b.Parent = hud.gui
+    track(b.Activated:Connect(function()
+      NEON.idx = NEON.idx % #PAL + 1
+      NEON.apply()
+    end))
+    NEON.btn = b
+    NEON.paint()
+  end
+
+  function NEON.step(cc, dt)
+    local NC = Config.Neon
+    if not (NC and NC.Enabled) then return end
+
+    -- botao de cor: aparece so enquanto a chave esta na mao
+    if not (NEON.btn and NEON.btn.Parent) then
+      NEON.btn = nil
+      mkBtn()
+    end
+    if NEON.btn then
+      local ch = player.Character
+      NEON.btn.Visible = (ch and ch:FindFirstChild(Config.KeyToolName)) ~= nil
+    end
+
+    if not (cc and cc.model and cc.model.Parent and cc.M and cc.M.wFWheel and cc.M.wRWheel) then return end
+    if NEON.mdl ~= cc.model or not NEON.wheels or not (NEON.tint[1] and NEON.tint[1].Parent) then
+      neonBuild(cc)
+      NEON.apply()
+    end
+
+    if NEON.rainbow then
+      NEON.hue = (NEON.hue + dt * NC.HueRate) % 1
+      NEON.col = Color3.fromHSV(NEON.hue, 1, 1)
+      NEON.paint()
+    end
+
+    -- quanto mais rapido a roda gira, mais o rastro do bico alonga ate fechar o circulo perfeito
+    local vF = cc.vF or 0
+    local omega = math.abs(vF) / (R * S)
+    local tailLen = clamp(omega * NC.Persist, 0, TAU)
+    local closed = clamp((tailLen - TAU * 0.82) / (TAU * 0.18), 0, 1)
+    local dir = vF >= 0 and 1 or -1
+    for _, wh in ipairs(NEON.wheels) do
+      for _, sg in ipairs(wh.segs) do
+        local f = 0
+        if tailLen > 0.05 then
+          local dd = (dir * sg.a) % TAU
+          if dd < tailLen then f = 1 - dd / tailLen end
+          f = f + (1 - f) * closed
+        end
+        local tr = 1 - f * 0.9
+        if f < 0.02 then tr = 1 end
+        if math.abs(tr - sg.last) > 0.01 then
+          sg.last = tr
+          sg.p.Transparency = tr
+        end
+      end
+    end
+  end
+end
+
 RunService:BindToRenderStep("MotoJXz", Enum.RenderPriority.Camera.Value - 1, function(dt)
 	dt = math.min(dt, 1 / 20)
 	if c and c.model.Parent then
@@ -5190,6 +5396,7 @@ RunService:BindToRenderStep("MotoJXz", Enum.RenderPriority.Camera.Value - 1, fun
 			Kick.step(c, dt)
 			visualsBike(c, dt)
 			fxStep(c)
+			pcall(NEON.step, c, dt)
 			holdRider(c, dt)
 		end
 	end

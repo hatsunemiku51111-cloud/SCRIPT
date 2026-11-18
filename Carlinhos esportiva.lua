@@ -28,6 +28,20 @@ local Config = {
 	StepUp = 1.6,
 	GravMul = 1.15,
 	SpeedMul = 1.0,
+	ShiftTime = 0.22,   -- V70: duracao do corte de forca na troca de marcha (s)
+	SkidMinSpeed = 40,  -- V72: velocidade minima pra travar a roda na freada (Espaco / botao FREIO)
+	SkidSlip = 0.65,    -- V72: quanto a traseira escorrega freando travado e esterçando
+	SkidGrip = 0.3,     -- V72: aderencia lateral durante a derrapagem (menor = escorrega mais)
+	DriftCurve = true,  -- V72: drift em curva forte em alta velocidade
+	DriftSlip = 0.3,
+	DriftGrip = 0.45,
+	ShiftCooldown = 1.0, -- V71: tempo minimo entre trancos (evita tranco repetido na fronteira de marcha)
+	ShiftJolt = 0.035,  -- V70: fracao da velocidade perdida no tranco da troca
+	ScrapeLean = 0.55,  -- V70: inclinacao (rad) a partir da qual a pedaleira raspa e solta faisca
+	WheelieMax = 0.55,  -- V70: angulo do empinar (rad)
+	WheelieMinSpeed = 10,
+	HudSpeedoPos = UDim2.new(0, 10, 0.2, 0),   -- V70: velocimetro (canto sup. esquerdo)
+	HudKeyPos = UDim2.new(0.5, 0, 1, -130),    -- V70: icone da chave (centro, embaixo)
 
 	TurnRate = 2.1,
 	TurnSpeedRef = 90,
@@ -88,6 +102,8 @@ local Config = {
 	SoundRun = "rbxassetid://82036216654849",
 	VolIdle = 0.22,
 	VolRun = 0.2,
+	SoundSkid = "rbxassetid://103305629439898", -- V73: som da derrapagem (3s, em loop enquanto derrapa)
+	VolSkid = 0.5,
 }
 local S = Config.Scale
 local LITE = Config.LiteMode ~= "off"
@@ -315,9 +331,9 @@ local CYL = Enum.PartType.Cylinder
 
 local c = nil
 local saved = nil
-local held = { brake = false, brakeUi = false }
+local held = { brake = false, brakeUi = false, wheelUi = false }
 local hud = nil
-local sRun, sIdle = nil, nil
+local sRun, sIdle, sSkid = nil, nil, nil
 
 local rp = RaycastParams.new()
 rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -1530,6 +1546,7 @@ local function newState(M, pos, yaw)
 		spinF = 0, spinR = 0, throttle = 0, brakeIn = 0, stopOnly = false,
 		driver = false, cf = CFrame.new(pos), lastChar = nil, safeT = 0, lastSafe = pos,
 		headOn = false,
+		gear = 0, shiftT = 0, shiftCool = 0, skid = 0, lock = false, shiftPuff = false, shiftJolt = false, wheelP = 0, fx = nil,
 	}
 end
 
@@ -1619,9 +1636,10 @@ local function landImpact(cc, imp, gP, gR)
 		t = 0.07 + 0.05 * (1 - math.abs(skew)),
 		sv = dv * 0.4,
 		pv = skew * imp * 0.009,
-		snd = imp > 60 and clamp(0.25 + imp / 350, 0.3, 0.8) or 0,
+		snd = 0, -- V67: som do pouso toca so 1x (antes tocava de novo apos o impacto e sobrepunha)
 	}
-	if imp > 35 then
+	if imp > 35 and os.clock() - (cc.lastLandSnd or 0) > 0.4 then
+		cc.lastLandSnd = os.clock()
 		playSound(Config.SoundLand, clamp(0.45 + imp / 220, 0.5, 1.4), clamp(1.1 - imp / 700, 0.7, 1.0))
 	end
 	return 1 - clamp((imp - 50) / 900, 0, J.LandLoss)
@@ -1669,6 +1687,25 @@ local function stepBike(cc, dt)
 	local grounded = cc.grounded
 	local top = Config.TopSpeed
 
+	-- V73: derrapagem (freada travada e drift em curva)
+	local slip, gripK, skid = 0, 1, 0
+	if driving and grounded then
+		local locked = cc.stopOnly and vF > Config.SkidMinSpeed
+		if locked then
+			skid = clamp((vF - Config.SkidMinSpeed) / 80, 0.35, 1)
+			if math.abs(cc.steer) > 0.3 then
+				slip = Config.SkidSlip * math.abs(cc.steer)
+				gripK = Config.SkidGrip
+			end
+		elseif Config.DriftCurve and throttle > 0.5 and vF > top * 0.6 and math.abs(cc.steer) > 0.6 then
+			slip = Config.DriftSlip * math.abs(cc.steer)
+			gripK = Config.DriftGrip
+			skid = 0.5
+		end
+	end
+	cc.lock = (driving and grounded and cc.stopOnly and vF > Config.SkidMinSpeed) and true or false
+	cc.skid = skid
+
 	local acc = 0
 	if grounded and driving then
 		if throttle > 0 and brakeIn == 0 and vF < top then
@@ -1679,6 +1716,29 @@ local function stepBike(cc, dt)
 			acc = -Config.ReverseAccel * brakeIn * math.max(0, 1 - r * r)
 		end
 	end
+	-- V70: troca de marcha (tranco: corta a forca por um instante e perde um pouco de velocidade, depois volta)
+	if cc.shiftT > 0 then cc.shiftT = math.max(cc.shiftT - dt, 0) end
+	if cc.shiftCool > 0 then cc.shiftCool = math.max(cc.shiftCool - dt, 0) end
+	if driving and grounded then
+		local spdK = math.abs(vF) * Config.SpeedMul
+		local stepK = Config.TopSpeed / 6
+		local gN = spdK < 1 and 0 or clamp(math.floor(spdK / stepK) + 1, 1, 6)
+		if gN > cc.gear then
+			if cc.gear >= 1 and throttle > 0 and cc.shiftT <= 0 and cc.shiftCool <= 0 then
+				cc.shiftT = Config.ShiftTime
+				cc.shiftCool = Config.ShiftCooldown
+				cc.shiftJolt = true
+				cc.shiftPuff = true
+				cc.rkPV = cc.rkPV - 0.3
+			end
+			cc.gear = gN
+		elseif gN < cc.gear and (gN == 0 or spdK < (cc.gear - 1) * stepK - math.max(8, stepK * 0.3)) then
+			cc.gear = gN
+		end
+	elseif not driving then
+		cc.gear = 0
+	end
+	if cc.shiftT > 0 then acc = acc * (1 - cc.shiftT / Config.ShiftTime) end
 	local resist = 2.5 + 0.00015 * vF * vF
 	if throttle == 0 then resist = resist + 6 end
 	if not driving then resist = resist + 8 end
@@ -1686,6 +1746,10 @@ local function stepBike(cc, dt)
 	local sgn = vF >= 0 and 1 or -1
 	local dec = math.min(resist * dt, math.abs(vF))
 	vF = vF + acc * dt - sgn * dec
+	if cc.shiftJolt then
+		cc.shiftJolt = false
+		vF = vF * (1 - Config.ShiftJolt)
+	end
 
 	if grounded then
 		local n = cc.up
@@ -1700,7 +1764,7 @@ local function stepBike(cc, dt)
 			local bd = Config.BrakePower * brakeIn * dt
 			if vF > 0 then vF = math.max(vF - bd, 0) else vF = math.min(vF + bd, 0) end
 		end
-		vR = vR * exp(-Config.Grip * dt)
+		vR = vR * exp(-Config.Grip * gripK * dt)
 	end
 
 	local sp = math.abs(vF)
@@ -1708,6 +1772,7 @@ local function stepBike(cc, dt)
 	local yawRate = -cc.steer * rate * clamp(sp / 5, 0, 1) * (vF >= 0 and 1 or -1)
 	if not grounded then yawRate = yawRate * 0.1 end
 	yaw = yaw + yawRate * dt
+	if slip > 0 then vR = vR + vF * sin(yawRate * dt) * slip end
 	fwd = V3(-sin(yaw), 0, -cos(yaw))
 	right = V3(cos(yaw), 0, -sin(yaw))
 	vel = fwd * vF + right * vR
@@ -1875,6 +1940,8 @@ local function stepBike(cc, dt)
 	local tr = grounded and clamp(atan(latA / g) * 1.3, -Config.MaxLean, Config.MaxLean) or 0
 	cc.leanP = cc.leanP + (tp - cc.leanP) * (1 - exp(-8 * dt))
 	cc.leanR = cc.leanR + (tr - cc.leanR) * (1 - exp(-7 * dt))
+	local wT = (driving and grounded and held.wheelUi and cc.vF > Config.WheelieMinSpeed) and Config.WheelieMax or 0
+	cc.wheelP = cc.wheelP + (wT - cc.wheelP) * (1 - exp(-(wT > cc.wheelP and 3.2 or 2.2) * dt))
 
 	local sa = -S2.BodyK * cc.susY - S2.BodyC * cc.susV
 	if cc.susY < S2.StopAt then sa = sa - (cc.susY - S2.StopAt) * S2.StopK end
@@ -1943,11 +2010,16 @@ local function visualsBike(cc, dt)
 	local up2 = right:Cross(fwd)
 	local cf = CFrame.fromMatrix(cc.pos + up2 * cc.susY, right, up2, -fwd)
 		* CFrame.Angles(cc.leanP + cc.rkP, 0, cc.leanR + cc.rkR)
+	local wp = cc.wheelP or 0
+	if wp > 0.001 then
+		local pv = V3(0, 0, RCEN.Z * S)
+		cf = cf * CFrame.new(pv) * CFrame.Angles(wp, 0, 0) * CFrame.new(-pv)
+	end
 	cc.cf = cf
 	M.root.CFrame = cf
 
 	cc.spinF = (cc.spinF - cc.vF * dt / (R * S)) % (math.pi * 2)
-	cc.spinR = (cc.spinR - cc.vF * dt / (R * S)) % (math.pi * 2)
+	cc.spinR = (cc.spinR - (cc.lock and 0 or (cc.vF * dt / (R * S)))) % (math.pi * 2)
 	M.wFWheel.C0 = CFrame.Angles(cc.spinF, 0, 0)
 
 	local steerAng = -cc.steer * Config.ForkSteer * (1 - clamp(math.abs(cc.vF) / 150, 0, 0.6))
@@ -2353,20 +2425,160 @@ local function makeSounds()
 		sRun.Looped = true
 		sRun.Volume = 0
 		sRun.Parent = SoundService
+		sSkid = Instance.new("Sound")
+		sSkid.Name = "MotoSkid"
+		sSkid.SoundId = Config.SoundSkid
+		sSkid.Looped = true
+		sSkid.Volume = 0
+		sSkid.Parent = SoundService
 	end)
 end
+local sndMix, sndPitch, sndT, sndSkid = 0, 0.8, os.clock(), 0
 local function soundStep(cc)
 	if not sRun or not sIdle then return end
+	local now = os.clock()
+	local dt = math.min(now - sndT, 0.1)
+	sndT = now
+	if sSkid then
+		local want = (cc and cc.driver and cc.grounded) and clamp(cc.skid or 0, 0, 1) or 0
+		sndSkid = sndSkid + (want - sndSkid) * (1 - math.exp(-(want > sndSkid and 14 or 7) * dt))
+		sSkid.Volume = Config.VolSkid * sndSkid
+		if sndSkid > 0.03 then
+			if not sSkid.Playing then sSkid:Play() end
+		elseif sSkid.Playing then
+			sSkid:Stop()
+		end
+	end
 	if cc and cc.driver then
 		local ratio = clamp(math.abs(cc.vF) / Config.TopSpeed, 0, 1)
 		if not sIdle.Playing then sIdle:Play() end
 		if not sRun.Playing then sRun:Play() end
-		sIdle.Volume = Config.VolIdle * (1 - ratio)
-		sRun.Volume = Config.VolRun * (0.35 + 0.65 * math.max(ratio, cc.throttle))
-		sRun.PlaybackSpeed = 0.6 + 1.0 * ratio + 0.15 * cc.throttle
+		-- V67: crossfade (marcha lenta some quando o motor acelera, sem os dois tocando juntos)
+		local thr = cc.throttle
+		local targetMix = clamp(math.max(ratio * 2.5, thr), 0, 1)
+		local k = 1 - math.exp(-(targetMix > sndMix and 10 or 5) * dt)
+		sndMix = sndMix + (targetMix - sndMix) * k
+		local targetPitch = 0.8 + 0.9 * ratio + 0.15 * thr - ((cc.shiftT or 0) > 0 and 0.3 or 0)
+		sndPitch = sndPitch + (targetPitch - sndPitch) * (1 - math.exp(-8 * dt))
+		sIdle.Volume = Config.VolIdle * (1 - sndMix)
+		sRun.Volume = Config.VolRun * sndMix * (0.5 + 0.5 * math.max(ratio, thr))
+		sRun.PlaybackSpeed = sndPitch
 	else
+		sndMix, sndPitch = 0, 0.8
 		if sIdle.Playing then sIdle:Stop() end
 		if sRun.Playing then sRun:Stop() end
+	end
+end
+
+-- ===== V70: particulas (fumaca do escapamento + faisca/fumaca da pedaleira em curva muito inclinada) =====
+local function newSmoke(att, sizeMul, life)
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	e.Color = ColorSequence.new(Color3.fromRGB(205, 205, 212))
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(0.4, 0.8), NumberSequenceKeypoint.new(1, 1) })
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35 * S * sizeMul), NumberSequenceKeypoint.new(1, 1.3 * S * sizeMul) })
+	e.Lifetime = life
+	e.Speed = NumberRange.new(3, 6)
+	e.SpreadAngle = Vector2.new(8, 8)
+	e.Acceleration = V3(0, 2, 0)
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-40, 40)
+	e.LightEmission = 0
+	e.Rate = 0
+	e.Parent = att
+	return e
+end
+
+local function makeFx(cc)
+	if LITE then return nil end
+	local fx = { ex = {}, spark = {}, pegSmoke = {}, tire = nil, trail = nil }
+	pcall(function()
+		local t0, t1 = Instance.new("Attachment"), Instance.new("Attachment")
+		t0.Name, t1.Name = "FxMarcaE", "FxMarcaD"
+		t0.CFrame = CFrame.new(V3(-0.72, 0.06, 3.4) * S)
+		t1.CFrame = CFrame.new(V3(0.72, 0.06, 3.4) * S)
+		t0.Parent, t1.Parent = cc.root, cc.root
+		local tr = Instance.new("Trail")
+		tr.Name = "MarcaPneu"
+		tr.Attachment0, tr.Attachment1 = t0, t1
+		tr.FaceCamera = false
+		tr.Lifetime = 5
+		tr.MinLength = 0.2
+		tr.LightEmission = 0
+		tr.LightInfluence = 1
+		tr.Color = ColorSequence.new(Color3.fromRGB(12, 12, 12))
+		tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(0.6, 0.55), NumberSequenceKeypoint.new(1, 1) })
+		tr.Enabled = false
+		tr.Parent = cc.root
+		fx.trail = tr
+		local ta = Instance.new("Attachment")
+		ta.Name = "FxPneu"
+		ta.CFrame = CFrame.new(V3(0, 0.25, 3.4) * S)
+		ta.Parent = cc.root
+		local te = newSmoke(ta, 2.2, NumberRange.new(0.6, 1.2))
+		te.Color = ColorSequence.new(Color3.fromRGB(235, 235, 240))
+		te.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(0.5, 0.7), NumberSequenceKeypoint.new(1, 1) })
+		te.Speed = NumberRange.new(2, 5)
+		te.SpreadAngle = Vector2.new(25, 25)
+		te.EmissionDirection = Enum.NormalId.Top
+		fx.tire = te
+		for _, sx in ipairs({ -1, 1 }) do
+			local a = Instance.new("Attachment")
+			a.Name = "FxEscape"
+			a.CFrame = CFrame.new(V3(sx * 1.28, 0.7, 2.36) * S)
+			a.Parent = cc.root
+			local e = newSmoke(a, 1, NumberRange.new(0.45, 0.9))
+			e.EmissionDirection = Enum.NormalId.Back
+			fx.ex[#fx.ex + 1] = e
+		end
+		for i, sx in ipairs({ -1, 1 }) do
+			local a = Instance.new("Attachment")
+			a.Name = "FxPedaleira"
+			a.CFrame = CFrame.new(V3(sx * 1.2, 0.8, 1.7) * S)
+			a.Parent = cc.root
+			local sp = Instance.new("ParticleEmitter")
+			sp.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			sp.Color = ColorSequence.new(Color3.fromRGB(255, 225, 120), Color3.fromRGB(255, 120, 20))
+			sp.LightEmission = 1
+			sp.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+			sp.Lifetime = NumberRange.new(0.18, 0.4)
+			sp.Speed = NumberRange.new(14, 28)
+			sp.SpreadAngle = Vector2.new(30, 30)
+			sp.Acceleration = V3(0, -45, 0)
+			sp.EmissionDirection = Enum.NormalId.Bottom
+			sp.Rate = 0
+			sp.Parent = a
+			fx.spark[i] = sp
+			local sm = newSmoke(a, 0.6, NumberRange.new(0.3, 0.6))
+			sm.EmissionDirection = Enum.NormalId.Bottom
+			fx.pegSmoke[i] = sm
+		end
+	end)
+	return fx
+end
+
+local function fxStep(cc)
+	local fx = cc and cc.fx
+	if not fx or not fx.ex[1] then return end
+	local drv = cc.driver == true
+	local ratio = clamp(math.abs(cc.vF) / Config.TopSpeed, 0, 1)
+	local rate = drv and (3 + cc.throttle * 16 + ratio * 8) or 0
+	for _, e in ipairs(fx.ex) do e.Rate = rate end
+	if fx.trail then fx.trail.Enabled = drv and cc.grounded and (cc.skid or 0) > 0.25 end
+	if fx.tire then fx.tire.Rate = (drv and cc.grounded) and (cc.skid or 0) * 55 or 0 end
+	if cc.shiftPuff then
+		cc.shiftPuff = false
+		for _, e in ipairs(fx.ex) do e:Emit(5) end
+	end
+	local lean = cc.leanR or 0
+	local over = 0
+	if drv and cc.grounded and math.abs(cc.vF) > 25 then
+		over = clamp((math.abs(lean) - Config.ScrapeLean) / 0.25, 0, 1)
+	end
+	for i, sx in ipairs({ -1, 1 }) do
+		local on = over > 0 and ((lean > 0 and sx == -1) or (lean < 0 and sx == 1))
+		fx.spark[i].Rate = on and (30 + 70 * over) or 0
+		fx.pegSmoke[i].Rate = on and (8 + 14 * over) or 0
 	end
 end
 
@@ -2398,6 +2610,7 @@ local function spawnBike()
 	local yaw = atan2(-flat.X, -flat.Z)
 	local M = buildBike()
 	c = newState(M, V3(p.X, gy, p.Z), yaw)
+	c.fx = makeFx(c)
 	rp.FilterDescendantsInstances = { c.model, ch }
 	c.lastChar = ch
 	visualsBike(c, 1 / 60)
@@ -2424,25 +2637,7 @@ local function buildHud()
 		s.Thickness = th
 		s.Parent = o
 	end
-	local function mkBtn(text, i)
-		local b = Instance.new("TextButton")
-		b.Size = UDim2.fromOffset(112, 40)
-		b.AnchorPoint = Vector2.new(1, 0)
-		b.Position = UDim2.new(1, -14, 0.28, (i - 1) * 46)
-		b.BackgroundColor3 = Color3.fromRGB(34, 12, 58)
-		b.BackgroundTransparency = 0.12
-		b.TextColor3 = Color3.fromRGB(255, 204, 0)
-		b.Font = Enum.Font.GothamBold
-		b.TextSize = 15
-		b.Text = text
-		b.AutoButtonColor = true
-		round(b, 10)
-		outline(b, Color3.fromRGB(150, 70, 230), 1.5)
-		b.Parent = g
-		return b
-	end
-	h.bCall = mkBtn("MOTO", 1)
-	h.bCall.Visible = false -- V65: botao MOTO/GUARDAR removido da tela (chamar/guardar continua pela Chave da Moto)
+	-- V66: botao MOTO/GUARDAR removido de vez (chamar/guardar so pela Chave da Moto)
 
 	-- V52: icones no estilo do Charger (so contorno, sem fundo, legenda embaixo)
 	local ACC = Config.AccentColor
@@ -2635,57 +2830,87 @@ local function buildHud()
 		h.bBrake = b
 	end
 
-	local sp = Instance.new("Frame")
-	sp.Size = UDim2.fromOffset(150, 52)
-	sp.AnchorPoint = Vector2.new(0.5, 1)
-	sp.Position = UDim2.new(0.5, 0, 1, -16)
-	sp.BackgroundColor3 = Color3.fromRGB(20, 8, 36)
-	sp.BackgroundTransparency = 0.2
-	round(sp, 12)
-	outline(sp, Color3.fromRGB(150, 70, 230), 1.5)
-	sp.Parent = g
-	local txt = Instance.new("TextLabel")
-	txt.Size = UDim2.fromScale(1, 1)
-	txt.BackgroundTransparency = 1
-	txt.Font = Enum.Font.GothamBold
-	txt.TextSize = 26
-	txt.TextColor3 = Color3.fromRGB(255, 204, 0)
-	txt.Text = "0 km/h"
-	txt.Parent = sp
-	h.speed = txt
-	h.speedFrame = sp
-
-	local function mkBar(label, xoff)
-		local f = Instance.new("Frame")
-		f.Size = UDim2.fromOffset(16, 52)
-		f.AnchorPoint = Vector2.new(0.5, 1)
-		f.Position = UDim2.new(0.5, xoff, 1, -16)
-		f.BackgroundColor3 = Color3.fromRGB(20, 8, 36)
-		f.BackgroundTransparency = 0.2
-		round(f, 6)
-		outline(f, Color3.fromRGB(150, 70, 230), 1)
-		f.Parent = g
-		local fill = Instance.new("Frame")
-		fill.AnchorPoint = Vector2.new(0, 1)
-		fill.Position = UDim2.fromScale(0, 1)
-		fill.Size = UDim2.fromScale(1, 0.3)
-		fill.BackgroundColor3 = Color3.fromRGB(255, 204, 0)
-		fill.BorderSizePixel = 0
-		round(fill, 6)
-		fill.Parent = f
-		local l = Instance.new("TextLabel")
-		l.Size = UDim2.fromOffset(16, 12)
-		l.Position = UDim2.new(0, 0, 0, -13)
-		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.GothamBold
-		l.TextSize = 11
-		l.TextColor3 = Color3.fromRGB(200, 160, 255)
-		l.Text = label
-		l.Parent = f
-		return fill
+	-- EMPINAR: botao embaixo do freio (segure pra empinar a moto; so aparece pilotando)
+	do
+		local b, ic = shell(58, 60, "EMPINAR")
+		b.AnchorPoint = Vector2.new(1, 0)
+		b.Position = UDim2.new(1, -41, 0.28, 118)
+		b.Visible = false
+		local parts = {}
+		for _, f in ipairs(arc(ic, 18, 34, 7, 14, 2.2, OFFC, 0, 360)) do parts[#parts + 1] = f end
+		for _, f in ipairs(arc(ic, 44, 14, 7, 14, 2.2, OFFC, 0, 360)) do parts[#parts + 1] = f end
+		local body = {
+			line(ic, 18, 34, 31, 24, 3, ACC),
+			line(ic, 31, 24, 44, 14, 3, ACC),
+			line(ic, 31, 24, 25, 20, 3, ACC),
+			line(ic, 44, 14, 41, 7, 2.4, ACC),
+		}
+		local wOn = false
+		h.setWheelie = function(on)
+			on = on and true or false
+			if on == wOn then return end
+			wOn = on
+			for _, f in ipairs(parts) do f.BackgroundColor3 = on and GREENC or OFFC end
+			for _, f in ipairs(body) do f.BackgroundColor3 = on and GREENC or ACC end
+		end
+		h.bWheelie = b
 	end
-	h.barF = mkBar("F", -96)
-	h.barR = mkBar("T", 96)
+
+	-- V69/V70: velocimetro em arco, SEM fundo (canto superior esquerdo, abaixo do chat; posicao em Config.HudSpeedoPos)
+	local YEL2 = Color3.fromRGB(255, 210, 31)
+	local ORG2 = Color3.fromRGB(255, 138, 31)
+	local RED2 = Color3.fromRGB(255, 61, 61)
+	local TRK2 = Color3.fromRGB(70, 48, 100)
+	local LBL = Color3.fromRGB(201, 167, 245)
+	local sp = Instance.new("Frame")
+	sp.Name = "Velocimetro"
+	sp.Size = UDim2.fromOffset(160, 104)
+	sp.AnchorPoint = Vector2.new(0, 0)
+	sp.Position = Config.HudSpeedoPos
+	sp.BackgroundTransparency = 1
+	sp.BorderSizePixel = 0
+	sp.Visible = false
+	sp.Parent = g
+	h.speedFrame = sp
+	local function lbl(text, size, col, font, y, hgt)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Font = font
+		l.TextSize = size
+		l.TextColor3 = col
+		l.Text = text
+		l.Position = UDim2.fromOffset(0, y)
+		l.Size = UDim2.fromOffset(160, hgt)
+		l.TextXAlignment = Enum.TextXAlignment.Center
+		l.TextStrokeColor3 = Color3.new(0, 0, 0)
+		l.TextStrokeTransparency = 0.5
+		l.Parent = sp
+		return l
+	end
+	local NSEG = 36
+	local trackSegs = arc(sp, 80, 82, 62, NSEG, 8, TRK2, -90, 90)
+	local fillSegs = arc(sp, 80, 82, 62, NSEG, 8, YEL2, -90, 90)
+	for _, f in ipairs(trackSegs) do f.BackgroundTransparency = 0.35 end
+	for _, f in ipairs(fillSegs) do f.Visible = false; f.ZIndex = 2 end
+	h.speed = lbl("0", 34, Color3.fromRGB(255, 255, 255), Enum.Font.GothamBlack, 38, 38)
+	h.speed.ZIndex = 3
+	lbl("KM/H", 11, LBL, Enum.Font.GothamBold, 74, 14).ZIndex = 3
+	h.gear = lbl("N", 15, YEL2, Enum.Font.GothamBlack, 88, 16)
+	h.gear.ZIndex = 3
+	local arcLit, arcCol = -1, nil
+	h.setArc = function(r)
+		local lit = math.floor(clamp(r, 0, 1) * NSEG + 0.5)
+		local col = (r > 0.85) and RED2 or ((r > 0.65) and ORG2 or YEL2)
+		if lit == arcLit and col == arcCol then return end
+		if col ~= arcCol then
+			arcCol = col
+			for _, f in ipairs(fillSegs) do f.BackgroundColor3 = col end
+		end
+		if lit ~= arcLit then
+			arcLit = lit
+			for i, f in ipairs(fillSegs) do f.Visible = i <= lit end
+		end
+	end
 	return h
 end
 
@@ -2697,7 +2922,14 @@ local function hudStep(cc)
 	local S2 = Config.Susp
 	if cc then
 		local spd = math.floor(math.abs(cc.vF) * Config.SpeedMul + 0.5)
-		setTxt(hud.speed, tostring(spd) .. " km/h")
+		setTxt(hud.speed, tostring(spd))
+		local gHud = spd < 1 and "N" or tostring(clamp(math.floor(spd / (Config.TopSpeed / 6)) + 1, 1, 6))
+		setTxt(hud.gear, gHud)
+		local rvH = math.floor(clamp(math.abs(cc.vF) / Config.TopSpeed, 0.02, 1) * 100 + 0.5) / 100
+		if hud._rvh ~= rvH then
+			hud._rvh = rvH
+			hud.setArc(rvH)
+		end
 		local Mm = cc.M
 		if Mm and Mm.dashSpeed then
 			local g = spd < 1 and "N" or tostring(clamp(math.floor(spd / (Config.TopSpeed / 6)) + 1, 1, 6))
@@ -2711,16 +2943,10 @@ local function hudStep(cc)
 				Mm.dashRev.Size = UDim2.fromScale(rv, 1)
 			end
 		end
-		local fr = math.floor(clamp((cc.fT + S2.ExtendF * S) / ((S2.TravelF + S2.ExtendF) * S), 0.02, 1) * 100 + 0.5) / 100
-		local rr = math.floor(clamp((cc.rT + S2.ExtendR * S) / ((S2.TravelR + S2.ExtendR) * S), 0.02, 1) * 100 + 0.5) / 100
-		if hud._bf ~= fr then hud._bf = fr; hud.barF.Size = UDim2.fromScale(1, fr) end
-		if hud._br ~= rr then hud._br = rr; hud.barR.Size = UDim2.fromScale(1, rr) end
-		setTxt(hud.bCall, "GUARDAR")
 	else
-		setTxt(hud.speed, "0 km/h")
-		if hud._bf ~= 0.3 then hud._bf = 0.3; hud.barF.Size = UDim2.fromScale(1, 0.3) end
-		if hud._br ~= 0.3 then hud._br = 0.3; hud.barR.Size = UDim2.fromScale(1, 0.3) end
-		setTxt(hud.bCall, "MOTO")
+		setTxt(hud.speed, "0")
+		setTxt(hud.gear, "N")
+		if hud._rvh ~= 0.02 then hud._rvh = 0.02; hud.setArc(0.02) end
 	end
 	if hud.sitBtn then
 		local show = false
@@ -2733,11 +2959,17 @@ local function hudStep(cc)
 		if hud.sitBtn.Visible ~= show then hud.sitBtn.Visible = show end
 	end
 	local drv = (cc ~= nil and cc.driver == true)
+	if hud.speedFrame.Visible ~= drv then hud.speedFrame.Visible = drv end
 	if hud.bLight.Visible ~= drv then hud.bLight.Visible = drv end
 	if hud.bBrake.Visible ~= drv then
 		hud.bBrake.Visible = drv
 		if not drv then held.brakeUi = false end
 	end
+	if hud.bWheelie.Visible ~= drv then
+		hud.bWheelie.Visible = drv
+		if not drv then held.wheelUi = false end
+	end
+	hud.setWheelie(drv and held.wheelUi)
 	local on = (cc ~= nil and cc.headOn == true)
 	if hud._hl ~= on then
 		hud._hl = on
@@ -2762,7 +2994,6 @@ end
 
 hud = buildHud()
 makeSounds()
-track(hud.bCall.Activated:Connect(toggleCall))
 track(hud.bLight.Activated:Connect(toggleLight))
 track(hud.sitBtn.Activated:Connect(function()
 	if not c or c.driver then return end
@@ -2775,6 +3006,8 @@ track(hud.sitBtn.Activated:Connect(function()
 end))
 track(hud.bBrake.InputBegan:Connect(function(i) if isPress(i) then held.brakeUi = true end end))
 track(hud.bBrake.InputEnded:Connect(function(i) if isPress(i) then held.brakeUi = false end end))
+track(hud.bWheelie.InputBegan:Connect(function(i) if isPress(i) then held.wheelUi = true end end))
+track(hud.bWheelie.InputEnded:Connect(function(i) if isPress(i) then held.wheelUi = false end end))
 
 track(UIS.InputBegan:Connect(function(i, gpe)
 	if gpe then return end
@@ -2935,7 +3168,7 @@ do
 	slotBtn.BackgroundTransparency = 1
 	slotBtn.Text = ""
 	slotBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-	slotBtn.Position = UDim2.new(0, 40, 0.28, 26)
+	slotBtn.Position = Config.HudKeyPos
 	slotBtn.Size = UDim2.fromOffset(52, 52)
 	do
 		local cn = Instance.new("UICorner")
@@ -2981,7 +3214,7 @@ do
 		local lb = Instance.new("TextLabel")
 		lb.BackgroundTransparency = 1
 		lb.AnchorPoint = Vector2.new(0.5, 0)
-		lb.Position = UDim2.new(0, 40, 0.28, 56)
+		lb.Position = UDim2.new(Config.HudKeyPos.X.Scale, Config.HudKeyPos.X.Offset, Config.HudKeyPos.Y.Scale, Config.HudKeyPos.Y.Offset + 30)
 		lb.Size = UDim2.fromOffset(70, 12)
 		lb.Font = Enum.Font.GothamBold
 		lb.TextSize = 9
@@ -3227,6 +3460,7 @@ RunService:BindToRenderStep("MotoJXz", Enum.RenderPriority.Camera.Value - 1, fun
 		autoMount()
 		stepBike(c, dt)
 		visualsBike(c, dt)
+		fxStep(c)
 		holdRider(c)
 	end
 	soundStep(c)
@@ -3251,6 +3485,7 @@ _G.__MOTO_JXZ_CLEANUP = function()
 	if hud and hud.gui then pcall(function() hud.gui:Destroy() end) end
 	if sRun then pcall(function() sRun:Destroy() end) end
 	if sIdle then pcall(function() sIdle:Destroy() end) end
+	if sSkid then pcall(function() sSkid:Destroy() end) end
 	_G.__MOTO_JXZ_CLEANUP = nil
 end
 

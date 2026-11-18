@@ -77,6 +77,68 @@ local Config = {
 		LegBend = 1.0,
 	},
 
+	-- V75: pes apoiados em cima da balanca traseira (sem pedais). Unidades = espaco da moto antes da escala.
+	FootRest = {
+		Enabled = true,
+		Z = 1.0,      -- ponto ao longo do braco (0 = pivo, ~2.5 = eixo). Se a perna nao alcancar, o script anda sozinho pra frente (ate ZMin)
+		ZMin = 0.1,
+		Inset = 0.2,  -- quanto o pe fica pra dentro do centro do braco (0 = bem em cima do braco)
+		Lift = 0.0,   -- sobe/desce o pe (positivo = mais alto)
+		Splay = 12,   -- graus: ponta do pe aberta pra fora
+		KneeOut = 0.3, -- quanto o joelho abre pro lado
+		Mode = "pivo",   -- V79: "pivo" = pes em cima do cilindro (cubo redondo) do pivo da balanca; "braco" = em cima do braco (usa Z/Inset)
+		PivotZ = -0.15,  -- Mode "pivo": posicao ao longo da balanca (negativo = mais pra frente do cilindro)
+	},
+
+	-- V82: PARADO a moto inclina pra um lado, o piloto escorrega pro lado e apoia o PE NO CHAO (esquerdo ou direito, sorteado a cada parada)
+	--   e o guidao vira pro lado OPOSTO ao pe. Ao andar o pe e recolhido de volta pra balanca traseira. No chat: -6 liga/desliga.
+	Park = {
+		Enabled = true,
+		Delay = 0.35,       -- s parado antes de descer o pe
+		StopSpeed = 1.5,    -- velocidade (studs/s) abaixo da qual conta como parado
+		LeaveSpeed = 4,     -- acima disso (ou ao acelerar) o pe e recolhido
+		Time = 0.55,        -- s pra descer o pe
+		RetractTime = 0.35, -- s pra recolher o pe
+		Lean = 0.45,        -- inclinacao base da moto (rad) pro lado do pe
+		LeanExtra = 0.2,    -- inclina MAIS (ate +rad) se a perna ainda nao alcanca o chao (em vez do corpo afundar na moto)
+		Steer = 0.7,        -- guidao vira pro lado OPOSTO ao pe (1 = esterco total)
+		Shift = 0.35,       -- o corpo escorrega pra fora do banco, pro lado do pe (studs, antes da escala). Menor = o pe da outra perna alcanca a balanca; maior = corpo mais pra fora da moto
+		MaxDrop = 0.9,      -- limite de quanto o corpo pode afundar (vertical) pra perna alcancar o chao. Valor alto = corpo atravessa o banco/tanque
+		Reach = 0.97,       -- fracao do comprimento da perna usada ao alcancar o chao (1 = perna toda esticada)
+		FootOut = 0.3,      -- pe um pouco pra fora do quadril (studs, antes da escala)
+		ToeDown = 0.5,      -- rad: ponta do pe pra baixo (quase na ponta do pe, alcanca mais)
+		Splay = 15,         -- graus: ponta do pe aberta pra fora
+		PushTime = 0.35,    -- s: ao acelerar, o pe do chao empurra (moto continua inclinada) antes de recolher. 0 = desliga
+		PushDist = 0.9,     -- studs (antes da escala): quanto o pe desliza pra tras empurrando o chao
+		PushKick = 4,       -- studs/s: empurrao extra pra frente na moto no inicio do impulso
+		PushUpright = 0.6,  -- 0 a 1: quanto a moto levanta so durante o impulso (o resto levanta ao recolher o pe)
+		HangFoot = 0,       -- outra perna: 0 = continua com o pe na balanca traseira (por dentro da moto); 1 = fica solta, pendurada
+	},
+
+	-- V80: VARIANTS DO EMPINAR (sorteia uma a cada empinar). Mode: "random" | "v1" | "v2" | "off"  (no chat: -7 / -8 / -9)
+	--   V1 = boneco continua sentado e da um puxao pra cima/tras no guidao pra moto empinar
+	--   V2 = boneco sobe no banco (config WheelieStand abaixo) e senta de novo ao descer a moto
+	WheelieVariant = {
+		Mode = "random",
+		PullBack = 0.45, -- V1: quanto o corpo recua no puxao (studs, antes da escala)
+		PullUp = 0.25,   -- V1: quanto o corpo sobe no puxao
+		PullTilt = 0.18, -- V1: quanto o tronco inclina pra tras (rad)
+	},
+
+	-- V76 (V2 do empinar): o boneco sobe no banco (perna esquerda, direita, levanta) e senta de novo ao descer a moto
+	WheelieStand = {
+		Enabled = true,
+		StartAt = 0.4,  -- comeca a subir quando o empinar passa dessa fracao do WheelieMax (V81: mais cedo)
+		EndAt = 0.30,   -- comeca a sentar quando o empinar cai abaixo dessa fracao
+		Time = 0.8,     -- duracao (s) da sequencia completa (subir ou descer) (V81: mais rapido, era 1.6)
+		Upright = 0.6,  -- quanto o corpo se mantem em pe contra a inclinacao da moto (0 a 1)
+		Straight = 0.93, -- 1 = pernas totalmente esticadas em pe
+		FootX = 0.3,    -- distancia lateral dos pes no banco
+		FrontZ = 1.0,   -- pe esquerdo (mais pra frente no banco)
+		BackZ = 1.8,    -- pe direito (mais pra tras)
+		Splay = 10,
+	},
+
 	Headlight = { Range = 70, Brightness = 3, Angle = 70 },
 
 	MountRadius = 16, -- V52: distancia maxima da moto pra sentar manualmente e assumir o controle
@@ -104,6 +166,83 @@ local Config = {
 	VolRun = 0.2,
 	SoundSkid = "rbxassetid://103305629439898", -- V73: som da derrapagem (3s, em loop enquanto derrapa)
 	VolSkid = 0.5,
+
+	-- V90: SPAWN NOVO = a moto CHEGA SOZINHA (curva suave vindo de tras/do lado), freia, abre o pezinho (cavalete lateral esquerdo) e fica inclinada nele.
+	Arrive = {
+		Enabled = true,
+		Distance = 80,    -- studs: de quao longe (atras do ponto final) ela comeca
+		Side = 20,        -- studs: afastamento lateral do ponto de partida (lado sorteado) -> ela chega fazendo curva
+		SideOffset = 5,   -- studs: ela para um pouco pro lado do jogador (nao passa por cima dele)
+		Speed = 55,       -- studs/s: velocidade de chegada
+		Accel = 60,       -- studs/s2
+		Decel = 32,       -- studs/s2: frenagem ate parar
+		FadeIn = 0.5,     -- s: brilho branco ao aparecer
+	},
+
+	-- V90: PEZINHO (cavalete lateral esquerdo). Moto SEM piloto e parada = pe aberto + inclinada. Ao sentar o pe fecha e a moto levanta.
+	Kickstand = {
+		Enabled = true,
+		Lean = 0.30,          -- rad: inclinacao pro lado esquerdo (o pe e calculado pra encostar EXATAMENTE no chao nesse angulo)
+		Steer = 0.5,          -- guidao vira pro lado oposto (como moto parada de verdade)
+		Time = 0.45,          -- s: abrir o pe
+		RetractTime = 0.35,   -- s: fechar o pe
+		SpringK = 55,         -- mola da inclinacao (a moto "cai" no pe e assenta)
+		SpringC = 9,
+		StopSpeed = 1.5,      -- studs/s: abaixo disso conta como parada
+		IdleDelay = 0.6,      -- s parada sem piloto ate abrir o pe (ex.: depois de largar a moto)
+		Pivot = Vector3.new(-1.0, 1.0, 0.6), -- onde o pe prende no chassi (lado esquerdo, antes da escala)
+		Out = 0.6,            -- quanto o pe sai pro lado
+		Forward = 0.2,        -- o pe aponta um pouco pra frente
+	},
+
+	-- V91: DESCER DA MOTO (sequencia). Ao tentar sair (pular / botao de sentar) o piloto: freia ate parar -> se estava apoiado com o pe DIREITO,
+	--   empurra a moto pra esquerda e apoia o pe ESQUERDO -> passa a perna direita por cima do banco e poe no chao -> a mao direita larga o guidao e
+	--   se segura no banco (a esquerda continua no guidao) -> o pe DIREITO empurra o pezinho (cavalete) pra baixo e a moto assenta nele -> solta tudo e acaba. Acima de MaxSpeed desce na hora (como antes).
+	Dismount = {
+		Enabled = true,
+		MaxSpeed = 25,      -- studs/s: acima disso nao faz a sequencia (pulo direto)
+		StopSpeed = 1.2,    -- studs/s: considera parada
+		StopTimeout = 3,    -- s: tempo maximo freando antes de seguir
+		PlantTime = 0.35,   -- s: tirar o pe de um lado / apoiar o do outro (troca de lado = empurrao pra esquerda)
+		LegTime = 1.0,      -- s: passar a perna direita por cima do banco + dar o passo
+		OverX = 0.8,        -- studs (antes da escala): quanto o corpo sai do banco pra esquerda
+		StepOut = 0.9,      -- studs: o pe esquerdo da um passo pra fora junto com o corpo
+		StepLift = 0.35,    -- studs: altura do passo do pe esquerdo
+		FeetGap = 0.95,     -- studs: distancia entre os pes quando o direito pisa no chao (lado esquerdo)
+		FootBack = 0.35,    -- studs: pe direito pisa um pouco atras do esquerdo
+		TailX = -0.1,       -- V95: ponto da perna POR CIMA DA TRASEIRA (espaco da moto, antes da escala): lateral (0 = centro)
+		TailY = 3.9,        --   altura (o topo da traseira/banco fica ~3.0; maior = perna mais alta)
+		TailZ = 3.0,        --   distancia pra tras (a ponta da rabeta fica ~3.3); se nao alcanca, a perna estica o maximo que da
+		ForwardShift = 0.5, -- studs: o corpo se debruca pra frente (em cima do tanque) enquanto a perna passa por tras
+		ArmTime = 0.4,      -- s: soltar cada braco (direito, depois esquerdo)
+		MaxDrop = 3.0,      -- studs: quanto o corpo pode descer ate ficar em pe no chao
+		LeanTime = 0.35,    -- s: moto passa da inclinacao do pe pra inclinacao do pezinho
+		KickWait = 0.25,    -- s: espera depois do pezinho assentar antes de liberar o piloto
+		KickTimeout = 2.5,  -- s: tempo maximo esperando o pezinho
+		TorsoLean = 0.45,   -- rad: tronco inclina pra frente ao passar a perna
+		TorsoTwist = 0.3,   -- rad: tronco gira pro lado esquerdo ao passar a perna (se girar pro lado errado, troque o sinal)
+		HeadYaw = 30,       -- graus: cabeca vira pro lado onde o pe vai pisar (positivo = esquerda)
+		HeadDown = 20,      -- graus: cabeca olha pra baixo (pe / pezinho)
+		SettleTime = 0.5,   -- s: no fim o pe volta pro chao, os bracos soltam e tronco/cabeca voltam ao normal antes de soltar o boneco
+		FootTime = 0.3,     -- s: pe direito sobe ate o pezinho
+		SeatHoldZ = 1.9,    -- posicao no banco (ao longo da moto) onde a mao direita se segura
+		Smooth = 7,         -- suavidade do movimento do tronco/cabeca (maior = mais rapido)
+	},
+
+	-- V87: ANIMACAO DE DESPAWN (no chat: -4 liga/desliga)
+	--   A moto se quebra em pecas, viram uma caixa de presente pequena que treme e explode (explosao grande, empurra o boneco).
+	Anim = {
+		Enabled = true,
+		MaxFly = 170,        -- pecas do corpo que voam (as menores somem no flash)
+		MaxFlyWheel = 70,    -- idem pras rodas
+		BreakTime = 0.6,     -- s: moto se quebra
+		GatherTime = 0.7,    -- s: pecas viram a caixa
+		BoxShake = 1.1,      -- s: caixa tremendo antes de explodir
+		Confetti = 160,      -- particulas da explosao
+		BlastRadius = 45,    -- studs: alcance do empurrao e da onda
+		BlastPush = 95,      -- studs/s de empurrao no boneco bem perto (cai com a distancia)
+		SoundExplode = "rbxasset://sounds/impact_explosion_03.mp3",
+	},
 }
 local S = Config.Scale
 local LITE = Config.LiteMode ~= "off"
@@ -1546,8 +1685,283 @@ local function newState(M, pos, yaw)
 		spinF = 0, spinR = 0, throttle = 0, brakeIn = 0, stopOnly = false,
 		driver = false, cf = CFrame.new(pos), lastChar = nil, safeT = 0, lastSafe = pos,
 		headOn = false,
+		park = 0, parkE = 0, parkOn = false, parkT = 0, parkSide = -1, parkRoll = 0, parkSteer = 0, parkDrop = 0, parkLeanX = 0, pushing = false, pushT = 0, pushU = 0, -- V82: pe no chao parado
+		kickE = 0, kickL = 0, kickLV = 0, kickRoll = 0, kickSteer = 0, kickIdle = 0, -- V90: cavalete lateral (pezinho)
 		gear = 0, shiftT = 0, shiftCool = 0, skid = 0, lock = false, shiftPuff = false, shiftJolt = false, wheelP = 0, fx = nil,
 	}
+end
+
+-- ===== V90: CHEGADA SOZINHA + PEZINHO (cavalete lateral esquerdo) =====
+-- Chegada: a moto percorre uma curva (Bezier) ate o ponto final com velocidade controlada (acelera, cruza, freia), usando a fisica normal
+-- (suspensao, rodas girando, inclinacao na curva, mergulho na freada). Ao parar, o pe abre e ela inclina pro lado do pe.
+-- Pezinho: partes criadas em runtime e soldadas no chassi (nao mexe no cache do modelo).
+local Kick = {}
+do
+	function Kick.wrap(a)
+		return (a + math.pi) % (2 * math.pi) - math.pi
+	end
+
+	-- cria o pe (dobrado ao longo do chassi quando kickE = 0; aberto e encostando no chao quando kickE = 1 e a moto esta inclinada Lean)
+	function Kick.build(M)
+		local KS = Config.Kickstand
+		if not (KS and KS.Enabled) then return nil end
+		local th = KS.Lean or 0.3
+		local piv = KS.Pivot or V3(-1.0, 1.0, 0.6)
+		local fx = piv.X - (KS.Out or 0.6)
+		local F = V3(fx, -fx * tan(th), piv.Z - (KS.Forward or 0.2)) -- ponto do pe: y' = 0 no mundo quando a moto inclina th
+		local d1 = F - piv
+		local L = d1.Magnitude
+		if L < 0.2 then return nil end
+		d1 = d1 / L
+		local d0 = V3(0, 0.35, 1).Unit
+
+		local function mk(name, size, shape, color, mat)
+			local p = Instance.new("Part")
+			p.Name = name
+			p.Size = V3(size.X * S, size.Y * S, size.Z * S)
+			p.Color = color
+			p.Material = mat
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			if shape then p.Shape = shape end
+			p.TopSurface = Enum.SurfaceType.Smooth
+			p.BottomSurface = Enum.SurfaceType.Smooth
+			p.Parent = M.model
+			return p
+		end
+		local function wld(p1, c0)
+			local w = Instance.new("Weld")
+			w.Part0 = M.root
+			w.Part1 = p1
+			w.C0 = c0
+			w.Parent = p1
+			return w
+		end
+		local ks = { P = piv * S, L = L * S, d0 = d0, d1 = d1 }
+		-- dobradica + suporte preso na lateral do motor
+		local hinge = mk("KickHinge", V3(0.26, 0.26, 0.26), Enum.PartType.Ball, CHROME, METAL)
+		wld(hinge, CFrame.new(ks.P))
+		local bx0 = -0.55
+		local brk = mk("KickBracket", V3(math.abs(piv.X - bx0), 0.16, 0.16), CYL, DARK, METAL)
+		wld(brk, CFrame.new(((piv.X + bx0) / 2) * S, piv.Y * S, piv.Z * S))
+		-- haste do pe + sapata (borracha)
+		local strut = mk("KickStrut", V3(L, 0.14, 0.14), CYL, DARK, METAL)
+		ks.wStrut = wld(strut, CFrame.new(ks.P))
+		local pad = mk("KickPad", V3(0.42, 0.07, 0.55), nil, BLACK, SP)
+		ks.wPad = wld(pad, CFrame.new(ks.P))
+		ks.rotStow = CFrame.lookAt(Vector3.zero, d0)
+		ks.rotFlat = CFrame.Angles(0, 0, -th) -- anula a inclinacao da moto: a sapata fica plana no chao
+		ks.e = nil
+		return ks
+	end
+
+	-- posiciona o pe conforme cc.kickE (0 = dobrado, 1 = aberto); so recalcula quando muda
+	function Kick.pose(cc)
+		local ks = cc.kick
+		if not ks then return end
+		local e = cc.kickE or 0
+		if ks.e == e then return end
+		ks.e = e
+		local s = e * e * (3 - 2 * e)
+		local dir = (ks.d0 * (1 - s) + ks.d1 * s).Unit
+		local base = CFrame.lookAt(ks.P, ks.P + dir)
+		ks.wStrut.C0 = base * CFrame.new(0, 0, -ks.L / 2) * CFrame.Angles(0, math.pi / 2, 0)
+		ks.wPad.C0 = CFrame.new(ks.P + dir * ks.L) * ks.rotStow:Lerp(ks.rotFlat, s)
+	end
+
+	-- ponto e direcao (unitaria, XZ) na curva a s studs do inicio
+	function Kick.eval(A, s)
+		local cum, n = A.cum, A.n
+		local i = 1
+		while i < n and cum[i + 1] < s do i = i + 1 end
+		local c0, c1 = cum[i], cum[i + 1]
+		local f = (c1 > c0) and clamp((s - c0) / (c1 - c0), 0, 1) or 0
+		local u = ((i - 1) + f) / n
+		local iu = 1 - u
+		local S0, C, E = A.S0, A.C, A.E
+		local px = iu * iu * S0.X + 2 * iu * u * C.X + u * u * E.X
+		local pz = iu * iu * S0.Z + 2 * iu * u * C.Z + u * u * E.Z
+		local tx = 2 * iu * (C.X - S0.X) + 2 * u * (E.X - C.X)
+		local tz = 2 * iu * (C.Z - S0.Z) + 2 * u * (E.Z - C.Z)
+		local m = math.sqrt(tx * tx + tz * tz)
+		if m < 1e-6 then tx, tz = A.fx, A.fz else tx, tz = tx / m, tz / m end
+		return px, pz, tx, tz
+	end
+
+	function Kick.finish(cc)
+		local A = cc.arrive
+		if A and A.hl then pcall(function() A.hl:Destroy() end) end
+		cc.arrive = nil
+		cc.kickIdle = 99 -- ja esta parada: o pe continua aberto
+		pcall(function() cc.M.setLight(cc.headOn == true) end)
+	end
+
+	-- E = ponto final (chao), yaw = direcao final
+	function Kick.startArrive(cc, E, yaw)
+		local AC = Config.Arrive
+		local fx, fz = -sin(yaw), -cos(yaw)
+		local rx, rz = cos(yaw), -sin(yaw)
+		local D = AC.Distance or 80
+		local side = (math.random() < 0.5 and -1 or 1) * (AC.Side or 20)
+		local S0 = V3(E.X - fx * D + rx * side, 0, E.Z - fz * D + rz * side)
+		local C = V3(E.X - fx * D * 0.5, 0, E.Z - fz * D * 0.5) -- controle atras do ponto final: chega alinhada com a direcao final
+		local Ef = V3(E.X, 0, E.Z)
+		local A = {
+			S0 = S0, C = C, E = Ef, fx = fx, fz = fz, yawEnd = yaw,
+			phase = "drive", t = 0, s = 0, v = (AC.Speed or 55) * 0.6, thr = 1, brk = 0, steer = 0,
+		}
+		-- comprimento de arco
+		local n = 48
+		local cum = { 0 }
+		local px, pz = S0.X, S0.Z
+		for k = 1, n do
+			local u = k / n
+			local iu = 1 - u
+			local x = iu * iu * S0.X + 2 * iu * u * C.X + u * u * Ef.X
+			local z = iu * iu * S0.Z + 2 * iu * u * C.Z + u * u * Ef.Z
+			cum[k + 1] = cum[k] + math.sqrt((x - px) * (x - px) + (z - pz) * (z - pz))
+			px, pz = x, z
+		end
+		A.cum, A.n, A.len = cum, n, cum[n + 1]
+
+		local gy = E.Y
+		local res = workspace:Raycast(V3(S0.X, E.Y + 50, S0.Z), V3(0, -160, 0), rp)
+		if res then gy = res.Position.Y end
+		local _, _, tx, tz = Kick.eval(A, 0)
+		cc.pos = V3(S0.X, gy, S0.Z)
+		cc.lastSafe = cc.pos
+		cc.yaw = atan2(-tx, -tz)
+		cc.vel = V3(tx * A.v, 0, tz * A.v)
+		cc.vF = A.v
+		cc.prevVF = A.v
+
+		-- brilho branco que some (a moto "aparece" no meio do caminho)
+		pcall(function()
+			local hl = Instance.new("Highlight")
+			hl.Name = "MotoArriveHL"
+			hl.FillColor = Color3.new(1, 1, 1)
+			hl.OutlineColor = Color3.new(1, 1, 1)
+			hl.FillTransparency = 0.2
+			hl.OutlineTransparency = 0
+			hl.DepthMode = Enum.HighlightDepthMode.Occluded
+			hl.Adornee = cc.model
+			hl.Parent = cc.model
+			A.hl = hl
+		end)
+		pcall(function() cc.M.setLight(true) end)
+		cc.arrive = A
+	end
+
+	-- chamado no INICIO do stepBike: define posicao/velocidade/direcao da moto enquanto ela chega
+	function Kick.autoStep(cc, dt)
+		local A = cc.arrive
+		if not A then return end
+		if cc.driver then Kick.finish(cc) return end -- o jogador sentou: assume o controle na hora
+		local AC = Config.Arrive
+		A.t = A.t + dt
+		if A.hl then
+			local k = clamp(A.t / (AC.FadeIn or 0.5), 0, 1)
+			if k >= 1 then
+				pcall(function() A.hl:Destroy() end)
+				A.hl = nil
+			else
+				A.hl.FillTransparency = 0.2 + 0.8 * k
+				A.hl.OutlineTransparency = k
+			end
+		end
+		if A.phase == "drive" then
+			local vMax = AC.Speed or 55
+			local dec = AC.Decel or 32
+			local d = A.len - A.s
+			local vT = math.min(vMax, math.sqrt(2 * dec * math.max(d, 0)) + 1.5)
+			A.v = A.v + clamp(vT - A.v, -dec * 1.8 * dt, (AC.Accel or 60) * dt)
+			local px, pz, tx, tz = Kick.eval(A, A.s)
+			local psi = atan2(-tx, -tz)
+			-- curvatura: usada so pra virar o guidao e inclinar a moto na curva (a fisica faz o resto)
+			local la = math.max(A.v * dt * 4, 0.6)
+			local _, _, tx2, tz2 = Kick.eval(A, math.min(A.s + la, A.len))
+			local yawRate = Kick.wrap(atan2(-tx2, -tz2) - psi) * A.v / la
+			local rate = Config.TurnRate / (1 + A.v / Config.TurnSpeedRef)
+			A.steer = clamp(-yawRate / (rate * clamp(A.v / 5, 0.05, 1)), -1, 1)
+			A.thr = clamp((vT - A.v) / 8, 0, 1)
+			A.brk = (vT < vMax - 2) and 1 or 0
+			cc.pos = V3(px, cc.pos.Y, pz)
+			cc.yaw = psi
+			cc.vel = V3(tx * A.v, 0, tz * A.v)
+			cc.vF = A.v
+			A.s = A.s + A.v * dt
+			local rem = A.len - A.s
+			if rem <= 0.05 or (A.v < 2 and rem < 1.5) then
+				A.phase = "stand"
+				A.v, A.thr, A.brk, A.steer = 0, 0, 0, 0
+				A.settle, A.t2 = 0, 0
+			end
+		else
+			cc.pos = V3(A.E.X, cc.pos.Y, A.E.Z)
+			cc.yaw = A.yawEnd
+			cc.vel = V3(0, 0, 0)
+			cc.vF = 0
+			A.t2 = (A.t2 or 0) + dt
+			local KS = Config.Kickstand
+			if KS and KS.Enabled then
+				if cc.kickE >= 0.99 and cc.kickL >= 0.97 and math.abs(cc.kickLV) < 0.35 then
+					A.settle = A.settle + dt
+				else
+					A.settle = 0
+				end
+				if A.settle > 0.25 or A.t2 > 3 then Kick.finish(cc) end
+			else
+				if A.t2 > 0.3 then Kick.finish(cc) end
+			end
+		end
+	end
+
+	-- estado do pe: abre ao chegar / quando a moto fica parada sem piloto; fecha ao sentar ou andar
+	function Kick.step(cc, dt)
+		local KS = Config.Kickstand
+		if not (KS and KS.Enabled) then
+			cc.kickE, cc.kickL, cc.kickLV, cc.kickRoll, cc.kickSteer = 0, 0, 0, 0, 0
+			return
+		end
+		local want
+		if cc.driver and cc.dis and cc.dis.kick then
+			cc.kickIdle = 0
+			want = true -- V91: piloto descendo: pezinho abre e a moto cai nele
+		elseif cc.driver then
+			cc.kickIdle = 0
+			want = false
+		elseif cc.arrive then
+			want = (cc.arrive.phase == "stand")
+		elseif cc.grounded and math.abs(cc.vF) < (KS.StopSpeed or 1.5) then
+			cc.kickIdle = (cc.kickIdle or 0) + dt
+			want = cc.kickIdle >= (KS.IdleDelay or 0.6)
+		else
+			cc.kickIdle = 0
+			want = false
+		end
+		local e, L, lv = cc.kickE, cc.kickL, cc.kickLV
+		local eT, lT
+		if want then
+			eT = 1
+			lT = (e >= 0.97) and 1 or 0 -- primeiro abre o pe, depois a moto cai nele
+		else
+			lT = 0
+			if cc.driver then eT = 0 else eT = (L < 0.08) and 0 or 1 end -- sem piloto: levanta e depois fecha o pe
+		end
+		local rOut = 1 / math.max(KS.Time or 0.45, 0.05)
+		local rIn = 1 / math.max(KS.RetractTime or 0.35, 0.05)
+		e = clamp(e + clamp(eT - e, -rIn * dt, rOut * dt), 0, 1)
+		lv = lv + ((KS.SpringK or 55) * (lT - L) - (KS.SpringC or 9) * lv) * dt
+		L = clamp(L + lv * dt, -0.1, 1.3)
+		if lT == 0 and math.abs(L) < 0.004 and math.abs(lv) < 0.02 then L, lv = 0, 0 end
+		cc.kickE, cc.kickL, cc.kickLV = e, L, lv
+		cc.kickRoll = (KS.Lean or 0.3) * L -- roll positivo = inclina pra esquerda
+		cc.kickSteer = (KS.Steer or 0.5) * L
+	end
 end
 
 local function releaseChar(teleport)
@@ -1579,7 +1993,7 @@ end
 local mountBlock = 0
 -- V52: NAO senta mais sozinho. O jogador senta manualmente (botao de sentar do jogo) perto da moto e ela assume o controle.
 local function mountBike()
-	if not c or c.driver then return end
+	if not c or c.driver or c.anim then return end
 	local ch, hum, rpart = charParts()
 	if not ch then return end
 	saved = {
@@ -1598,12 +2012,15 @@ local function mountBike()
 	c.mountT = os.clock()
 end
 
-local function dismountBike()
+local function dismountBike(noTeleport)
 	if not c or not c.driver then return end
 	c.driver = false
+	c.dis = nil -- V91: encerra a sequencia de descida
+	c.disLeg, c.disStep, c.disOver, c.disArmR, c.disArmL = 0, 0, 0, 0, 0
+	c.disLean, c.disTwist, c.disHeadYaw, c.disHeadPitch, c.disKickFoot = 0, 0, 0, 0, 0
 	mountBlock = os.clock() + 0.8
 	pcall(releaseArms)
-	releaseChar(true)
+	releaseChar(not noTeleport)
 end
 
 -- sentou manualmente (sem banco) perto da moto -> vira o piloto
@@ -1654,12 +2071,14 @@ local function stepBike(cc, dt)
 	local ch, hum, rpart = charParts()
 	if cc.driver and not ch then
 		cc.driver = false
+		cc.dis = nil
 		saved = nil
 	end
 	if cc.lastChar ~= player.Character then
 		cc.lastChar = player.Character
 		rp.FilterDescendantsInstances = { cc.model, player.Character }
 	end
+	Kick.autoStep(cc, dt) -- V90: moto chegando sozinha (define pos/vel/yaw antes da fisica)
 	local driving = cc.driver
 	local S2 = Config.Susp
 
@@ -1675,6 +2094,19 @@ local function stepBike(cc, dt)
 			throttle = 0
 			cc.stopOnly = true
 		end
+	end
+	if driving and cc.dis then -- V91: descendo da moto: sem acelerar nem esterçar; freia ate parar
+		throttle, steerIn = 0, 0
+		if cc.dis.phase == "stop" then
+			brakeIn = 1
+			cc.stopOnly = true
+		else
+			brakeIn = 0
+		end
+	end
+	if cc.arrive and not driving then -- V90: entradas do piloto automatico (som, freio, guidao, inclinacao na curva)
+		local A = cc.arrive
+		throttle, brakeIn, steerIn = A.thr or 0, A.brk or 0, A.steer or 0
 	end
 	cc.throttle, cc.brakeIn = throttle, brakeIn
 	cc.steer = cc.steer + (steerIn - cc.steer) * (1 - exp(-9 * dt))
@@ -1942,6 +2374,122 @@ local function stepBike(cc, dt)
 	cc.leanR = cc.leanR + (tr - cc.leanR) * (1 - exp(-7 * dt))
 	local wT = (driving and grounded and held.wheelUi and cc.vF > Config.WheelieMinSpeed) and Config.WheelieMax or 0
 	cc.wheelP = cc.wheelP + (wT - cc.wheelP) * (1 - exp(-(wT > cc.wheelP and 3.2 or 2.2) * dt))
+	-- V82: parado -> desce o pe no chao (lado sorteado) e inclina a moto; ao acelerar o pe EMPURRA o chao (moto continua inclinada e vai levantando) e depois e recolhido
+	do
+		local PK = Config.Park or {}
+		local pushTime = PK.PushTime or 0.35
+		if PK.Enabled and driving and cc.dis then
+			-- V91: descendo: a sequencia (Dis.step) decide quando o pe fica no chao (sem empurrao de arranque)
+			cc.pushing = false
+			cc.pushU = 0
+			cc.parkT = 0
+			cc.parkOn = (cc.dis.want == true)
+		elseif PK.Enabled and driving then
+			local spdA = math.abs(cc.vF)
+			if cc.pushing then
+				-- fase de impulso: pe no chao empurrando, a moto levanta aos poucos por causa do empurrao
+				cc.pushT = cc.pushT + dt
+				cc.pushU = clamp(cc.pushT / math.max(pushTime, 0.05), 0, 1)
+				if (not grounded) or cc.pushT >= pushTime then cc.pushing = false end
+			elseif cc.parkOn then
+				if (not grounded) or cc.wheelP > 0.05 then
+					cc.parkOn = false
+					cc.parkT = 0
+				elseif throttle > 0.05 or spdA > (PK.LeaveSpeed or 4) then
+					cc.parkOn = false
+					cc.parkT = 0
+					if cc.park > 0.8 and pushTime > 0 then
+						cc.pushing = true
+						cc.pushT = 0
+						cc.pushU = 0
+						-- empurrao inicial pra frente (so se estiver acelerando)
+						local kick = PK.PushKick or 4
+						if throttle > 0.05 and kick ~= 0 and spdA < 8 then cc.vel = cc.vel + fwd * kick end
+					end
+				end
+			elseif grounded and throttle <= 0.05 and spdA < (PK.StopSpeed or 1.5) and cc.wheelP < 0.02 then
+				cc.parkT = cc.parkT + dt
+				if cc.parkT >= (PK.Delay or 0.35) then
+					cc.parkOn = true
+					cc.pushU = 0
+					-- sorteia o lado so se o pe anterior ja terminou de subir (senao o pe teleporta)
+					if cc.park < 0.05 then cc.parkSide = (math.random() < 0.5) and -1 or 1 end
+				end
+			else
+				cc.parkT = 0
+			end
+		else
+			cc.parkOn = false
+			cc.parkT = 0
+			cc.pushing = false
+			cc.pushU = 0
+		end
+		if not driving then
+			cc.park = 0
+		else
+			local pT = (cc.parkOn or cc.pushing) and 1 or 0
+			local pRate = (pT == 1) and (1 / math.max(PK.Time or 0.55, 0.1)) or (1 / math.max(PK.RetractTime or 0.35, 0.1))
+			if cc.dis then pRate = 1 / math.max((Config.Dismount and Config.Dismount.PlantTime) or 0.35, 0.1) end -- V91: troca de pe mais rapida
+			cc.park = clamp(cc.park + clamp(pT - cc.park, -pRate * dt, pRate * dt), 0, 1)
+		end
+		local pk = cc.park
+		local pE = pk * pk * (3 - 2 * pk)
+		cc.parkE = pE
+		-- peso da inclinacao/guidao: durante o impulso a moto vai levantando (PushUpright = quanto levanta so com o impulso)
+		local pu = cc.pushU or 0
+		local lW = pE * (1 - (PK.PushUpright or 0.6) * pu * pu * (3 - 2 * pu))
+		local sd = cc.parkSide or -1
+		-- lado esquerdo (-1): roll positivo = moto inclina pra esquerda; guidao vira pra direita (steer positivo)
+		local parkLean = (PK.Lean or 0.45) + (cc.parkLeanX or 0)
+		if cc.dis then
+			-- V91: inclinacao do pe -> inclinacao do pezinho (soma continua igual: parkRoll some enquanto kickRoll entra)
+			local KSl = (Config.Kickstand and Config.Kickstand.Lean) or 0.3
+			parkLean = parkLean + (KSl - parkLean) * clamp(cc.dis.kb or 0, 0, 1)
+			lW = lW * (1 - clamp(cc.kickL or 0, 0, 1))
+		end
+		cc.parkRoll = -sd * parkLean * lW
+		cc.parkSteer = -sd * (PK.Steer or 0.7) * lW
+		if pE <= 0 then cc.parkDrop = 0; cc.parkLeanX = 0 end
+	end
+	-- V80: sorteia a variant a cada novo empinar + envelope do puxao (V1)
+	do
+		local WV = Config.WheelieVariant
+		local act = driving and wT > 0
+		if act and not cc._wAct then
+			local mode = WV and WV.Mode or "random"
+			if mode == "off" then cc.wheelVar = 0
+			elseif mode == "v1" then cc.wheelVar = 1
+			elseif mode == "v2" then cc.wheelVar = 2
+			else cc.wheelVar = (math.random() < 0.5) and 1 or 2 end
+			cc.pullKick = 1
+		end
+		cc._wAct = act
+		cc.pullKick = math.max((cc.pullKick or 0) - dt * 3.5, 0)
+		local pt = (driving and cc.wheelVar == 1 and wT > 0) and 1 or 0
+		local pl = cc.pull or 0
+		pl = pl + (pt - pl) * (1 - exp(-(pt > pl and 9 or 3) * dt))
+		cc.pull = pl
+		if driving and cc.wheelVar == 1 then
+			cc.pullAmt = clamp(pl * 0.7 + cc.pullKick * 0.45, 0, 1)
+		else
+			cc.pullAmt = 0
+		end
+	end
+	-- V76 (V2): boneco em pe no banco durante o empinar
+	do
+		local WS = Config.WheelieStand
+		if WS and WS.Enabled and driving and cc.wheelVar == 2 then
+			local frac = cc.wheelP / math.max(Config.WheelieMax, 0.01)
+			if not cc.standOn and frac >= (WS.StartAt or 0.65) then cc.standOn = true
+			elseif cc.standOn and frac <= (WS.EndAt or 0.3) then cc.standOn = false end
+			local st = cc.stand or 0
+			local step = dt / math.max(WS.Time or 1.6, 0.2)
+			cc.stand = clamp(st + clamp((cc.standOn and 1 or 0) - st, -step, step), 0, 1)
+		else
+			cc.standOn = false
+			cc.stand = 0
+		end
+	end
 
 	local sa = -S2.BodyK * cc.susY - S2.BodyC * cc.susV
 	if cc.susY < S2.StopAt then sa = sa - (cc.susY - S2.StopAt) * S2.StopK end
@@ -2009,7 +2557,7 @@ local function visualsBike(cc, dt)
 	local right = fwd:Cross(up).Unit
 	local up2 = right:Cross(fwd)
 	local cf = CFrame.fromMatrix(cc.pos + up2 * cc.susY, right, up2, -fwd)
-		* CFrame.Angles(cc.leanP + cc.rkP, 0, cc.leanR + cc.rkR)
+		* CFrame.Angles(cc.leanP + cc.rkP, 0, cc.leanR + cc.rkR + (cc.parkRoll or 0) + (cc.kickRoll or 0))
 	local wp = cc.wheelP or 0
 	if wp > 0.001 then
 		local pv = V3(0, 0, RCEN.Z * S)
@@ -2022,7 +2570,7 @@ local function visualsBike(cc, dt)
 	cc.spinR = (cc.spinR - (cc.lock and 0 or (cc.vF * dt / (R * S)))) % (math.pi * 2)
 	M.wFWheel.C0 = CFrame.Angles(cc.spinF, 0, 0)
 
-	local steerAng = -cc.steer * Config.ForkSteer * (1 - clamp(math.abs(cc.vF) / 150, 0, 0.6))
+	local steerAng = -(cc.steer + (cc.parkSteer or 0) + (cc.kickSteer or 0)) * Config.ForkSteer * (1 - clamp(math.abs(cc.vF) / 150, 0, 0.6))
 	M.wFork.C0 = CFrame.new(HEAD.X * S, HEAD.Y * S, HEAD.Z * S) * CFrame.Angles(RAKE, 0, 0) * CFrame.Angles(0, steerAng, 0)
 	M.wSlider.C0 = CFrame.new(0, -(FL * S - cc.fT), 0)
 
@@ -2044,7 +2592,7 @@ local function visualsBike(cc, dt)
 		M.wSpring.C0 = CFrame.lookAt(aW + dir * len * 0.3, bW) * CFrame.Angles(0, math.pi / 2, 0)
 	end
 
-	local braking = cc.brakeIn > 0 and cc.driver
+	local braking = cc.brakeIn > 0 and (cc.driver or cc.arrive ~= nil)
 	if cc._brk ~= braking then
 		cc._brk = braking
 		local tcol = braking and RED_HI or RED_DIM
@@ -2052,11 +2600,12 @@ local function visualsBike(cc, dt)
 	end
 
 	cc.seatCF = cf * CFrame.new(0, SEAT_TOP * S + Config.SitRise, Config.SeatZ * S) * CFrame.Angles(Config.SitPitch, 0, 0)
+	Kick.pose(cc)
 end
 
 
 -- ===== Animacao do piloto (sistema estilo Charger) =====
-local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {}, brakeW = 0 }
+local ARMS = { on = false, w = 0, lean = 0, twist = 0, J = nil, waist = nil, ang = {}, brakeW = 0 }
 local GRIP_A = math.rad(55)
 local function isJoint(d)
 	return d:IsA("Motor6D") or d:IsA("AnimationConstraint")
@@ -2180,6 +2729,7 @@ local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
 end
 
 local LIMB = { J = nil, ch = nil, cur = {}, jw = {} }
+local LEGIK = { ch = nil, R = nil, L = nil, joints = {} } -- V75: IK das pernas (pes na balanca)
 local function limbRot(cf) return cf - cf.Position end
 local function limbJoints(ch)
 	local map = {
@@ -2205,6 +2755,10 @@ local function limbJoints(ch)
 	return J
 end
 local function releaseLimbs()
+	for _, m in ipairs(LEGIK.joints) do
+		if m.Parent then m.Transform = CFrame.new() end
+	end
+	LEGIK.ch, LEGIK.R, LEGIK.L, LEGIK.joints = nil, nil, nil, {}
 	local J = LIMB.J
 	if J then
 		for key, m in pairs(J) do
@@ -2219,8 +2773,9 @@ local function releaseArms()
 	ARMS.w = 0
 	ARMS.ang = {}
 	ARMS.brakeW = 0
-	if ARMS.lean > 0 then
+	if ARMS.lean > 0 or math.abs(ARMS.twist or 0) > 0 then
 		ARMS.lean = 0
+		ARMS.twist = 0
 		if ARMS.waist and ARMS.waist.Parent then ARMS.waist.Transform = CFrame.new() end
 	end
 	local J = ARMS.J
@@ -2248,6 +2803,159 @@ local FOOT_LOCAL = {
 	left  = V3(-1.05, 1.05, 1.7),
 }
 
+-- ===== V76: base do piloto (sentado ou em pe no banco durante o empinar) =====
+local function sm01(x) x = clamp(x, 0, 1) return x * x * (3 - 2 * x) end
+local SEAT_TOPY = { { 0.3, 3.18 }, { 0.9, 3.04 }, { 1.4, 2.94 }, { 1.9, 2.95 }, { 2.3, 2.98 } } -- { z, y do topo do banco }
+local function seatSurfY(z)
+	z = clamp(z, SEAT_TOPY[1][1], SEAT_TOPY[#SEAT_TOPY][1])
+	for i = 1, #SEAT_TOPY - 1 do
+		local a, b = SEAT_TOPY[i], SEAT_TOPY[i + 1]
+		if z <= b[1] then
+			return a[2] + (b[2] - a[2]) * ((z - a[1]) / (b[1] - a[1]))
+		end
+	end
+	return SEAT_TOPY[#SEAT_TOPY][2]
+end
+local function riderBase(cc)
+	local base = cc.seatCF
+	-- V80 (V1): sentado, o corpo recua/sobe e o tronco inclina pra tras no puxao do empinar
+	local WV = Config.WheelieVariant
+	local pa = cc.pullAmt or 0
+	if WV and pa > 0.001 then
+		base = base * CFrame.new(0, (WV.PullUp or 0.25) * S * pa, (WV.PullBack or 0.45) * S * pa)
+			* CFrame.Angles((WV.PullTilt or 0.18) * pa, 0, 0)
+	end
+	local WS = Config.WheelieStand
+	local s = (WS and WS.Enabled) and (cc.stand or 0) or 0
+	if s > 0.001 and cc.M and cc.M.root then
+		local e = sm01((s - 0.45) / 0.55)
+		local rise = (cc.standRise or 0) * e
+		local rootCF = cc.M.root.CFrame
+		base = base + rootCF.UpVector * rise
+		local counter = (cc.wheelP or 0) * (WS.Upright or 0.6) * e
+		if counter > 0.001 then
+			local pivot = rootCF * CFrame.new(0, SEAT_TOP * S + rise, 1.4 * S)
+			base = pivot * CFrame.Angles(-counter, 0, 0) * pivot:Inverse() * base
+		end
+	end
+	-- V82: parado, o corpo escorrega pro lado do pe apoiado e desce pra perna alcancar o chao
+	local pe = cc.parkE or 0
+	if pe > 0.001 then
+		local PK = Config.Park or {}
+		base = base + base.RightVector * ((PK.Shift or 0.2) * S * pe * (cc.parkSide or -1))
+			- V3(0, (cc.parkDrop or 0) * pe, 0)
+	end
+	-- V91: descendo: corpo sai do banco pra esquerda e endireita (em pe); depois fica parado no mundo enquanto a moto assenta no pezinho
+	local DD = cc.dis
+	if DD then
+		local ov = cc.disOver or 0
+		do
+			local fwS = math.sin(math.pi * clamp(cc.disLeg or 0, 0, 1)) -- 0 -> 1 (perna no ponto alto) -> 0
+			if fwS > 0.001 then
+				local DMf = Config.Dismount or {}
+				base = base + base.LookVector * ((DMf.ForwardShift or 0.5) * S * fwS)
+			end
+		end
+		if ov > 0.001 then
+			local DM = Config.Dismount or {}
+			base = base - base.RightVector * ((DM.OverX or 0.8) * S * ov)
+			local upr = CFrame.new(base.Position) * CFrame.Angles(0, cc.yaw, 0)
+			base = base:Lerp(upr, sm01((ov - 0.3) / 0.7))
+		end
+		if DD.freeze then base = DD.freeze end
+	end
+	return base
+end
+
+-- ===== V75: pes na balanca traseira (IK das pernas) =====
+local ARM_TOP = { { 0, 0.48 }, { 0.9, 0.38 }, { 1.8, 0.24 }, { ARM_Z, 0.13 } } -- { z, y do topo do braco no espaco da balanca }
+local function armTopY(z)
+	z = clamp(z, 0, ARM_Z)
+	for i = 1, #ARM_TOP - 1 do
+		local a, b = ARM_TOP[i], ARM_TOP[i + 1]
+		if z <= b[1] then
+			return a[2] + (b[2] - a[2]) * ((z - a[1]) / math.max(b[1] - a[1], 1e-4))
+		end
+	end
+	return ARM_TOP[#ARM_TOP][2]
+end
+
+local function findAnkle(ch, footName)
+	for _, d in ipairs(ch:GetDescendants()) do
+		if isJoint(d) and d.Part0 and d.Part1 and d.Part1.Name == footName then return d end
+	end
+	return nil
+end
+
+-- devolve { R = chain, L = chain } ou nil (R6 / sem joelho -> usa o pose antigo)
+local function prepLegIK(ch)
+	local FR = Config.FootRest
+	if not (FR and FR.Enabled) then return nil end
+	if LEGIK.ch ~= ch or not LEGIK.R then
+		LEGIK.ch, LEGIK.R, LEGIK.L, LEGIK.joints = ch, nil, nil, {}
+		local J = LIMB.J
+		if not J then return nil end
+		local function build(hip, knee, footName)
+			if not (hip and knee) then return nil end
+			local ankle = findAnkle(ch, footName)
+			if not ankle then return nil end
+			local k = armChain({ shoulder = hip, elbow = knee, hand = ankle })
+			if not (k and k.elbow and k.L2) then return nil end
+			k.ankle = ankle
+			LEGIK.joints[#LEGIK.joints + 1] = hip
+			LEGIK.joints[#LEGIK.joints + 1] = knee
+			LEGIK.joints[#LEGIK.joints + 1] = ankle
+			return k
+		end
+		LEGIK.R = build(J.rh, J.rk, "RightFoot")
+		LEGIK.L = build(J.lh, J.lk, "LeftFoot")
+		if not (LEGIK.R and LEGIK.L) then
+			LEGIK.R, LEGIK.L = nil, nil
+			LEGIK.joints = {}
+		end
+	end
+	if LEGIK.R and LEGIK.L and LEGIK.R.sh.Parent and LEGIK.L.sh.Parent then return LEGIK end
+	return nil
+end
+
+local function solveLeg(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyFront, ez, footRotW, kneeOut)
+	local hip, knee, ankle = k.sh, k.elbow, k.ankle
+	local P = p0n * hip.C0.Position
+	local toT = tgt - P
+	local dist = toT.Magnitude
+	if dist < 0.05 then return end
+	local dirT = toT / dist
+	local L1, L2 = k.L1, k.L2
+	local d = math.min(dist, (L1 + L2) * 0.999)
+	local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+	local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+	-- joelho aponta pra frente e um pouco pra fora
+	local pole = bodyFront + bodyRight * (kneeOut * sgn) + bodyUp * 0.1
+	pole = pole - dirT * pole:Dot(dirT)
+	pole = pole.Magnitude > 1e-3 and pole.Unit or bodyFront
+	local E = P + dirT * a + pole * h
+	local uW = (E - P).Unit
+	local lv = (P + dirT * d) - E
+	local lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+
+	local Ru = armRotFromTo(k.d0, p0n:VectorToObjectSpace(uW))
+	local CF1 = CFrame.new(hip.C0.Position) * Ru * k.rrSh * CFrame.new(-hip.C1.Position)
+	hip.Transform = hip.Transform:Lerp(hip.C0:Inverse() * CF1 * hip.C1, ez)
+
+	local upperCF = p0n * CF1
+	local R2 = armRotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+	local CF2 = CFrame.new(knee.C0.Position) * R2 * k.rrEl * CFrame.new(-knee.C1.Position)
+	knee.Transform = CFrame.new():Lerp(knee.C0:Inverse() * CF2 * knee.C1, ez)
+
+	-- tornozelo: deita o pe paralelo ao topo da balanca
+	if ankle and ankle.Parent and footRotW then
+		local lowerCF = upperCF * CF2
+		local function rot(cf) return cf - cf.Position end
+		local T = rot(ankle.C0):Inverse() * rot(lowerCF):Inverse() * footRotW * rot(ankle.C1)
+		ankle.Transform = CFrame.new():Lerp(T, ez)
+	end
+end
+
 local function driveRider(cc, dt)
 	if Config.LimbAnim == false then return end
 	local ch, hum, rpart = charParts()
@@ -2268,7 +2976,7 @@ local function driveRider(cc, dt)
 	ARMS.w = math.min(1, ARMS.w + dt * 4)
 	local ez = ARMS.w * ARMS.w * (3 - 2 * ARMS.w)
 
-	local seatW = cc.seatCF
+	local seatW = riderBase(cc)
 	local rootInv = rpart.CFrame:Inverse()
 	local function pw(part) return seatW * (rootInv * part.CFrame) end
 	local bodyRight, bodyUp, bodyBack = seatW.RightVector, seatW.UpVector, -seatW.LookVector
@@ -2283,7 +2991,7 @@ local function driveRider(cc, dt)
 	}
 
 	-- freio: puxa bracos um pouco pra tras e inclina tronco
-	local wantBrake = (cc.brakeIn or 0) > 0.15 and 1 or 0
+	local wantBrake = ((cc.brakeIn or 0) > 0.15 and not cc.dis) and 1 or 0
 	ARMS.brakeW = ARMS.brakeW + (wantBrake - ARMS.brakeW) * math.min(1, dt * 8)
 	local bw = ARMS.brakeW * ARMS.brakeW * (3 - 2 * ARMS.brakeW)
 	local DA = Config.DriveAnim or {}
@@ -2314,36 +3022,60 @@ local function driveRider(cc, dt)
 		ARMS.waist = waist
 	end
 	local prevLean = ARMS.lean
+	local prevTw = ARMS.twist or 0
 	local spin = nil
 	if waist and waist.Parent and waist.Part0 then
 		local lowerCF = pw(waist.Part0)
 		local Wp = lowerCF * waist.C0.Position
-		spin = function(th)
-			return CFrame.new(Wp) * CFrame.fromAxisAngle(bodyRight, -th) * CFrame.new(-Wp)
+		local tw = (cc.disTwist or 0) * ez -- V92: giro do tronco na descida
+		spin = function(th, twA)
+			return CFrame.new(Wp) * CFrame.fromAxisAngle(bodyUp, twA or 0) * CFrame.fromAxisAngle(bodyRight, -th) * CFrame.new(-Wp)
 		end
-		local p0u = spin(prevLean):Inverse() * pw(sr.Part0)
+		local p0u = spin(prevLean, prevTw):Inverse() * pw(sr.Part0)
 		local need = 0
 		for i = 0, 12 do
 			local th = i * 0.04
 			need = th
-			if ((spin(th) * p0u) * sr.C0.Position - grips.right).Magnitude <= chR.reach then break end
+			if ((spin(th, tw) * p0u) * sr.C0.Position - grips.right).Magnitude <= chR.reach then break end
 		end
 		need = need + brakeLean
+		if cc.dis then need = need * (1 - sm01(cc.disOver or 0)) + (cc.disLean or 0) end -- V91: em pe do lado da moto: tronco reto
 		local lean = prevLean + (need * ez - prevLean) * math.min(1, dt * 10)
-		if lean > 0.002 then
-			local a0 = lowerCF:VectorToObjectSpace(bodyRight)
-			local aC = (waist.C0 - waist.C0.Position):Inverse() * a0
-			waist.Transform = CFrame.fromAxisAngle(aC, -lean)
+		if lean > 0.002 or math.abs(tw) > 0.002 then
+			local wRot = (waist.C0 - waist.C0.Position):Inverse()
+			local aC = wRot * lowerCF:VectorToObjectSpace(bodyRight)
+			local aU = wRot * lowerCF:VectorToObjectSpace(bodyUp)
+			waist.Transform = CFrame.fromAxisAngle(aU, tw) * CFrame.fromAxisAngle(aC, -lean)
 		end
 		ARMS.lean = lean
+		ARMS.twist = tw
 	end
 	local function p0nOf(sh)
 		local p0w = pw(sh.Part0)
-		if spin then return spin(ARMS.lean) * (spin(prevLean):Inverse() * p0w) end
+		if spin then return spin(ARMS.lean, ARMS.twist) * (spin(prevLean, prevTw):Inverse() * p0w) end
 		return p0w
 	end
-	solveArm(chR, p0nOf(chR.sh), grips.right, 1, bodyRight, bodyUp, bodyBack, ez)
-	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
+	-- V91: descendo: solta o braco direito do guidao, depois o esquerdo (a mao vai pro lado do corpo)
+	local gR, gL = grips.right, grips.left
+	local relR, relL = cc.disArmR or 0, cc.disArmL or 0
+	if cc.dis and (relR > 0.001 or relL > 0.001) then
+		local function restPos(chA, sgnA)
+			local sp = p0nOf(chA.sh) * chA.sh.C0.Position
+			return sp + bodyUp * (-0.92 * chA.reach) + bodyRight * (sgnA * 0.12 * chA.reach) - bodyBack * (0.05 * chA.reach)
+		end
+		-- V93: direita larga o guidao e se segura no banco; a esquerda continua no guidao ate o fim (relL solta as duas)
+		if relR > 0.001 then
+			local zH = (Config.Dismount and Config.Dismount.SeatHoldZ) or 1.9
+			local seatPt = M.root.CFrame:PointToWorldSpace(V3(0.05 * S, seatSurfY(zH) * S + 0.1 * S, zH * S))
+			gR = gR:Lerp(seatPt, sm01(relR))
+		end
+		if relL > 0.001 then
+			gR = gR:Lerp(restPos(chR, 1), sm01(relL))
+			gL = gL:Lerp(restPos(chL, -1), sm01(relL))
+		end
+	end
+	solveArm(chR, p0nOf(chR.sh), gR, 1, bodyRight, bodyUp, bodyBack, ez)
+	solveArm(chL, p0nOf(chL.sh), gL, -1, bodyRight, bodyUp, bodyBack, ez)
 
 	-- pernas sentadas + cabeca pra frente
 	if LIMB.ch ~= ch or not LIMB.J then
@@ -2367,8 +3099,13 @@ local function driveRider(cc, dt)
 		rk = V3(-95 * lb, 0, 0),
 		lh = V3(55 * lb, -8, -12),
 		lk = V3(-95 * lb, 0, 0),
-		neck = V3(neckPitch, 0, neckRoll),
+		neck = V3(neckPitch + (cc.disHeadPitch or 0), cc.disHeadYaw or 0, neckRoll),
 	}
+	-- V75: com IK dos pes na balanca, as pernas deixam de usar os angulos fixos
+	local legIK = prepLegIK(ch)
+	if legIK then
+		tgt.rh, tgt.rk, tgt.lh, tgt.lk = nil, nil, nil, nil
+	end
 	-- waist so e controlado pelo ARMS.lean (nao sobrescrever)
 	local k = math.min(1, dt * 12)
 	for key, m in pairs(LIMB.J) do
@@ -2394,19 +3131,324 @@ local function driveRider(cc, dt)
 			end
 		end
 	end
+
+	-- V75/V76: pes em cima da balanca traseira; no empinar sobem pro banco
+	if legIK then
+		local FR = Config.FootRest
+		local WS = Config.WheelieStand
+		local standOn = WS and WS.Enabled
+		local s = standOn and (cc.stand or 0) or 0
+		local rootCF = M.root.CFrame
+		local rootRot = rootCF - rootCF.Position
+		local swCF = rootCF * M.wSwing.C0
+		local swRot = swCF - swCF.Position
+		local bodyFront = seatW.LookVector
+		local wSide = { [-1] = sm01(s / 0.3), [1] = sm01((s - 0.2) / 0.3) } -- esquerda sobe primeiro, depois a direita
+		-- V82: parado -> um pe no chao (lado sorteado), o outro fica solto
+		local PK = Config.Park or {}
+		local pe = cc.parkE or 0
+		local pSide = cc.parkSide or -1
+		local rightH = V3(cos(cc.yaw), 0, -sin(cc.yaw))
+		local dropT = 0
+		local D = cc.dis -- V91: descendo da moto
+		local DM = Config.Dismount or {}
+		for _, side in ipairs({ { legIK.R, 1 }, { legIK.L, -1 } }) do
+			local k, sgn = side[1], side[2]
+			local p0n = pw(k.sh.Part0)
+			local hipPos = p0n * k.sh.C0.Position
+			local footRotW = swRot * CFrame.Angles(0, -sgn * math.rad(FR.Splay or 0), 0)
+			local lift = (k.ankle.Part1.Size.Y * 0.5 + 0.05) + (FR.Lift or 0) * S
+			local x = sgn * (SWX - (FR.Inset or 0))
+			local tgtPos
+			if (FR.Mode or "pivo") == "pivo" then
+				-- V79: topo do cilindro (cubo) do pivo da balanca: x = centro do cubo, y = raio do cubo
+				local lp = V3(sgn * (SWX + 0.02), 0.30, FR.PivotZ or -0.15) * S
+				tgtPos = swCF:PointToWorldSpace(lp) + footRotW.UpVector * lift
+			else
+				local z = FR.Z or 1.0
+				local zMin = FR.ZMin or 0.1
+				while true do
+					local lp = V3(x, armTopY(z), z) * S
+					tgtPos = swCF:PointToWorldSpace(lp) + footRotW.UpVector * lift
+					if (tgtPos - hipPos).Magnitude <= k.reach or z <= zMin then break end
+					z = math.max(z - 0.1, zMin)
+				end
+			end
+			if standOn then
+				local w = wSide[sgn]
+				if w > 0.001 then
+					local zS = (sgn == -1) and (WS.FrontZ or 1.0) or (WS.BackZ or 1.8)
+					local stPos = rootCF:PointToWorldSpace(V3(sgn * (WS.FootX or 0.3) * S, seatSurfY(zS) * S + lift, zS * S))
+					local stRot = rootRot * CFrame.Angles(0, -sgn * math.rad(WS.Splay or 0), 0)
+					tgtPos = tgtPos:Lerp(stPos, w) + rootCF.UpVector * (math.sin(math.pi * w) * 0.7 * S)
+					footRotW = footRotW:Lerp(stRot, w)
+				end
+				-- altura da subida: quadril sentado -> pernas quase esticadas
+				local seatedHip = (cc.seatCF * (rootInv * k.sh.Part0.CFrame)) * k.sh.C0.Position
+				local hipY = rootCF:PointToObjectSpace(seatedHip).Y
+				local avgSurf = (seatSurfY(WS.FrontZ or 1.0) + seatSurfY(WS.BackZ or 1.8)) * 0.5 * S
+				cc.standRise = math.max(avgSurf + lift + (WS.Straight or 0.93) * (k.L1 + k.L2) - hipY, 0)
+			end
+			if pe > 0.001 then
+				if sgn == pSide then
+					-- pe no chao: raycast embaixo do quadril (um pouco pra fora)
+					local fpH = V3(hipPos.X, 0, hipPos.Z) + rightH * (sgn * (PK.FootOut or 0.3) * S)
+					local stepLift = 0
+					if D and D.legOn then
+						-- V91: o pe esquerdo fica no chao (mundo) e da um passo pra fora enquanto o corpo sai do banco
+						if not D.footStart then
+							D.footStart = fpH
+							D.footEnd = fpH - rightH * ((DM.StepOut or 0.9) * S)
+						end
+						local su = cc.disStep or 0
+						fpH = D.footStart:Lerp(D.footEnd, su)
+						stepLift = math.sin(math.pi * su) * (DM.StepLift or 0.35) * S
+					end
+					local rr = workspace:Raycast(V3(fpH.X, hipPos.Y + 2 * S, fpH.Z), V3(0, -80, 0), rp)
+					local gy = rr and rr.Position.Y or cc.pos.Y
+					local toe = PK.ToeDown or 0.5
+					local gT = V3(fpH.X, gy + lift + math.sin(toe) * k.ankle.Part1.Size.Z * 0.3 + stepLift, fpH.Z)
+					-- quanto o corpo precisa descer pra perna alcancar o chao (desfaz o drop ja aplicado pra nao realimentar)
+					local hipTop = hipPos + V3(0, (cc.parkDrop or 0) * pe, 0)
+					local hh = V3(gT.X - hipPos.X, 0, gT.Z - hipPos.Z).Magnitude
+					local Ld = k.reach * (PK.Reach or 0.97)
+					local need = hipTop.Y - gT.Y - math.sqrt(math.max(Ld * Ld - hh * hh, 0))
+					local dropCap = (PK.MaxDrop or 0.9) * S
+					if D then dropCap = (DM.MaxDrop or 3.0) * S end -- V91: pode descer ate ficar em pe
+					local pu = cc.pushU or 0
+					dropT = (pe > 0.5) and clamp(need, 0, dropCap) * (1 - pu) or 0 -- no impulso o corpo sobe junto com a moto
+					-- se o corpo ja afundou o maximo e a perna nao alcanca, inclina a moto um pouco mais (integrador: converge quando need ~= dropCap)
+					if pe > 0.9 and cc.parkOn then
+						cc.parkLeanX = clamp((cc.parkLeanX or 0) + (need - dropCap) * dt * 0.5, 0, PK.LeanExtra or 0.2)
+					elseif pu > 0 then
+						cc.parkLeanX = math.max((cc.parkLeanX or 0) - dt * 0.6, 0)
+					end
+					-- impulso: o pe desliza pra tras no chao empurrando a moto pra frente
+					if pu > 0 then
+						local fwdH = V3(-sin(cc.yaw), 0, -cos(cc.yaw))
+						gT = gT - fwdH * ((PK.PushDist or 0.9) * S * pu * pu * (3 - 2 * pu))
+					end
+					tgtPos = tgtPos:Lerp(gT, pe) + V3(0, math.sin(math.pi * pe) * 0.6 * S, 0)
+					local gRot = CFrame.Angles(0, cc.yaw, 0) * CFrame.Angles(0, -sgn * math.rad(PK.Splay or 15), 0)
+						* CFrame.Angles(-toe, 0, 0)
+					footRotW = footRotW:Lerp(gRot, pe)
+				else
+					-- outra perna: solta, pendurada (nao alcanca mais a balanca com o corpo deslocado)
+					-- por padrao (HangFoot = 0) o pe continua em cima do pivo da balanca, por dentro da moto; so a perna do chao muda
+					local hf = clamp(PK.HangFoot or 0, 0, 1)
+					if hf > 0 then
+						local hang = hipPos + V3(0, -k.reach * 0.8, 0) + bodyFront * (0.3 * S)
+						tgtPos = tgtPos:Lerp(hang, pe * hf)
+					end
+				end
+			end
+			-- V91: perna DIREITA passa por cima do banco (por tras) e pisa no chao do lado esquerdo, atras do pe esquerdo
+			if D and D.legOn and sgn == 1 and D.footEnd then
+				local u = cc.disLeg or 0
+				local rch = k.reach
+				local P0 = tgtPos
+				local fwdH = V3(-sin(cc.yaw), 0, -cos(cc.yaw))
+				local pf = D.footEnd + rightH * ((DM.FeetGap or 0.95) * S) - fwdH * ((DM.FootBack or 0.35) * S)
+				local rr2 = workspace:Raycast(V3(pf.X, hipPos.Y + 2 * S, pf.Z), V3(0, -80, 0), rp)
+				local gy2 = rr2 and rr2.Position.Y or cc.pos.Y
+				local toe2 = PK.ToeDown or 0.5
+				local Pf = V3(pf.X, gy2 + lift + math.sin(toe2) * k.ankle.Part1.Size.Z * 0.3, pf.Z)
+				-- V95: ponto alto = em cima da TRASEIRA da moto (como na vida real: a perna sobe e gira por tras do banco, nao por cima dele)
+				local Pm = M.root.CFrame:PointToWorldSpace(V3((DM.TailX or -0.1) * S, (DM.TailY or 3.9) * S, (DM.TailZ or 3.0) * S))
+				local vPm = Pm - hipPos
+				if vPm.Magnitude > rch * 0.97 then Pm = hipPos + vPm.Unit * (rch * 0.97) end
+				local Cc = Pm * 2 - (P0 + Pf) * 0.5 -- controle da curva: passa por Pm no meio
+				local iu = 1 - u
+				tgtPos = P0 * (iu * iu) + Cc * (2 * iu * u) + Pf * (u * u)
+				local gRot2 = CFrame.Angles(0, cc.yaw, 0) * CFrame.Angles(0, -sgn * math.rad(PK.Splay or 15), 0) * CFrame.Angles(-toe2, 0, 0)
+				footRotW = footRotW:Lerp(gRot2, sm01((u - 0.5) / 0.5))
+				-- V94: depois de pisar, o pe DIREITO sobe na sapata do pezinho e empurra ele pra baixo (segue a sapata enquanto abre)
+				local fwK = cc.disKickFoot or 0
+				if fwK > 0.001 and cc.kick then
+					local ks = cc.kick
+					local eK = cc.kickE or 0
+					local sK = eK * eK * (3 - 2 * eK)
+					local dirK = (ks.d0 * (1 - sK) + ks.d1 * sK).Unit
+					local padW = M.root.CFrame:PointToWorldSpace(ks.P + dirK * ks.L)
+					local padTop = padW + V3(0, lift + 0.04 * S, 0)
+					local wK = sm01(fwK)
+					tgtPos = tgtPos:Lerp(padTop, wK)
+					footRotW = footRotW:Lerp(CFrame.Angles(0, cc.yaw, 0) * CFrame.Angles(0, -sgn * math.rad(PK.Splay or 15), 0), wK)
+				end
+			end
+			solveLeg(k, p0n, tgtPos, sgn, bodyRight, bodyUp, bodyFront, ez, footRotW, FR.KneeOut or 0.3)
+		end
+		cc.parkDrop = (cc.parkDrop or 0) + (dropT - (cc.parkDrop or 0)) * math.min(1, dt * 5)
+	end
 end
 
 
-local function holdRider(cc)
+-- ===== V91: DESCER DA MOTO (sequencia) =====
+-- fases: stop (freia) -> plant (troca pro pe esquerdo) -> over (perna direita por cima + passo) -> armR -> armL -> lean (moto vai pro pezinho) -> kick (pezinho desce) -> libera
+local Dis = {}
+do
+	local function ease(x) x = clamp(x, 0, 1) return x * x * (3 - 2 * x) end
+
+	function Dis.can(cc)
+		local DM = Config.Dismount
+		if not (DM and DM.Enabled) then return false end
+		local PK = Config.Park
+		if not (PK and PK.Enabled) then return false end
+		if cc.dis or cc.anim or cc.arrive then return false end
+		if Config.LimbAnim == false then return false end
+		if not (LEGIK.R and LEGIK.L) then return false end -- sem IK das pernas (R6): desce direto
+		if not cc.grounded then return false end
+		if math.abs(cc.vF or 0) > (DM.MaxSpeed or 25) then return false end
+		if (cc.wheelP or 0) > 0.05 or (cc.stand or 0) > 0.01 then return false end
+		return true
+	end
+
+	function Dis.begin(cc)
+		cc.dis = { phase = "stop", t = 0, want = (cc.parkOn == true), legOn = false, kb = 0, kick = false }
+		cc.disLeg, cc.disStep, cc.disOver, cc.disArmR, cc.disArmL = 0, 0, 0, 0, 0
+		cc.disLean, cc.disTwist, cc.disHeadYaw, cc.disHeadPitch, cc.disKickFoot = 0, 0, 0, 0, 0
+	end
+
+	function Dis.finish(cc)
+		local D = cc.dis
+		cc.kickIdle = 99 -- o pezinho continua aberto
+		dismountBike(true) -- sem teleporte: o piloto ja esta em pe do lado esquerdo da moto
+	end
+
+	function Dis.step(cc, dt)
+		local D = cc.dis
+		if not D then return end
+		local DM = Config.Dismount or {}
+		local ch, hum, rpart = charParts()
+		if not (ch and hum and rpart) or hum.Health <= 0 then
+			dismountBike()
+			return
+		end
+		-- continua "sentado" ate o fim (o pulo nao tira o piloto no meio da sequencia)
+		if not hum.Sit then hum.Sit = true end
+		pcall(function() hum.Jump = false end)
+		D.t = D.t + dt
+		local ph = D.phase
+		if (ph == "stop" or ph == "plant") and getMove().Z < -0.6 then
+			-- apertou pra frente antes de passar a perna: cancela e continua pilotando
+			cc.dis = nil
+			cc.disLeg, cc.disStep, cc.disOver, cc.disArmR, cc.disArmL = 0, 0, 0, 0, 0
+			cc.disLean, cc.disTwist, cc.disHeadYaw, cc.disHeadPitch, cc.disKickFoot = 0, 0, 0, 0, 0
+			return
+		end
+		-- V92: tronco (inclina/gira) e cabeca (olha pro pe / pezinho) acompanham cada fase, suavizados
+		do
+			local lt, tw, hy, hp = 0, 0, 0, 0
+			local hd = DM.HeadDown or 20
+			if ph == "plant" then
+				lt, hy, hp = 0.12, 15, -hd * 0.5
+			elseif ph == "over" then
+				local uo = clamp(D.t / math.max(DM.LegTime or 1.0, 0.2), 0, 1)
+				if uo < 0.5 then
+					lt, tw, hy, hp = DM.TorsoLean or 0.3, (DM.TorsoTwist or 0.3) * 0.5, (DM.HeadYaw or 30) * 0.5, -hd * 0.5
+				else
+					lt, tw, hy, hp = 0.15, DM.TorsoTwist or 0.3, DM.HeadYaw or 30, -hd * 0.7
+				end
+			elseif ph == "armR" then
+				lt, tw, hy, hp = 0.05, 0.15, 15, -hd * 0.25
+			elseif ph == "armL" then
+				lt, tw, hy, hp = 0.05, 0, 10, -hd * 0.25
+			elseif ph == "lean" then
+				hy, hp = 20, -hd * 0.5
+			elseif ph == "foot" then
+				lt, hy, hp = 0.12, 25, -hd
+			elseif ph == "kick" then
+				lt, hy, hp = 0.12, 25, -hd
+			end
+			local kS = math.min(1, dt * (DM.Smooth or 7))
+			cc.disLean = (cc.disLean or 0) + (lt - (cc.disLean or 0)) * kS
+			cc.disTwist = (cc.disTwist or 0) + (tw - (cc.disTwist or 0)) * kS
+			cc.disHeadYaw = (cc.disHeadYaw or 0) + (hy - (cc.disHeadYaw or 0)) * kS
+			cc.disHeadPitch = (cc.disHeadPitch or 0) + (hp - (cc.disHeadPitch or 0)) * kS
+			local kf = cc.disKickFoot or 0
+			local kfT = (ph == "foot" or ph == "kick") and 1 or 0
+			local kfStep = dt / math.max(DM.FootTime or 0.3, 0.05)
+			cc.disKickFoot = clamp(kf + clamp(kfT - kf, -kfStep, kfStep), 0, 1)
+		end
+		if ph == "stop" then
+			if (cc.grounded and math.abs(cc.vF or 0) < (DM.StopSpeed or 1.2)) or D.t > (DM.StopTimeout or 3) then
+				D.phase, D.t = "plant", 0
+			end
+		elseif ph == "plant" then
+			if (cc.parkSide or -1) == 1 and (cc.park or 0) > 0.02 then
+				-- estava apoiado com o pe DIREITO: tira o pe e a moto vai pro lado esquerdo
+				D.want = false
+			else
+				cc.parkSide = -1
+				D.want = true
+				if (cc.park or 0) >= 0.97 or D.t > 2 then D.phase, D.t = "over", 0 end
+			end
+		elseif ph == "over" then
+			D.legOn = true
+			local u = clamp(D.t / math.max(DM.LegTime or 1.0, 0.2), 0, 1)
+			cc.disLeg = ease(u / 0.8)
+			cc.disStep = ease((u - 0.05) / 0.4)
+			cc.disOver = ease((u - 0.25) / 0.75)
+			if u >= 1 then D.phase, D.t = "armR", 0 end
+		elseif ph == "armR" then
+			cc.disArmR = clamp(D.t / math.max(DM.ArmTime or 0.4, 0.05), 0, 1)
+			if cc.disArmR >= 1 then
+				D.freeze = nil
+				D.freeze = riderBase(cc) -- piloto fica parado em pe no mundo (mao esquerda no guidao, direita no banco)
+				D.phase, D.t = "lean", 0
+			end
+		elseif ph == "lean" then
+			D.kb = clamp(D.t / math.max(DM.LeanTime or 0.35, 0.05), 0, 1)
+			if D.kb >= 1 then D.phase, D.t = "foot", 0 end
+		elseif ph == "foot" then
+			-- pe direito sobe ate a sapata do pezinho (ainda dobrado)
+			if (cc.disKickFoot or 0) >= 0.99 or D.t > 1 then D.phase, D.t = "kick", 0 D.kick = true D.hold = 0 end
+		elseif ph == "kick" then
+			local KS = Config.Kickstand
+			local settled = true
+			if KS and KS.Enabled then
+				settled = (cc.kickE or 0) >= 0.99 and (cc.kickL or 0) >= 0.95 and math.abs(cc.kickLV or 0) < 0.35
+			end
+			if settled then D.hold = (D.hold or 0) + dt else D.hold = 0 end
+			if D.hold >= (DM.KickWait or 0.25) or D.t > (DM.KickTimeout or 2.5) then
+				D.phase, D.t = "settle", 0
+			end
+		elseif ph == "settle" then
+			-- tronco e cabeca voltam ao normal antes de soltar o boneco (sem pulo na pose)
+			cc.disArmL = clamp(D.t / math.max(DM.SettleTime or 0.5, 0.05), 0, 1) -- agora sim solta o guidao e o banco
+			if D.t >= (DM.SettleTime or 0.5) then Dis.finish(cc) end
+		end
+	end
+end
+
+local function holdRider(cc, dt)
 	if not cc.driver then return end
 	local ch, hum, rpart = charParts()
 	if not ch then return end
+	-- V91: sequencia de descida em andamento
+	if cc.dis then
+		Dis.step(cc, dt or (1 / 60))
+		if not cc.driver or not cc.dis then
+			if cc.driver then rpart.CFrame = riderBase(cc) end
+			return
+		end
+		rpart.CFrame = riderBase(cc)
+		rpart.AssemblyLinearVelocity = V3(0, 0, 0)
+		rpart.AssemblyAngularVelocity = V3(0, 0, 0)
+		return
+	end
 	-- levantou (pulou / botao de sentar do jogo) -> desce da moto
 	if not hum.Sit and os.clock() - (cc.mountT or 0) > 0.35 then
+		if Dis.can(cc) then
+			Dis.begin(cc)
+			hum.Sit = true
+			rpart.CFrame = riderBase(cc)
+			return
+		end
 		dismountBike()
 		return
 	end
-	rpart.CFrame = cc.seatCF
+	rpart.CFrame = riderBase(cc)
 	rpart.AssemblyLinearVelocity = V3(0, 0, 0)
 	rpart.AssemblyAngularVelocity = V3(0, 0, 0)
 end
@@ -2449,7 +3491,7 @@ local function soundStep(cc)
 			sSkid:Stop()
 		end
 	end
-	if cc and cc.driver then
+	if cc and (cc.driver or cc.arrive) then
 		local ratio = clamp(math.abs(cc.vF) / Config.TopSpeed, 0, 1)
 		if not sIdle.Playing then sIdle:Play() end
 		if not sRun.Playing then sRun:Play() end
@@ -2560,7 +3602,7 @@ end
 local function fxStep(cc)
 	local fx = cc and cc.fx
 	if not fx or not fx.ex[1] then return end
-	local drv = cc.driver == true
+	local drv = cc.driver == true or cc.arrive ~= nil
 	local ratio = clamp(math.abs(cc.vF) / Config.TopSpeed, 0, 1)
 	local rate = drv and (3 + cc.throttle * 16 + ratio * 8) or 0
 	for _, e in ipairs(fx.ex) do e.Rate = rate end
@@ -2582,14 +3624,512 @@ local function fxStep(cc)
 	end
 end
 
-local function despawnBike()
+-- ===== V86: ANIMACAO DE DESPAWN (o spawn antigo foi removido na V90: agora a moto chega sozinha, ver Kick) =====
+-- Sem fisica da Roblox: as pecas sao ancoradas (welds desligados) e movidas com UM BulkMoveTo por frame,
+-- so as que estao em voo. Highlight = 1 so (limite da Roblox e 31). Trail so nas pecas maiores.
+-- Trabalho pesado (destruir/religar welds) e fatiado por tempo (orcamento de ms por frame).
+local Anim = {}
+do
+	local AC = Config.Anim
+	local rnd = Random.new()
+	local WHITE = Color3.new(1, 1, 1)
+	local jobs, jobConn = {}, nil
+
+	local function easeOut(k) k = 1 - k return 1 - k * k * k end
+	local function backOut(k) k = k - 1 return 1 + 2.70158 * k * k * k + 1.70158 * k * k end
+	local function vol(p) local s = p.Size return s.X * s.Y * s.Z end
+	local function rndDir()
+		local v = V3(rnd:NextNumber(-1, 1), rnd:NextNumber(-1, 1), rnd:NextNumber(-1, 1))
+		if v.Magnitude < 0.1 then return V3(0, 1, 0) end
+		return v.Unit
+	end
+	-- executa fn em list[i..] ate estourar o orcamento (s) deste frame; devolve o proximo indice
+	local function slice(list, i, fn, budget)
+		local n, t0, cnt = #list, os.clock(), 0
+		while i <= n do
+			pcall(fn, list[i])
+			i = i + 1
+			cnt = cnt + 1
+			if cnt >= 6 and os.clock() - t0 > budget then break end
+		end
+		return i
+	end
+
+	local function startJob(job)
+		jobs[#jobs + 1] = job
+		if jobConn then return end
+		jobConn = RunService.RenderStepped:Connect(function(dt)
+			local i = 1
+			while i <= #jobs do
+				local j = jobs[i]
+				local ok, done = pcall(j.step, dt)
+				if (not ok) or done then
+					table.remove(jobs, i)
+					pcall(j.cleanup)
+				else
+					i = i + 1
+				end
+			end
+			if #jobs == 0 and jobConn then
+				jobConn:Disconnect()
+				jobConn = nil
+			end
+		end)
+	end
+	function Anim.killAll()
+		local list = jobs
+		jobs = {}
+		if jobConn then jobConn:Disconnect() jobConn = nil end
+		for _, j in ipairs(list) do pcall(j.cleanup) end
+	end
+
+	local function collect(model)
+		local parts, weldOf, guis, lights = {}, {}, {}, {}
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				parts[#parts + 1] = d
+			elseif d:IsA("Weld") then
+				if d.Part1 then weldOf[d.Part1] = d end
+			elseif d:IsA("SurfaceGui") then
+				guis[#guis + 1] = d
+			elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Light") then
+				lights[#lights + 1] = d
+			end
+		end
+		return parts, weldOf, guis, lights
+	end
+
+	local function makeHighlight(model)
+		local hl = Instance.new("Highlight")
+		hl.Name = "MotoAnimHL"
+		hl.FillColor = WHITE
+		hl.OutlineColor = WHITE
+		hl.FillTransparency = 0.1
+		hl.OutlineTransparency = 0
+		hl.DepthMode = Enum.HighlightDepthMode.Occluded
+		hl.Adornee = model
+		hl.Parent = model
+		return hl
+	end
+
+	local function makeTrail(p)
+		local s = p.Size
+		local h = clamp(math.max(s.X, s.Y, s.Z) * 0.5, 0.25, 1.2)
+		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+		a0.Position = V3(0, h, 0)
+		a1.Position = V3(0, -h, 0)
+		a0.Parent, a1.Parent = p, p
+		local tr = Instance.new("Trail")
+		tr.Attachment0, tr.Attachment1 = a0, a1
+		tr.Color = ColorSequence.new(WHITE)
+		tr.LightEmission = 1
+		tr.LightInfluence = 0
+		tr.Lifetime = 0.32
+		tr.MinLength = 0.05
+		tr.FaceCamera = true
+		tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) })
+		tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+		tr.Parent = p
+		return { tr = tr, a0 = a0, a1 = a1 }
+	end
+	local function endTrail(t)
+		pcall(function() t.tr.Enabled = false end)
+		Debris:AddItem(t.tr, 0.6)
+		Debris:AddItem(t.a0, 0.6)
+		Debris:AddItem(t.a1, 0.6)
+	end
+	local function glowPart(size, shape)
+		local p = Instance.new("Part")
+		p.Name = "MotoFxGlow"
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Material = Enum.Material.Neon
+		p.Color = WHITE
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		if shape then p.Shape = shape end
+		p.Size = size
+		p.Transparency = 1
+		p.Parent = workspace
+		return p
+	end
+
+	-- ---------------------------------------------------------------- DESPAWN
+	-- 1) moto explode em pecas  2) pecas voltam e viram uma caixa de presente  3) caixa treme  4) explode
+	function Anim.despawn(cc)
+		local model, root = cc.model, cc.root
+		local rootCF = cc.cf
+		local gy = cc.pos.Y
+		local maxFly = LITE and 90 or (AC.MaxFly + AC.MaxFlyWheel)
+		local TA, TB = AC.BreakTime, AC.GatherTime
+		local TC = TA + TB
+		local TD = TC + AC.BoxShake
+		local parts, weldOf, guis, lights = collect(model)
+		for _, g in ipairs(guis) do g.Enabled = false end
+		for _, l in ipairs(lights) do pcall(function() l.Enabled = false end) end
+
+		local pool = {}
+		for _, p in ipairs(parts) do
+			if p ~= root and p.Transparency < 1 then pool[#pool + 1] = { p = p, v = vol(p) } end
+		end
+		table.sort(pool, function(a, b) return a.v > b.v end)
+		local fl, destroyQ = {}, {}
+		for i, it in ipairs(pool) do
+			if i <= maxFly then fl[#fl + 1] = it else destroyQ[#destroyQ + 1] = it.p end
+		end
+		for _, p in ipairs(destroyQ) do p.Transparency = 1 end -- detalhes pequenos somem no flash e sao destruidos aos poucos
+
+		local B = 1.3 * S -- tamanho da caixa (pequenina)
+		local hB, hL = 0.62 * B, 0.2 * B
+		local boxCenter = V3(cc.pos.X, gy + hB / 2 + 0.15, cc.pos.Z)
+		local boxCF = CFrame.new(boxCenter) * CFrame.Angles(0, cc.yaw, 0)
+		local cen = rootCF.Position + rootCF.UpVector * (1.6 * S)
+
+		for _, it in ipairs(fl) do
+			local p = it.p
+			local w = weldOf[p]
+			if w then w.Enabled = false end
+			p.Anchored = true
+			local cf = p.CFrame
+			it.pos = cf.Position
+			it.rot = cf - cf.Position
+			local d = it.pos - cen
+			local flat = V3(d.X, 0, d.Z)
+			if flat.Magnitude < 0.05 then flat = V3(rnd:NextNumber(-1, 1), 0, rnd:NextNumber(-1, 1)) end
+			if flat.Magnitude < 0.05 then flat = V3(1, 0, 0) end
+			flat = flat.Unit
+			it.vel = flat * (9 + rnd:NextNumber() * 20) + V3(0, 9 + rnd:NextNumber() * 17, 0) + rndDir() * 3
+			it.axis = rndDir()
+			it.w = (rnd:NextNumber() * 2 - 1) * 10
+		end
+
+		local hl = makeHighlight(model)
+		local gold = Config.AccentColor
+		local bodyC = Config.BodyColor
+		local extras = {}
+		local folder = Instance.new("Folder")
+		folder.Name = "MotoGift"
+		folder.Parent = workspace
+
+		local function giftPart(name, size, color, sphere)
+			local p = Instance.new("Part")
+			p.Name = name
+			p.Size = size
+			p.Color = color
+			p.Material = Enum.Material.SmoothPlastic
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			p.TopSurface = Enum.SurfaceType.Smooth
+			p.BottomSurface = Enum.SurfaceType.Smooth
+			p.Transparency = 1
+			if sphere then
+				local m = Instance.new("SpecialMesh")
+				m.MeshType = Enum.MeshType.Sphere
+				m.Parent = p
+			end
+			p.Parent = folder
+			return p
+		end
+		local yb = -hB / 2
+		local top = hB / 2 + hL
+		local specs = {
+			{ "Base", V3(B, hB, B), V3(0, 0, 0), 0, bodyC, false, false, false },
+			{ "Lid", V3(1.1 * B, hL, 1.1 * B), V3(0, hB / 2 + hL / 2, 0), 0, bodyC:Lerp(WHITE, 0.15), false, true, false },
+			{ "RibbonA", V3(0.2 * B, hB + hL + 0.02 * B, 1.12 * B), V3(0, yb + (hB + hL + 0.02 * B) / 2, 0), 0, gold, false, false, true },
+			{ "RibbonB", V3(1.12 * B, hB + hL + 0.01 * B, 0.2 * B), V3(0, yb + (hB + hL + 0.01 * B) / 2, 0), 0, gold, false, false, true },
+			{ "BowL", V3(0.42 * B, 0.24 * B, 0.2 * B), V3(-0.2 * B, top + 0.1 * B, 0), 0.55, gold, true, true, true },
+			{ "BowR", V3(0.42 * B, 0.24 * B, 0.2 * B), V3(0.2 * B, top + 0.1 * B, 0), -0.55, gold, true, true, true },
+			{ "Knot", V3(0.17 * B, 0.17 * B, 0.17 * B), V3(0, top + 0.06 * B, 0), 0, gold:Lerp(WHITE, 0.25), true, true, true },
+		}
+		local G = {}
+		for _, sp in ipairs(specs) do
+			G[#G + 1] = { p = giftPart(sp[1], sp[2], sp[5], sp[6]), size = sp[2], off = sp[3], rz = sp[4], hop = sp[7], flash = sp[8], col = sp[5] }
+		end
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 225, 160)
+		glow.Range = 30
+		glow.Brightness = 0
+		glow.Parent = G[1].p
+		local function setBox(cf, sc, hop, flash)
+			sc = math.max(0.05, sc)
+			for _, g in ipairs(G) do
+				local off = g.off * sc
+				if g.hop then off = off + V3(0, hop, 0) end
+				g.p.Size = g.size * sc
+				g.p.CFrame = cf * CFrame.new(off) * CFrame.Angles(0, 0, g.rz)
+				if g.flash then g.p.Color = g.col:Lerp(WHITE, flash) end
+			end
+		end
+		setBox(boxCF, 0.05, 0, 0)
+
+		-- poeira do estouro inicial
+		local function mkPart(pos)
+			local ep = Instance.new("Part")
+			ep.Name = "MotoFx"
+			ep.Anchored = true
+			ep.CanCollide = false
+			ep.CanQuery = false
+			ep.CanTouch = false
+			ep.CastShadow = false
+			ep.Transparency = 1
+			ep.Size = V3(1, 1, 1)
+			ep.CFrame = CFrame.new(pos)
+			ep.Parent = workspace
+			extras[#extras + 1] = ep
+			return ep
+		end
+		local function mkSmoke(parent, n, big)
+			local sm = Instance.new("ParticleEmitter")
+			sm.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			sm.Color = ColorSequence.new(Color3.fromRGB(215, 215, 220), Color3.fromRGB(95, 95, 100))
+			sm.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 1) })
+			sm.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.5 * S * big), NumberSequenceKeypoint.new(1, 9 * S * big) })
+			sm.Lifetime = NumberRange.new(0.9, 1.5)
+			sm.Speed = NumberRange.new(8, 22)
+			sm.SpreadAngle = Vector2.new(180, 180)
+			sm.Rate = 0
+			sm.Parent = parent
+			sm:Emit(n)
+		end
+		pcall(function() mkSmoke(mkPart(cen), LITE and 8 or 18, 0.8) end)
+
+		local bp, bc, lastN = {}, {}, 0
+		local stage, boxShown, ph = 1, false, 0
+		local exploded, T4, ring = false, 0, nil
+		local di = 1
+		local dead = false
+		local T0 = os.clock()
+		local function cleanup()
+			if dead then return end
+			dead = true
+			pcall(function() hl:Destroy() end)
+			pcall(function() model:Destroy() end)
+			pcall(function() folder:Destroy() end)
+			for _, e in ipairs(extras) do pcall(function() e:Destroy() end) end
+		end
+
+		local function explode()
+			exploded = true
+			local ep = mkPart(boxCenter + V3(0, 0.5 * B, 0))
+			local conf = Instance.new("ParticleEmitter")
+			conf.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			conf.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, gold),
+				ColorSequenceKeypoint.new(0.5, WHITE),
+				ColorSequenceKeypoint.new(1, bodyC:Lerp(WHITE, 0.3)),
+			})
+			conf.LightEmission = 1
+			conf.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.8 * S), NumberSequenceKeypoint.new(1, 0) })
+			conf.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.2), NumberSequenceKeypoint.new(1, 1) })
+			conf.Lifetime = NumberRange.new(0.9, 1.7)
+			conf.Speed = NumberRange.new(40, 120)
+			conf.SpreadAngle = Vector2.new(180, 180)
+			conf.Acceleration = V3(0, -50, 0)
+			conf.Drag = 1.5
+			conf.Rotation = NumberRange.new(0, 360)
+			conf.RotSpeed = NumberRange.new(-240, 240)
+			conf.Rate = 0
+			conf.Parent = ep
+			conf:Emit(LITE and 35 or AC.Confetti)
+			pcall(mkSmoke, ep, LITE and 14 or 30, 2.2)
+			-- V87: explosao grande: visual + empurrao no SEU boneco (impulso por distancia)
+			pcall(function()
+				local ex = Instance.new("Explosion")
+				ex.Position = boxCenter
+				ex.BlastRadius = AC.BlastRadius * 0.5
+				ex.BlastPressure = 0
+				ex.DestroyJointRadiusPercent = 0
+				ex.ExplosionType = Enum.ExplosionType.NoCraters
+				ex.Parent = workspace
+			end)
+			pcall(function()
+				local ch, hum, rpart = charParts()
+				if not (ch and hum and rpart) then return end
+				local d = rpart.Position - boxCenter
+				local dist = d.Magnitude
+				if dist >= AC.BlastRadius then return end
+				local dir = (dist < 0.1) and V3(0, 1, 0) or (d / dist)
+				local power = AC.BlastPush * (1 - dist / AC.BlastRadius)
+				dir = (V3(dir.X, 0, dir.Z).Unit * 0.8 + V3(0, 0.6, 0)).Unit
+				if dir ~= dir then dir = V3(0, 1, 0) end
+				hum:ChangeState(Enum.HumanoidStateType.Freefall)
+				rpart.AssemblyLinearVelocity = rpart.AssemblyLinearVelocity + dir * power
+				rpart.AssemblyAngularVelocity = rpart.AssemblyAngularVelocity + V3(rnd:NextNumber(-1, 1), 0, rnd:NextNumber(-1, 1)) * (power * 0.05)
+			end)
+			pcall(function()
+				local snd = Instance.new("Sound")
+				snd.SoundId = AC.SoundExplode
+				snd.Volume = 1.5
+				snd.RollOffMaxDistance = 300
+				snd.Parent = ep
+				snd:Play()
+			end)
+			ring = mkPart(boxCenter)
+			ring.Shape = Enum.PartType.Ball
+			ring.Material = Enum.Material.Neon
+			ring.Color = WHITE
+			ring.Transparency = 0.2
+			-- a caixa vira estilhacos
+			for _, g in ipairs(G) do
+				local cf = g.p.CFrame
+				g.pos = cf.Position
+				g.rot = cf - cf.Position
+				g.vel = ((g.pos - boxCenter) + rndDir() * 0.6).Unit * (22 + rnd:NextNumber() * 22) + V3(0, 18 + rnd:NextNumber() * 16, 0)
+				g.axis = rndDir()
+				g.w = (rnd:NextNumber() * 2 - 1) * 12
+			end
+			glow.Brightness = 10
+		end
+
+		local job = {}
+		job.cleanup = cleanup
+		job.step = function(dt)
+			if dead then return true end
+			dt = math.min(dt, 1 / 30)
+			local t = os.clock() - T0
+
+			if di <= #destroyQ then
+				di = slice(destroyQ, di, function(p) p:Destroy() end, 0.004)
+			end
+			if hl then
+				local k = clamp(t / 0.45, 0, 1)
+				hl.FillTransparency = 0.1 + 0.9 * k
+				hl.OutlineTransparency = k
+				if k >= 1 then hl:Destroy() hl = nil end
+			end
+
+			-- estagios 1-2: pecas explodem pra fora e depois voltam pro centro da caixa
+			if t < TC then
+				local gather = t >= TA
+				if gather and stage == 1 then
+					stage = 2
+					for _, it in ipairs(fl) do
+						it.p1 = it.pos
+						it.tgt = boxCenter + rndDir() * (0.3 * B * rnd:NextNumber())
+					end
+				end
+				local k = gather and clamp((t - TA) / TB, 0, 1) or 0
+				local n = 0
+				for _, it in ipairs(fl) do
+					if not it.hid then
+						if not gather then
+							local v = it.vel + V3(0, -48 * dt, 0)
+							local pos = it.pos + v * dt
+							if pos.Y < gy + 0.25 then
+								pos = V3(pos.X, gy + 0.25, pos.Z)
+								v = V3(v.X * 0.7, math.abs(v.Y) * 0.3, v.Z * 0.7)
+							end
+							it.vel, it.pos = v, pos
+						else
+							it.pos = it.p1:Lerp(it.tgt, k * k)
+							if k > 0.92 then
+								it.hid = true
+								it.p.Transparency = 1
+							end
+						end
+						it.rot = CFrame.fromAxisAngle(it.axis, it.w * dt) * it.rot
+						n = n + 1
+						bp[n] = it.p
+						bc[n] = CFrame.new(it.pos) * it.rot
+					end
+				end
+				for j = n + 1, lastN do bp[j] = nil bc[j] = nil end
+				lastN = n
+				if n > 0 then workspace:BulkMoveTo(bp, bc, Enum.BulkMoveMode.FireCFrameChanged) end
+			elseif stage < 3 then
+				stage = 3
+				for _, it in ipairs(fl) do
+					it.p.Transparency = 1
+					destroyQ[#destroyQ + 1] = it.p
+				end
+				for j = 1, lastN do bp[j] = nil bc[j] = nil end
+				lastN = 0
+			end
+
+			-- caixa: aparece (pop), treme cada vez mais forte
+			if t >= TA + 0.3 and t < TD then
+				if not boxShown then
+					boxShown = true
+					for _, g in ipairs(G) do g.p.Transparency = 0 end
+				end
+				local sc, hop, flash, rotC = 1, 0, 0, CFrame.new()
+				if t < TC then
+					sc = backOut(clamp((t - TA - 0.3) / 0.45, 0, 1))
+				else
+					local kc = clamp((t - TC) / AC.BoxShake, 0, 1)
+					ph = ph + dt * (9 + 38 * kc)
+					local amp = 0.03 + 0.2 * kc * kc
+					rotC = CFrame.Angles(math.sin(ph) * amp, math.sin(ph * 0.7) * amp * 0.5, math.cos(ph * 1.1) * amp)
+					sc = 1 + 0.07 * kc + 0.04 * kc * math.sin(ph * 2)
+					hop = math.max(0, math.sin(ph * 1.3)) * 0.1 * B * kc
+					flash = (0.5 + 0.5 * math.sin(ph * 2)) * kc
+					glow.Brightness = 3 * kc
+				end
+				setBox(boxCF * rotC, sc, hop, flash)
+			end
+
+			-- explosao
+			if t >= TD then
+				if not exploded then
+					T4 = t
+					explode()
+				end
+				local te = t - T4
+				glow.Brightness = 10 * (1 - clamp(te / 0.5, 0, 1))
+				if ring then
+					local k = clamp(te / 0.45, 0, 1)
+					local d = 2 * AC.BlastRadius * easeOut(k) + 1
+					ring.Size = V3(d, d, d)
+					ring.Transparency = 0.2 + 0.8 * k
+				end
+				local fade = clamp((te - 0.8) / 0.5, 0, 1)
+				for _, g in ipairs(G) do
+					local v = g.vel + V3(0, -55 * dt, 0)
+					local pos = g.pos + v * dt
+					if pos.Y < gy + 0.2 then
+						pos = V3(pos.X, gy + 0.2, pos.Z)
+						v = V3(v.X * 0.6, math.abs(v.Y) * 0.35, v.Z * 0.6)
+					end
+					g.vel, g.pos = v, pos
+					g.rot = CFrame.fromAxisAngle(g.axis, g.w * dt) * g.rot
+					g.p.CFrame = CFrame.new(pos) * g.rot
+					g.p.Transparency = fade
+				end
+				if te >= 2.2 then
+					cleanup()
+					return true
+				end
+			end
+			return false
+		end
+		startJob(job)
+	end
+end
+
+local function despawnBike(instant)
 	if c then
-		if c.driver then
-			c.driver = false
+		local cc = c
+		if cc.driver then
+			cc.driver = false
 			releaseChar(true)
 		end
-		pcall(function() c.model:Destroy() end)
+		if cc.anim then pcall(cc.anim.abort) end
+		if cc.arrive then pcall(Kick.finish, cc) end
 		c = nil
+		local animated = false
+		if not instant and Config.Anim.Enabled and cc.model and cc.model.Parent then
+			animated = pcall(Anim.despawn, cc)
+		end
+		if not animated then
+			pcall(function() cc.model:Destroy() end)
+		end
 	end
 	soundStep(nil)
 end
@@ -2601,18 +4141,32 @@ local function spawnBike()
 	local look = rpart.CFrame.LookVector
 	local flat = V3(look.X, 0, look.Z)
 	if flat.Magnitude < 0.01 then flat = V3(0, 0, -1) else flat = flat.Unit end
-	local p = rpart.Position + flat * 12
+	local yaw = atan2(-flat.X, -flat.Z)
+	local AR = Config.Arrive
+	local useArrive = AR and AR.Enabled
+	local rgt = V3(cos(yaw), 0, -sin(yaw))
+	-- V90: com a chegada, ela para um pouco pro lado (a curva final passa por tras do ponto e nao por cima do jogador)
+	local p = rpart.Position + flat * 12 + rgt * (useArrive and (AR.SideOffset or 0) or 0)
 	local pr = RaycastParams.new()
 	pr.FilterType = Enum.RaycastFilterType.Exclude
 	pr.FilterDescendantsInstances = { ch }
 	local res = workspace:Raycast(p + V3(0, 15, 0), V3(0, -80, 0), pr)
 	local gy = res and res.Position.Y or (rpart.Position.Y - 3)
-	local yaw = atan2(-flat.X, -flat.Z)
+	local E = V3(p.X, gy, p.Z)
 	local M = buildBike()
-	c = newState(M, V3(p.X, gy, p.Z), yaw)
+	c = newState(M, E, yaw)
 	c.fx = makeFx(c)
 	rp.FilterDescendantsInstances = { c.model, ch }
 	c.lastChar = ch
+	local okK, ks = pcall(Kick.build, M)
+	c.kick = okK and ks or nil
+	if useArrive then
+		local okA = pcall(Kick.startArrive, c, E, yaw)
+		if not okA then
+			pcall(Kick.finish, c)
+			c.pos, c.yaw, c.vel, c.vF = E, yaw, V3(0, 0, 0), 0
+		end
+	end
 	visualsBike(c, 1 / 60)
 end
 
@@ -3021,6 +4575,7 @@ track(UIS.InputEnded:Connect(function(i)
 end))
 track(player.CharacterAdded:Connect(function()
 	if c and c.driver then c.driver = false end
+	if c then c.dis = nil end
 	saved = nil
 	pcall(releaseArms)
 	ARMS.J = nil
@@ -3331,6 +4886,29 @@ do
 				.. " | vel=" .. (c and tostring(math.floor(math.abs(c.vF))) or "-"))
 			return
 		end
+		if text == "-6" then
+			local PK = Config.Park
+			PK.Enabled = not PK.Enabled
+			say("Pe no chao quando parado: " .. (PK.Enabled and "LIGADO" or "DESLIGADO"))
+			return
+		end
+		if text == "-10" then
+			local DM = Config.Dismount
+			DM.Enabled = not DM.Enabled
+			say("Sequencia de descer da moto (pe, perna por cima, bracos, pezinho): " .. (DM.Enabled and "LIGADA" or "DESLIGADA"))
+			return
+		end
+		if text == "-4" then
+			Config.Anim.Enabled = not Config.Anim.Enabled
+			say("Animacao de despawn (caixa de presente): " .. (Config.Anim.Enabled and "LIGADA" or "DESLIGADA"))
+			return
+		end
+		local wm = (text == "-7" and "random") or (text == "-8" and "v1") or (text == "-9" and "v2") or nil
+		if wm then
+			Config.WheelieVariant.Mode = wm
+			say("Empinar: " .. (wm == "random" and "ALEATORIO (V1 ou V2)" or wm == "v1" and "V1 (sentado, puxao)" or "V2 (em pe no banco)"))
+			return
+		end
 		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
 		if not mode then return end
 		local now = os.clock()
@@ -3362,6 +4940,10 @@ do
 		say("-2 = LITE: tira detalhes pequenos (parafusos, furos dos discos, malha). Visual quase igual, mais leve.")
 		say("-3 = SUPER LITE: tira mais detalhes (frisos, desenho do pneu, dentes), sem sombras e sem a corrente. Para celular fraco.")
 		say("A moto e reconstruida ao trocar.")
+		say("Empinar: -7 = aleatorio (V1/V2), -8 = so V1 (sentado, puxao), -9 = so V2 (em pe no banco).")
+		say("-6 = liga/desliga o pe no chao quando a moto esta parada.")
+		say("-10 = liga/desliga a sequencia de descer da moto (Config.Dismount).")
+		say("-4 = liga/desliga a animacao de despawn (caixa que explode). A chegada da moto e o pezinho ficam em Config.Arrive / Config.Kickstand.")
 	end)
 end
 
@@ -3457,11 +5039,14 @@ end
 RunService:BindToRenderStep("MotoJXz", Enum.RenderPriority.Camera.Value - 1, function(dt)
 	dt = math.min(dt, 1 / 20)
 	if c and c.model.Parent then
-		autoMount()
-		stepBike(c, dt)
-		visualsBike(c, dt)
-		fxStep(c)
-		holdRider(c)
+		if not c.anim then -- V86: durante a montagem a animacao controla as pecas
+			autoMount()
+			stepBike(c, dt)
+			Kick.step(c, dt)
+			visualsBike(c, dt)
+			fxStep(c)
+			holdRider(c, dt)
+		end
 	end
 	soundStep(c)
 	hudStep(c)
@@ -3481,7 +5066,8 @@ _G.__MOTO_JXZ_CLEANUP = function()
 	pcall(releaseArms)
 	pcall(KEY.destroy)
 	for _, cn in ipairs(conns) do pcall(function() cn:Disconnect() end) end
-	despawnBike()
+	pcall(Anim.killAll)
+	despawnBike(true)
 	if hud and hud.gui then pcall(function() hud.gui:Destroy() end) end
 	if sRun then pcall(function() sRun:Destroy() end) end
 	if sIdle then pcall(function() sIdle:Destroy() end) end

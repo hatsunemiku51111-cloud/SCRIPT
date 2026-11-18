@@ -8059,22 +8059,37 @@ end
 function ANIM.solveLeg(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyFront, ez, footRotW, kneeOut)
 	local hip, knee, ankle = k.sh, k.elbow, k.ankle
 	local P = p0n * hip.C0.Position
+	local L1, L2 = k.L1, k.L2
+	local lat = (tgt - P):Dot(bodyRight) * sgn
+	if lat < -0.1 then tgt = tgt + bodyRight * sgn * (-0.1 - lat) end
 	local toT = tgt - P
 	local dist = toT.Magnitude
 	if dist < 0.05 then return end
 	local dirT = toT / dist
-	local L1, L2 = k.L1, k.L2
-	local d = math.min(dist, (L1 + L2) * 0.999)
+	local d = math.clamp(dist, (L1 + L2) * 0.55, (L1 + L2) * 0.985)
 	local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
 	local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
-	local pole = bodyFront + bodyRight * (kneeOut * sgn) + bodyUp * 0.1
-	pole = pole - dirT * pole:Dot(dirT)
-	pole = pole.Magnitude > 1e-3 and pole.Unit or bodyFront
+	local pole = bodyFront + bodyRight * (kneeOut * sgn) + bodyUp * 0.15
+	local pp = pole - dirT * pole:Dot(dirT)
+	if pp.Magnitude < 0.25 then
+		pole = bodyUp + bodyRight * (0.3 * sgn)
+		pp = pole - dirT * pole:Dot(dirT)
+	end
+	pole = pp.Magnitude > 1e-3 and pp.Unit or bodyFront
 	local E = P + dirT * a + pole * h
 	local uW = (E - P).Unit
 	local lv = (P + dirT * d) - E
 	local lW = lv.Magnitude > 1e-3 and lv.Unit or uW
-	local Ru = armRotFromTo(k.d0, p0n:VectorToObjectSpace(uW))
+	local uL = p0n:VectorToObjectSpace(uW)
+	local Ru = armRotFromTo(k.d0, uL)
+	local f0 = Ru * (k.rrSh * Vector3.new(0, 0, -1))
+	f0 = f0 - uL * f0:Dot(uL)
+	local pl = p0n:VectorToObjectSpace(pole)
+	pl = pl - uL * pl:Dot(uL)
+	if f0.Magnitude > 1e-3 and pl.Magnitude > 1e-3 then
+		local roll = math.atan2(uL:Dot(f0:Cross(pl)), f0:Dot(pl))
+		Ru = CFrame.fromAxisAngle(uL, roll) * Ru
+	end
 	local CF1 = CFrame.new(hip.C0.Position) * Ru * k.rrSh * CFrame.new(-hip.C1.Position)
 	hip.Transform = hip.Transform:Lerp(hip.C0:Inverse() * CF1 * hip.C1, ez)
 	local upperCF = p0n * CF1
@@ -8108,16 +8123,10 @@ function ANIM.inPose(c, B, u, seatCF)
 	local L0 = c.cf:PointToWorldSpace(B.L0l)
 	local fR, fL = cl(P.FloorR), cl(P.FloorL)
 	local carRot = c.cf.Rotation
-	local posR = ANIM.arc(R0, cl(P.ApexR), fR, seg(u, 0.1, 0.55))
-	local posL
-	if u < 0.62 then
-		local v = seg(u, 0.3, 0.62)
-		posL = L0:Lerp(cl(P.DangleL), v) + Vector3.yAxis * (math.sin(math.pi * v) * 0.5 * S)
-	else
-		posL = ANIM.arc(cl(P.DangleL), cl(P.ApexL), fL, seg(u, 0.8, 1))
-	end
-	R.legR = { pos = posR, rot = B.o0:Lerp(carRot, seg(u, 0.1, 0.55)), w = 1 }
-	R.legL = { pos = posL, rot = B.o0:Lerp(carRot, seg(u, 0.8, 1)), w = 1 }
+	local posL = ANIM.arc(L0, cl(P.ApexL), fL, seg(u, 0.1, 0.55))
+	local posR = ANIM.arc(R0, cl(P.ApexR), fR, seg(u, 0.32, 0.85))
+	R.legL = { pos = posL, rot = B.o0:Lerp(carRot, seg(u, 0.1, 0.55)), w = 1 }
+	R.legR = { pos = posR, rot = B.o0:Lerp(carRot, seg(u, 0.32, 0.85)), w = 1 }
 	local RP, roofL, handle = cl(P.RestHand), cl(P.RoofL), ANIM.doorHandleW(c)
 	R.armR = { pos = RP:Lerp(ANIM.wheelGrip(c, "right"), seg(u, 0.5, 0.85)), w = 1 }
 	local lp

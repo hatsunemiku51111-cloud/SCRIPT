@@ -2389,6 +2389,7 @@ do
 			warn("[Rick] planetas: nao deu pra gerar a esfera (" .. tostring(res) .. "). Ative 'Allow Mesh & Image APIs' (Permitir APIs de Mesh e Imagem) nas configuracoes do jogo, ou cole um MeshId em Sp.TEX.malha. Por enquanto: esferas lisas.")
 		end
 	end
+	Sp.SKY_ID = "rbxassetid://118061545763280" -- skybox do espaco (usada tambem na Lua)
 	Sp.SCALE = Sp.meshBase and 1.05 or 3.2
 	local MAT_SMOOTH, MAT_NEON, MAT_ICE = Enum.Material.SmoothPlastic, Enum.Material.Neon, Enum.Material.Ice
 
@@ -2756,6 +2757,7 @@ do
 			local a = t * 2 * math.pi / orb.period
 			local pos = Sp.SPACE + orb.center + Vector3.new(math.cos(a) * orb.r, math.sin(a * 0.7) * orb.r * 0.12, math.sin(a) * orb.r)
 			g.CFrame = CFrame.new(pos) * CFrame.Angles(0, -a, 0)
+			def.curPos = pos
 		end
 		return P
 	end
@@ -2852,7 +2854,7 @@ do
 
 	local DEFS = {
 		{ build = buildEarth,  off = Vector3.new(0, 0, 0),           tilt = CFrame.Angles(math.rad(23), 0, 0), earth = true, R = 950 * Sp.SCALE, name = "Terra", key = "terra" },
-		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 }, key = "lua", gR = 300 * Sp.SCALE },
+		{ build = buildMoon,   off = Vector3.new(9500, 0, 0),        tilt = CFrame.new(), orbit = { center = Vector3.zero, r = 9500, period = 360 }, dim = "lua", R = 300 * Sp.SCALE, name = "Lua", key = "lua", gR = 300 * Sp.SCALE },
 		{ build = buildDesert, off = Vector3.new(-24000, 3000, -14000), tilt = CFrame.Angles(math.rad(12), 0, math.rad(6)),  dim = "desert", R = 800 * Sp.SCALE, name = "K-22 Deserto", key = "deserto" },
 		{ build = buildIce,    off = Vector3.new(21000, 6000, -27000), tilt = CFrame.Angles(math.rad(-18), 0, 0),         dim = "ice",    R = 700 * Sp.SCALE, name = "G-7 Gelo", key = "gelo" },
 		{ build = buildNeon,   off = Vector3.new(6000, -4500, 30000), tilt = CFrame.Angles(0, 0, math.rad(10)),           dim = "neon",   R = 750 * Sp.SCALE, name = "C-35K Neon", key = "neon" },
@@ -3055,7 +3057,7 @@ do
 			if at and at.Parent then at.Parent = nil end
 			local s = Instance.new("Sky")
 			s.Name = "RickSpaceSky"
-			for _, f in ipairs({ "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp" }) do s[f] = "rbxassetid://118061545763280" end
+			for _, f in ipairs({ "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp" }) do s[f] = Sp.SKY_ID end
 			s.StarCount = 5000
 			s.CelestialBodiesShown = false
 			s.Parent = Lighting
@@ -3211,13 +3213,14 @@ do
 				if d.dim == dd.id then
 					-- sai no espaco PERTO do planeta de onde voce esta saindo,
 					-- do lado da Terra, de frente pra ele (nao voa mais em direcao a Terra)
-					local away = (-d.off).Unit
+					local offN = d.curPos and (d.curPos - SPACE) or d.off
+					local away = (-offN).Unit
 					local toPlanet = -away
 					Sp.k = 0
 					Sp.forceFull = true
 					Sp.hold = os.clock() + 1.5
 					Sp.noEnter = os.clock() + 12
-					S.pos = SPACE + d.off + away * (d.R * 1.35 + 800)
+					S.pos = SPACE + offN + away * (d.R * 1.35 + 800)
 					S.vel = away * 20
 					S.yaw = math.atan2(-toPlanet.X, -toPlanet.Z)
 					break
@@ -3265,7 +3268,7 @@ do
 			local canEnter = inSpace and S.state == "flying" and not Sp.warping and t > (Sp.noEnter or 0) and Sp.k > 0.9
 			for _, pl in ipairs(Sp.planets) do
 				local d = pl.def
-				local c = SPACE + d.off
+				local c = d.curPos or (SPACE + d.off)
 				if pl.P then for _, fn in ipairs(pl.P.anims) do fn(t, ready) end end
 				if Sp.GHOST and camera then pcall(updateGhost, pl, camera) end
 				if canEnter and (d.dim or d.earth) and (S.pos - c).Magnitude < d.R * 0.95 then
@@ -11580,6 +11583,112 @@ local function setupRickGun(character)
 						end
 					end
 
+					-- ===== v79: o jogador PEGA o drink (braco direito alcanca o copo, agarra e traz pra perto) =====
+					local GRAB = {
+						Enabled = true,    -- false: volta ao comportamento antigo (o copo voa ate voce)
+						AutoEquip = true,  -- ao pegar, o copo ja fica equipado na mao
+						WalkUp = true,     -- se voce estiver longe do balcao, anda ate o copo antes de pegar
+						Hold = V3(0.95, 1.1, -1.25), -- onde a mao fica com o copo (relativo ao seu HumanoidRootPart)
+					}
+					State.drinkGrab = GRAB
+
+					local function grabRot(cf) return cf - cf.Position end
+
+					local function grabArm(ch)
+						local sh
+						local motors = {}
+						for _, d in ipairs(ch:GetDescendants()) do
+							if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+								motors[#motors + 1] = d
+								if not sh and (d.Part1.Name == "RightUpperArm" or d.Part1.Name == "Right Arm") then sh = d end
+							end
+						end
+						if not sh then return nil end
+						local elbow, hand
+						local cur = sh
+						for _ = 1, 2 do
+							local nxt
+							for _, m in ipairs(motors) do
+								if m ~= cur and m.Part0 == cur.Part1 and not (m.Part1.Parent and m.Part1.Parent:IsA("Accessory")) then
+									local nm = m.Part1.Name:lower()
+									if nm:find("arm") or nm:find("hand") or nm:find("elbow") or nm:find("wrist") then nxt = m break end
+								end
+							end
+							if not nxt then break end
+							if not elbow then elbow = nxt else hand = nxt end
+							cur = nxt
+						end
+						if hand and not (elbow and hand.Part0 == elbow.Part1) then hand = nil end
+						local k = { sh = sh, elbow = elbow, hand = hand, sh0 = sh.C0, el0 = elbow and elbow.C0 or nil }
+						local rrSh = grabRot(sh.C0) * grabRot(sh.C1):Inverse()
+						local v1 = elbow and (elbow.C0.Position - sh.C1.Position) or V3(0, -1, 0)
+						if v1.Magnitude < 1e-3 then v1 = V3(0, -1, 0) end
+						k.rrSh, k.d0 = rrSh, rrSh * v1
+						k.L1 = sh.Part1.Size.Y * 0.95
+						if elbow then
+							k.L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
+							k.L2 = elbow.Part1.Size.Y * 0.9
+							local v2 = V3(0, -1, 0)
+							if hand then
+								local hv = hand.C0.Position - elbow.C1.Position
+								if hv.Magnitude > 1e-3 then v2 = hv end
+								k.L2 = hv.Magnitude + hand.Part1.Size.Y * 0.4
+							end
+							k.rrEl = grabRot(elbow.C0) * grabRot(elbow.C1):Inverse()
+							k.d2 = k.rrEl * v2
+						end
+						k.grip = ch:FindFirstChild("RightGripAttachment", true)
+						return k
+					end
+
+					-- escreve a pose do IK em C0 (a animacao do personagem nunca mexe em C0), compensando o Transform que ela deixou
+					local function grabApply(j, c0, B, w)
+						local T = j.Transform
+						j.C0 = c0 * T:Lerp(B, w) * T:Inverse()
+					end
+
+					local function grabSolve(k, tgt, bodyRight, bodyUp, bodyBack, w, pin)
+						local sh, elbow = k.sh, k.elbow
+						if not (sh.Parent and sh.Part0) then return end
+						local p0w = sh.Part0.CFrame
+						local P = p0w * k.sh0.Position
+						local toT = tgt - P
+						local dist = toT.Magnitude
+						if dist < 0.05 then return end
+						local dirT = toT / dist
+						local uW, lW = dirT, nil
+						if k.L2 then
+							local L1, L2 = k.L1, k.L2
+							local d = math.min(dist, (L1 + L2) * 0.999)
+							local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+							local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+							local pole
+							if pin then
+								local v = pin - (P + dirT * a)
+								v = v - dirT * v:Dot(dirT)
+								if v.Magnitude > 1e-3 then pole = v.Unit end
+							end
+							if not pole then
+								pole = bodyRight * 0.45 - bodyUp + bodyBack * 0.2
+								pole = pole - dirT * pole:Dot(dirT)
+								pole = pole.Magnitude > 1e-3 and pole.Unit or -bodyUp
+							end
+							local E = P + dirT * a + pole * h
+							uW = (E - P).Unit
+							local lv = (P + dirT * d) - E
+							lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+						end
+						local R = State.armRotFromTo(k.d0, p0w:VectorToObjectSpace(uW))
+						local CF1 = CFrame.new(k.sh0.Position) * R * k.rrSh * CFrame.new(-sh.C1.Position)
+						grabApply(sh, k.sh0, k.sh0:Inverse() * CF1 * sh.C1, w)
+						if elbow and elbow.Parent and lW and k.d2 then
+							local upperCF = p0w * CF1
+							local R2 = State.armRotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+							local CF2 = CFrame.new(k.el0.Position) * R2 * k.rrEl * CFrame.new(-elbow.C1.Position)
+							grabApply(elbow, k.el0, k.el0:Inverse() * CF2 * elbow.C1, w)
+						end
+					end
+
 					function D.make(liq)
 
 						local sL = V3(-MS, 0.5 * MS, 0)
@@ -11831,7 +11940,7 @@ local function setupRickGun(character)
 							return clicked
 						end
 
-						function dk.take(hrp)
+						function dk.takeFly(hrp)
 							local from = cur + V3(0, 0.6, 0)
 							local to = hrp and (hrp.Position + V3(0, 1.4, 0)) or (from + V3(0, 3, 0))
 							info.spark.Rate = 50
@@ -11844,12 +11953,453 @@ local function setupRickGun(character)
 							task.delay(0.8, dk.wipe)
 						end
 
+						-- v79: animacao do jogador pegando o drink
+						function dk.grab(hrp, give)
+							if not GRAB.Enabled then return false end
+							local ch = player.Character
+							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+							if not (ch and hum and hrp and hrp.Parent and hum.Health > 0 and not hum.Sit) then return false end
+							local k = grabArm(ch)
+							if not (k and k.sh.Part0) then return false end
+
+							local function flat(v) return V3(v.X, 0, v.Z) end
+							local bar = cur                       -- base do copo no balcao
+							local cupC = bar + V3(0, 0.95, 0)     -- centro do copo pousado
+							local nrm = V3(1, 0, 0)               -- o balcao fica na sua frente (+X)
+							local S = { w = 0, tgt = nil, attachT0 = nil, blendT = 0.2, tilt = 0, yaw = 0 }
+							local BIND = "RickDrinkGrab"
+							local saved = { ws = hum.WalkSpeed, ar = hum.AutoRotate }
+							pcall(function() saved.jp = hum.JumpPower; saved.jh = hum.JumpHeight end)
+							local released = false
+							local function alive() return model.Parent ~= nil and ch.Parent ~= nil and hum.Health > 0 end
+
+							local function cleanup()
+								if released then return end
+								released = true
+								pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+								S.w, S.attachT0 = 0, nil
+								pcall(function()
+									if k.sh.Parent then k.sh.C0 = k.sh0 end
+									if k.elbow and k.elbow.Parent and k.el0 then k.elbow.C0 = k.el0 end
+								end)
+								pcall(function()
+									if hum.Parent then
+										hum.WalkSpeed = saved.ws
+										hum.AutoRotate = saved.ar
+										if saved.jp then hum.JumpPower = saved.jp end
+										if saved.jh then hum.JumpHeight = saved.jh end
+										hum:Move(V3(0, 0, 0))
+									end
+								end)
+								pcall(function() info.spark.Rate = 0 end)
+							end
+
+							-- roda todo frame depois da animacao do personagem: braco por IK + copo grudado na mao
+							local function stepInner()
+								if not (model.Parent and ch.Parent and hrp.Parent) then
+									pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+									return
+								end
+								if S.tgt and S.w > 0.001 then
+									local cf = hrp.CFrame
+									grabSolve(k, S.tgt, cf.RightVector, V3(0, 1, 0), -cf.LookVector, S.w)
+								end
+								if S.attachT0 and root.Parent then
+									local a = math.clamp((os.clock() - S.attachT0) / S.blendT, 0.001, 1)
+									local hand = S.tgt
+									if k.grip and k.grip.Parent then hand = k.grip.WorldPosition + hrp.CFrame.LookVector * 0.12 end
+									if hand then
+										place(bar:Lerp(hand - V3(0, 0.95, 0), ease(a)), 0, S.yaw, S.tilt)
+									end
+								end
+							end
+
+							local function step()
+								local okS, eS = pcall(stepInner)
+								if not okS and not S.err then
+									S.err = eS
+									warnRG("animacao de pegar o drink (braco):", eS)
+								end
+							end
+
+							local ok, res = pcall(function()
+								local _, y0 = root.CFrame:ToOrientation()
+								S.yaw = y0
+								local lift0 = math.max(0, root.Position.Y - bar.Y)
+								local ph0 = math.asin(math.clamp((lift0 - 0.55) / 0.12, -1, 1))
+								local s0, tPrev = os.clock(), os.clock()
+								local settle = 0
+								-- copo continua flutuando/girando ate pousar no balcao
+								local function hoverPlace()
+									local now = os.clock()
+									local dt = math.min(now - tPrev, 0.1)
+									tPrev = now
+									local free = 1 - ease(settle)
+									S.yaw = S.yaw + dt * 1.3 * free
+									if S.attachT0 then return end
+									place(bar, (0.55 + 0.12 * sin((now - s0) * 3 + ph0)) * free, S.yaw, 0)
+								end
+
+								-- 0) anda ate o balcao se estiver longe
+								local stand = V3(bar.X - 2.0, hrp.Position.Y, bar.Z - 0.95)
+								if GRAB.WalkUp and flat(hrp.Position - stand).Magnitude > 0.8 then
+									hum:MoveTo(stand)
+									local tw = os.clock()
+									local lastP, lastT = hrp.Position, os.clock()
+									while alive() and not hum.Sit and os.clock() - tw < 3.5 and flat(hrp.Position - stand).Magnitude > 0.8 do
+										hoverPlace()
+										RunService.Heartbeat:Wait()
+										if os.clock() - lastT > 0.5 then
+											-- parou de andar (bateu no balcao): nao insiste
+											if flat(hrp.Position - lastP).Magnitude < 0.25 then break end
+											lastP, lastT = hrp.Position, os.clock()
+										end
+									end
+									hum:MoveTo(hrp.Position)
+									hum:Move(V3(0, 0, 0))
+								end
+								if not alive() or hum.Sit then return false end
+
+								hum.WalkSpeed = 0
+								hum.AutoRotate = false
+								pcall(function() hum.JumpPower = 0; hum.JumpHeight = 0 end)
+								pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+								RunService:BindToRenderStep(BIND, Enum.RenderPriority.Camera.Value - 1, step)
+
+								local look0 = flat(hrp.CFrame.LookVector)
+								if look0.Magnitude < 0.1 then look0 = nrm end
+								local cf0 = CFrame.lookAt(V3(0, 0, 0), look0.Unit)
+								local cf1 = CFrame.lookAt(V3(0, 0, 0), nrm)
+								local function faceStep(e)
+									hrp.CFrame = CFrame.new(hrp.Position) * cf0:Lerp(cf1, e)
+									hrp.AssemblyAngularVelocity = V3(0, 0, 0)
+								end
+								local pre = cupC - nrm * 0.9 + V3(0, 0.55, 0)   -- mao chega por cima/na frente do copo
+								local touch = cupC - nrm * 0.3                  -- mao envolve o copo
+
+								-- 1) vira de frente pro balcao, levanta o braco; o copo pousa
+								run(0.5, function(u)
+									local e = ease(u)
+									faceStep(e)
+									S.tgt = pre
+									S.w = e
+									settle = e
+									hoverPlace()
+								end, alive)
+								settle = 1
+
+								-- 2) mao desce e envolve o copo
+								run(0.3, function(u)
+									S.tgt = pre:Lerp(touch, ease(u))
+									hoverPlace()
+								end, alive)
+								info.spark:Emit(8)
+								ring(cupC + V3(0, -0.3, 0), liq, 2)
+
+								-- 3) agarra, levanta e traz o copo pra frente do peito
+								local Hh = hrp.CFrame * GRAB.Hold
+								local Cc = (touch + Hh) / 2 + V3(0, 0.7, 0)
+								local dErr = (k.grip and k.grip.Parent) and (k.grip.WorldPosition - cupC).Magnitude or 0.3
+								S.blendT = math.clamp(dErr * 0.25, 0.1, 0.6)
+								S.attachT0 = os.clock()
+								info.spark.Rate = 30
+								run(0.8, function(u)
+									local e = ease(u)
+									S.tgt = bez(touch, Cc, Hh, e)
+									S.tilt = -0.18 * sin(e * pi)
+								end, alive)
+								info.spark.Rate = 0
+
+								-- 4) brinde rapidinho
+								run(0.35, function(u)
+									S.tgt = Hh + V3(0, 0.08 * sin(u * pi), 0)
+									S.tilt = 0.1 * sin(u * pi * 2)
+								end, alive)
+
+								-- 5) o copo vira o item da mao (Tool) com brilho
+								if model.Parent then
+									info.spark:Emit(35)
+									ring(Hh, liq, 5)
+									give()
+									RunService.Heartbeat:Wait()
+								end
+								S.attachT0 = nil
+								dk.wipe()
+
+								-- 6) braco volta pro controle da animacao
+								run(0.35, function(u) S.w = 1 - ease(u) end, alive)
+								return true
+							end)
+							cleanup()
+							if not ok then error(res, 0) end
+							return res
+						end
+
+						function dk.take(hrp, giveFn)
+							local given = false
+							local function give()
+								if given then return end
+								given = true
+								if giveFn then return giveFn() end
+							end
+							local ok, res = pcall(dk.grab, hrp, give)
+							if not (ok and res) then
+								if not ok then warnRG("animacao de pegar o drink:", res) end
+								if given then
+									pcall(dk.wipe)
+								else
+									dk.takeFly(hrp)
+									give()
+								end
+							end
+						end
+
 						function dk.expire()
 							info.spark:Emit(30)
 							ring(cur + V3(0, 0.5, 0), liq, 4)
 							task.delay(0.6, dk.wipe)
 						end
 						return dk
+					end
+
+					-- ===== v82: animacao de BEBER o drink (braco sobe, copo inclina na boca, cabeca pra tras, goles) =====
+					local SIP = {
+						Enabled = true,   -- false: volta ao comportamento antigo (copo so desce e estoura)
+						Raise = 0.55,     -- tempo levando o copo ate a boca
+						Tilt = 0.5,       -- tempo inclinando o copo
+						Sip = 1.4,        -- tempo bebendo (o liquido vai baixando)
+						Lower = 0.55,     -- tempo abaixando o braco
+						HeadBack = 0.32,  -- quanto a cabeca vai pra tras (radianos)
+						Gulps = 3,        -- numero de goles
+					}
+					State.drinkSip = SIP
+
+					-- v83: acha o tampo do balcao na frente do jogador (raycast pra baixo, ignora coisas pequenas como copos)
+					local function sipTop(origin, ch, y0)
+						local rp = RaycastParams.new()
+						rp.FilterType = Enum.RaycastFilterType.Exclude
+						local ig = { ch }
+						for _ = 1, 6 do
+							rp.FilterDescendantsInstances = ig
+							local r = workspace:Raycast(origin, V3(0, -16, 0), rp)
+							if not r then return nil end
+							local inst = r.Instance
+							if inst:IsA("Terrain") or r.Position.Y < y0 - 1.2 then return nil end
+							if r.Normal.Y > 0.9 and r.Position.Y < y0 + 3.5 and inst.Size.X > 1.5 and inst.Size.Z > 1.5 then
+								return r.Position
+							end
+							ig[#ig + 1] = inst
+						end
+						return nil
+					end
+
+					-- devolve: ponto da borda do tampo, ponto pra pousar o copo, distancia
+					local function sipCounter(ch, hrp, look)
+						local y0 = hrp.Position.Y
+						for d = 1.5, 6.01, 0.5 do
+							local edge = sipTop(hrp.Position + look * d + V3(0, 8, 0), ch, y0)
+							if edge then
+								local p2 = sipTop(hrp.Position + look * (d + 1.0) + V3(0, 8, 0), ch, y0)
+								local put = (p2 and math.abs(p2.Y - edge.Y) < 0.3) and p2 or (edge + look * 0.5)
+								return edge, put, d
+							end
+						end
+						return nil
+					end
+
+					-- v83: copo vazio fica no balcao; depois de um tempo o Morty recolhe
+					function D.placeCup(pos, liq, sc, yaw)
+						local ok, parts, inf = pcall(cup, pos, liq, true, nil, sc)
+						if not (ok and parts and inf and inf.root) then return false end
+						pcall(function() inf.root.CFrame = CFrame.new(pos) * CFrame.Angles(0, yaw or 0, 0) end)
+						task.delay(10, function()
+							if not model.Parent then return end
+							pcall(function() inf.spark:Emit(25) end)
+							pcall(ring, pos + V3(0, 0.6, 0), liq, 2)
+							task.delay(0.35, function()
+								for _, pt in ipairs(parts) do pcall(function() pt:Destroy() end) end
+							end)
+						end)
+						return true
+					end
+
+					function D.sipAnim(tool, info, gripPos, sc, fire, onPlaced)
+						if not SIP.Enabled then return false end
+						local ch = player.Character
+						local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+						local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+						local chHead = ch and ch:FindFirstChild("Head")
+						if not (ch and hum and hrp and chHead and hum.Health > 0 and tool.Parent == ch) then return false end
+						local k = grabArm(ch)
+						if not (k and k.sh.Part0 and k.grip) then return false end
+
+						local neck = ch:FindFirstChild("Neck", true)
+						if not (neck and neck:IsA("Motor6D") and neck.Part0) then neck = nil end
+						local neck0 = neck and neck.C0
+						local BIND = "RickDrinkSip"
+						local rimH = 0.95 * sc
+						local Y = V3(0, 1, 0)
+						local S = { w = 0, reach = 0, tilt = 0, head = 0, bob = 0, blend = 0, put = 0, gone = false }
+						local startLocal = hrp.CFrame:PointToObjectSpace(k.grip.WorldPosition)
+						local saved = { ws = (hum.WalkSpeed > 0 and hum.WalkSpeed or 16), ar = hum.AutoRotate }
+						pcall(function() saved.jp = hum.JumpPower; saved.jh = hum.JumpHeight end)
+						local released = false
+						local function alive() return ch.Parent ~= nil and hum.Health > 0 and tool.Parent == ch end
+						local function alive2() return ch.Parent ~= nil and hum.Health > 0 end
+
+						-- balcao na frente (pra apoiar o cotovelo quando sentado e pra pousar o copo vazio)
+						local flook = V3(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+						flook = flook.Magnitude > 0.05 and flook.Unit or -hrp.CFrame.LookVector
+						local edge, putPos = sipCounter(ch, hrp, flook)
+						local restGoal = putPos and (putPos + Y * rimH) or nil
+						local seated = hum.Sit and edge ~= nil
+						if seated then
+							-- cotovelo direito apoiado na borda do balcao
+							S.pin = edge + flook * 0.35 + hrp.CFrame.RightVector * 0.45 + Y * 0.05
+						end
+
+						local function cleanup()
+							if released then return end
+							released = true
+							pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+							pcall(function()
+								if k.sh.Parent then k.sh.C0 = k.sh0 end
+								if k.elbow and k.elbow.Parent and k.el0 then k.elbow.C0 = k.el0 end
+								if neck and neck.Parent then neck.C0 = neck0 end
+							end)
+							pcall(function()
+								if hum.Parent then
+									hum.WalkSpeed = saved.ws
+									hum.AutoRotate = saved.ar
+									if saved.jp then hum.JumpPower = saved.jp end
+									if saved.jh then hum.JumpHeight = saved.jh end
+								end
+							end)
+							pcall(function() if tool.Parent then tool.Grip = gripPos end end)
+						end
+
+						local function stepInner()
+							if not (ch.Parent and hrp.Parent and chHead.Parent) then
+								pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+								return
+							end
+							local cf = hrp.CFrame
+							local look = V3(cf.LookVector.X, 0, cf.LookVector.Z)
+							look = look.Magnitude > 0.05 and look.Unit or -cf.LookVector
+
+							-- cabeca pra tras (rotacao em torno do eixo direito do corpo, em torno do pescoco)
+							if neck and neck.Parent and S.head > 0.001 then
+								local Dw = neck.Part0.CFrame * neck0
+								local rot = Dw - Dw.Position
+								local Rw = CFrame.fromAxisAngle(cf.RightVector, S.head)
+								neck.C0 = neck0 * (rot:Inverse() * Rw * rot)
+							end
+
+							local up = Y * math.cos(S.tilt) - look * math.sin(S.tilt)
+							local mouth = chHead.CFrame * V3(0, -chHead.Size.Y * 0.18, -chHead.Size.Z * 0.5 - 0.02)
+							local off = 0.5 - 0.48 * math.clamp(S.tilt / 1.6, 0, 1)
+							local goal = mouth - up * rimH + look * off + Y * S.bob
+							if restGoal and S.put > 0 then goal = goal:Lerp(restGoal, ease(S.put)) end
+							local start = cf:PointToWorldSpace(startLocal)
+							local tgt = start:Lerp(goal, ease(S.reach))
+							if S.w > 0.001 then
+								grabSolve(k, tgt, cf.RightVector, Y, -cf.LookVector, S.w, S.pin)
+							end
+
+							-- orientacao do copo: controlada direto pelo Grip da Tool
+							if S.gone or not tool.Parent then return end
+							local A = k.grip.Parent and k.grip.WorldCFrame
+							if A and S.blend > 0.001 then
+								local aRot = A - A.Position
+								local want = CFrame.fromMatrix(V3(0, 0, 0), cf.RightVector, up)
+								local rot = aRot:Lerp(want, ease(S.blend))
+								local handleCF = CFrame.new(A.Position) * rot * CFrame.new(0, -rimH, 0)
+								tool.Grip = handleCF:Inverse() * A
+							end
+						end
+
+						local function step()
+							local ok, e = pcall(stepInner)
+							if not ok and not S.err then
+								S.err = e
+								warnRG("animacao de beber:", e)
+							end
+						end
+
+						local ok, res = pcall(function()
+							hum.WalkSpeed = 0
+							hum.AutoRotate = false
+							pcall(function() hum.JumpPower = 0; hum.JumpHeight = 0 end)
+							pcall(function() RunService:UnbindFromRenderStep(BIND) end)
+							RunService:BindToRenderStep(BIND, Enum.RenderPriority.Camera.Value - 1, step)
+
+							-- 1) leva o copo ate a frente da boca
+							run(SIP.Raise, function(u)
+								local e = ease(u)
+								S.w = math.min(1, u * 2.5)
+								S.reach, S.blend, S.tilt = e, e, 0.35 * e
+							end, alive)
+
+							-- 2) inclina o copo e joga a cabeca pra tras
+							run(SIP.Tilt, function(u)
+								local e = ease(u)
+								S.tilt = 0.35 + (1.9 - 0.35) * e
+								S.head = SIP.HeadBack * e
+							end, alive)
+
+							-- 3) bebe: copo inclina mais, liquido baixa, goles
+							local lastG = 0
+							run(SIP.Sip, function(u)
+								S.tilt = 1.9 + 0.25 * ease(u)
+								S.head = SIP.HeadBack * (1 + 0.15 * math.sin(u * math.pi))
+								info.fill(1 - math.clamp((u - 0.05) / 0.85, 0, 1))
+								-- goles: pequenos pulinhos da mao + faiscas
+								local g = u * SIP.Gulps
+								local gi = math.floor(g)
+								S.bob = 0.045 * math.sin((g - gi) * math.pi) * (u < 0.92 and 1 or 0)
+								if gi > lastG and gi <= SIP.Gulps then
+									lastG = gi
+									pcall(function() info.spark:Emit(4) end)
+								end
+							end, alive)
+							S.bob = 0
+							info.fill(0)
+
+							-- 4) abaixa o copo
+							if restGoal then
+								-- pousa o copo vazio no balcao
+								run(SIP.Lower, function(u)
+									local e = ease(u)
+									S.tilt = 2.15 * (1 - e)
+									S.head = SIP.HeadBack * (1 - e)
+									S.put = e
+								end, alive)
+								run(0.12, function() end, alive)
+								if alive() and onPlaced then
+									local _, yaw = hrp.CFrame:ToOrientation()
+									if onPlaced(putPos, yaw) then S.gone = true end
+								end
+								-- 5) solta o copo e devolve o braco pra animacao normal
+								run(0.3, function(u) S.w = 1 - ease(u) end, alive2)
+							else
+								-- sem balcao por perto: abaixa o braco e segue (o copo estoura depois, como antes)
+								run(SIP.Lower, function(u)
+									local e = ease(u)
+									S.tilt = 2.15 * (1 - e) + 0.3 * e
+									S.head = SIP.HeadBack * (1 - e)
+									S.reach = 1 - e
+									S.w = 1 - ease(math.clamp((u - 0.35) / 0.65, 0, 1))
+									S.blend = 1 - ease(math.clamp((u - 0.5) / 0.5, 0, 1))
+								end, alive)
+							end
+							return true
+						end)
+						cleanup()
+						if not ok then
+							warnRG("animacao de beber:", res)
+							return false
+						end
+						return res
 					end
 
 					function D.giveTool(fl, onDrink)
@@ -11873,16 +12423,29 @@ local function setupRickGun(character)
 							drinking = true
 							tool.Enabled = false
 							local fired = false
-							run(1.1, function(k)
-								local e = ease(math.min(1, k / 0.8))
-
-								tool.Grip = gripPos * ANG(-2.0 * e, 0, 0) * CFrame.new(0, -1.0 * e, -0.5 * e)
-								info.fill(1 - math.clamp((k - 0.4) / 0.5, 0, 1))
-								if k > 0.45 and not fired then
-									fired = true
-									if onDrink then task.spawn(onDrink) end
-								end
-							end, function() return tool.Parent ~= nil end)
+							local function fire()
+								if fired then return end
+								fired = true
+								if onDrink then task.spawn(onDrink) end
+							end
+							-- v82: animacao de beber (braco + copo + cabeca); se falhar, usa a antiga
+							local placedCup = false
+							local function onPlaced(pos, yaw)
+								placedCup = D.placeCup(pos, liq, sc, yaw)
+								if placedCup then pcall(function() tool:Destroy() end) end
+								return placedCup
+							end
+							local okS, doneS = pcall(D.sipAnim, tool, info, gripPos, sc, fire, onPlaced)
+							if not placedCup and not (okS and doneS) then
+								run(1.1, function(k)
+									local e = ease(math.min(1, k / 0.8))
+									tool.Grip = gripPos * ANG(-2.0 * e, 0, 0) * CFrame.new(0, -1.0 * e, -0.5 * e)
+									info.fill(1 - math.clamp((k - 0.4) / 0.5, 0, 1))
+									if k > 0.45 then fire() end
+								end, function() return tool.Parent ~= nil end)
+							end
+							fire()
+							if placedCup then return end -- copo vazio ficou no balcao: sem estouro
 
 							local pos = handle.Position
 							local fxp = Instance.new("Part")
@@ -11938,6 +12501,11 @@ local function setupRickGun(character)
 						end)
 						local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
 						tool.Parent = bp or player.Character
+						if GRAB.Enabled and GRAB.AutoEquip then
+							local chE = player.Character
+							local hmE = chE and chE:FindFirstChildOfClass("Humanoid")
+							if hmE and hmE.Health > 0 then pcall(function() hmE:EquipTool(tool) end) end
+						end
 						return tool
 					end
 					return D
@@ -12741,8 +13309,9 @@ local function setupRickGun(character)
 							dk.slide(zc)
 							if dk.offer(40) then
 								local ch2 = player.Character
-								dk.take(ch2 and ch2:FindFirstChild("HumanoidRootPart"))
-								DR.giveTool(fl, function() local okD, eD = pcall(drinkEffect, fl); if not okD then warnRG("efeito da bebida:", eD) end end)
+								dk.take(ch2 and ch2:FindFirstChild("HumanoidRootPart"), function()
+									return DR.giveTool(fl, function() local okD, eD = pcall(drinkEffect, fl); if not okD then warnRG("efeito da bebida:", eD) end end)
+								end)
 								diz("toma")
 							else
 								dk.expire()
@@ -15658,6 +16227,315 @@ local function setupRickGun(character)
 			end
 		end
 
+		-- v85: dimensao da Lua (so se entra voando pelo espaco; fora do menu da Portal Gun)
+		local function buildMoon(model, O, r, def)
+			local cos, sin, pi = math.cos, math.sin, math.pi
+			local V3, CF, ANG = Vector3.new, CFrame.new, CFrame.Angles
+			local function rnd(a, b) return r:NextNumber(a, b) end
+			local function W(x, y, z) return O + V3(x, y, z) end
+			local DUST, DARK, ROCK = C(142, 142, 150), C(96, 96, 106), C(118, 118, 126)
+			local GREEN, GLASSC, STEEL = C(90, 255, 120), C(185, 235, 255), C(70, 70, 82)
+			local ups = {}
+
+			-- ===== TERRENO LUNAR: Terrain suave gerado por mapa de alturas (Hf) =====
+			-- Hf(x, z) devolve a altura (relativa a O.Y) e um "tipo" de material. A mesma funcao posiciona as pedras/cristais.
+			local sqrt, exp, abs, noise, atan2 = math.sqrt, math.exp, math.abs, math.noise, math.atan2
+			local function sstep(lo, hi, v)
+				local t = (v - lo) / (hi - lo)
+				t = t < 0 and 0 or (t > 1 and 1 or t)
+				return t * t * (3 - 2 * t)
+			end
+			local SEED = rnd(0, 500)
+			local PADX, PADZ = 0, -30                -- plataforma de pouso: sempre plana
+			local EARTH_AZ = atan2(740, -520)        -- direcao da Terra no ceu (montanhas ficam baixas ali)
+
+			-- crateres: a = raio da borda, d = profundidade, rim = altura da borda
+			local craters = {}
+			local function addCrater(minD, maxD, minA, maxA)
+				local ang, dist, a = rnd(0, 2 * pi), rnd(minD, maxD), rnd(minA, maxA)
+				craters[#craters + 1] = { x = cos(ang) * dist, z = sin(ang) * dist, a = a, d = a * rnd(0.26, 0.36), rim = a * rnd(0.10, 0.16), peak = a >= 90 }
+			end
+			for _ = 1, 6 do addCrater(250, 780, 100, 170) end
+			for _ = 1, 12 do addCrater(120, 820, 45, 90) end
+			for _ = 1, 18 do addCrater(90, 900, 20, 40) end
+
+			-- macicos de montanha soltos no meio do mapa
+			local massifs = {}
+			for _ = 1, 6 do
+				local ang, dist = rnd(0, 2 * pi), rnd(300, 650)
+				massifs[#massifs + 1] = { x = cos(ang) * dist, z = sin(ang) * dist, R = rnd(130, 240), H = rnd(70, 150) }
+			end
+
+			local function Hf(x, z)
+				local dpx, dpz = x - PADX, z - PADZ
+				local flat = sstep(70, 190, sqrt(dpx * dpx + dpz * dpz))   -- 0 = plano (pouso)
+				local rho = sqrt(x * x + z * z)
+
+				-- relevo ondulado: inclinacoes suaves + ondulacoes medias + rugosidade fina
+				local h = noise(x * 0.0026 + SEED, z * 0.0026, SEED * 0.3) * 52
+					+ noise(x * 0.011, z * 0.011 + SEED, 7.7) * 16
+					+ noise(x * 0.047 + SEED, z * 0.047, 3.3) * 3.2
+
+				-- crateres: bacia de fundo plano + borda elevada + pico central nos grandes
+				local bowl, bump, peaks, dark, light = 0, 0, 0, false, false
+				for i = 1, #craters do
+					local c = craters[i]
+					local dx, dz = x - c.x, z - c.z
+					local ex = c.a * 2.2
+					if dx < ex and dx > -ex and dz < ex and dz > -ex then
+						local q = sqrt(dx * dx + dz * dz) / c.a
+						if q < 1 then
+							bowl = bowl - c.d * math.min(1, (1 - q * q) * 1.6)
+							if c.peak then peaks = peaks + c.d * 0.32 * exp(-(q / 0.13) ^ 2) end
+							if c.a > 60 and q < 0.6 then dark = true end
+						end
+						local rb = c.rim * exp(-((q - 1.02) / 0.3) ^ 2)
+						bump = bump + rb
+						if rb > c.rim * 0.45 then light = true end
+					end
+				end
+				if bowl < -40 then bowl = -40 end
+				h = h + bowl + bump + peaks
+
+				-- macicos
+				for i = 1, #massifs do
+					local m = massifs[i]
+					local dx, dz = x - m.x, z - m.z
+					local dd = sqrt(dx * dx + dz * dz) / m.R
+					if dd < 1 then
+						local ridge = 1 - abs(noise(x * 0.013 + SEED, z * 0.013, 1.9) * 2)
+						h = h + m.H * (1 - dd) ^ 1.5 * (0.7 + 0.5 * ridge * ridge)
+					end
+				end
+
+				-- cordilheira em volta (esconde a borda do mapa); baixa na direcao da Terra
+				local da = abs(atan2(z, x) - EARTH_AZ)
+				if da > pi then da = 2 * pi - da end
+				local sector = 1 - 0.78 * exp(-(da / 0.4) ^ 2)
+				local ridge2 = 1 - abs(noise(x * 0.0042 + SEED, z * 0.0042, 5.1) * 2)
+				h = h + sstep(540, 900, rho) * (80 + 170 * ridge2 * ridge2) * sector
+
+				h = h * flat
+				local tag = 0                       -- 0 regolito, 1 rocha, 2 borda clara, 3 piso escuro
+				if h > 55 then tag = 1 elseif dark then tag = 3 elseif light then tag = 2 end
+				return h, tag
+			end
+
+			local MT = { [0] = Enum.Material.Sand, [1] = Enum.Material.Rock, [2] = Enum.Material.Limestone, [3] = Enum.Material.Basalt }
+			local terrainOK = false
+			local function HH(x, z)
+				if not terrainOK then return 0 end
+				return (Hf(x, z))
+			end
+
+			local function buildTerrain()
+				local T = workspace.Terrain
+				local RES, HALF, BOT, TILE = 4, 1000, -48, 25
+				local tiles = HALF * 2 / (RES * TILE)
+				local AIR, SLATE = Enum.Material.Air, Enum.Material.Slate
+				local n = 0
+				for tx = 0, tiles - 1 do
+					for tz = 0, tiles - 1 do
+						local wx0, wz0 = -HALF + tx * TILE * RES, -HALF + tz * TILE * RES
+						local hs, tg, top = table.create(TILE), table.create(TILE), 0
+						for i = 1, TILE do
+							local hrow, trow = table.create(TILE), table.create(TILE)
+							for k = 1, TILE do
+								local h, t = Hf(wx0 + (i - 0.5) * RES, wz0 + (k - 0.5) * RES)
+								hrow[k], trow[k] = h, t
+								if h > top then top = h end
+							end
+							hs[i], tg[i] = hrow, trow
+						end
+						local ny = math.max(math.ceil((top + 4 - BOT) / RES), 14)
+						local mats, occs = table.create(TILE), table.create(TILE)
+						for i = 1, TILE do
+							local mi, oi = table.create(ny), table.create(ny)
+							local hrow, trow = hs[i], tg[i]
+							for j = 1, ny do
+								local mj, oj = table.create(TILE), table.create(TILE)
+								local yc = BOT + (j - 0.5) * RES
+								for k = 1, TILE do
+									local depth = hrow[k] - yc
+									local occ = 0.5 + depth / RES
+									if occ >= 1 then
+										mj[k], oj[k] = (depth > 12) and SLATE or MT[trow[k]], 1
+									elseif occ > 0 then
+										mj[k], oj[k] = MT[trow[k]], occ
+									else
+										mj[k], oj[k] = AIR, 0
+									end
+								end
+								mi[j], oi[j] = mj, oj
+							end
+							mats[i], occs[i] = mi, oi
+						end
+						local mn = Vector3.new(O.X + wx0, O.Y + BOT, O.Z + wz0)
+						T:WriteVoxels(Region3.new(mn, mn + Vector3.new(TILE * RES, ny * RES, TILE * RES)), RES, mats, occs)
+						n = n + 1
+						if n % 4 == 0 then task.wait() end
+					end
+				end
+				-- area usada (pra limpar quando o script for destruido)
+				def.terrainBox = { cf = CFrame.new(O.X, O.Y + 170, O.Z), size = Vector3.new(2016, 470, 2016) }
+			end
+
+			local okT, errT = pcall(buildTerrain)
+			if okT then
+				terrainOK = true
+			else
+				warnRG("lua/terreno (usando chao reto):", errT)
+				mk(model, V3(2000, 2, 2000), W(0, -1, 0), DUST, M.Sand, {solid = true})
+				for i = 1, 22 do   -- montanhas de bolas (so no modo reserva)
+					local a = i / 22 * 2 * pi
+					local d = rnd(260, 460)
+					local rr = rnd(820, 950)
+					ball(model, d, W(cos(a) * rr, d * 0.18, sin(a) * rr), ROCK, M.Slate, {solid = true})
+				end
+			end
+
+			-- mantem a chegada e o pouso livres
+			local function free(x, z, rad)
+				if x * x + (z + 30) * (z + 30) < (80 + rad) ^ 2 then return false end
+				return true
+			end
+
+			-- pedras angulares: grandes = blocos girados esculpidos no Terrain (mesma textura das montanhas),
+			-- pequenas = aglomerado de blocos. Nada de elipsoides lisos ("ovos").
+			local ROCKMATS = { Enum.Material.Rock, Enum.Material.Rock, Enum.Material.Basalt, Enum.Material.Slate }
+			local rockCount = 0
+			local function rock(x, z, sz)
+				local y = HH(x, z)
+				if terrainOK and sz >= 4.5 then
+					local T = workspace.Terrain
+					local mat = ROCKMATS[r:NextInteger(1, #ROCKMATS)]
+					for _ = 1, r:NextInteger(2, 4) do
+						local s2 = sz * rnd(0.55, 1.0)
+						local off = V3(rnd(-0.5, 0.5) * sz, rnd(-0.1, 0.25) * sz, rnd(-0.5, 0.5) * sz)
+						T:FillBlock(CF(W(x, y + sz * 0.22, z) + off) * ANG(rnd(0, pi), rnd(0, pi), rnd(0, pi)),
+							V3(s2 * rnd(0.9, 1.5), s2 * rnd(0.6, 1.1), s2 * rnd(0.9, 1.4)), mat)
+					end
+					rockCount = rockCount + 1
+					if rockCount % 40 == 0 then task.wait() end
+				else
+					for _ = 1, r:NextInteger(2, 3) do
+						local s2 = sz * rnd(0.5, 0.9)
+						mk(model, V3(s2 * rnd(0.9, 1.5), s2 * rnd(0.6, 1.0), s2 * rnd(0.9, 1.3)),
+							CF(W(x + rnd(-0.4, 0.4) * sz, y + sz * 0.15, z + rnd(-0.4, 0.4) * sz)) * ANG(rnd(0, pi), rnd(0, pi), rnd(0, pi)),
+							ROCK:Lerp(DARK, rnd(0, 0.6)), M.Slate, {solid = true})
+					end
+				end
+			end
+
+			-- pedras soltas (seguem o relevo)
+			for _ = 1, 110 do
+				local ang, dist = rnd(0, 2 * pi), rnd(50, 950)
+				local x, z = cos(ang) * dist, sin(ang) * dist
+				if free(x, z, 8) then rock(x, z, rnd(2, 10)) end
+			end
+
+			-- blocos de ejecao na borda dos crateres
+			for _, c in ipairs(craters) do
+				if c.a >= 40 then
+					for _ = 1, math.floor(c.a * 0.25) + 4 do
+						local a = rnd(0, 2 * pi)
+						local q = c.a * rnd(0.92, 1.35)
+						local x, z = c.x + cos(a) * q, c.z + sin(a) * q
+						if free(x, z, 8) then rock(x, z, math.min(rnd(1.4, 3.4) * (c.a / 30 + 0.6), 14)) end
+					end
+				end
+			end
+
+			-- plataforma de pouso (a chegada fica em cima dela)
+			column(model, 0.3, 44, W(0, 0.15, -30), STEEL, M.Metal, {solid = true})
+			column(model, 0.06, 38, W(0, 0.33, -30), GREEN, M.Neon, {shadow = false, trans = 0.35})
+			column(model, 0.08, 31, W(0, 0.35, -30), STEEL, M.Metal, {shadow = false})
+			local beacons = {}
+			for i = 0, 3 do
+				local a = i * pi / 2 + pi / 4
+				beacons[#beacons + 1] = ball(model, 1.6, W(cos(a) * 21, 1.1, -30 + sin(a) * 21), C(255, 60, 60), M.Neon, {shadow = false})
+			end
+			ups[#ups + 1] = function(t)
+				for i, b in ipairs(beacons) do
+					b.Transparency = 0.1 + 0.75 * (0.5 + 0.5 * sin(t * 3 + i * 1.6))
+				end
+			end
+
+			-- ceu: agora e o mesmo Sky do espaco (aplicado em applyDimension, spaceSky = true)
+
+			-- cristais de fluido de portal
+			for _ = 1, 8 do
+				local ang, dist = rnd(0, 2 * pi), rnd(90, 650)
+				local x, z = cos(ang) * dist, sin(ang) * dist
+				if free(x, z, 10) then
+					local first
+					for _ = 1, r:NextInteger(3, 5) do
+						local h = rnd(3, 9)
+						local c = mk(model, V3(rnd(0.8, 1.6), h, rnd(0.8, 1.6)),
+							CF(W(x + rnd(-2.5, 2.5), HH(x, z) + h * 0.4 - 0.5, z + rnd(-2.5, 2.5))) * ANG(rnd(-0.4, 0.4), rnd(0, pi), rnd(-0.4, 0.4)),
+							GREEN, M.Neon, {trans = 0.15, shadow = false})
+						first = first or c
+					end
+					glow(first, GREEN, 1.4, 18)
+				end
+			end
+
+			-- Terra no ceu: copia da Terra do espaco (mesma textura, nuvens, atmosfera, inclinacao e rotacao)
+			local EC, ER = W(-520, 400, 740), 125
+			local Sp = State.space
+			local EARTH_TILT = CFrame.Angles(math.rad(23), 0, 0) -- mesma inclinacao da Terra do espaco
+			local earthBody = Sp and Sp.texBall and Sp.texBall(model, CF(EC) * EARTH_TILT, ER, Sp.TEX.terra, 0, M.SmoothPlastic)
+			if earthBody then
+				local clouds = Sp.texBall(model, CF(EC) * EARTH_TILT, ER * 1.012, Sp.TEX.nuvens, 0.02, M.SmoothPlastic)
+				ball(model, ER * 2 * 1.045, EC, C(110, 170, 255), M.Neon, {trans = 0.9, shadow = false})
+				ups[#ups + 1] = function(t)
+					earthBody.CFrame = CF(EC) * EARTH_TILT * ANG(0, t * 0.004, 0)   -- mesma velocidade do espaco
+					if clouds then clouds.CFrame = CF(EC) * EARTH_TILT * ANG(0, t * 0.022, 0) end
+				end
+			else
+				-- fallback (sem malha/texturas): visual antigo com blocos
+				ball(model, ER * 2, EC, C(36, 96, 205), M.SmoothPlastic, {shadow = false})
+				ball(model, ER * 2.06, EC, C(120, 180, 255), M.Neon, {trans = 0.9, shadow = false})
+				local toV = (O + V3(0, 10, 0) - EC).Unit
+				local patches = {}
+				for i = 1, 16 do
+					local u = V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))
+					if u.Magnitude < 0.1 then u = V3(0, 1, 0) end
+					local sz = rnd(34, 72)
+					local cloud = i % 3 == 0
+					patches[i] = {
+						u = u.Unit,
+						p = mk(model, V3(sz, sz * rnd(0.6, 1), 3), CF(EC), cloud and C(245, 248, 255) or C(60, 150, 70), M.SmoothPlastic,
+							{shadow = false, ellipsoid = true}),
+					}
+				end
+				ups[#ups + 1] = function(t)
+					local rot = ANG(0, t * 0.02, 0)
+					for _, q in ipairs(patches) do
+						local u = rot * q.u
+						if u:Dot(toV) > 0.2 then
+							q.p.Transparency = 0
+							q.p.CFrame = CFrame.lookAt(EC + u * (ER * 0.99), EC + u * (ER * 1.99))
+						else
+							q.p.Transparency = 1
+						end
+					end
+				end
+			end
+
+			return function(t, pos)
+				for i, f in ipairs(ups) do
+					if f then
+						local ok, e = pcall(f, t)
+						if not ok then
+							ups[i] = false
+							warnRG("lua/animacao:", e)
+						end
+					end
+				end
+			end
+		end
+
 		local function buildModelId(assetId)
 			return function(model, O, r, def)
 				local function fallbackFloor()
@@ -15841,6 +16719,20 @@ local function setupRickGun(character)
 				light = {Ambient = C(125, 125, 130), OutdoorAmbient = C(145, 145, 155), Brightness = 2, ClockTime = 14,
 					FogColor = C(190, 205, 225), FogStart = 600, FogEnd = 2500},
 			},
+			{
+				id = "lua", name = "Lua", info = "Superficie lunar: baixa gravidade, a Terra no ceu, cristais de fluido de portal e crateras.", build = buildMoon, stars = 5000, spaceSky = true, gravity = 0.3, noMenu = true,
+				terrainColors = {
+					[Enum.Material.Sand] = C(146, 146, 154), [Enum.Material.Rock] = C(104, 104, 114),
+					[Enum.Material.Limestone] = C(186, 186, 194), [Enum.Material.Basalt] = C(58, 58, 68),
+					[Enum.Material.Slate] = C(84, 84, 96),
+				},
+				atmo = {Density = 0.02, Offset = 1, Glare = 0, Haze = 0, Color = C(0, 0, 0), Decay = C(0, 0, 0)},
+				light = {Ambient = C(60, 62, 76), OutdoorAmbient = C(78, 80, 98), Brightness = 3.2, ClockTime = 15,
+					FogColor = C(6, 6, 12), FogStart = 600, FogEnd = 6000, ExposureCompensation = 0.1,
+					ColorShift_Top = C(210, 220, 255)},
+				bloom = {Intensity = 0.5, Size = 24, Threshold = 0.95},
+				cc = {Saturation = -0.05, Contrast = 0.15, TintColor = C(235, 240, 255)},
+			},
 		}
 
 		for i, def in ipairs(DEFS) do
@@ -15906,7 +16798,7 @@ local function setupRickGun(character)
 
 		local function snapshot()
 			if saved then return end
-			saved = { props = {}, hidden = {} }
+			saved = { props = {}, hidden = {}, gravity = workspace.Gravity }
 			for _, k in ipairs(LIGHT_PROPS) do
 				local ok, v = pcall(function() return Lighting[k] end)
 				if ok then saved.props[k] = v end
@@ -15924,10 +16816,39 @@ local function setupRickGun(character)
 			end
 		end
 
+		local terrCols = nil
+		local function restoreTerrainColors()
+			if not terrCols then return end
+			for mat, col in pairs(terrCols) do
+				pcall(function() workspace.Terrain:SetMaterialColor(mat, col) end)
+			end
+			terrCols = nil
+		end
+		local function applyTerrainColors(map)
+			restoreTerrainColors()
+			if not map then return end
+			terrCols = {}
+			for mat, col in pairs(map) do
+				local ok, old = pcall(function() return workspace.Terrain:GetMaterialColor(mat) end)
+				if ok then
+					terrCols[mat] = old
+					pcall(function() workspace.Terrain:SetMaterialColor(mat, col) end)
+				end
+			end
+		end
+
 		local function applyDimension(def)
 			snapshot()
 			clearFX()
-			if not def.daySky then
+			applyTerrainColors(def.terrainColors)
+			pcall(function() workspace.Gravity = (saved and saved.gravity or workspace.Gravity) * (def.gravity or 1) end)
+			if def.spaceSky then
+				local sid = (State.space and State.space.SKY_ID) or "rbxassetid://118061545763280"
+				mkfx("Sky", {
+					SkyboxBk = sid, SkyboxDn = sid, SkyboxFt = sid, SkyboxLf = sid, SkyboxRt = sid, SkyboxUp = sid,
+					StarCount = 5000, CelestialBodiesShown = false,
+				})
+			elseif not def.daySky then
 				mkfx("Sky", {
 					SkyboxBk = "", SkyboxDn = "", SkyboxFt = "", SkyboxLf = "", SkyboxRt = "", SkyboxUp = "",
 					StarCount = def.stars or 3000, CelestialBodiesShown = false,
@@ -15944,9 +16865,11 @@ local function setupRickGun(character)
 
 		local function restoreWorld(instant)
 			clearFX()
+			restoreTerrainColors()
 			if not saved then return end
 			local s = saved
 			saved = nil
+			if s.gravity then pcall(function() workspace.Gravity = s.gravity end) end
 			local function finish()
 				for k, v in pairs(s.props) do
 					pcall(function() Lighting[k] = v end)
@@ -16013,6 +16936,10 @@ local function setupRickGun(character)
 			if folder then pcall(function() folder:Destroy() end) end
 			folder = nil
 			for _, def in ipairs(Dim.list) do
+				if def.terrainBox then
+					pcall(function() workspace.Terrain:FillBlock(def.terrainBox.cf, def.terrainBox.size, Enum.Material.Air) end)
+					def.terrainBox = nil
+				end
 				def.built = false
 				def.model = nil
 				def.anim = nil
@@ -16022,7 +16949,7 @@ local function setupRickGun(character)
 
 	local DIM_CHOICES = {}
 	for _, def in ipairs(Dim.list) do
-		DIM_CHOICES[#DIM_CHOICES + 1] = { def = def, name = def.name, info = def.info }
+		if not def.noMenu then DIM_CHOICES[#DIM_CHOICES + 1] = { def = def, name = def.name, info = def.info } end
 	end
 	DIM_CHOICES[#DIM_CHOICES + 1] = { def = nil, name = "Mundo real (voltar)", info = "Abre um portal de volta ao lugar de onde voce saiu." }
 	local v3Mode = "player"

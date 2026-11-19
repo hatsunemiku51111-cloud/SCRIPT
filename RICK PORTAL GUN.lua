@@ -366,19 +366,6 @@ local Config = {
 	CloneZoneMargin = 2.5,
 	HideInsidePart = true,
 	MaxStep = 40,
-	Games = {   -- v79: favoritos da viagem entre jogos (nome + PlaceId). Edite a vontade.
-		{ name = "Brookhaven RP", id = 4924922222 },
-		{ name = "Adopt Me!", id = 920587237 },
-		{ name = "Blox Fruits", id = 2753915549 },
-		{ name = "Murder Mystery 2", id = 142823291 },
-		{ name = "Arsenal", id = 286090429 },
-		{ name = "Natural Disaster Survival", id = 189707 },
-		{ name = "Work at a Pizza Place", id = 192800 },
-		{ name = "Tower of Hell", id = 1962086868 },
-		{ name = "Doors", id = 6516141723 },
-	},
-	TravelLeadTime = 1.1,    -- segundos entre o portal abrir e a tela do portal fechar
-	TravelTimeout = 20,      -- se o teleporte nao acontecer nesse tempo, cancela e volta ao normal
 	PortalCooldown = 1,   -- segundos de espera entre uma travessia de portal e a proxima (evita teleportar em loop)
 
 	CamSlide = true,
@@ -7205,18 +7192,6 @@ State._buildFollowMorty = function(character, Z, newGui)
 			{ "Calma, calma, {nome}, devagar!", "nervoso", 1 },
 			{ "Ah geez, cuidado com a cabeça!", "nervoso", 1 },
 		},
-		viagem = {
-			{ "Outro universo?! Ah geez, {nome}, de novo não!", "grito", 2 },
-			{ "{jogo}?! Eu nem troquei de roupa!", "nervoso", 2 },
-		},
-		chegada = {
-			{ "Onde... onde a gente tá, {nome}?", "nervoso", 1 },
-			{ "Uau, esse lugar parece... estranhamente normal.", "calmo", 1 },
-		},
-		viagemErro = {
-			{ "Viu? Eu disse que ia dar errado!", "nervoso", 1 },
-			{ "Ufa... a gente ficou aqui mesmo.", "calmo", 1 },
-		},
 		sentou = {
 			{ "Ah geez, {nome}, minhas pernas... vou sentar um pouquinho.", "calmo", 1 },
 			{ "A gente vai ficar parado muito tempo? Vou sentar.", "calmo", 1 },
@@ -7240,7 +7215,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 			{ "Isso vai dar muito errado... *segura firme*", "nervoso", 1 },
 		},
 	}
-	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, descendo = 1, desceu = 1, sentou = 1, dormiu = 1, acordou = 1, viagem = 1, chegada = 1, viagemErro = 1, resgate1 = 1, resgate2 = 1, resgate3 = 1, resgatePegou = 1, devolve = 1 }
+	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, descendo = 1, desceu = 1, sentou = 1, dormiu = 1, acordou = 1, resgate1 = 1, resgate2 = 1, resgate3 = 1, resgatePegou = 1, devolve = 1 }
 	PG.MF = nil
 	pcall(function()
 		if Z.fala and Z.fala.criar then
@@ -7943,7 +7918,6 @@ State._buildFollowMorty = function(character, Z, newGui)
 		rig = rig,
 		-- chamado quando voce atravessa um portal: o Morty (e o que ele carrega) vai junto
 		onTeleport = function() ctl.warp = true end,
-		say = function(cat, vars) PG.diz(cat, vars) end,
 		destroy = function() pcall(ctlDestroy) pcall(function() rig:Destroy() end) end,
 		-- a arma consulta isso pra nao atirar quando o clique e no Morty / escolhendo o que pegar
 		blockFire = function(p)
@@ -8950,71 +8924,6 @@ State.startFollowMorty = function(character, Z, newGui)
 	if not ok then warnRG("Morty seguidor falhou ao montar:", e) end
 end
 
--- ===== v79: VIAGEM ENTRE JOGOS =====
-State.travel = {}
-State.travel.read = function()
-	local data = nil
-	pcall(function()
-		local path = State.filePath(nil, "travel.json")
-		if isfile and readfile and isfile(path) then
-			data = game:GetService("HttpService"):JSONDecode(readfile(path))
-		end
-	end)
-	return type(data) == "table" and data or nil
-end
-State.travel.write = function(t)
-	pcall(function()
-		local path = State.filePath(nil, "travel.json")
-		if writefile then writefile(path, game:GetService("HttpService"):JSONEncode(t)) end
-	end)
-end
-State.travel.list = function()
-	local out = {}
-	local d = State.travel.read()
-	if d and tonumber(d.from) and tonumber(d.from) ~= game.PlaceId then
-		out[1] = { name = "Jogo anterior", id = tonumber(d.from) }
-	end
-	for _, g in ipairs(Config.Games or {}) do
-		if g.id ~= game.PlaceId then out[#out + 1] = g end
-	end
-	return out
-end
--- agenda o recarregamento do script no jogo novo: URL (loadstring) ou arquivo salvo (codigo colado)
-State.travel.queue = function()
-	local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
-	if type(q) ~= "function" then return false, "executor sem queue_on_teleport" end
-	local url = genv.RickPortalGunURL
-	local code = nil
-	if type(url) == "string" and url ~= "" then
-		code = string.format('getgenv().RickPortalGunURL = %q; if not game:IsLoaded() then game.Loaded:Wait() end; loadstring(game:HttpGet(%q))()', url, url)
-	else
-		local path = State.DIR .. "/RICK_PORTAL_GUN.lua"
-		local okF, has = pcall(function() return isfile and isfile(path) end)
-		if okF and has then
-			code = string.format('if not game:IsLoaded() then game.Loaded:Wait() end; loadstring(readfile(%q))()', path)
-		end
-	end
-	if not code then return false, "defina getgenv().RickPortalGunURL ou salve o script em " .. State.DIR .. "/RICK_PORTAL_GUN.lua" end
-	local okQ, errQ = pcall(q, code)
-	if not okQ then return false, tostring(errQ) end
-	return true
-end
-State.travelArrive = function(Z)
-	local d = State.travel.read()
-	if not (d and d.pending and tonumber(d.t) and os.time() - tonumber(d.t) < 180) then return end
-	if tonumber(d.from) == game.PlaceId then return end
-	d.pending = false
-	State.travel.write(d)
-	task.delay(2.5, function()
-		if not Z.alive then return end
-		pcall(function() Z.fala.dizer("chegada", {}) end)
-		task.delay(2.2, function()
-			local fm = State.followMorty
-			if Z.alive and fm and fm.say then pcall(fm.say, "chegada") end
-		end)
-	end)
-end
-
 local function setupRickGun(character)
 	if not scriptAlive then return end
 
@@ -9166,15 +9075,6 @@ local function setupRickGun(character)
 					{ "Eu volto já, Morty!", "grito", 1 },
 					{ "Cientista de verdade regenera!", "grito", 1 },
 				},
-				viagem = {
-					{ "Próxima parada: {jogo}! Segura a *burp* realidade, Morty.", "burp", 1 },
-					{ "{jogo}? Outro universo, mesmas regras. Nenhuma.", "calmo", 1 },
-					{ "Wubba lubba dub dub, {jogo}!", "grito", 1 },
-				},
-				chegada = {
-					{ "Chegamos! Cheirinho de multiverso novo.", "calmo", 1 },
-					{ "*burp* Funcionou. Eu sempre soube.", "burp", 1 },
-				},
 				erro = {
 					{ "Hm, isso não vai dar certo.", "erro", 1 },
 					{ "Até um gênio erra o alvo. *burp*", "erro", 1 },
@@ -9182,7 +9082,7 @@ local function setupRickGun(character)
 				},
 			}
 
-			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1, viagem = 1, chegada = 1 }
+			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1 }
 
 			local function criarFalante(getHead, FALAS, CHANCE, vivo, altura, maxDist)
 			local S = { gui = nil, caixa = nil, token = 0, ultimo = {}, t = 0 }
@@ -16126,7 +16026,6 @@ local function setupRickGun(character)
 	end
 	DIM_CHOICES[#DIM_CHOICES + 1] = { def = nil, name = "Mundo real (voltar)", info = "Abre um portal de volta ao lugar de onde voce saiu." }
 	local v3Mode = "player"
-	local gameSel, gameCustom = 1, nil   -- v79: destino 'jogo' (indice da lista ou PlaceId colado)
 	local dimSel = 1
 
 	local VARIANT_INFO = {
@@ -16157,17 +16056,6 @@ local function setupRickGun(character)
 		if i == #DIM_CHOICES then return "MUNDO REAL" end
 		return string.upper(DIM_CHOICES[i].name)
 	end
-
-	local function currentGame()
-		if gameCustom then return { name = "ID " .. tostring(gameCustom), id = gameCustom } end
-		local list = State.travel.list()
-		if #list == 0 then return nil end
-		if gameSel > #list then gameSel = 1 end
-		if gameSel < 1 then gameSel = #list end
-		return list[gameSel]
-	end
-	State.travel.current = currentGame
-	local gameLabel
 
 	local function smallGlass(f, radius)
 		f.BackgroundColor3 = WHITE
@@ -16402,93 +16290,18 @@ local function setupRickGun(character)
 	okBtn.Parent = nameTag
 	Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 7)
 
-	-- v79: painel de viagem entre jogos (modo JOGO da V3)
-	local gameTag = Instance.new("Frame")
-	gameTag.Name = "RickGameTag"
-	gameTag.AnchorPoint = Vector2.new(1, 0)
-	gameTag.Position = UDim2.fromOffset(34, 140)
-	gameTag.Size = UDim2.fromOffset(176, 62)
-	gameTag.Visible = false
-	gameTag.Parent = gunHud
-	smallGlass(gameTag, UDim.new(0, 10))
-	glowStroke(gameTag, 1.5)
-	local function gtBtn(txt, x, w)
-		local b = Instance.new("TextButton")
-		b.Position = UDim2.fromOffset(x, 5)
-		b.Size = UDim2.fromOffset(w, 24)
-		b.BackgroundColor3 = DARK
-		b.BorderSizePixel = 0
-		b.Text = txt
-		b.Font = Enum.Font.GothamBlack
-		b.TextSize = 16
-		b.TextColor3 = ACCENT
-		b.Parent = gameTag
-		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
-		return b
-	end
-	local gPrev = gtBtn("‹", 6, 26)
-	local gNext = gtBtn("›", 144, 26)
-	gameLabel = Instance.new("TextLabel")
-	gameLabel.BackgroundTransparency = 1
-	gameLabel.Position = UDim2.fromOffset(36, 5)
-	gameLabel.Size = UDim2.fromOffset(104, 24)
-	gameLabel.Font = Enum.Font.GothamBold
-	gameLabel.TextSize = 11
-	gameLabel.TextColor3 = Theme.Text
-	gameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	gameLabel.Text = ""
-	gameLabel.Parent = gameTag
-	local idBox = Instance.new("TextBox")
-	idBox.Position = UDim2.fromOffset(6, 33)
-	idBox.Size = UDim2.fromOffset(118, 24)
-	idBox.BackgroundColor3 = DARK
-	idBox.BorderSizePixel = 0
-	idBox.ClearTextOnFocus = false
-	idBox.Text = ""
-	idBox.PlaceholderText = "ou cole o place ID"
-	idBox.PlaceholderColor3 = Theme.Muted
-	idBox.TextColor3 = Theme.Text
-	idBox.Font = Enum.Font.Gotham
-	idBox.TextSize = 11
-	idBox.TextXAlignment = Enum.TextXAlignment.Left
-	idBox.ClipsDescendants = true
-	idBox.Parent = gameTag
-	Instance.new("UICorner", idBox).CornerRadius = UDim.new(0, 7)
-	do
-		local pad = Instance.new("UIPadding", idBox)
-		pad.PaddingLeft = UDim.new(0, 6)
-		pad.PaddingRight = UDim.new(0, 6)
-	end
-	local gOk = Instance.new("TextButton")
-	gOk.Position = UDim2.fromOffset(128, 33)
-	gOk.Size = UDim2.fromOffset(42, 24)
-	gOk.BackgroundColor3 = ACCENT
-	gOk.BorderSizePixel = 0
-	gOk.Text = "OK"
-	gOk.Font = Enum.Font.GothamBlack
-	gOk.TextSize = 12
-	gOk.TextColor3 = ON_TXT
-	gOk.Parent = gameTag
-	Instance.new("UICorner", gOk).CornerRadius = UDim.new(0, 7)
-
 	for _, l in ipairs({redMode, redKind, redInfo}) do UIAnim.watchText(l) end
 	setStatus = function() end
 
 	function refreshVariantUI()
 		local isV3 = variant == 3
 		local isDim = v3Mode == "dim"
-		local isGame = v3Mode == "game"
 		gunHud.Visible = (isEquipped == true)
 		redMode.Text = "V" .. tostring(variant)
 		if isV3 then
 			if isDim then
 				redKind.Text = "DIMENSAO"
 				redInfo.Text = dimTitle(dimSel)
-			elseif isGame then
-				local gm = currentGame()
-				redKind.Text = "JOGO"
-				redInfo.Text = gm and string.upper(gm.name) or "NENHUM"
-				gameLabel.Text = gm and gm.name or "sem jogos"
 			else
 				redKind.Text = "PLAYER"
 				redInfo.Text = targetPlayer and string.upper(targetPlayer.DisplayName) or "NENHUM"
@@ -16498,14 +16311,12 @@ local function setupRickGun(character)
 			redInfo.Text = VARIANT_SHORT[variant] or ""
 		end
 		local domeColor = (isV3 and isDim) and dimColor(dimSel) or ACCENT
-		if isV3 and isGame then domeColor = Color3.fromRGB(190, 120, 255) end
 		TweenService:Create(dome, TweenInfo.new(0.35), {BackgroundColor3 = domeColor}):Play()
 		TweenService:Create(glow, TweenInfo.new(0.35), {BackgroundColor3 = domeColor}):Play()
 		for i, d in ipairs(dimDots) do
 			d.BackgroundColor3 = (isV3 and i == dimSel) and dimColor(i) or Color3.fromRGB(90, 92, 90)
 		end
-		nameTag.Visible = (isEquipped == true) and isV3 and v3Mode == "player"
-		gameTag.Visible = (isEquipped == true) and isV3 and isGame
+		nameTag.Visible = (isEquipped == true) and isV3 and not isDim
 		if variant ~= lastVariant then
 			lastVariant = variant
 			spinDial(60)
@@ -16571,49 +16382,14 @@ local function setupRickGun(character)
 		if v3Mode == "dim" then
 			v3Mode = "player"
 			setStatus(targetPlayer and ("Selecionado: " .. targetPlayer.DisplayName) or "Digite o nome no cabo e toque em OK", targetPlayer ~= nil)
-		elseif v3Mode == "player" then
-			v3Mode = "game"
-			setStatus("Viagem entre jogos: escolha com ‹ › ou cole um ID", true)
 		else
 			v3Mode = "dim"
 			setStatus(DIM_CHOICES[dimSel].info, true)
 		end
 		pcall(function() nameBox:ReleaseFocus() end)
-		pcall(function() idBox:ReleaseFocus() end)
 		refreshVariantUI()
 	end
 
-	local function stepGame(dir)
-		gameCustom = nil
-		idBox.Text = ""
-		gameSel = gameSel + dir
-		local n = #State.travel.list()
-		if n > 0 then
-			if gameSel < 1 then gameSel = n end
-			if gameSel > n then gameSel = 1 end
-		end
-		refreshVariantUI()
-	end
-	local function confirmGameId()
-		local digits = tostring(idBox.Text):match("(%d%d%d+)")
-		local id = digits and tonumber(digits)
-		if id and id > 0 then
-			gameCustom = id
-			idBox.Text = tostring(id)
-			setStatus("Destino: jogo " .. tostring(id), true)
-		else
-			gameCustom = nil
-			setStatus("ID invalido (cole o numero ou o link do jogo)", false)
-		end
-		pcall(function() idBox:ReleaseFocus() end)
-		refreshVariantUI()
-	end
-	gPrev.MouseButton1Click:Connect(function() stepGame(-1) end)
-	gNext.MouseButton1Click:Connect(function() stepGame(1) end)
-	gOk.MouseButton1Click:Connect(confirmGameId)
-	idBox.FocusLost:Connect(function(enter)
-		if enter then confirmGameId() end
-	end)
 	redBtn.MouseButton1Click:Connect(nextMode)
 	dial.MouseButton1Click:Connect(function() stepDim(1) end)
 	domeBtn.MouseButton1Click:Connect(toggleDest)
@@ -19577,138 +19353,7 @@ local function setupRickGun(character)
 		end)
 	end
 
-	local traveling = false
-	local function fireVariant3Game()
-		if traveling then return end
-		if os.clock() - lastShot < Config.ShotCooldown then return end
-
-		local g = State.travel.current and State.travel.current()
-		if not (g and g.id) then
-			setStatus("Escolha um jogo (‹ › ou cole um ID)", false)
-			playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
-			return
-		end
-		if g.id == game.PlaceId then
-			setStatus("Voce ja esta nesse jogo", false)
-			playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
-			return
-		end
-
-		lastShot = os.clock()
-		shotId = shotId + 1
-		local myShot = shotId
-		closePair()
-
-		local entCF = computeEntranceCF()
-		faceToward(entCF.Position)
-		local muzzlePos = getMuzzlePos()
-		shotEffects(muzzlePos)
-
-		launchProjectile(muzzlePos, entCF.Position, function()
-			if myShot ~= shotId or not Z.alive or traveling then return end
-			traveling = true
-			flashAt(entCF.Position, 1.6)
-			openRipple(entCF)
-			setStatus("Viajando para " .. g.name .. "...", true)
-			Z.fala.dizer("viagem", { jogo = g.name })
-			pcall(function()
-				local fm = State.followMorty
-				if fm and fm.say then fm.say("viagem", { jogo = g.name }) end
-			end)
-
-			local gui = newGui("RickTravel", 1001)
-			local black = Instance.new("Frame")
-			black.Size = UDim2.fromScale(1, 1)
-			black.BackgroundColor3 = Color3.new(0, 0, 0)
-			black.BackgroundTransparency = 1
-			black.BorderSizePixel = 0
-			black.Parent = gui
-			local circle = Instance.new("Frame")
-			circle.AnchorPoint = Vector2.new(0.5, 0.5)
-			circle.Position = UDim2.fromScale(0.5, 0.5)
-			circle.Size = UDim2.fromOffset(0, 0)
-			circle.BackgroundColor3 = Config.PortalColor
-			circle.BackgroundTransparency = 0.15
-			circle.BorderSizePixel = 0
-			circle.ZIndex = 2
-			circle.Parent = gui
-			Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
-			local cst = Instance.new("UIStroke")
-			cst.Thickness = 10
-			cst.Color = Config.PortalLight or Color3.new(1, 1, 1)
-			cst.Parent = circle
-			local msg = Instance.new("TextLabel")
-			msg.BackgroundTransparency = 1
-			msg.AnchorPoint = Vector2.new(0.5, 0.5)
-			msg.Position = UDim2.fromScale(0.5, 0.5)
-			msg.Size = UDim2.fromOffset(420, 40)
-			msg.Font = Enum.Font.GothamBlack
-			msg.TextSize = 22
-			msg.TextColor3 = Color3.new(1, 1, 1)
-			msg.Text = "Viajando para " .. g.name .. "..."
-			msg.TextTransparency = 1
-			msg.ZIndex = 3
-			msg.Parent = gui
-
-			task.delay(Config.TravelLeadTime or 1.1, function()
-				if not Z.alive then return end
-				local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
-				local D = math.max(vp.X, vp.Y) * 2.6
-				TweenService:Create(circle, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.fromOffset(D, D)}):Play()
-				task.delay(0.75, function()
-					TweenService:Create(black, TweenInfo.new(0.35), {BackgroundTransparency = 0}):Play()
-					TweenService:Create(msg, TweenInfo.new(0.35), {TextTransparency = 0}):Play()
-				end)
-				task.wait(1.05)
-
-				local failMsg = nil
-				local tpConn
-				pcall(function()
-					tpConn = game:GetService("TeleportService").TeleportInitFailed:Connect(function(plr, result, errMsg)
-						if plr == player then failMsg = tostring(errMsg or result or "falha no teleporte") end
-					end)
-				end)
-
-				local okQ, whyQ = State.travel.queue()
-				if not okQ then
-					warnRG("viagem: o script nao vai acompanhar (" .. tostring(whyQ) .. ")")
-				end
-				State.travel.write({ from = game.PlaceId, to = g.id, t = os.time(), pending = true, queued = okQ and true or false })
-
-				local okT, errT = pcall(function()
-					game:GetService("TeleportService"):Teleport(g.id, player)
-				end)
-				if not okT then failMsg = tostring(errT) end
-
-				local t0 = os.clock()
-				while Z.alive and not failMsg and os.clock() - t0 < (Config.TravelTimeout or 20) do
-					task.wait(0.2)
-				end
-				if tpConn then pcall(function() tpConn:Disconnect() end) end
-				if not Z.alive then return end
-
-				-- o teleporte falhou ou demorou demais: volta ao normal
-				failMsg = failMsg or "tempo esgotado"
-				State.travel.write({ from = (State.travel.read() or {}).from, t = 0, pending = false })
-				warnRG("viagem falhou: " .. failMsg)
-				setStatus("Viagem falhou: " .. failMsg, false)
-				playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
-				pcall(function()
-					local fm = State.followMorty
-					if fm and fm.say then fm.say("viagemErro") end
-				end)
-				TweenService:Create(black, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-				TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-				TweenService:Create(circle, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-				task.wait(0.6)
-				pcall(function() gui:Destroy() end)
-				traveling = false
-			end)
-		end)
-	end
-
 	local function fireVariant3()
-		if v3Mode == "game" then return fireVariant3Game() end
 		if v3Mode == "dim" then return fireVariant3Dim() end
 		if os.clock() - lastShot < Config.ShotCooldown then return end
 
@@ -19985,7 +19630,6 @@ local function setupRickGun(character)
 	end))
 
 	State.startFollowMorty(character, Z, newGui)
-	pcall(State.travelArrive, Z)
 
 	local lastErr = 0
 	pcall(function() RunService:UnbindFromRenderStep(STEP_NAME) end)

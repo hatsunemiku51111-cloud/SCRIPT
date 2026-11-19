@@ -2275,14 +2275,15 @@ do
 		deserto = "rbxassetid://133215458029546",
 		gelo    = "rbxassetid://94887538555701",
 		neon    = "rbxassetid://103941792770202",
-		lua     = "rbxassetid://124632665944074",
+		lua     = "rbxassetid://137612250156714",
 
-		k22planeta = "rbxassetid://135896229724567",
+		k22planeta = "rbxassetid://130456858380748",
 		k22nuvens  = "rbxassetid://98367817404331",
-		k22aneis   = "rbxassetid://85037729318942",
-		k22corona  = "rbxassetid://135679390547710",
-		k22sol1    = "rbxassetid://115232626144669",
-		k22sol2    = "rbxassetid://124809144154752",
+		k22aneis   = "rbxassetid://75734386286668",
+		k22corona  = "rbxassetid://121725430437815",
+		k22sol1    = "rbxassetid://108780293505058",
+		k22sol2    = "rbxassetid://72282547985722",
+		minisaturno = "rbxassetid://89802894380511",
 		malha   = "",
 	}
 	Sp.MESH_DIAM = 2
@@ -2471,7 +2472,9 @@ do
 	end
 
 	Sp.alphaBase = Sp.meshBase
-	if not Sp.alphaBase and Sp.hasMesh and type(Sp.TEX.malha) == "string" and Sp.TEX.malha ~= "" then
+	-- v92: essa tentativa sempre estourava os 12s no seu executor (as nuvens do K-22 ja ficavam desligadas). Mude pra true pra testar de novo.
+	Sp.TRY_ALPHA_MESH = false
+	if Sp.TRY_ALPHA_MESH and not Sp.alphaBase and Sp.hasMesh and type(Sp.TEX.malha) == "string" and Sp.TEX.malha ~= "" then
 		local okA, mpA = pcall(function()
 			local base = State.timed(function() return game:GetService("AssetService"):CreateMeshPartAsync(Content.fromUri(Sp.TEX.malha)) end, 12)
 			base.Anchored = true
@@ -2515,6 +2518,26 @@ do
 		end
 		setupTexPart(p, cf, transp, mat, color)
 		p.Parent = parent
+		-- v87: se a textura nao carregar (id privado/invalido), nao deixa a esfera branca:
+		-- vira um corpo liso cinza (ou some, se era camada de nuvens com alpha)
+		task.spawn(function()
+			local good = true
+			pcall(function()
+				local probe = Instance.new("ImageLabel")
+				probe.Image = id
+				game:GetService("ContentProvider"):PreloadAsync({probe}, function(_, st)
+					if st ~= Enum.AssetFetchStatus.Success then good = false end
+				end)
+				probe:Destroy()
+			end)
+			if good or not p.Parent then return end
+			warn("[Rick] textura nao carregou (" .. tostring(id) .. "), usando esfera lisa")
+			if alpha then pcall(function() p:Destroy() end) return end
+			local sm = p:FindFirstChildOfClass("SpecialMesh")
+			if sm then sm.TextureId = "" end
+			pcall(function() p.TextureID = "" end)
+			p.Color = color or Color3.fromRGB(150, 142, 138)
+		end)
 		return p
 	end
 
@@ -2798,6 +2821,22 @@ do
 			end
 		else
 			cball(CFrame.Angles(0.22, 0, 0) * CFrame.new(mOrb, 0, 0), mRad, Color3.fromRGB(205, 196, 190), MAT_SMOOTH, 0)
+		end
+
+		-- v90: K-22b (planeta gasoso com aneis) orbitando longe do K-22, depois da Lua
+		local bR, bOrb = math.min(R * 0.4, 480), R * 3.0
+		local bTilt = CFrame.Angles(0.35, 0, 0.25)
+		local bBody = Sp.texBall(P.model, P.T, bR, Sp.TEX.k22planeta, 0, MAT_SMOOTH)
+		if bBody then
+			P.list[#P.list + 1] = { part = bBody, base = bBody.Transparency }
+			local bRing = Sp.texDisc(P.model, P.T, math.min(bR * 2.3, 1020), Sp.TEX.k22aneis, 0, MAT_NEON)
+			if bRing then P.list[#P.list + 1] = { part = bRing, base = bRing.Transparency } end
+			P.anims[#P.anims + 1] = function(t)
+				local a = t * 0.012 + 3.6
+				local pos = CFrame.Angles(-0.18, 0, 0) * CFrame.new(math.cos(a) * bOrb, 0, math.sin(a) * bOrb)
+				bBody.CFrame = P.T * pos * bTilt * CFrame.Angles(0, t * 0.01, 0)
+				if bRing then bRing.CFrame = P.T * pos * bTilt end
+			end
 		end
 		return P
 	end
@@ -13629,7 +13668,67 @@ local function setupRickGun(character)
 			end
 		end
 
-		local function buildDesert(model, O, r)
+		-- escreve um Terrain suave a partir de um mapa de alturas Hf(x, z) -> altura, tag (relativo a O)
+		local function writeHeightTerrain(O, Hf, MT, deep1, deep2, BOT, HALF)
+			local T = workspace.Terrain
+			local RES, TILE = 4, 25
+			local tiles = HALF * 2 / (RES * TILE)
+			local AIR = Enum.Material.Air
+			local n = 0
+			-- v94: chao redondo (so ate o anel de montanhas) em vez de quadrado; tiles fora do raio sao pulados
+			local CUT = HALF
+			for tx = 0, tiles - 1 do
+				for tz = 0, tiles - 1 do
+					local wx0, wz0 = -HALF + tx * TILE * RES, -HALF + tz * TILE * RES
+					local nx = (wx0 > 0 and wx0) or ((wx0 + TILE * RES < 0) and (wx0 + TILE * RES)) or 0
+					local nz = (wz0 > 0 and wz0) or ((wz0 + TILE * RES < 0) and (wz0 + TILE * RES)) or 0
+					if nx * nx + nz * nz > CUT * CUT then continue end
+					local hs, tg, top = table.create(TILE), table.create(TILE), 0
+					for i = 1, TILE do
+						local hrow, trow = table.create(TILE), table.create(TILE)
+						for k = 1, TILE do
+							local h, t = Hf(wx0 + (i - 0.5) * RES, wz0 + (k - 0.5) * RES)
+							hrow[k], trow[k] = h, t
+							if h > top then top = h end
+						end
+						hs[i], tg[i] = hrow, trow
+					end
+					local ny = math.max(math.ceil((top + 4 - BOT) / RES), (0 - BOT) / RES + 2)
+					local mats, occs = table.create(TILE), table.create(TILE)
+					for i = 1, TILE do
+						local mi, oi = table.create(ny), table.create(ny)
+						local hrow, trow = hs[i], tg[i]
+						for j = 1, ny do
+							local mj, oj = table.create(TILE), table.create(TILE)
+							local yc = BOT + (j - 0.5) * RES
+							for k = 1, TILE do
+								local depth = hrow[k] - yc
+								local occ = 0.5 + depth / RES
+								local vx, vz = wx0 + (i - 0.5) * RES, wz0 + (k - 0.5) * RES
+								if vx * vx + vz * vz > CUT * CUT then occ = 0 end
+								local m = MT[trow[k]]
+								if occ >= 1 then
+									if depth > 34 then m = deep2 elseif depth > 3 then m = deep1 end
+									mj[k], oj[k] = m, 1
+								elseif occ > 0 then
+									mj[k], oj[k] = m, occ
+								else
+									mj[k], oj[k] = AIR, 0
+								end
+							end
+							mi[j], oi[j] = mj, oj
+						end
+						mats[i], occs[i] = mi, oi
+					end
+					local mn = Vector3.new(O.X + wx0, O.Y + BOT, O.Z + wz0)
+					T:WriteVoxels(Region3.new(mn, mn + Vector3.new(TILE * RES, ny * RES, TILE * RES)), RES, mats, occs)
+					n = n + 1
+					if n % 4 == 0 then task.wait() end
+				end
+			end
+		end
+
+		local function buildDesert(model, O, r, def)
 			local cos, sin, abs, floor, pi, sqrt, max, min = math.cos, math.sin, math.abs, math.floor, math.pi, math.sqrt, math.max, math.min
 			local V3, CF, ANG = Vector3.new, CFrame.new, CFrame.Angles
 			local function rnd(a, b) return r:NextNumber(a, b) end
@@ -13732,6 +13831,79 @@ local function setupRickGun(character)
 			reserve(-210, 260, 58); reserve(200, 280, 58); reserve(60, 440, 72); reserve(170, -30, 82); reserve(-150, -40, 68)
 			reserve(-30, 330, 112); reserve(-190, 30, 28); reserve(90, 320, 30); reserve(120, -120, 30)
 
+			-- ===== TERRENO DO K-22: dunas assimetricas, ondulacoes, canions e lama rachada =====
+			local noise, exp = math.noise, math.exp
+			local function sstep(lo, hi, v)
+				local t = (v - lo) / (hi - lo)
+				t = t < 0 and 0 or (t > 1 and 1 or t)
+				return t * t * (3 - 2 * t)
+			end
+			local SEED = rnd(0, 500)
+			local WINDA = math.rad(24)
+			local wc, ws = cos(WINDA), sin(WINDA)
+			-- zonas planas (todos os pontos de interesse + plataforma de pouso)
+			local flatZones = { {0, -30, 92} }
+			for _, q in ipairs(reserved) do flatZones[#flatZones + 1] = {q[1], q[2], q[3] + 6} end
+			local TMAT = { [0] = M.Sand, [1] = SANDSTONE, [2] = MUDM, [3] = BASALT }
+
+			-- v95: altura do chao nas zonas planas (oasis, arcos, pouso...). Negativo = chao mais baixo, estruturas ficam mais expostas.
+			-- Se ainda estiverem enterradas, use -2; se ficarem flutuando, use -0.5 ou 0.
+			local ZONE_Y = -1
+			local function Hf(x, z)
+				local flat = 1
+				for i = 1, #flatZones do
+					local q = flatZones[i]
+					local dx, dz = x - q[1], z - q[2]
+					local d2 = dx * dx + dz * dz
+					local lim = q[3] + 55
+					if d2 < lim * lim then
+						flat = flat * sstep(q[3], lim, sqrt(d2))
+						if flat <= 0 then break end
+					end
+				end
+				local sx, sz = x - 170, z + 30
+				local salt = sx * sx + sz * sz < 6724       -- lago de sal seco: lama rachada
+				if flat <= 0 then return ZONE_Y, salt and 2 or 0 end
+
+				-- dunas transversais: lado do vento suave, lado de la ingreme
+				local u, v = x * wc + z * ws, -x * ws + z * wc
+				local warp = noise(u * 0.006 + SEED, v * 0.006, 2.2) * 90
+				local p = ((v + warp) / 115) % 1
+				local prof
+				if p < 0.72 then local t = p / 0.72; prof = t * t * (3 - 2 * t) else prof = 1 - (p - 0.72) / 0.28 end
+				local amp = 3 + 11 * sstep(-0.15, 0.45, noise(x * 0.0035 + SEED, z * 0.0035, 8.1) * 2)
+				local crest = 0.8 + 0.4 * noise(u * 0.02 + SEED, v * 0.02, 4.4) * 2
+				local h = prof * amp * crest
+				-- ondulacao larga + media + marcas de vento
+				h = h + noise(x * 0.0022 + SEED, z * 0.0022, 6.6) * 22 + noise(x * 0.012, z * 0.012 + SEED, 1.1) * 6
+				h = h + noise(u * 0.09, v * 0.35 + SEED, 0.5) * 1.4
+
+				-- canions secos (linhas onde o ruido cruza zero)
+				local rv = 1 - abs(noise(x * 0.0026 + SEED, z * 0.0026, 9.9) * 2)
+				local rmask = sstep(0.05, 0.35, noise(x * 0.003 + SEED + 50, z * 0.003, 3.3) * 2 + 0.2)
+				local ravine = sstep(0.93, 0.995, rv) * rmask
+				h = h - ravine * 20
+
+				h = ZONE_Y * (1 - flat) + h * flat
+				local tag = 0
+				if ravine > 0.55 then tag = 2
+				elseif ravine > 0.12 then tag = 1
+				elseif h > 20 then tag = 1
+				elseif h > 6 and noise(x * 0.012 + SEED, z * 0.012, 5.5) * 2 > 0.8 then tag = 3 end
+				if salt then tag = 2 end
+				return h, tag
+			end
+
+			local terrainOK = false
+			local function HH(x, z)
+				if not terrainOK then return 0 end
+				return (Hf(x, z))
+			end
+			-- altura do chao (o raycast antigo so enxergava o modelo, nao o Terrain)
+			local function groundAt(x, z)
+				return HH(x, z), V3(0, 1, 0), nil
+			end
+
 			local ups = {}
 			local function onUpdate(f) ups[#ups + 1] = f end
 			local function section(name, fn)
@@ -13742,25 +13914,16 @@ local function setupRickGun(character)
 			local lastT = nil
 
 			section("chao", function()
-				mk(model, V3(2000, 2, 2000), W(0, -1, 0), SAND, M.Sand, {solid = true})
-				local patches, tries = {}, 0
-				while #patches < 28 and tries < 400 do
-					tries = tries + 1
-					local x, z, rad = rnd(-700, 700), rnd(-700, 700), rnd(24, 80)
-					local ok = true
-					for _, q in ipairs(patches) do
-						local dx, dz = x - q[1], z - q[2]
-						local rr = rad + q[3] + 3
-						if dx * dx + dz * dz < rr * rr then ok = false end
-					end
-					if ok then
-						patches[#patches + 1] = {x, z, rad}
-						local col = SAND:Lerp(pick({C(250, 205, 140), C(196, 128, 74), C(212, 140, 84), C(240, 186, 118)}), rnd(0.35, 0.8))
-						column(model, 0.12, rad * 2, W(x, 0.07, z), col, M.Sand, {shadow = false})
-					end
+				local okT, errT = pcall(function() writeHeightTerrain(O, Hf, TMAT, SANDSTONE, BASALT, -72, 1000) end)
+				if okT then
+					terrainOK = true
+					if def then def.terrainBox = { cf = CFrame.new(O.X, O.Y + 20, O.Z), size = Vector3.new(2016, 200, 2016) } end
+				else
+					warnRG("deserto/terreno (usando chao reto):", errT)
+					mk(model, V3(2000, 2, 2000), W(0, -1, 0), SAND, M.Sand, {solid = true})
 				end
 				local lx, lz = 170, -30
-				column(model, 0.08, 150, W(lx, 0.04, lz), C(92, 62, 48), MUDM, {shadow = false})
+				if not terrainOK then column(model, 0.08, 150, W(lx, 0.04, lz), C(92, 62, 48), MUDM, {shadow = false}) end
 				for i = -4, 4 do
 					for j = -4, 4 do
 						local x, z = lx + i * 16 + rnd(-1, 1), lz + j * 16 + rnd(-1, 1)
@@ -13774,6 +13937,7 @@ local function setupRickGun(character)
 			end)
 
 			section("dunas", function()
+				if terrainOK then return end   -- com Terrain real, as dunas ja sao o proprio chao
 				local function dune(x, z, yaw, L, Wd, th, col)
 					local base = CF(W(x, 0, z)) * ANG(0, yaw, 0)
 					local segs = { {0, 0.5, 1}, {0.4, 0.3, 0.62}, {-0.4, 0.3, 0.62}, {0.635, 0.17, 0.3}, {-0.635, 0.17, 0.3} }
@@ -13810,7 +13974,9 @@ local function setupRickGun(character)
 
 			section("mesas", function()
 				local function stack(x, z, R0, Ht, layers, fogMix)
-					column(model, 16, R0 * 2.5, W(x, 8, z), tint(C(206, 140, 84), fogMix), M.Sand, {solid = true, shadow = false})
+					local y0 = HH(x, z)
+					local function W(px, py, pz) return O + V3(px, y0 + py, pz) end
+					column(model, 66, R0 * 2.5, W(x, -17, z), tint(C(206, 140, 84), fogMix), M.Sand, {solid = true, shadow = false})
 					column(model, 8, R0 * 2.15, W(x, 20, z), tint(C(190, 118, 70), fogMix), SANDSTONE, {solid = true, shadow = false})
 					local y, rad = 24, R0
 					local each = (Ht - 24) / layers
@@ -13851,7 +14017,7 @@ local function setupRickGun(character)
 					if clear(x, z, 16) then
 						nh = nh + 1
 						reserve(x, z, 16)
-						local y, rad = 0, rnd(4.5, 8)
+						local y, rad = HH(x, z) - 3, rnd(4.5, 8)
 						for _ = 1, r:NextInteger(3, 5) do
 							local th = rnd(5, 9)
 							column(model, th, rad * 2, W(x + rnd(-0.4, 0.4), y + th / 2, z + rnd(-0.4, 0.4)), pick(STRATA), SANDSTONE, {solid = true, shadow = false})
@@ -13872,7 +14038,7 @@ local function setupRickGun(character)
 						nr = nr + 1
 						local s = rnd(1.5, 7)
 						mk(model, V3(s * rnd(0.9, 1.6), s * rnd(0.6, 1), s * rnd(0.9, 1.6)),
-							CF(W(x, s * 0.2, z)) * ANG(rnd(-0.4, 0.4), rnd(0, 6.28), rnd(-0.4, 0.4)), tint(pick(STRATA), 0.1), SANDSTONE, {solid = s > 3.2})
+							CF(W(x, HH(x, z) + s * 0.2, z)) * ANG(rnd(-0.4, 0.4), rnd(0, 6.28), rnd(-0.4, 0.4)), tint(pick(STRATA), 0.1), SANDSTONE, {solid = s > 3.2})
 					end
 				end
 			end)
@@ -14006,13 +14172,27 @@ local function setupRickGun(character)
 					suns[#suns + 1] = {core = core, plasma = plasma, halos = halos, d = d, ph = rnd(0, TAU), pos = pos, rays = rays, sgn = sgn}
 				end
 				local FAR, BIG = 2.4, 1.8
-				local mc, mr = W(470, 330, 480), 36
+				local mc, mr = W(750, 520, 750), 50
+				local mcOff = mc - O
 				local bigMoon = Sp.texBall(model, CF(mc), mr, TX.lua, 0, SMOOTH)
 				if bigMoon then
-					skyAnim[#skyAnim + 1] = function(t) bigMoon.CFrame = CF(mc) * ANG(0, t * 0.012, 0) end
+					-- v90: alem de girar no proprio eixo, a Lua orbita devagar ao redor do deserto (como no espaco)
+					skyAnim[#skyAnim + 1] = function(t) bigMoon.CFrame = CF(O) * ANG(0, t * 0.01, 0) * CF(mcOff) * ANG(0, t * 0.012, 0) end
 				else
 					ball(model, mr * 2, mc, C(205, 196, 190), SMOOTH, {shadow = false})
 				end
+				-- planeta gasoso K-22b (com aneis) e mini-Saturno
+				local function ringedPlanet(center, R, tex, tilt, ringTex, ringScale, spin, fallbackCol)
+					local body = Sp.texBall(model, CF(center) * tilt, R, tex, 0, SMOOTH)
+					if not body then
+						ball(model, R * 2, center, fallbackCol, SMOOTH, {shadow = false})
+						return
+					end
+					if ringTex and Sp.texDisc then Sp.texDisc(model, CF(center) * tilt, R * ringScale, ringTex, 0, NEON) end
+					skyAnim[#skyAnim + 1] = function(t) body.CFrame = CF(center) * tilt * ANG(0, t * spin, 0) end
+				end
+				ringedPlanet(W(-900, 620, -800), 105, TX.k22planeta, ANG(0.35, 0, 0.25), TX.k22aneis, 2.3, 0.01, C(210, 130, 170))
+
 				local toPl = (W(0, 5, -30) - mc).Unit
 				local made = 0
 				for _ = 1, 40 do
@@ -14477,7 +14657,7 @@ local function setupRickGun(character)
 						local rad = rnd(1.0, 1.6)
 						local body = pick(BODY)
 						local bcol = pick(BULB)
-						local base = W(x, 0, z)
+						local base = W(x, HH(x, z) - 0.4, z)
 						column(model, h, rad * 2, base + V3(0, h / 2, 0), body, SMOOTH, {})
 						local dk = body:Lerp(C(10, 30, 30), 0.35)
 						mk(model, V3(rad * 2.4, h * 0.94, 0.3), CF(base + V3(0, h / 2, 0)), dk, SMOOTH, {shadow = false})
@@ -14534,6 +14714,19 @@ local function setupRickGun(character)
 			section("oasis", function()
 				local ox, oz = -30, 330
 				local PR = 72
+				-- v96: mede a altura REAL do Terrain no oasis (raycast so no Terrain) e apoia o oasis nela
+				local oy = 0
+				do
+					local okR, res = pcall(function()
+						local rpT = RaycastParams.new()
+						rpT.FilterType = Enum.RaycastFilterType.Include
+						rpT.FilterDescendantsInstances = {workspace.Terrain}
+						return workspace:Raycast(O + V3(ox, 120, oz), V3(0, -260, 0), rpT)
+					end)
+					if okR and res then oy = res.Position.Y - O.Y end
+					print(string.format("[Rick] oasis: chao real em Y=%.2f (okR=%s, achou=%s)", oy, tostring(okR), tostring(res ~= nil)))
+				end
+				local function W(x, y, z) return O + V3(x, y + oy + 0.1, z) end
 				column(model, 0.1, PR * 2 + 4, W(ox, 0.05, oz), C(8, 52, 62), MUDM, {shadow = false})
 				column(model, 0.25, PR * 2, W(ox, 0.16, oz), C(30, 186, 200), GLASS, {trans = 0.28, refl = 0.3, shadow = false})
 				column(model, 0.05, PR * 2, W(ox, 0.1, oz), C(40, 255, 220), NEON, {trans = 0.72, shadow = false})
@@ -15231,7 +15424,7 @@ local function setupRickGun(character)
 				})
 				local fparams = RaycastParams.new()
 				fparams.FilterType = Enum.RaycastFilterType.Include
-				fparams.FilterDescendantsInstances = {model}
+				fparams.FilterDescendantsInstances = {model, workspace.Terrain}
 				local last, side = nil, 1
 				onUpdate(function(t, dt, lp)
 					local wpos = O + lp
@@ -15239,7 +15432,7 @@ local function setupRickGun(character)
 						local mv = V3(wpos.X - last.X, 0, wpos.Z - last.Z)
 						if mv.Magnitude > 3.6 and mv.Magnitude < 40 then
 							local res = workspace:Raycast(wpos, V3(0, -9, 0), fparams)
-							if res and res.Instance and res.Instance.Material == M.Sand then
+							if res and res.Instance and res.Material == M.Sand then
 								local up = res.Normal
 								local dir = mv.Unit
 								local right = dir:Cross(up)
@@ -16693,6 +16886,7 @@ local function setupRickGun(character)
 			},
 			{
 				id = "desert", name = "K-22 Deserto", info = "Dois sois, verme de areia, TV interdimensional e segredos escondidos.", build = buildDesert, stars = 0,
+				-- v93: matOverrides (texturas PBR do chao) removido: o Roblox nao carregava essas imagens como material
 				light = {Ambient = C(128, 86, 62), OutdoorAmbient = C(170, 118, 84), Brightness = 2.6, ClockTime = 16.6,
 					FogColor = C(238, 168, 112), FogStart = 280, FogEnd = 4800, ExposureCompensation = 0.15,
 					ColorShift_Top = C(255, 196, 130)},
@@ -16816,6 +17010,54 @@ local function setupRickGun(character)
 			end
 		end
 
+		local MatSvc = game:GetService("MaterialService")
+		local matVars = nil
+		local matToken = 0
+		local function restoreMatOverrides()
+			matToken = (matToken or 0) + 1
+			if not matVars then return end
+			for _, e in ipairs(matVars) do
+				pcall(function() MatSvc:SetBaseMaterialOverride(e.mat, "") end)
+				pcall(function() e.mv:Destroy() end)
+			end
+			matVars = nil
+		end
+		local function applyMatOverrides(list)
+			restoreMatOverrides()
+			if not list then return end
+			matVars = {}
+			local myToken = matToken
+			for _, e in ipairs(list) do
+				task.spawn(function()
+					local mv
+					local okMk = pcall(function()
+						mv = Instance.new("MaterialVariant")
+						mv.Name = "RickVar_" .. e.mat.Name
+						mv.BaseMaterial = e.mat
+						mv.ColorMap = e.id
+						if e.tile then mv.StudsPerTile = e.tile end
+					end)
+					if not okMk or not mv then return end
+					-- v87: testa o carregamento ANTES de ligar no MaterialService (evita o erro vermelho)
+					local good = true
+					pcall(function()
+						game:GetService("ContentProvider"):PreloadAsync({mv}, function(_, st)
+							if st ~= Enum.AssetFetchStatus.Success then good = false end
+						end)
+					end)
+					if not good or myToken ~= matToken or not matVars then
+						pcall(function() mv:Destroy() end)
+						return
+					end
+					pcall(function()
+						mv.Parent = MatSvc
+						MatSvc:SetBaseMaterialOverride(e.mat, mv.Name)
+						matVars[#matVars + 1] = { mat = e.mat, mv = mv }
+					end)
+				end)
+			end
+		end
+
 		local terrCols = nil
 		local function restoreTerrainColors()
 			if not terrCols then return end
@@ -16841,6 +17083,7 @@ local function setupRickGun(character)
 			snapshot()
 			clearFX()
 			applyTerrainColors(def.terrainColors)
+			applyMatOverrides(def.matOverrides)
 			pcall(function() workspace.Gravity = (saved and saved.gravity or workspace.Gravity) * (def.gravity or 1) end)
 			if def.spaceSky then
 				local sid = (State.space and State.space.SKY_ID) or "rbxassetid://118061545763280"
@@ -16866,6 +17109,7 @@ local function setupRickGun(character)
 		local function restoreWorld(instant)
 			clearFX()
 			restoreTerrainColors()
+			restoreMatOverrides()
 			if not saved then return end
 			local s = saved
 			saved = nil

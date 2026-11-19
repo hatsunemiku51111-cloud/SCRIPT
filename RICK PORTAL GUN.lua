@@ -366,6 +366,20 @@ local Config = {
 	CloneZoneMargin = 2.5,
 	HideInsidePart = true,
 	MaxStep = 40,
+	Games = {   -- v79: favoritos da viagem entre jogos (nome + PlaceId). Edite a vontade.
+		{ name = "Brookhaven RP", id = 4924922222 },
+		{ name = "Adopt Me!", id = 920587237 },
+		{ name = "Blox Fruits", id = 2753915549 },
+		{ name = "Murder Mystery 2", id = 142823291 },
+		{ name = "Arsenal", id = 286090429 },
+		{ name = "Natural Disaster Survival", id = 189707 },
+		{ name = "Work at a Pizza Place", id = 192800 },
+		{ name = "Tower of Hell", id = 1962086868 },
+		{ name = "Doors", id = 6516141723 },
+	},
+	TravelLeadTime = 1.1,    -- segundos entre o portal abrir e a tela do portal fechar
+	TravelTimeout = 20,      -- se o teleporte nao acontecer nesse tempo, cancela e volta ao normal
+	PortalCooldown = 1,   -- segundos de espera entre uma travessia de portal e a proxima (evita teleportar em loop)
 
 	CamSlide = true,
 	CamSlideDuration = 0.55,
@@ -6829,6 +6843,12 @@ State.MortyFollow = {
 	MaxCarrySize = 60,       -- tamanho maximo (diagonal, em studs) do que o Morty consegue pegar
 	MaxCarryMass = 50000,    -- massa maxima do que ele consegue pegar (mesmo limite do EMOTZ-HAND)
 	PiggyUp = 0.55,
+	Nap = true,              -- v78: Morty senta e cochila quando voce fica parado
+	NapSitAfter = 15,        -- segundos parado ate ele sentar no chao
+	NapSleepAfter = 35,      -- segundos parado ate ele dormir (Zzz)
+	Rescue = true,
+	RescueHealth = 0.5,
+	RescueCooldown = 45,
 	PiggyBack = 0.12,
 	Prompt = false,          -- true = mostra o botao "Falar" perto dele (alternativa ao clique)
 	Hair = "110659739210853",
@@ -7117,23 +7137,23 @@ State._buildFollowMorty = function(character, Z, newGui)
 	-- ---------- falas do Morty (usa o mesmo sistema de falas do Rick) ----------
 	PG.FALAS = {
 		ir = {
-			{ "Beleza, Rick! Já tô indo!", "animado", 1 },
-			{ "Deixa comigo, Rick!", "animado", 1 },
+			{ "Beleza, {nome}! Já tô indo!", "animado", 1 },
+			{ "Deixa comigo, {nome}!", "animado", 1 },
 			{ "Pegar isso? Ah geez, tá bom...", "nervoso", 1 },
 		},
 		pegou = {
-			{ "Peguei! Aqui, Rick!", "animado", 1 },
+			{ "Peguei! Aqui, {nome}!", "animado", 1 },
 			{ "Consegui! Eu acho...", "nervoso", 1 },
 			{ "Até que é leve, né?", "calmo", 1 },
 		},
 		pegouPesado = {
-			{ "Ah geez, isso é pesado, Rick!", "grito", 2 },
+			{ "Ah geez, isso é pesado, {nome}!", "grito", 2 },
 			{ "Geez, isso pesa uma tonelada!", "grito", 2 },
 			{ "Ugh... quem deixou isso aqui?!", "nervoso", 2 },
 		},
 		largou = {
 			{ "Pronto, aqui!", "calmo", 1 },
-			{ "Pode pegar, Rick!", "animado", 1 },
+			{ "Pode pegar, {nome}!", "animado", 1 },
 			{ "Larguei!", "calmo", 1 },
 		},
 		largouPesado = {
@@ -7147,31 +7167,80 @@ State._buildFollowMorty = function(character, Z, newGui)
 			{ "Eu não deixei cair! ...tá, deixei.", "nervoso", 1 },
 		},
 		falhou = {
-			{ "Não dá, Rick: {motivo}!", "erro", 1 },
+			{ "Não dá, {nome}: {motivo}!", "erro", 1 },
 			{ "Geez, {motivo}... eu não consigo!", "erro", 1 },
 		},
 		portal = {
-			{ "AAAH! Isso de novo, Rick?!", "grito", 2 },
-			{ "Geez! Espera por mim, Rick!", "grito", 2 },
+			{ "AAAH! Isso de novo, {nome}?!", "grito", 2 },
+			{ "Geez! Espera por mim, {nome}!", "grito", 2 },
 			{ "Eu odeio portais! *grita*", "nervoso", 2 },
 			{ "Ah geez, meu estômago!", "nervoso", 1 },
 		},
+		resgate1 = {
+			{ "{nome}, você tá machucado! Venha, venha!", "nervoso", 1 },
+			{ "Ei, {nome}! Venha, eu abro um portal!", "nervoso", 1 },
+		},
+		resgate2 = {
+			{ "Ah geez, {nome}, você tá muito mal! VENHA LOGO!", "grito", 2 },
+			{ "Aguenta aí, {nome}! Venha, rápido!", "grito", 2 },
+		},
+		resgate3 = {
+			{ "{nome}, NÃO MORRE! VENHA! VENHA AGORA!", "grito", 2 },
+			{ "AAAH! {nome}, POR FAVOR, VENHA!!", "grito", 2 },
+			{ "Geez, geez, geez! {nome}, VENHA, ENTRA NO PORTAL!", "grito", 2 },
+		},
+		resgatePegou = {
+			{ "Peguei a arma, {nome}! Relaxa!", "animado", 1 },
+		},
+		devolve = {
+			{ "Pronto, {nome}! Aqui sua arma de volta!", "calmo", 1 },
+			{ "Tá aqui sua portal gun, {nome}. Você tá bem?", "calmo", 1 },
+		},
 		costas = {
-			{ "Ah geez, Rick, não me deixa cair!", "nervoso", 1 },
+			{ "Ah geez, {nome}, não me deixa cair!", "nervoso", 1 },
 			{ "Uau, daqui de cima dá pra ver tudo!", "animado", 1 },
-			{ "Segura firme, Rick!", "nervoso", 1 },
+			{ "Segura firme, {nome}!", "nervoso", 1 },
+		},
+		descendo = {
+			{ "Calma, calma, {nome}, devagar!", "nervoso", 1 },
+			{ "Ah geez, cuidado com a cabeça!", "nervoso", 1 },
+		},
+		viagem = {
+			{ "Outro universo?! Ah geez, {nome}, de novo não!", "grito", 2 },
+			{ "{jogo}?! Eu nem troquei de roupa!", "nervoso", 2 },
+		},
+		chegada = {
+			{ "Onde... onde a gente tá, {nome}?", "nervoso", 1 },
+			{ "Uau, esse lugar parece... estranhamente normal.", "calmo", 1 },
+		},
+		viagemErro = {
+			{ "Viu? Eu disse que ia dar errado!", "nervoso", 1 },
+			{ "Ufa... a gente ficou aqui mesmo.", "calmo", 1 },
+		},
+		sentou = {
+			{ "Ah geez, {nome}, minhas pernas... vou sentar um pouquinho.", "calmo", 1 },
+			{ "A gente vai ficar parado muito tempo? Vou sentar.", "calmo", 1 },
+		},
+		dormiu = {
+			{ "*bocejo* Vou só fechar os olhos um segundinho...", "calmo", 1 },
+			{ "Zzz... só descansando a vista, {nome}...", "calmo", 1 },
+		},
+		acordou = {
+			{ "H-hã?! Eu não tava dormindo, juro!", "nervoso", 1 },
+			{ "Ai, que cochilo, {nome}! Quanto tempo eu apaguei?", "animado", 1 },
+			{ "Ah geez! Eu... eu tava prestando atenção!", "nervoso", 1 },
 		},
 		desceu = {
-			{ "Ufa, valeu pela carona, Rick!", "calmo", 1 },
+			{ "Ufa, valeu pela carona, {nome}!", "calmo", 1 },
 			{ "Isso foi estranhamente confortável.", "calmo", 1 },
 		},
 		portalCarga = {
-			{ "Rick! Tô passando pelo portal com isso na mão!", "grito", 2 },
+			{ "{nome}! Tô passando pelo portal com isso na mão!", "grito", 2 },
 			{ "Ah geez, não deixa cair, não deixa cair!", "nervoso", 2 },
 			{ "Isso vai dar muito errado... *segura firme*", "nervoso", 1 },
 		},
 	}
-	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, desceu = 1 }
+	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, descendo = 1, desceu = 1, sentou = 1, dormiu = 1, acordou = 1, viagem = 1, chegada = 1, viagemErro = 1, resgate1 = 1, resgate2 = 1, resgate3 = 1, resgatePegou = 1, devolve = 1 }
 	PG.MF = nil
 	pcall(function()
 		if Z.fala and Z.fala.criar then
@@ -7180,6 +7249,8 @@ State._buildFollowMorty = function(character, Z, newGui)
 		end
 	end)
 	function PG.diz(cat, vars)
+		vars = vars or {}
+		if not vars.nome then vars.nome = tostring(player.DisplayName or player.Name) end
 		if PG.MF then pcall(PG.MF.dizer, cat, vars) end
 	end
 
@@ -7639,7 +7710,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		-- Pega
 		local ORG = C3(255, 170, 60)
 		local bP = make3D(3, C3(48, 26, 92), ORG, function()
-			if ctl.piggy or ctl.piggyWant then PB.stop() end
+			if ctl.piggy or ctl.piggyWant then PB.stop(true) end
 			if ctl.fetch then
 				ctl.fetch = nil
 				closeMenu()
@@ -7701,7 +7772,10 @@ State._buildFollowMorty = function(character, Z, newGui)
 			menuRefs.followDesc.Text = "Parado - toque pra ele te seguir"
 		end
 		if menuRefs.rideTitle then
-			if ctl.piggy then
+			if ctl.piggy and ctl.piggy.ph == "down" then
+				menuRefs.rideTitle.Text = "Descendo..."
+				menuRefs.rideDesc.Text = "Colocando o Morty no chão"
+			elseif ctl.piggy then
 				menuRefs.rideTitle.Text = "Descer"
 				menuRefs.rideDesc.Text = "Ele está nas suas costas"
 			elseif ctl.piggyWant then
@@ -7869,6 +7943,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		rig = rig,
 		-- chamado quando voce atravessa um portal: o Morty (e o que ele carrega) vai junto
 		onTeleport = function() ctl.warp = true end,
+		say = function(cat, vars) PG.diz(cat, vars) end,
 		destroy = function() pcall(ctlDestroy) pcall(function() rig:Destroy() end) end,
 		-- a arma consulta isso pra nao atirar quando o clique e no Morty / escolhendo o que pegar
 		blockFire = function(p)
@@ -7887,6 +7962,37 @@ State._buildFollowMorty = function(character, Z, newGui)
 
 
 	local pgAmt = 0
+	-- v78: cochilo (senta no chao -> dorme com Zzz; tambem cochila nas suas costas)
+	local nap = { state = nil, act = os.clock(), hold = os.clock(), lastPos = rootPart.Position, neckOn = false, rideDz = false }
+	local gsAmt, dzAmt = 0, 0
+	local neckJ = torso:FindFirstChild("Neck")
+	local zzGui, zzLabels = nil, {}
+	pcall(function()
+		local g = Instance.new("BillboardGui")
+		g.Name = "MortyZzz"
+		g.Size = UDim2.fromOffset(90, 90)
+		g.StudsOffset = V3(0.6, 1.5, 0)
+		g.AlwaysOnTop = false
+		g.LightInfluence = 0
+		g.MaxDistance = 90
+		g.Enabled = false
+		g.Adornee = head
+		g.Parent = head
+		for i = 1, 3 do
+			local l = Instance.new("TextLabel")
+			l.BackgroundTransparency = 1
+			l.AnchorPoint = Vector2.new(0.5, 0.5)
+			l.Size = UDim2.fromOffset(40, 40)
+			l.Font = Enum.Font.GothamBold
+			l.Text = i == 1 and "Z" or "z"
+			l.TextColor3 = Color3.fromRGB(235, 245, 255)
+			l.TextStrokeColor3 = Color3.fromRGB(40, 60, 120)
+			l.TextSize = 18
+			l.Parent = g
+			zzLabels[i] = l
+		end
+		zzGui = g
+	end)
 	local function sg(t, a, b)
 		local x = math.clamp((t - a) / (b - a), 0, 1)
 		return x * x * (3 - 2 * x)
@@ -8020,6 +8126,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 	end
 
 	PB.PICK = 2.1
+	PB.DOWN = 2.0   -- v76: duracao da animacao de descer o Morty das costas
 	PB.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, ap = {} }
 
 	function PB.torso()
@@ -8081,7 +8188,28 @@ State._buildFollowMorty = function(character, Z, newGui)
 			end
 		end
 	end
-	function PB.stop()
+	-- v76: animacao de descer o Morty das costas (inverso do "pegar nas costas")
+	function PB.beginDown()
+		local pg = ctl.piggy
+		if not pg then return end
+		local pcf = rootPart.CFrame
+		local sp = PB.spot()
+		local gy = feetY()
+		local res = workspace:Raycast(V3(sp.X, pcf.Position.Y + 2, sp.Z), V3(0, -80, 0), rp)
+		if res then gy = res.Position.Y end
+		pg.ph, pg.t0 = "down", os.clock()
+		pg.land = V3(sp.X, gy + 3 * S, sp.Z)
+		pg.fl = { V3(0.7, 0, 0), V3(-0.7, 0, 0) }
+		PB.lock()
+		PG.diz("descendo")
+	end
+	function PB.stop(instant)
+		local pg0 = ctl.piggy
+		if pg0 and pg0.ph == "down" and not instant then return end
+		if pg0 and pg0.ph == "ride" and not instant and not seated and playerHum and playerHum.Health > 0 then
+			PB.beginDown()
+			return
+		end
 		local was = ctl.piggy or ctl.piggyWant
 		local rode = ctl.piggy ~= nil
 		ctl.piggy, ctl.piggyWant = nil, false
@@ -8120,6 +8248,8 @@ State._buildFollowMorty = function(character, Z, newGui)
 				PB.unlock()
 				PG.diz("costas")
 			end
+		elseif pg.ph == "down" then
+			u = math.clamp((now - pg.t0) / PB.DOWN, 0, 1)
 		end
 		local sh = tp.CFrame
 		local function headPt(s)
@@ -8148,6 +8278,28 @@ State._buildFollowMorty = function(character, Z, newGui)
 			local hb = sg(u, 0.68, 0.95)
 			k.pr = (rcf * pg.fl[1]):Lerp(ride * V3(0.78, -0.72, -0.25), hb)
 			k.pl = (rcf * pg.fl[2]):Lerp(ride * V3(-0.78, -0.72, -0.25), hb)
+		elseif pg.ph == "down" then
+			-- Rick se inclina, segura o Morty pelas pernas e o desce pelo lado direito ate o chao
+			local land = pg.land
+			local pu = sg(u, 0.18, 0.86)
+			local P0 = ride.Position
+			local mid = (P0 + land) * 0.5 + V3(0, 0.9, 0) + sh.RightVector * 0.6
+			local pos = bez(P0, mid * 2 - (P0 + land) * 0.5, land, pu)
+			pos = pos + V3(0, 0.28 * S * math.sin(math.pi * sg(u, 0.9, 1)), 0)
+			local rl = rootPart.CFrame.LookVector
+			local rot = rotOnly(ride):Lerp(ANG(0, math.atan2(-rl.X, -rl.Z), 0), sg(u, 0.3, 0.92))
+			rcf = CF(pos) * rot * ANG(0, 0, -0.45 * math.sin(math.pi * pu))
+			local env = sg(u, 0, 0.22) * (1 - sg(u, 0.72, 0.95))
+			k.sp = 0.85 * (1 - sg(u, 0.35, 0.9))
+			k.lz = 1.3 - 0.95 * sg(u, 0.3, 0.95) + 0.25 * math.sin(now * 14) * env
+			local rel = sg(u, 0.55, 0.9)
+			local function mh(s)
+				return headPt(s):Lerp(shPt(s), sg(u, 0, 0.3)):Lerp(sh * V3(s * 1.5, 0.1, 0.6), rel)
+			end
+			a, b = mh(1), mh(-1)
+			local hb = 1 - sg(u, 0.12, 0.6)
+			k.pr = (rcf * pg.fl[1]):Lerp(ride * V3(0.78, -0.72, -0.25), hb)
+			k.pl = (rcf * pg.fl[2]):Lerp(ride * V3(-0.78, -0.72, -0.25), hb)
 		else
 			rcf = ride * ANG(0, 0, math.sin(now * 1.7) * 0.03)
 			k.lz = 1.3 + 0.04 * math.sin(now * 2.2)
@@ -8161,6 +8313,13 @@ State._buildFollowMorty = function(character, Z, newGui)
 			k.hr, k.hl = b, a
 		end
 		PB.k = k
+		if pg.ph == "down" and u >= 1 then
+			-- terminou de descer: Morty fica de pe ao seu lado e volta a seguir normalmente
+			groundY = pg.land.Y - 3 * S
+			ctl.piggy = nil
+			PB.unlock()
+			PG.diz("desceu")
+		end
 		return rcf
 	end
 	function PB.targets()
@@ -8174,6 +8333,10 @@ State._buildFollowMorty = function(character, Z, newGui)
 			local env = sg(u, 0, 0.2) * (1 - sg(u, 0.55, 0.85))
 			tgt.waist = V3(-32 * env, 0, 0)
 			tgt.neck = V3(22 * env, 0, 0)
+		elseif pg.ph == "down" then
+			local env = sg(u, 0, 0.22) * (1 - sg(u, 0.72, 0.95))
+			tgt.waist = V3(-30 * env, 0, 0)
+			tgt.neck = V3(20 * env, 0, 0)
 		end
 		arms.R = { pos = k.pr, w = w }
 		arms.L = { pos = k.pl, w = w }
@@ -8276,6 +8439,155 @@ State._buildFollowMorty = function(character, Z, newGui)
 		end
 	end)
 
+
+	local RS = { w = 0, wl = 0, tw = nil, gun = nil, aimDir = nil }
+	local resCD = 0
+	local SAY_GAP = { 3.6, 2.6, 1.7 }
+
+	function RS.spot()
+		local c = rootPart.CFrame
+		return c.Position + c.RightVector * 1.9
+	end
+	function RS.dropGun()
+		if RS.gun then
+			pcall(function() RS.gun:Destroy() end)
+			RS.gun = nil
+		end
+	end
+	function RS.start(now)
+		releaseCarry(true)
+		ctl.fetch = nil
+		if ctl.menuOpen then closeMenu() end
+		ctl.rescue = { ph = "run", t0 = now, t00 = now, g = 0, tier = 1, nextSay = 0 }
+	end
+	function RS.abort(now)
+		local rs = ctl.rescue
+		if rs and rs.hasGun and State.rescue then pcall(State.rescue.giveBack) end
+		RS.dropGun()
+		ctl.rescue = nil
+		RS.aimDir = nil
+		resCD = now + (CFG.RescueCooldown or 45)
+	end
+	function RS.takeGun()
+		local rs = ctl.rescue
+		if not (rs and State.rescue and State.rescue.take()) then return end
+		rs.hasGun = true
+		PG.diz("resgatePegou", { nome = tostring(player.DisplayName or player.Name) })
+		local ok, gh = pcall(buildGun, rig, false)
+		if not (ok and gh and gh:IsA("BasePart")) then return end
+		for _, d in ipairs(gh:GetDescendants()) do
+			if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Sound")
+				or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Motor6D") then
+				d:Destroy()
+			end
+		end
+		gh.Anchored, gh.CanCollide, gh.CanQuery, gh.CanTouch, gh.Massless = false, false, false, false, true
+		gh.CastShadow = false
+		gh.Size = gh.Size * S
+		for _, d in ipairs(gh:GetChildren()) do
+			if d:IsA("SpecialMesh") then
+				d.Scale = d.Scale * S
+				d.Offset = d.Offset * S
+			elseif d:IsA("Attachment") then
+				d.Position = d.Position * S
+			end
+		end
+		local grip = State.rescue.grip()
+		local w = Instance.new("Weld")
+		w.Part0, w.Part1 = rArm, gh
+		w.C0 = CF(0, -1 * S, 0) * ANG(-math.pi / 2, 0, 0)
+		w.C1 = CF(grip.Position * S) * (grip - grip.Position)
+		gh.CFrame = rArm.CFrame * w.C0 * w.C1:Inverse()
+		w.Parent = gh
+		gh.Parent = rig
+		RS.gun = gh
+	end
+	function RS.fire(now)
+		local rs = ctl.rescue
+		rs.fired = true
+		rs.tf = now
+		local hand = rArm.CFrame * V3(0, -1 * S, 0)
+		local dir = -rArm.CFrame.UpVector
+		pcall(State.rescue.fire, hand + dir * 1.1 * S)
+	end
+	function RS.step(dt, now, rcf)
+		local rs = ctl.rescue
+		local want, wantL = nil, false
+		if rs and State.rescue then
+			local frac = (playerHum and playerHum.MaxHealth > 0) and (playerHum.Health / playerHum.MaxHealth) or 1
+			rs.tier = frac <= 0.2 and 3 or (frac <= 0.35 and 2 or 1)
+			local ph = rs.ph
+			local nm = tostring(player.DisplayName or player.Name)
+			if ph ~= "return" and ph ~= "give" and now >= rs.nextSay then
+				rs.nextSay = now + SAY_GAP[rs.tier]
+				PG.diz("resgate" .. rs.tier, { nome = nm })
+			end
+			if now - rs.t00 > 60 then
+				RS.abort(now)
+				return
+			end
+			if ph == "run" then
+				wantL = true
+				if rs.near then rs.ph, rs.g = "grab", 0 end
+			elseif ph == "grab" then
+				wantL = true
+				if rs.near then rs.g = rs.g + dt end
+				want = State.rescue.holsterWorld()
+				if rs.g >= 0.4 and not rs.hasGun then RS.takeGun() end
+				if rs.g >= 0.8 then rs.ph, rs.a = "aim", 0 end
+			elseif ph == "aim" or ph == "wait" then
+				wantL = true
+				if now - (rs.pv or 0) > 0.1 then
+					rs.pv = now
+					rs.entCF = State.rescue.preview() or rs.entCF
+				end
+				local ec = rs.entCF
+				if ec then
+					want = ec.Position
+					local d = V3(ec.Position.X - rcf.Position.X, 0, ec.Position.Z - rcf.Position.Z)
+					RS.aimDir = d.Magnitude > 0.05 and d.Unit or nil
+				end
+				if ph == "aim" then
+					rs.a = rs.a + dt
+					if rs.a >= 0.55 and not rs.fired then RS.fire(now) end
+					if rs.a >= 1.1 then rs.ph, rs.tw0 = "wait", now end
+				else
+					if now - rs.tw0 > 25 or (rs.fired and now - rs.tf > 2.5 and not State.rescue.hasPortals()) then
+						rs.ph, rs.g = "return", 0
+						RS.aimDir = nil
+					end
+				end
+			elseif ph == "return" then
+				if rs.near then rs.ph, rs.g = "give", 0 end
+			elseif ph == "give" then
+				if rs.near then rs.g = rs.g + dt end
+				want = State.rescue.holsterWorld()
+				if rs.g >= 0.45 and rs.hasGun then
+					RS.dropGun()
+					State.rescue.giveBack()
+					rs.hasGun = false
+					PG.diz("devolve", { nome = nm })
+				end
+				if rs.g >= 0.9 then
+					ctl.rescue = nil
+					RS.aimDir = nil
+					resCD = now + (CFG.RescueCooldown or 45)
+				end
+			end
+		end
+		RS.w = RS.w + ((want and 1 or 0) - RS.w) * math.min(1, dt * 9)
+		RS.wl = RS.wl + ((wantL and 1 or 0) - RS.wl) * math.min(1, dt * 9)
+		if want then RS.tw = RS.tw and RS.tw:Lerp(want, math.min(1, dt * 12)) or want end
+		if not ctl.rescue and RS.w < 0.02 then RS.tw = nil end
+	end
+	local oldClean = PB.cleanup
+	PB.cleanup = function()
+		if oldClean then oldClean() end
+		if ctl.rescue and State.rescue then pcall(State.rescue.release) end
+		ctl.rescue = nil
+		RS.dropGun()
+	end
+
 	local function stepFn(dt)
 		dt = math.min(dt, 0.1)
 		local now = os.clock()
@@ -8285,6 +8597,11 @@ State._buildFollowMorty = function(character, Z, newGui)
 		end
 		local pcf = rootPart.CFrame
 		local pos = pcf.Position
+		do
+			local mv = (pos - nap.lastPos).Magnitude / math.max(dt, 1 / 240)
+			nap.lastPos = pos
+			if mv > 1.2 or (playerHum and playerHum.MoveDirection.Magnitude > 0.05) then nap.act = now end
+		end
 
 		-- banco do passageiro (so existe enquanto voce esta dentro da nave)
 		local seatCF = nil
@@ -8319,7 +8636,21 @@ State._buildFollowMorty = function(character, Z, newGui)
 			PB.unlock()
 		end
 
+		local rsT = ctl.rescue
+		if rsT and (seated or (playerHum and playerHum.Health <= 0)) then
+			RS.abort(now)
+		elseif not rsT and CFG.Rescue ~= false and not seated and not hop and now >= resCD
+			and playerHum and playerHum.Health > 0 and playerHum.MaxHealth > 0
+			and playerHum.Health / playerHum.MaxHealth <= (CFG.RescueHealth or 0.5)
+			and ctl.mode == "idle" and State.rescue and not State.rescue.active and State.rescue.canTake() then
+			if ctl.piggy or ctl.piggyWant then
+				PB.stop(true)
+			else
+				RS.start(now)
+			end
+		end
 		local rcf
+		local napBranch = false
 		if ctl.piggy and not seated then
 			ctl.warp = false
 			walking, amt = false, 0
@@ -8353,7 +8684,11 @@ State._buildFollowMorty = function(character, Z, newGui)
 			local d = flat.Magnitude
 
 			-- teleporte (portal, respawn longe etc.)
-			if ctl.follow and not (ctl.fetch and ctl.fetch.phase ~= "back") and (ctl.warp or d > CFG.TeleportDistance or math.abs(groundY - feetY()) > 80) then
+			if ctl.rescue and ctl.rescue.ph == "wait" and ctl.warp then
+				ctl.rescue.ph, ctl.rescue.g = "return", 0
+				RS.aimDir = nil
+			end
+			if (ctl.follow or ctl.rescue) and not (ctl.fetch and ctl.fetch.phase ~= "back") and (ctl.warp or d > CFG.TeleportDistance or math.abs(groundY - feetY()) > 80) then
 				if ctl.warp then PG.diz(ctl.carry and "portalCarga" or "portal") end
 				local back = -V3(pcf.LookVector.X, 0, pcf.LookVector.Z)
 				if back.Magnitude < 0.01 then back = V3(0, 0, 1) else back = back.Unit end
@@ -8372,7 +8707,21 @@ State._buildFollowMorty = function(character, Z, newGui)
 			if fetch and fetch.phase == "go" and not (fetch.obj and fetch.obj.Parent) then
 				ctl.fetch, fetch = nil, nil
 			end
-			if ctl.piggyWant then
+			if ctl.rescue then
+				local rs2 = ctl.rescue
+				local ph2 = rs2.ph
+				if ph2 == "run" or ph2 == "grab" or ph2 == "return" or ph2 == "give" then
+					local sp = RS.spot()
+					local tv = V3(sp.X - cur.X, 0, sp.Z - cur.Z)
+					gd, gstop = tv.Magnitude, 0.1
+					if gd > 0.01 then gdir = tv.Unit end
+					walking = gd > 0.45
+					rs2.near = gd <= 0.9
+				else
+					walking = false
+					rs2.near = false
+				end
+			elseif ctl.piggyWant then
 				local sp = PB.spot()
 				local tv = V3(sp.X - cur.X, 0, sp.Z - cur.Z)
 				gd, gstop = tv.Magnitude, 0.1
@@ -8426,13 +8775,46 @@ State._buildFollowMorty = function(character, Z, newGui)
 				walking = true
 			end
 
+			napBranch = true
+			if CFG.Nap ~= false then
+				local canNap = not walking and amt < 0.05 and not fetch and not ctl.rescue and not ctl.piggyWant
+					and not ctl.carry and not ctl.menuOpen and ctl.mode == "idle"
+					and not (State.rescue and State.rescue.active)
+					and playerHum and playerHum.Health > 0
+				if not canNap then nap.hold = now end
+				local idleFor = now - math.max(nap.act, nap.hold)
+				local want = nil
+				if canNap then
+					if idleFor >= (CFG.NapSleepAfter or 35) then
+						want = "sleep"
+					elseif idleFor >= (CFG.NapSitAfter or 15) then
+						want = "sit"
+					end
+				end
+				if want ~= nap.state then
+					local old = nap.state
+					nap.state = want
+					if want == "sit" then
+						PG.diz("sentou")
+					elseif want == "sleep" then
+						PG.diz("dormiu")
+					elseif old == "sleep" then
+						PG.diz("acordou")
+					end
+				end
+				if nap.state or gsAmt > 0.15 then walking = false end   -- espera levantar antes de andar
+			else
+				nap.state = nil
+			end
+
 			local spd = 0
 			if walking then
-				spd = math.clamp((gd - gstop) * 4, 5, CFG.MaxSpeed)
+				spd = math.clamp((gd - gstop) * 4, 5, CFG.MaxSpeed * (ctl.rescue and (1 + 0.2 * (ctl.rescue.tier or 1)) or 1))
 				local step = math.min(spd * dt, math.max(gd - gstop, 0))
 				cur = cur + gdir * step
 			end
-			local faceDir = (ctl.fetch and (walking or ctl.fetch.phase == "wait")) and gdir or dirToPlayer
+			local faceDir = ((ctl.fetch and (walking or ctl.fetch.phase == "wait")) or (ctl.rescue and walking)) and gdir or dirToPlayer
+			if ctl.rescue and RS.aimDir and (ctl.rescue.ph == "aim" or ctl.rescue.ph == "wait") then faceDir = RS.aimDir end
 			local wantYaw = math.atan2(-faceDir.X, -faceDir.Z)
 			local delta = (wantYaw - yaw + math.pi) % (2 * math.pi) - math.pi
 			yaw = yaw + delta * math.min(1, dt * (walking and 12 or 6))
@@ -8448,25 +8830,45 @@ State._buildFollowMorty = function(character, Z, newGui)
 				phase = phase + dt * math.min(spd / (S * 1.2), 30)
 			end
 			local bob = math.abs(math.sin(phase)) * 0.12 * S * amt
-			rcf = CF(cur.X, groundY + 3 * S + bob, cur.Z) * ANG(0, yaw, 0)
+			rcf = CF(cur.X, groundY + 3 * S + bob - 1.5 * S * gsAmt + math.sin(now * 1.6) * 0.02 * S * dzAmt, cur.Z) * ANG(0, yaw, 0)
 		end
 
+		RS.step(dt, now, rcf)
+		if ctl.rescue then
+			rcf = rcf * CF(math.sin(now * 47) * 0.012 * (ctl.rescue.tier or 1), 0, 0)
+		end
+		-- v78: cochilo
+		local rideDz = false
+		if CFG.Nap ~= false and not napBranch and ctl.piggy and ctl.piggy.ph == "ride" and not seated then
+			rideDz = (now - nap.act) >= (CFG.NapSleepAfter or 35) * 0.6
+		end
+		if rideDz ~= nap.rideDz then
+			nap.rideDz = rideDz
+			PG.diz(rideDz and "dormiu" or "acordou")
+		end
+		if not napBranch then
+			nap.state = nil
+			gsAmt = 0
+		end
+		gsAmt = gsAmt + ((nap.state and 1 or 0) - gsAmt) * math.min(1, dt * (nap.state and 3 or 6))
+		local dzT = (nap.state == "sleep" or rideDz) and 1 or 0
+		dzAmt = dzAmt + (dzT - dzAmt) * math.min(1, dt * 2)
 		-- poses: andar / parado / sentado
 		local sw = math.sin(phase) * 0.9 * amt
 		local idle = math.sin(now * 2) * 0.04 * (1 - amt) * (1 - sitAmt)
-		local leg = sitAmt * (math.pi / 2)
+		local leg = (sitAmt + gsAmt) * (math.pi / 2)
 		carryAmt = carryAmt + ((ctl.carry and 1 or 0) - carryAmt) * math.min(1, dt * 8)
 		pgAmt = pgAmt + ((ctl.piggy and 1 or 0) - pgAmt) * math.min(1, dt * 8)
 		if not ctl.piggy and pgAmt < 0.02 then PB.k = nil end
-		local arm = sitAmt * 0.7
+		local arm = sitAmt * 0.7 + gsAmt * 0.5
 		local swA = sw * (1 - carryAmt * 0.85)
 		local pk = PB.k
 		if pk and pgAmt > 0.01 then
 			rHip.Transform = ANG(0, -pk.sp * pgAmt, sw + leg + pk.lz * pgAmt)
 			lHip.Transform = ANG(0, pk.sp * pgAmt, sw - leg - pk.lz * pgAmt)
 		else
-			rHip.Transform = ANG(0, 0, sw + leg)
-			lHip.Transform = ANG(0, 0, sw - leg)
+			rHip.Transform = ANG(0, -0.15 * gsAmt, sw + leg)
+			lHip.Transform = ANG(0, 0.15 * gsAmt, sw - leg)
 		end
 		local zR = -swA * 0.8 + idle + arm
 		local zL = -swA * 0.8 + idle - arm
@@ -8485,6 +8887,42 @@ State._buildFollowMorty = function(character, Z, newGui)
 			local thL, psL = PG.armAim(-1, rcf:PointToObjectSpace(pk.hl))
 			rSh.Transform = ANG(0, psR * pgAmt, zR + (thR - zR) * pgAmt)
 			lSh.Transform = ANG(0, psL * pgAmt, zL + (thL - zL) * pgAmt)
+		end
+		if RS.wl > 0.01 or RS.w > 0.01 then
+			local tierK = ctl.rescue and ctl.rescue.tier or 1
+			if RS.wl > 0.01 then
+				local lt = V3(-0.9 + 0.2 * (1 + tierK * 0.4) * math.sin(now * 9), 2.4, -1.0) * S
+				local thL, psL = PG.armAim(-1, lt)
+				lSh.Transform = ANG(0, psL * RS.wl, zL + (thL - zL) * RS.wl)
+			end
+			if RS.w > 0.01 and RS.tw then
+				local thR, psR = PG.armAim(1, rcf:PointToObjectSpace(RS.tw))
+				rSh.Transform = ANG(0, psR * RS.w, zR + (thR - zR) * RS.w)
+			end
+		end
+		if neckJ then
+			if dzAmt > 0.01 then
+				local jerk = math.max(0, math.sin(now * 0.9)) ^ 14   -- cabecada: levanta a cabeca de vez em quando
+				neckJ.Transform = ANG(0.6 * dzAmt * (1 - 0.7 * jerk) + 0.03 * dzAmt * math.sin(now * 1.4), 0, 0.05 * dzAmt * math.sin(now * 0.7))
+				nap.neckOn = true
+			elseif nap.neckOn then
+				neckJ.Transform = CFrame.new()
+				nap.neckOn = false
+			end
+		end
+		if zzGui then
+			local on = dzAmt > 0.6
+			if zzGui.Enabled ~= on then zzGui.Enabled = on end
+			if on then
+				for i, l in ipairs(zzLabels) do
+					local t = (now * 0.5 + (i - 1) / 3) % 1
+					local fade = t < 0.15 and (1 - t / 0.15) or (t > 0.7 and (t - 0.7) / 0.3 or 0)
+					l.Position = UDim2.new(0.35 + t * 0.35, 0, 0.85 - t * 0.7, 0)
+					l.TextSize = math.floor(12 + 16 * t)
+					l.TextTransparency = fade
+					l.TextStrokeTransparency = 0.5 + 0.5 * fade
+				end
+			end
 		end
 		root.CFrame = rcf
 		carryStep(rcf)
@@ -8510,6 +8948,71 @@ end
 State.startFollowMorty = function(character, Z, newGui)
 	local ok, e = pcall(State._buildFollowMorty, character, Z, newGui)
 	if not ok then warnRG("Morty seguidor falhou ao montar:", e) end
+end
+
+-- ===== v79: VIAGEM ENTRE JOGOS =====
+State.travel = {}
+State.travel.read = function()
+	local data = nil
+	pcall(function()
+		local path = State.filePath(nil, "travel.json")
+		if isfile and readfile and isfile(path) then
+			data = game:GetService("HttpService"):JSONDecode(readfile(path))
+		end
+	end)
+	return type(data) == "table" and data or nil
+end
+State.travel.write = function(t)
+	pcall(function()
+		local path = State.filePath(nil, "travel.json")
+		if writefile then writefile(path, game:GetService("HttpService"):JSONEncode(t)) end
+	end)
+end
+State.travel.list = function()
+	local out = {}
+	local d = State.travel.read()
+	if d and tonumber(d.from) and tonumber(d.from) ~= game.PlaceId then
+		out[1] = { name = "Jogo anterior", id = tonumber(d.from) }
+	end
+	for _, g in ipairs(Config.Games or {}) do
+		if g.id ~= game.PlaceId then out[#out + 1] = g end
+	end
+	return out
+end
+-- agenda o recarregamento do script no jogo novo: URL (loadstring) ou arquivo salvo (codigo colado)
+State.travel.queue = function()
+	local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+	if type(q) ~= "function" then return false, "executor sem queue_on_teleport" end
+	local url = genv.RickPortalGunURL
+	local code = nil
+	if type(url) == "string" and url ~= "" then
+		code = string.format('getgenv().RickPortalGunURL = %q; if not game:IsLoaded() then game.Loaded:Wait() end; loadstring(game:HttpGet(%q))()', url, url)
+	else
+		local path = State.DIR .. "/RICK_PORTAL_GUN.lua"
+		local okF, has = pcall(function() return isfile and isfile(path) end)
+		if okF and has then
+			code = string.format('if not game:IsLoaded() then game.Loaded:Wait() end; loadstring(readfile(%q))()', path)
+		end
+	end
+	if not code then return false, "defina getgenv().RickPortalGunURL ou salve o script em " .. State.DIR .. "/RICK_PORTAL_GUN.lua" end
+	local okQ, errQ = pcall(q, code)
+	if not okQ then return false, tostring(errQ) end
+	return true
+end
+State.travelArrive = function(Z)
+	local d = State.travel.read()
+	if not (d and d.pending and tonumber(d.t) and os.time() - tonumber(d.t) < 180) then return end
+	if tonumber(d.from) == game.PlaceId then return end
+	d.pending = false
+	State.travel.write(d)
+	task.delay(2.5, function()
+		if not Z.alive then return end
+		pcall(function() Z.fala.dizer("chegada", {}) end)
+		task.delay(2.2, function()
+			local fm = State.followMorty
+			if Z.alive and fm and fm.say then pcall(fm.say, "chegada") end
+		end)
+	end)
 end
 
 local function setupRickGun(character)
@@ -8663,6 +9166,15 @@ local function setupRickGun(character)
 					{ "Eu volto já, Morty!", "grito", 1 },
 					{ "Cientista de verdade regenera!", "grito", 1 },
 				},
+				viagem = {
+					{ "Próxima parada: {jogo}! Segura a *burp* realidade, Morty.", "burp", 1 },
+					{ "{jogo}? Outro universo, mesmas regras. Nenhuma.", "calmo", 1 },
+					{ "Wubba lubba dub dub, {jogo}!", "grito", 1 },
+				},
+				chegada = {
+					{ "Chegamos! Cheirinho de multiverso novo.", "calmo", 1 },
+					{ "*burp* Funcionou. Eu sempre soube.", "burp", 1 },
+				},
 				erro = {
 					{ "Hm, isso não vai dar certo.", "erro", 1 },
 					{ "Até um gênio erra o alvo. *burp*", "erro", 1 },
@@ -8670,7 +9182,7 @@ local function setupRickGun(character)
 				},
 			}
 
-			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1 }
+			local CHANCE = { equip = 1, tiro = 0.45, dim = 0.8, alvo = 1, tp = 0.35, fechar = 0.5, corte = 1, erro = 0.4, nave = 1, viagem = 1, chegada = 1 }
 
 			local function criarFalante(getHead, FALAS, CHANCE, vivo, altura, maxDist)
 			local S = { gui = nil, caixa = nil, token = 0, ultimo = {}, t = 0 }
@@ -15614,6 +16126,7 @@ local function setupRickGun(character)
 	end
 	DIM_CHOICES[#DIM_CHOICES + 1] = { def = nil, name = "Mundo real (voltar)", info = "Abre um portal de volta ao lugar de onde voce saiu." }
 	local v3Mode = "player"
+	local gameSel, gameCustom = 1, nil   -- v79: destino 'jogo' (indice da lista ou PlaceId colado)
 	local dimSel = 1
 
 	local VARIANT_INFO = {
@@ -15644,6 +16157,17 @@ local function setupRickGun(character)
 		if i == #DIM_CHOICES then return "MUNDO REAL" end
 		return string.upper(DIM_CHOICES[i].name)
 	end
+
+	local function currentGame()
+		if gameCustom then return { name = "ID " .. tostring(gameCustom), id = gameCustom } end
+		local list = State.travel.list()
+		if #list == 0 then return nil end
+		if gameSel > #list then gameSel = 1 end
+		if gameSel < 1 then gameSel = #list end
+		return list[gameSel]
+	end
+	State.travel.current = currentGame
+	local gameLabel
 
 	local function smallGlass(f, radius)
 		f.BackgroundColor3 = WHITE
@@ -15878,18 +16402,93 @@ local function setupRickGun(character)
 	okBtn.Parent = nameTag
 	Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 7)
 
+	-- v79: painel de viagem entre jogos (modo JOGO da V3)
+	local gameTag = Instance.new("Frame")
+	gameTag.Name = "RickGameTag"
+	gameTag.AnchorPoint = Vector2.new(1, 0)
+	gameTag.Position = UDim2.fromOffset(34, 140)
+	gameTag.Size = UDim2.fromOffset(176, 62)
+	gameTag.Visible = false
+	gameTag.Parent = gunHud
+	smallGlass(gameTag, UDim.new(0, 10))
+	glowStroke(gameTag, 1.5)
+	local function gtBtn(txt, x, w)
+		local b = Instance.new("TextButton")
+		b.Position = UDim2.fromOffset(x, 5)
+		b.Size = UDim2.fromOffset(w, 24)
+		b.BackgroundColor3 = DARK
+		b.BorderSizePixel = 0
+		b.Text = txt
+		b.Font = Enum.Font.GothamBlack
+		b.TextSize = 16
+		b.TextColor3 = ACCENT
+		b.Parent = gameTag
+		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
+		return b
+	end
+	local gPrev = gtBtn("‹", 6, 26)
+	local gNext = gtBtn("›", 144, 26)
+	gameLabel = Instance.new("TextLabel")
+	gameLabel.BackgroundTransparency = 1
+	gameLabel.Position = UDim2.fromOffset(36, 5)
+	gameLabel.Size = UDim2.fromOffset(104, 24)
+	gameLabel.Font = Enum.Font.GothamBold
+	gameLabel.TextSize = 11
+	gameLabel.TextColor3 = Theme.Text
+	gameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	gameLabel.Text = ""
+	gameLabel.Parent = gameTag
+	local idBox = Instance.new("TextBox")
+	idBox.Position = UDim2.fromOffset(6, 33)
+	idBox.Size = UDim2.fromOffset(118, 24)
+	idBox.BackgroundColor3 = DARK
+	idBox.BorderSizePixel = 0
+	idBox.ClearTextOnFocus = false
+	idBox.Text = ""
+	idBox.PlaceholderText = "ou cole o place ID"
+	idBox.PlaceholderColor3 = Theme.Muted
+	idBox.TextColor3 = Theme.Text
+	idBox.Font = Enum.Font.Gotham
+	idBox.TextSize = 11
+	idBox.TextXAlignment = Enum.TextXAlignment.Left
+	idBox.ClipsDescendants = true
+	idBox.Parent = gameTag
+	Instance.new("UICorner", idBox).CornerRadius = UDim.new(0, 7)
+	do
+		local pad = Instance.new("UIPadding", idBox)
+		pad.PaddingLeft = UDim.new(0, 6)
+		pad.PaddingRight = UDim.new(0, 6)
+	end
+	local gOk = Instance.new("TextButton")
+	gOk.Position = UDim2.fromOffset(128, 33)
+	gOk.Size = UDim2.fromOffset(42, 24)
+	gOk.BackgroundColor3 = ACCENT
+	gOk.BorderSizePixel = 0
+	gOk.Text = "OK"
+	gOk.Font = Enum.Font.GothamBlack
+	gOk.TextSize = 12
+	gOk.TextColor3 = ON_TXT
+	gOk.Parent = gameTag
+	Instance.new("UICorner", gOk).CornerRadius = UDim.new(0, 7)
+
 	for _, l in ipairs({redMode, redKind, redInfo}) do UIAnim.watchText(l) end
 	setStatus = function() end
 
 	function refreshVariantUI()
 		local isV3 = variant == 3
 		local isDim = v3Mode == "dim"
+		local isGame = v3Mode == "game"
 		gunHud.Visible = (isEquipped == true)
 		redMode.Text = "V" .. tostring(variant)
 		if isV3 then
 			if isDim then
 				redKind.Text = "DIMENSAO"
 				redInfo.Text = dimTitle(dimSel)
+			elseif isGame then
+				local gm = currentGame()
+				redKind.Text = "JOGO"
+				redInfo.Text = gm and string.upper(gm.name) or "NENHUM"
+				gameLabel.Text = gm and gm.name or "sem jogos"
 			else
 				redKind.Text = "PLAYER"
 				redInfo.Text = targetPlayer and string.upper(targetPlayer.DisplayName) or "NENHUM"
@@ -15899,12 +16498,14 @@ local function setupRickGun(character)
 			redInfo.Text = VARIANT_SHORT[variant] or ""
 		end
 		local domeColor = (isV3 and isDim) and dimColor(dimSel) or ACCENT
+		if isV3 and isGame then domeColor = Color3.fromRGB(190, 120, 255) end
 		TweenService:Create(dome, TweenInfo.new(0.35), {BackgroundColor3 = domeColor}):Play()
 		TweenService:Create(glow, TweenInfo.new(0.35), {BackgroundColor3 = domeColor}):Play()
 		for i, d in ipairs(dimDots) do
 			d.BackgroundColor3 = (isV3 and i == dimSel) and dimColor(i) or Color3.fromRGB(90, 92, 90)
 		end
-		nameTag.Visible = (isEquipped == true) and isV3 and not isDim
+		nameTag.Visible = (isEquipped == true) and isV3 and v3Mode == "player"
+		gameTag.Visible = (isEquipped == true) and isV3 and isGame
 		if variant ~= lastVariant then
 			lastVariant = variant
 			spinDial(60)
@@ -15970,14 +16571,49 @@ local function setupRickGun(character)
 		if v3Mode == "dim" then
 			v3Mode = "player"
 			setStatus(targetPlayer and ("Selecionado: " .. targetPlayer.DisplayName) or "Digite o nome no cabo e toque em OK", targetPlayer ~= nil)
+		elseif v3Mode == "player" then
+			v3Mode = "game"
+			setStatus("Viagem entre jogos: escolha com ‹ › ou cole um ID", true)
 		else
 			v3Mode = "dim"
 			setStatus(DIM_CHOICES[dimSel].info, true)
 		end
 		pcall(function() nameBox:ReleaseFocus() end)
+		pcall(function() idBox:ReleaseFocus() end)
 		refreshVariantUI()
 	end
 
+	local function stepGame(dir)
+		gameCustom = nil
+		idBox.Text = ""
+		gameSel = gameSel + dir
+		local n = #State.travel.list()
+		if n > 0 then
+			if gameSel < 1 then gameSel = n end
+			if gameSel > n then gameSel = 1 end
+		end
+		refreshVariantUI()
+	end
+	local function confirmGameId()
+		local digits = tostring(idBox.Text):match("(%d%d%d+)")
+		local id = digits and tonumber(digits)
+		if id and id > 0 then
+			gameCustom = id
+			idBox.Text = tostring(id)
+			setStatus("Destino: jogo " .. tostring(id), true)
+		else
+			gameCustom = nil
+			setStatus("ID invalido (cole o numero ou o link do jogo)", false)
+		end
+		pcall(function() idBox:ReleaseFocus() end)
+		refreshVariantUI()
+	end
+	gPrev.MouseButton1Click:Connect(function() stepGame(-1) end)
+	gNext.MouseButton1Click:Connect(function() stepGame(1) end)
+	gOk.MouseButton1Click:Connect(confirmGameId)
+	idBox.FocusLost:Connect(function(enter)
+		if enter then confirmGameId() end
+	end)
 	redBtn.MouseButton1Click:Connect(nextMode)
 	dial.MouseButton1Click:Connect(function() stepDim(1) end)
 	domeBtn.MouseButton1Click:Connect(toggleDest)
@@ -16490,6 +17126,8 @@ local function setupRickGun(character)
 		end)
 	end
 
+	local lastCross = -math.huge
+
 	local function crossPortal(fromP, toP, fromCF, toCF)
 		local rootCF = rootPart.CFrame
 		local newCF = toCF * (FLIP * fromCF:ToObjectSpace(rootCF))
@@ -16529,6 +17167,7 @@ local function setupRickGun(character)
 		rootPart.CFrame = newCF
 		rootPart.AssemblyLinearVelocity = nv
 		PortalWalk.PrevPos = newPos
+		lastCross = os.clock()
 
 		State.lastActivity = os.clock()
 		playSound(Config.SoundTeleport, 1.1, rootPart)
@@ -16566,7 +17205,7 @@ local function setupRickGun(character)
 			{P = b, part = bPart, otherP = a, otherPart = aPart},
 		}
 
-		if (rootPos - prevPos).Magnitude < Config.MaxStep and not humanoid.SeatPart then
+		if (rootPos - prevPos).Magnitude < Config.MaxStep and not humanoid.SeatPart and os.clock() - lastCross >= (Config.PortalCooldown or 1) then
 			for _, l in ipairs(links) do
 				local fromCF = l.part.CFrame
 				local zPrev = fromCF:PointToObjectSpace(prevPos).Z
@@ -18938,7 +19577,138 @@ local function setupRickGun(character)
 		end)
 	end
 
+	local traveling = false
+	local function fireVariant3Game()
+		if traveling then return end
+		if os.clock() - lastShot < Config.ShotCooldown then return end
+
+		local g = State.travel.current and State.travel.current()
+		if not (g and g.id) then
+			setStatus("Escolha um jogo (‹ › ou cole um ID)", false)
+			playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
+			return
+		end
+		if g.id == game.PlaceId then
+			setStatus("Voce ja esta nesse jogo", false)
+			playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
+			return
+		end
+
+		lastShot = os.clock()
+		shotId = shotId + 1
+		local myShot = shotId
+		closePair()
+
+		local entCF = computeEntranceCF()
+		faceToward(entCF.Position)
+		local muzzlePos = getMuzzlePos()
+		shotEffects(muzzlePos)
+
+		launchProjectile(muzzlePos, entCF.Position, function()
+			if myShot ~= shotId or not Z.alive or traveling then return end
+			traveling = true
+			flashAt(entCF.Position, 1.6)
+			openRipple(entCF)
+			setStatus("Viajando para " .. g.name .. "...", true)
+			Z.fala.dizer("viagem", { jogo = g.name })
+			pcall(function()
+				local fm = State.followMorty
+				if fm and fm.say then fm.say("viagem", { jogo = g.name }) end
+			end)
+
+			local gui = newGui("RickTravel", 1001)
+			local black = Instance.new("Frame")
+			black.Size = UDim2.fromScale(1, 1)
+			black.BackgroundColor3 = Color3.new(0, 0, 0)
+			black.BackgroundTransparency = 1
+			black.BorderSizePixel = 0
+			black.Parent = gui
+			local circle = Instance.new("Frame")
+			circle.AnchorPoint = Vector2.new(0.5, 0.5)
+			circle.Position = UDim2.fromScale(0.5, 0.5)
+			circle.Size = UDim2.fromOffset(0, 0)
+			circle.BackgroundColor3 = Config.PortalColor
+			circle.BackgroundTransparency = 0.15
+			circle.BorderSizePixel = 0
+			circle.ZIndex = 2
+			circle.Parent = gui
+			Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+			local cst = Instance.new("UIStroke")
+			cst.Thickness = 10
+			cst.Color = Config.PortalLight or Color3.new(1, 1, 1)
+			cst.Parent = circle
+			local msg = Instance.new("TextLabel")
+			msg.BackgroundTransparency = 1
+			msg.AnchorPoint = Vector2.new(0.5, 0.5)
+			msg.Position = UDim2.fromScale(0.5, 0.5)
+			msg.Size = UDim2.fromOffset(420, 40)
+			msg.Font = Enum.Font.GothamBlack
+			msg.TextSize = 22
+			msg.TextColor3 = Color3.new(1, 1, 1)
+			msg.Text = "Viajando para " .. g.name .. "..."
+			msg.TextTransparency = 1
+			msg.ZIndex = 3
+			msg.Parent = gui
+
+			task.delay(Config.TravelLeadTime or 1.1, function()
+				if not Z.alive then return end
+				local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
+				local D = math.max(vp.X, vp.Y) * 2.6
+				TweenService:Create(circle, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.fromOffset(D, D)}):Play()
+				task.delay(0.75, function()
+					TweenService:Create(black, TweenInfo.new(0.35), {BackgroundTransparency = 0}):Play()
+					TweenService:Create(msg, TweenInfo.new(0.35), {TextTransparency = 0}):Play()
+				end)
+				task.wait(1.05)
+
+				local failMsg = nil
+				local tpConn
+				pcall(function()
+					tpConn = game:GetService("TeleportService").TeleportInitFailed:Connect(function(plr, result, errMsg)
+						if plr == player then failMsg = tostring(errMsg or result or "falha no teleporte") end
+					end)
+				end)
+
+				local okQ, whyQ = State.travel.queue()
+				if not okQ then
+					warnRG("viagem: o script nao vai acompanhar (" .. tostring(whyQ) .. ")")
+				end
+				State.travel.write({ from = game.PlaceId, to = g.id, t = os.time(), pending = true, queued = okQ and true or false })
+
+				local okT, errT = pcall(function()
+					game:GetService("TeleportService"):Teleport(g.id, player)
+				end)
+				if not okT then failMsg = tostring(errT) end
+
+				local t0 = os.clock()
+				while Z.alive and not failMsg and os.clock() - t0 < (Config.TravelTimeout or 20) do
+					task.wait(0.2)
+				end
+				if tpConn then pcall(function() tpConn:Disconnect() end) end
+				if not Z.alive then return end
+
+				-- o teleporte falhou ou demorou demais: volta ao normal
+				failMsg = failMsg or "tempo esgotado"
+				State.travel.write({ from = (State.travel.read() or {}).from, t = 0, pending = false })
+				warnRG("viagem falhou: " .. failMsg)
+				setStatus("Viagem falhou: " .. failMsg, false)
+				playSound(Config.SoundInvalid, 1.1, handle); Z.fala.dizer("erro")
+				pcall(function()
+					local fm = State.followMorty
+					if fm and fm.say then fm.say("viagemErro") end
+				end)
+				TweenService:Create(black, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+				TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+				TweenService:Create(circle, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+				task.wait(0.6)
+				pcall(function() gui:Destroy() end)
+				traveling = false
+			end)
+		end)
+	end
+
 	local function fireVariant3()
+		if v3Mode == "game" then return fireVariant3Game() end
 		if v3Mode == "dim" then return fireVariant3Dim() end
 		if os.clock() - lastShot < Config.ShotCooldown then return end
 
@@ -18982,6 +19752,103 @@ local function setupRickGun(character)
 		end)
 	end
 
+
+	local function pickRescueDest()
+		local ignore = buildIgnore(character, entrance and entrance.model, exitP and exitP.model)
+		local base = rootPart.Position
+		for _ = 1, 24 do
+			local ang = math.random() * math.pi * 2
+			local dist = math.random(120, 450)
+			local p = base + Vector3.new(math.cos(ang) * dist, 0, math.sin(ang) * dist)
+			local down = castSolid(Vector3.new(p.X, base.Y + 300, p.Z), Vector3.new(0, -900, 0), ignore)
+			if down and down.Normal.Y > 0.85 then
+				local up = castSolid(down.Position + Vector3.new(0, 1, 0), Vector3.new(0, 14, 0), ignore)
+				if not up then
+					local fa = math.random() * math.pi * 2
+					local flat = Vector3.new(math.cos(fa), 0, math.sin(fa))
+					local center = Vector3.new(down.Position.X, down.Position.Y + Config.PortalSize.Y / 2 + 0.05, down.Position.Z)
+					return CFrame.lookAt(center, center + flat)
+				end
+			end
+		end
+		local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+		local flat = Vector3.new(0, 0, -1)
+		local pos
+		if sp then
+			pos = sp.Position + Vector3.new(0, sp.Size.Y / 2 + Config.PortalSize.Y / 2 + 0.05, 0)
+		else
+			local rl = rootPart.CFrame.LookVector
+			flat = Vector3.new(rl.X, 0, rl.Z)
+			if flat.Magnitude < 0.1 then flat = Vector3.new(0, 0, -1) end
+			flat = flat.Unit
+			pos = base + flat * 80
+		end
+		return CFrame.lookAt(pos, pos + flat)
+	end
+
+	State.rescue = {
+		active = false,
+		canTake = function()
+			return Z.alive and humanoid.Health > 0 and (tool.Parent == backpack or tool.Parent == character)
+		end,
+		take = function()
+			if State.rescue.active then return false end
+			State.rescue.active = true
+			if isEquipped then
+				pcall(function() humanoid:UnequipTools() end)
+				task.delay(0.15, function()
+					if State.rescue and State.rescue.active then removeHolster() end
+				end)
+			end
+			removeHolster()
+			return true
+		end,
+		giveBack = function()
+			State.rescue.active = false
+			if humanoid.Health > 0 and not isEquipped and character.Parent then createHolster() end
+		end,
+		release = function()
+			State.rescue.active = false
+		end,
+		grip = function()
+			return defaultGrip
+		end,
+		holsterWorld = function()
+			local back = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or rootPart
+			return (back.CFrame * Config.HolsterOffset).Position
+		end,
+		preview = function()
+			local ok, cf = pcall(computeEntranceCF)
+			return ok and cf or nil
+		end,
+		hasPortals = function()
+			return entrance ~= nil or exitP ~= nil
+		end,
+		fire = function(muzzlePos)
+			if not Z.alive or humanoid.Health <= 0 then return false end
+			lastShot = os.clock()
+			shotId = shotId + 1
+			local myShot = shotId
+			nextSlot = 1
+			closePair()
+			local entCF = computeEntranceCF()
+			local exitCF = pickRescueDest()
+			flashAt(muzzlePos, 0.6)
+			playSound(Config.SoundShoot, 0.9, nil)
+			launchProjectile(muzzlePos, entCF.Position, function()
+				if myShot ~= shotId or not Z.alive then return end
+				flashAt(entCF.Position, 1.6)
+				entrance = newPortal(entCF, nil)
+				openRipple(entCF)
+				exitP = newPortal(exitCF, nil)
+				openRipple(exitCF)
+				disarmed = nil
+				State.watchIdle(function() return myShot == shotId and Z.alive end, closeAllPortals)
+			end)
+			return true
+		end,
+	}
+
 	State.setStage("Montando a nave")
 	State.ship = State.buildShipSystem({
 		Z = Z, character = character, humanoid = humanoid, rootPart = rootPart, camera = camera,
@@ -19005,6 +19872,7 @@ local function setupRickGun(character)
 
 	local function fire()
 		if not isEquipped or not Z.alive then return end
+		if State.rescue and State.rescue.active then return end
 		if humanoid.Health <= 0 then return end
 		if variant == 1.5 then
 			fireVariant15()
@@ -19117,6 +19985,7 @@ local function setupRickGun(character)
 	end))
 
 	State.startFollowMorty(character, Z, newGui)
+	pcall(State.travelArrive, Z)
 
 	local lastErr = 0
 	pcall(function() RunService:UnbindFromRenderStep(STEP_NAME) end)
@@ -19187,6 +20056,7 @@ local function setupRickGun(character)
 		pcall(function() if State.drinkStop then State.drinkStop() end end)
 		pcall(function() if State.followMorty then State.followMorty.destroy(); State.followMorty = nil end end)
 		State.morty = nil
+		State.rescue = nil
 		pcall(function() Z.fala.destruir() end)
 		pcall(stopCamSlide)
 		if Z.muzzleDot then pcall(function() Z.muzzleDot:Destroy() end) end

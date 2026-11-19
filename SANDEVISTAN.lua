@@ -508,8 +508,8 @@ local PsyBar = {
     RESISTANCE = 0.75,
     -- queda (mais rapida, e ainda mais rapida acima de 100%)
     DECAY_DELAY = 4,      -- segundos sem usar NENHUMA habilidade antes de comecar a cair
-    DECAY_RATE = 6,       -- % por segundo na queda (abaixo de 100%)
-    DECAY_RATE_HIGH = 10, -- % por segundo na queda (acima de 100%)
+    DECAY_STEP = 1,       -- % que cai por tick
+    DECAY_INTERVAL = 3,   -- segundos entre cada tick de queda
     -- spam: usar habilidades em sequencia (janela abaixo) aumenta ganho e chance de falha
     SPAM_WINDOW = 8,
     SPAM_GAIN_STEP = 0.2,   -- +20% de ganho por uso recente (maximo 5 usos)
@@ -7702,6 +7702,95 @@ local function InitDirectionalMovement()
     end
 end
 
+do
+local PsyGlitch = {START = 45, STEP = 10, Active = {}, NextAt = 0}
+
+function PsyGlitch.Level()
+    local v = State.Psychosis
+    if v < PsyGlitch.START then return 0 end
+    return math.floor((v - PsyGlitch.START) / PsyGlitch.STEP) + 1
+end
+
+local function psyRestore(rec)
+    if rec.part and rec.part.Parent then rec.part.LocalTransparencyModifier = 0 end
+    if rec.motor and rec.motor.Parent then rec.motor.Transform = rec.lastBase or CFrame.identity end
+    if rec.weld and rec.weld.Parent then rec.weld.C0 = rec.baseC0 end
+end
+
+function PsyGlitch.Clear()
+    for key, rec in pairs(PsyGlitch.Active) do
+        psyRestore(rec)
+        PsyGlitch.Active[key] = nil
+    end
+end
+
+local function psyJitter(mag, rot)
+    local function r() return (math.random() * 2 - 1) end
+    return CFrame.new(r() * mag, r() * mag, r() * mag)
+        * CFrame.Angles(math.rad(r() * rot), math.rad(r() * rot), math.rad(r() * rot))
+end
+
+function PsyGlitch.Update(dt)
+    local level = PsyGlitch.Level()
+    if level == 0 or PsyBar.Busy or not Character or not Character.Parent then
+        if next(PsyGlitch.Active) then PsyGlitch.Clear() end
+        return
+    end
+    local now = os.clock()
+    local mag = 0.05 + level * 0.04
+    local rot = level * 2.5
+
+    for key, rec in pairs(PsyGlitch.Active) do
+        if now >= rec.untilT or not rec.part.Parent then
+            psyRestore(rec)
+            PsyGlitch.Active[key] = nil
+        else
+            rec.part.LocalTransparencyModifier = (math.random() < 0.5) and rec.alpha or 0
+            if rec.motor then
+                local cur = rec.motor.Transform
+                if cur ~= rec.applied then rec.lastBase = cur end
+                rec.applied = (rec.lastBase or cur) * psyJitter(mag, rot)
+                rec.motor.Transform = rec.applied
+            elseif rec.weld then
+                rec.weld.C0 = rec.baseC0 * psyJitter(mag, rot)
+            end
+        end
+    end
+
+    if now >= PsyGlitch.NextAt then
+        PsyGlitch.NextAt = now + math.max(0.08, 1.2 - level * 0.07) * (0.5 + math.random())
+        local candidates = {}
+        for _, d in ipairs(Character:GetDescendants()) do
+            if d:IsA("BasePart") and d ~= HRP and d.Name ~= "HumanoidRootPart" and not PsyGlitch.Active[d] then
+                table.insert(candidates, d)
+            end
+        end
+        local count = math.min(#candidates, 1 + math.floor(level / 3))
+        for _ = 1, count do
+            local idx = math.random(#candidates)
+            local part = table.remove(candidates, idx)
+            local rec = {
+                part = part,
+                untilT = now + 0.06 + math.random() * 0.12 + level * 0.01,
+                alpha = math.clamp(0.4 + level * 0.04 + math.random() * 0.2, 0.4, 1),
+            }
+            local acc = part:FindFirstAncestorOfClass("Accessory")
+            if acc then
+                local w = part:FindFirstChildWhichIsA("Weld")
+                if w and w:IsA("Weld") then rec.weld = w rec.baseC0 = w.C0 end
+            else
+                for _, m in ipairs(Character:GetDescendants()) do
+                    if m:IsA("Motor6D") and m.Part1 == part then rec.motor = m break end
+                end
+            end
+            PsyGlitch.Active[part] = rec
+        end
+    end
+end
+
+PsyBar.Glitch = PsyGlitch
+end
+
 RunService.Heartbeat:Connect(function(dt)
     if not HRP or not Humanoid then return end
     if Humanoid.Health < State.LastHealth then
@@ -7778,9 +7867,17 @@ end
             State.PsychosisIdleSince = now
             PsyBar.Add(PsyBar.GAIN_SANDI * dt)
         elseif not PsyBar.Busy and now - State.PsychosisIdleSince > PsyBar.DECAY_DELAY then
-            local rate = State.Psychosis > 100 and PsyBar.DECAY_RATE_HIGH or PsyBar.DECAY_RATE
-            State.Psychosis = math.max(0, State.Psychosis - rate * dt)
+            if State.Psychosis > 0 then
+                PsyBar.DecayAcc = (PsyBar.DecayAcc or 0) + dt
+                while PsyBar.DecayAcc >= PsyBar.DECAY_INTERVAL do
+                    PsyBar.DecayAcc -= PsyBar.DECAY_INTERVAL
+                    State.Psychosis = math.max(0, State.Psychosis - PsyBar.DECAY_STEP)
+                end
+            end
+        else
+            PsyBar.DecayAcc = 0
         end
+        PsyBar.Glitch.Update(dt)
 
         if State.Psychosis >= PsyBar.MAX and not PsyBar.Busy then
             PsyBar.Busy = true

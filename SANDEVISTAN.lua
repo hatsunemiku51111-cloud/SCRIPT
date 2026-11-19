@@ -90,6 +90,8 @@ type SystemState = {
     NoRegenUntil: number,
     MusicSound: Sound?,
 LastSandiActivation: number,
+    Psychosis: number,
+    PsychosisIdleSince: number,
 }
 
 local Constants = {
@@ -291,15 +293,61 @@ local Sounds = {
     SANDI_ON = {id = "rbxassetid://123844681344865", volume = 1.5, pitch = 1, looped = false},
     SANDI_OFF = {id = "rbxassetid://118534165523355", volume = 1.5, pitch = 1, looped = false},
     SANDI_LOOP = {id = "rbxassetid://74707394872868", volume = 1.5, pitch = 1, looped = true},
+    SANDI_FAILURE = {id = "rbxassetid://132281440773764", volume = 5, pitch = 1, looped = false},
     PSYCHOSIS = {id = "rbxassetid://87597277352254", volume = 2, pitch = 1, looped = false},
     PSYCHOSIS2 = {id = "rbxassetid://116079585368153", volume = 2, pitch = 1, looped = false},
-    OPTICAL_CAMO = {id = "rbxassetid://115981406751041", volume = 1, pitch = 1, looped = false},
-    SANDI_FAILURE = {id = "rbxassetid://132281440773764", volume = 5, pitch = 1, looped = false},
+    OPTICAL_CAMO = {id = "rbxassetid://134007213357026", volume = 1, pitch = 1, looped = false},
     COLLISION_IMPACT = {id = "rbxassetid://86227700557194", volume = 1.7, pitch = 1, looped = false},
     SPAWN = {id = "rbxassetid://138566469626743", volume = 1.5, pitch = 1, looped = false},
     KIROSHI_ON = {id = "rbxassetid://101563346734882", volume = 2.2, pitch = 1.05, looped = false},
     KIROSHI_OFF = {id = "rbxassetid://79307196411649", volume = 1.8, pitch = 0.95, looped = false}
 }
+
+-- PRÉ-CARREGAMENTO: sons e imagens baixam em segundo plano ao carregar o script, então a
+-- primeira ativação/dash/esquiva não engasga esperando o asset chegar do servidor.
+task.spawn(function()
+    local PRELOAD_DEBUG = false -- true = imprime no output o que falhou ao carregar
+    local extraSounds = {
+        "rbxassetid://97097078816969",  -- SystemRestore
+        "rbxassetid://121480304779842", -- spawn
+    }
+    local extraImages = {
+        "rbxassetid://138778899925146", -- ícone da psicose
+        "rbxassetid://11540569225",     -- ícone da notificação
+    }
+
+    local list = {}
+    for _, cfg in pairs(Sounds) do
+        local snd = Instance.new("Sound")
+        snd.SoundId = cfg.id
+        table.insert(list, snd)
+    end
+    for _, id in ipairs(extraSounds) do
+        local snd = Instance.new("Sound")
+        snd.SoundId = id
+        table.insert(list, snd)
+    end
+    for _, id in ipairs(extraImages) do
+        local img = Instance.new("ImageLabel")
+        img.Image = id
+        table.insert(list, img)
+    end
+
+    -- em lotes pequenos (não trava o carregamento do jogo)
+    local BATCH = 8
+    for i = 1, #list, BATCH do
+        local batch = table.move(list, i, math.min(i + BATCH - 1, #list), 1, {})
+        pcall(function()
+            ContentProvider:PreloadAsync(batch, function(assetId, status)
+                if PRELOAD_DEBUG and status ~= Enum.AssetFetchStatus.Success then
+                    warn("[Preload] falhou:", assetId, status)
+                end
+            end)
+        end)
+    end
+
+    for _, inst in ipairs(list) do inst:Destroy() end
+end)
 
 local NOME_ARQUIVO = "I Really Want to Stay at Your House.mp3"
 local GITHUB_URL = "https://github.com/Loader-Tester/Test-Sound/raw/refs/heads/main/I%20Really%20Want%20to%20Stay%20at%20Your%20House.mp3"
@@ -355,6 +403,9 @@ local function encontrarMusica()
     return nil
 end
 
+-- Sons criados por ESTE script (não são pausados quando o tempo congela)
+local ScriptSounds = setmetatable({}, {__mode = "k"})
+
 local VOLUME_MAXIMO = 0.9 
 local FADE_DURATION = 2.5 
 
@@ -368,6 +419,7 @@ local function tocarMusica()
     end
     
     local som = Instance.new("Sound")
+    ScriptSounds[som] = true
     som.Name = "MinhaMusicaLocal"
     som.SoundId = musicaId
     som.Volume = 0 
@@ -436,8 +488,92 @@ local State: SystemState = {
     LastHealth = 100,
     NoRegenUntil = 0,
     MusicSound = nil,
-    LastSandiActivation = 0 
+    LastSandiActivation = 0,
+    Psychosis = 0,
+    PsychosisIdleSince = 0
 }
+
+-- ========== BARRA DE CYBERPSYCHOSIS (0 a 200%) ==========
+-- Sobe enquanto o Sandevistan está ativo e a cada uso/falha; desce sozinha quando você
+-- fica um tempo sem usar. Passou de 100% = zona de perigo (vermelho pulsando).
+-- Chegou em 200% = dispara a Cyberpsychosis e a barra reseta.
+local PsyBar = {
+    MAX = 200,
+    -- ganhos (bem mais baixos que antes) --
+    GAIN_SANDI = 2.2,     -- % por segundo com o Sandevistan ligado
+    GAIN_ACTIVATE = 8,    -- % ao ativar o Sandevistan
+    GAIN_FAILURE = 12,    -- % quando o Sandevistan falha (overload)
+    GAIN_ZERO = 10,       -- % quando a energia zera com o Sandevistan ligado
+    -- resistencia: quanto mais perto dos 200%, menos cada ganho rende (0.75 = ganho cai ate 25%)
+    RESISTANCE = 0.75,
+    -- queda (mais rapida, e ainda mais rapida acima de 100%)
+    DECAY_DELAY = 4,      -- segundos sem usar NENHUMA habilidade antes de comecar a cair
+    DECAY_RATE = 6,       -- % por segundo na queda (abaixo de 100%)
+    DECAY_RATE_HIGH = 10, -- % por segundo na queda (acima de 100%)
+    -- spam: usar habilidades em sequencia (janela abaixo) aumenta ganho e chance de falha
+    SPAM_WINDOW = 8,
+    SPAM_GAIN_STEP = 0.2,   -- +20% de ganho por uso recente (maximo 5 usos)
+    SPAM_FAIL_STEP = 0.02,  -- +2% de chance de falha por uso recente
+    -- chance de Cyberpsychosis direta (sem esperar a barra) agora depende da barra
+    DIRECT_FAIL_BASE = 0.03, DIRECT_FAIL_SCALE = 0.12,   -- quando o Sandevistan falha
+    DIRECT_ZERO_BASE = 0.05, DIRECT_ZERO_SCALE = 0.25,   -- quando a energia zera no Sandi
+    RESET_TO = 0,         -- valor da barra depois da Cyberpsychosis
+    Busy = false,         -- true enquanto a Cyberpsychosis da barra esta rolando
+    Recent = {},          -- timestamps dos usos recentes (anti-spam)
+    -- Quanto mais forte/roubada a habilidade, mais cara em psicose e mais arriscada:
+    --  gain      = % de psicose por uso
+    --  failBase  = chance de falha com a barra "limpa" (a partir de failStart)
+    --  failMax   = chance de falha com a barra em 200%
+    --  failStart = % da barra a partir da qual o risco comeca a subir
+    --  surcharge = energia extra gasta com a barra em 200% (proporcional)
+    --  extraCd   = segundos a mais de cooldown quando a habilidade da glitch
+    ABILITY = {
+        Dash    = {gain = 2,  failBase = 0,    failMax = 0.12, failStart = 80, surcharge = 2,  extraCd = 1.5, label = "DASH MISFIRE"},
+        Kiroshi = {gain = 4,  failBase = 0,    failMax = 0.18, failStart = 60, surcharge = 4,  extraCd = 3,   label = "KIROSHI GLITCH"},
+        Dodge   = {gain = 6,  failBase = 0,    failMax = 0.22, failStart = 60, surcharge = 3,  extraCd = 4,   label = "DODGE LAG"},
+        Optical = {gain = 12, failBase = 0.05, failMax = 0.40, failStart = 0,  surcharge = 10, extraCd = 6,   label = "PHASE MALFUNCTION"},
+        Sandi   = {gain = 8,  failBase = 0.20, failMax = 0.50, failStart = 0,  surcharge = 0,  extraCd = 0,   label = "SANDEVISTAN OVERLOAD"},
+    },
+    -- cores: vermelho e preto
+    COLOR_LOW = Color3.fromRGB(95, 0, 10),
+    COLOR_MID = Color3.fromRGB(200, 0, 15),
+    COLOR_HIGH = Color3.fromRGB(255, 25, 25),
+}
+
+-- adiciona psicose com resistencia (quanto mais cheia a barra, menos o ganho rende)
+function PsyBar.Add(amount: number)
+    if amount <= 0 or PsyBar.Busy then return end
+    local frac = math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)
+    local resist = 1 - PsyBar.RESISTANCE * (frac ^ 1.5)
+    State.Psychosis = math.min(PsyBar.MAX, State.Psychosis + amount * resist)
+    State.PsychosisIdleSince = os.clock()
+end
+
+-- quantos usos de habilidade aconteceram na janela anti-spam
+function PsyBar.RecentUses(): number
+    local now = os.clock()
+    local n = 0
+    for i = #PsyBar.Recent, 1, -1 do
+        if now - PsyBar.Recent[i] > PsyBar.SPAM_WINDOW then
+            table.remove(PsyBar.Recent, i)
+        else
+            n += 1
+        end
+    end
+    return n
+end
+
+-- chance atual de a habilidade dar glitch (depende da barra + spam)
+function PsyBar.FailChance(key: string): number
+    local cfg = PsyBar.ABILITY[key]
+    if not cfg then return 0 end
+    local span = math.max(1, PsyBar.MAX - cfg.failStart)
+    local t = math.clamp((State.Psychosis - cfg.failStart) / span, 0, 1)
+    local chance = cfg.failBase + (cfg.failMax - cfg.failBase) * t
+    chance += PsyBar.SPAM_FAIL_STEP * math.min(PsyBar.RecentUses(), 5)
+    return math.clamp(chance, 0, 0.85)
+end
+
 
 local UI_Elements = {}
 local ActiveCooldownFrames = {}
@@ -456,6 +592,8 @@ local animationConnections: {RBXScriptConnection} = {}
 local opticalToken = 0
 local energyFill: Frame
 local energyPercentLabel: TextLabel
+local psyFill: Frame
+local psyPercentLabel: TextLabel
 local settingsMenu = nil 
 local DodgeMode = DefaultConfig.Settings.DodgeMode
 local LiteMode = DefaultConfig.Settings.LiteMode
@@ -470,6 +608,7 @@ local SandiLockTime = 0 local LastSandiActivationTime = 0
 
 local function Create(className: string, properties: {[string]: any})
     local instance = Instance.new(className)
+    ScriptSounds[instance] = true -- (nome antigo: vale p/ qualquer instância criada pelo script)
     for prop, value in properties do instance[prop] = value end
     return instance
 end
@@ -1358,7 +1497,42 @@ local function CreateHologramClone(delay: number, duration: number, endTranspare
     end)
 end
 
+-- Chamada por Dash/Kiroshi/Optical/Dodge DEPOIS de gastar a energia.
+-- Soma psicose (mais com spam), cobra energia extra com a barra alta e rola a chance de glitch.
+-- Retorna true se a habilidade deu glitch (quem chamou deve abortar a habilidade).
+function PsyBar.Use(key: string): boolean
+    local cfg = PsyBar.ABILITY[key]
+    if not cfg then return false end
+    local uses = PsyBar.RecentUses()
+    local frac = math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)
+
+    -- surcharge: com a barra alta, a habilidade drena energia extra
+    if cfg.surcharge > 0 then
+        State.Energy = math.max(0, State.Energy - cfg.surcharge * frac)
+    end
+
+    local failed = math.random() < PsyBar.FailChance(key)
+    table.insert(PsyBar.Recent, os.clock())
+
+    local gain = cfg.gain * (1 + PsyBar.SPAM_GAIN_STEP * math.min(uses, 5))
+    if failed then gain *= 1.5 end
+    PsyBar.Add(gain)
+
+    if failed then
+        local upper = string.upper(key)
+        local cd = (Constants.COOLDOWNS[upper] or 3) + cfg.extraCd
+        State.Cooldowns[upper] = os.clock() + cd
+        State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
+        PlaySFX({id = Sounds.SANDI_FAILURE.id, volume = 1.5, pitch = 1.35, looped = false})
+        ScreenFade(0.12, 0, 0.4, Color3.fromRGB(255, 20, 20), 0.5, 0.3)
+        ShowCooldownText(cfg.label, cd, Color3.fromRGB(255, 30, 30))
+        return true
+    end
+    return false
+end
+
 local function TriggerSandevistanFailure()
+    PsyBar.Add(PsyBar.GAIN_FAILURE)
     PlaySFX(Sounds.SANDI_FAILURE)
     Falar("sandi_falha", true)
     local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt") or Instance.new("ScreenGui", Player.PlayerGui)
@@ -1375,7 +1549,7 @@ local function TriggerSandevistanFailure()
         end
     end)
     task.delay(0.8, function() errorFrame:Destroy() end)
-    if math.random() < 0.15 then 
+    if math.random() < (PsyBar.DIRECT_FAIL_BASE + PsyBar.DIRECT_FAIL_SCALE * (State.Psychosis / PsyBar.MAX)) then 
     task.wait(0.2) 
     pcall(function() ExecCyberpsychosis() end)
 end
@@ -1553,6 +1727,370 @@ local function PulseAnimation(object)
     end)
 end
 
+local function ApplyGlitchEffect()
+    if LiteMode then return end
+    task.spawn(function()
+        local start = os.clock()
+        local cc = Instance.new("ColorCorrectionEffect", Lighting)
+        local blur = Instance.new("BlurEffect", Lighting)
+        blur.Size = 0
+        while os.clock() - start < 2.2 do
+            CreateHologramClone(0, 0.08, 0.95, math.random(-3,3), math.random(-1,1), math.random(-3,3), "glitch")
+            CamShake(0.65, 0.1)
+            cc.Saturation = math.random(-2, 0.8)
+            cc.Contrast = math.random(-1.5, 2)
+            cc.TintColor = Color3.fromHSV(math.random(), 0.9, 1)
+            blur.Size = math.random(12, 24)
+            task.wait(0.055)
+        end
+        TweenService:Create(cc, TweenInfo.new(0.6), {Saturation = 0, Contrast = 0}):Play()
+        TweenService:Create(blur, TweenInfo.new(0.6), {Size = 0}):Play()
+        task.delay(0.7, function() cc:Destroy() blur:Destroy() end)
+    end)
+end
+
+local function lineEffect(gui)
+    if lineObject and lineObject.Parent then
+        lineObject:Destroy()
+    end
+    
+    if not lineEnabled then return end
+    
+    lineObject = Create("Frame", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+        Parent = gui
+    })
+    
+    local line = Create("Frame", {
+        Size = UDim2.new(1, -80, 0, 1.5),
+        Position = UDim2.new(0, 40, -0.02, 0),
+        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
+        BackgroundTransparency = 0.45,
+        BorderSizePixel = 0,
+        ZIndex = 10,
+        Parent = lineObject
+    })
+    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = line})
+    
+    local glow = Create("Frame", {
+        Size = UDim2.new(1, -60, 0, 5),
+        Position = UDim2.new(0, 30, -0.02, -1.5),
+        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
+        BackgroundTransparency = 0.85,
+        BorderSizePixel = 0,
+        ZIndex = 9,
+        Parent = lineObject
+    })
+    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = glow})
+    
+    for i = 1, 4 do
+        local decorLine = Create("Frame", {
+            Size = UDim2.new(1, math.random(-20, 20), 0, 0.5),
+            Position = UDim2.new(0, math.random(10, 30), 0, math.random(10, 90) / 100),
+            BackgroundColor3 = Color3.fromRGB(0, 255, 200),
+            BackgroundTransparency = 0.9,
+            BorderSizePixel = 0,
+            ZIndex = 4,
+            Parent = lineObject
+        })
+        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = decorLine})
+        
+        task.spawn(function()
+            while decorLine and decorLine.Parent do
+                task.wait(math.random(4, 10))
+                TweenService:Create(decorLine, TweenInfo.new(0.08), {
+                    BackgroundTransparency = 0.5
+                }):Play()
+                task.wait(0.08)
+                TweenService:Create(decorLine, TweenInfo.new(0.25), {
+                    BackgroundTransparency = 0.9
+                }):Play()
+            end
+        end)
+    end
+    
+    task.spawn(function()
+        while lineObject and lineObject.Parent do
+            if math.random() < 0.25 then
+                local particle = Create("Frame", {
+                    Size = UDim2.new(0, 1.5, 0, 1.5),
+                    Position = UDim2.new(0, math.random(30, 90) / 100 * Camera.ViewportSize.X, 0, math.random(0, 100) / 100 * Camera.ViewportSize.Y),
+                    BackgroundColor3 = Color3.fromRGB(0, 255, 200),
+                    BackgroundTransparency = 0.5,
+                    BorderSizePixel = 0,
+                    ZIndex = 5,
+                    Parent = lineObject
+                })
+                Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = particle})
+                
+                TweenService:Create(particle, TweenInfo.new(0.7), {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, particle.Position.X.Offset + math.random(-15, 15), 0, particle.Position.Y.Offset + 25)
+                }):Play()
+                
+                task.delay(0.8, function() particle:Destroy() end)
+            end
+            task.wait(0.06)
+        end
+    end)
+    
+    task.spawn(function()
+        while line and line.Parent do
+            line.Position = UDim2.new(0, 40, -0.02, 0)
+            glow.Position = UDim2.new(0, 30, -0.02, -1.5)
+            
+            local duration = 5
+            
+            TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+                Position = UDim2.new(0, 40, 1.02, 0)
+            }):Play()
+            
+            TweenService:Create(glow, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+                Position = UDim2.new(0, 30, 1.02, -1.5)
+            }):Play()
+            
+            task.spawn(function()
+                for i = 1, 30 do
+                    if not line.Parent then break end
+                    local pulse = math.sin(i * 0.25) * 0.1
+                    line.BackgroundTransparency = 0.4 + pulse
+                    glow.BackgroundTransparency = 0.82 + pulse
+                    task.wait(0.17)
+                end
+            end)
+            
+            task.wait(duration + 0.2)
+        end
+    end)
+end
+
+local function Toggleline()
+    lineEnabled = not lineEnabled
+    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
+    if not gui then return end
+    if lineEnabled then
+        lineEffect(gui)
+    else
+        if lineObject and lineObject.Parent then
+            lineObject:Destroy()
+            lineObject = nil
+        end
+    end
+end
+
+local function PulseAnimation(object)
+    task.spawn(function()
+        while object.Parent do
+            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.new(1.05, 0, 1.05, 0)
+            }):Play()
+            task.wait(0.8)
+            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.new(1, 0, 1, 0)
+            }):Play()
+            task.wait(0.8)
+        end
+    end)
+end
+
+local PsiModule
+local PsiCtx = {
+        Player = Player,
+        Constants = Constants,
+        Sounds = Sounds,
+        State = State,
+        Create = Create,
+        Falar = Falar,
+        PlaySFX = PlaySFX,
+        ScreenFade = ScreenFade,
+        ScriptSounds = ScriptSounds,
+        GetRefs = function() return HRP, Humanoid end,
+}
+ExecCyberpsychosis = function()
+    if PsiModule and PsiModule.Exec then return PsiModule.Exec() end
+end
+task.spawn(function()
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local Player = Players.LocalPlayer
+local env = (getgenv and getgenv()) or _G
+
+-- Recarregar o script limpa a versão anterior
+if env.CyberPsychosis and env.CyberPsychosis.Destroy then
+    pcall(env.CyberPsychosis.Destroy)
+end
+
+local Module = {
+    Config = {
+        AutoTrigger = true,          -- true = SANDEVISTAN.lua ainda pode disparar sozinho
+        Keybind = Enum.KeyCode.P,    -- atalho do botão (nil = sem atalho)
+        Cooldown = 3,                -- segundos de espera depois do efeito acabar
+
+        -- Rework: ligue/desligue cada parte (desligue Camera se ficar pesado no celular)
+        FX = {
+            Camera = true,           -- inclinação + zoom no batimento do coração
+            TearBars = true,         -- rasgos horizontais de glitch na tela
+            FreezeBody = true,       -- boneco 100% imóvel durante toda a ciberpsicose (ancora + congela animação)
+            BodyAnim = true,
+            BodyAnimIntensity = 1,
+            ViewportGlitch = true,   -- glitch do boneco em ViewportFrame (fatias deslocadas + RGB split). Precisa de FreezeBody
+            ColorSplit = true,       -- camadas ciano (esquerda) e roxa (direita) sobre o boneco
+            SplitPixels = 1,         -- deslocamento base das camadas em PIXELS (nos estouros do glitch aumenta sozinho)
+            GlitchSlices = 4,        -- nº de fatias horizontais deslocadas (menos = mais leve no celular; 0 = sem fatias)
+            GlitchIntensity = 1,     -- 1 = normal | 2 = deslocamentos dobrados
+            PartGlitch = true,       -- glitch POR PEÇA (cabeça, braços, pernas, torso e cada acessório) no método PhaseShift. Precisa de ViewportGlitch
+            PartGlitchRate = 1,      -- frequência dos glitches por peça (2 = o dobro, 0.5 = metade)
+            PartTint = true,         -- a peça pisca em neon (ciano/magenta/vermelho/branco) durante o glitch
+            HideOriginal = true,     -- esconde a peça REAL enquanto a cópia glitchada dela se desloca (LocalTransparencyModifier)
+        },
+
+        -- Janelas de erro que orbitam o boneco
+        Windows = {
+            Style = "DAVID",         -- "DAVID" = HUD estilo Edgerunners | "ORIGINAL" = janela antiga
+            LifeMult = 1.6,          -- multiplica o tempo de vida da janela (1 = igual ao original)
+            MaxAlive = 16,           -- máximo de janelas ao mesmo tempo (baixe no celular)
+            FaceCamera = false,      -- true = janelas sempre viradas pra câmera (segue a câmera) | false = ficam no espaço ao redor do boneco
+            FollowCharacter = true,  -- o anel de janelas acompanha o boneco quando ele anda
+            OrbitSpeed = 0.3,        -- velocidade da órbita em rad/s (0 = janelas paradas no ar)
+            Japanese = true,         -- textos em japonês (se aparecer quadradinho no seu executor, ponha false)
+        },
+
+        -- Opcional: som de batimento cardíaco em loop. Ex.:
+        -- HeartbeatSound = {id = "rbxassetid://SEU_ID", volume = 1.5, pitch = 1}
+        HeartbeatSound = nil,
+
+        -- ====================================================
+        -- FALA SINCRONIZADA (efeitos seguem as falas, tipo a cena do David)
+        -- Enabled = true: a duração do efeito vira a duração da fala, a legenda
+        -- aparece com glitch e cada linha dispara um estouro de glitch + janelas.
+        -- Tempos (t) em segundos desde o início do efeito. Ajuste Offset se o
+        -- áudio atrasar/adiantar em relação aos efeitos.
+        -- ====================================================
+        Speech = {
+            Enabled = true,
+            SoundId = nil,              -- "rbxassetid://SEU_ID" da fala (opcional; sem ele só roda legenda + efeitos)
+            Volume = 2,
+            Offset = 0,                 -- soma em todos os tempos (use negativo se os efeitos estão atrasados)
+            Duration = 6,               -- o áudio tem 6s: o efeito dura exatamente isso
+            Tail = 1.2,                 -- segundos de sobra depois da última fala
+            Subtitles = true,
+            MuteOriginalSounds = false, -- true = não toca os 2 sons PSYCHOSIS originais (só a fala)
+            Lines = {
+                -- t = quando a fala começa | hold = quanto tempo fica na tela
+                -- power = força do glitch (1 normal, 2 máximo) | windows = nº de janelas que estouram
+                -- hit = false (sem estouro) | final = true (estouro branco gigante)
+                -- Tempos ESTIMADOS para o áudio de 6s: se algo ficar adiantado/atrasado, mude o Offset ou o t da linha.
+                {t = 0.15, hold = 1.6, who = "DAVID", text = "I'm gonna rip out his spine!", power = 1.5, windows = 5},
+                {t = 1.90, hold = 0.9, who = "DAVID", text = "I'll kill him!",               power = 1.6, windows = 4},
+                {t = 2.90, hold = 0.9, who = "DAVID", text = "I'll kill him.",               power = 0.9, windows = 2},
+                {t = 3.85, hold = 0.9, who = "DAVID", text = "You're dead.",                 power = 1.3, windows = 4},
+                {t = 4.65, hold = 0.6, who = "DAVID", text = "Dead.",                        power = 1.7, windows = 6},
+                {t = 5.30, hold = 0.7, who = "DAVID", text = "Dead.",                        power = 2,   windows = 14, final = true},
+            },
+            -- estouros extras no meio de uma fala (palavra gritada, etc.): {t = 3.1, power = 1.5, windows = 3}
+            Hits = {
+                {t = 1.10, power = 1.9, windows = 2},   -- "spine!" gritado
+                {t = 5.55, power = 2,   windows = 0},   -- segundo golpe no último "Dead."
+            },
+        },
+    },
+}
+
+-- ============================================================
+-- DEPENDÊNCIAS (as mesmas variáveis que o código original usava)
+-- ============================================================
+local Camera = Workspace.CurrentCamera
+local HRP, Humanoid
+local Constants, Sounds, State, Create, PlaySFX, ScreenFade
+
+local Fallback = {
+    Constants = {
+        MAX_ENERGY = 100,
+        CYBERPSYCHOSIS = {
+            Duration = 6,
+            PopupRate = 0.08,
+            Radius = 7,
+            ShakeIntensity = 0.6,
+            WindowLifeTime = 0.5,
+        },
+        ERROR_TEXTS = {
+            "SYSTEM FAILURE", "CRITICAL ERROR", "NEURAL OVERLOAD",
+            "CONNECTION LOST", "0xFF0029A CORRUPT", "PSYCHOSIS DETECTED",
+            "FATAL EXCEPTION", "REBOOTING...", "NO SIGNAL",
+        },
+    },
+    Sounds = {
+        PSYCHOSIS  = {id = "rbxassetid://87597277352254",  volume = 2, pitch = 1, looped = false},
+        PSYCHOSIS2 = {id = "rbxassetid://116079585368153", volume = 2, pitch = 1, looped = false},
+    },
+    State = {Energy = 100},
+}
+
+local function FallbackCreate(className, properties)
+    local instance = Instance.new(className)
+    for prop, value in properties do instance[prop] = value end
+    return instance
+end
+
+local function FallbackPlaySFX(soundConfig)
+    local sound = FallbackCreate("Sound", {SoundId = soundConfig.id, Volume = soundConfig.volume or 1, PlaybackSpeed = soundConfig.pitch or 1, Parent = HRP or Camera})
+    sound:Play()
+    Debris:AddItem(sound, 10)
+    return sound
+end
+
+local function FallbackScreenFade(durationIn, hold, durationOut, tint, sat, cont)
+    local cc = FallbackCreate("ColorCorrectionEffect", {Name = "CyberFade", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Parent = Lighting})
+    TweenService:Create(cc, TweenInfo.new(durationIn, Enum.EasingStyle.Quad), {TintColor = tint, Saturation = sat or 0.6, Contrast = cont or 0.25}):Play()
+    task.delay(durationIn + hold, function()
+        TweenService:Create(cc, TweenInfo.new(durationOut, Enum.EasingStyle.Quad), {TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0}):Play()
+        task.delay(durationOut + 0.1, function() cc:Destroy() end)
+    end)
+end
+
+local function Sync()
+    local c = PsiCtx
+    Camera = Workspace.CurrentCamera
+    if c then
+        Constants   = c.Constants   or Fallback.Constants
+        Sounds      = c.Sounds      or Fallback.Sounds
+        State       = c.State       or Fallback.State
+        Create      = c.Create      or FallbackCreate
+        PlaySFX     = c.PlaySFX     or FallbackPlaySFX
+        ScreenFade  = c.ScreenFade  or FallbackScreenFade
+        if c.GetRefs then
+            HRP, Humanoid = c.GetRefs()
+            return
+        end
+    else
+        Constants, Sounds, State = Fallback.Constants, Fallback.Sounds, Fallback.State
+        Create, PlaySFX, ScreenFade = FallbackCreate, FallbackPlaySFX, FallbackScreenFade
+    end
+    local char = Player.Character
+    HRP = char and char:FindFirstChild("HumanoidRootPart")
+    Humanoid = char and char:FindFirstChildOfClass("Humanoid")
+end
+
+Sync()
+local syncConn = RunService.Heartbeat:Connect(Sync)
+
+local ExecCyberpsychosis
+
+-- ============================================================
+-- ======================  CÓDIGO ORIGINAL  ===================
+-- ===== (cópia exata: createLightingEffects, spawnPopup, ======
+-- =====  shakeCamera, SystemRestorePopup)                 ======
+-- ============================================================
+
 local function createLightingEffects()
 	local cc = Instance.new("ColorCorrectionEffect")
 	cc.Name = "PsychoCC"
@@ -1567,7 +2105,7 @@ local function createLightingEffects()
 	return cc, blur
 end
 
-local function spawnPopup()
+local function spawnPopupOriginal()
     if not HRP then return end
     
     local angleHorizontal = math.random() * math.pi * 2
@@ -1689,6 +2227,427 @@ local targetHeight = math.random(2.0, 4.0)
             part:Destroy()
         end)
     end)
+end
+
+-- ============================================================
+-- REWORK DAS JANELAS: HUD do Sandevistan (David Martinez / Edgerunners)
+-- 6 modelos: ALERT (losango de aviso), BIOMONITOR (batimento/EKG), CORE DUMP (hex),
+-- SYS STATUS (barras), FATAL EXCEPTION (diálogo) e KANJI (警告 com separação RGB).
+-- Todas ligam como tela de CRT (linha -> abre), tremem, rasgam e desligam colapsando.
+-- Canvas de tamanho FIXO: o conteúdo estica junto com a peça durante a animação.
+-- ============================================================
+local WIN = {
+    RED = Color3.fromRGB(255, 25, 60), DARK = Color3.fromRGB(12, 0, 3), HOT = Color3.fromRGB(255, 110, 125),
+    YELLOW = Color3.fromRGB(255, 214, 0), WHITE = Color3.new(1, 1, 1), BLACK = Color3.new(0, 0, 0),
+    CYAN = Color3.fromRGB(0, 240, 255), MAGENTA = Color3.fromRGB(255, 0, 140),
+}
+local winAlive = 0
+local CUT = 8 -- tamanho (px) do corte das pontas das janelas
+
+-- desenha o corpo da janela com as 4 pontas cortadas em 45 graus (preenchimento + borda)
+-- devolve setFill(cor) e setBorder(cor)
+local function wshape(shell, Rw, Rh)
+    local c, th = CUT, 2
+    local fills, borders = {}, {}
+    local layer = Instance.new("Frame")
+    layer.Name = "Shape"
+    layer.Size = UDim2.new(1, 0, 1, 0)
+    layer.BackgroundTransparency = 1
+    layer.BorderSizePixel = 0
+    layer.ZIndex = 0
+    layer.Parent = shell
+    local function fill(x, y, w, h)
+        table.insert(fills, Instance.new("Frame"))
+        local f = fills[#fills]
+        f.Position = UDim2.new(0, x, 0, y)
+        f.Size = UDim2.new(0, w, 0, h)
+        f.BackgroundColor3 = WIN.DARK
+        f.BorderSizePixel = 0
+        f.Parent = layer
+    end
+    local function border(x, y, w, h, rot)
+        local f = Instance.new("Frame")
+        f.BackgroundColor3 = WIN.RED
+        f.BorderSizePixel = 0
+        if rot then
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.Position = UDim2.new(0, x, 0, y)
+            f.Rotation = rot
+        else
+            f.Position = UDim2.new(0, x, 0, y)
+        end
+        f.Size = UDim2.new(0, w, 0, h)
+        f.Parent = layer
+        table.insert(borders, f)
+    end
+    fill(0, c, Rw, Rh - 2 * c)
+    for i = 0, c - 1 do
+        fill(c - i, i, Rw - 2 * (c - i), 1)
+        fill(c - i, Rh - 1 - i, Rw - 2 * (c - i), 1)
+    end
+    border(c, 0, Rw - 2 * c, th)
+    border(c, Rh - th, Rw - 2 * c, th)
+    border(0, c, th, Rh - 2 * c)
+    border(Rw - th, c, th, Rh - 2 * c)
+    local L, d = c * 1.4142 + th, th * 0.35
+    border(c / 2 + d, c / 2 + d, L, th, -45)
+    border(Rw - c / 2 - d, c / 2 + d, L, th, 45)
+    border(c / 2 + d, Rh - c / 2 - d, L, th, 45)
+    border(Rw - c / 2 - d, Rh - c / 2 - d, L, th, -45)
+    return function(col) for _, f in ipairs(fills) do f.BackgroundColor3 = col end end,
+           function(col) for _, f in ipairs(borders) do f.BackgroundColor3 = col end end
+end
+
+local function wnew(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props) do o[k] = v end
+    o.Parent = parent
+    return o
+end
+
+local function wlabel(parent, props)
+    props.BackgroundTransparency = 1
+    props.Font = props.Font or Enum.Font.Code
+    props.TextSize = props.TextSize or 12
+    props.TextColor3 = props.TextColor3 or WIN.WHITE
+    return wnew("TextLabel", props, parent)
+end
+
+local function hex4() return string.format("%04X", math.random(0, 0xFFFF)) end
+
+-- faixa de listras diagonais (aviso de perigo)
+local function whazard(parent, y, h, colorA)
+    local f = wnew("Frame", {Size = UDim2.new(1, -2 * CUT, 0, h), Position = UDim2.new(0, CUT, 0, y), BackgroundColor3 = colorA, BorderSizePixel = 0}, parent)
+    local kps = {}
+    for i = 0, 4 do
+        local a = i * 0.2
+        table.insert(kps, ColorSequenceKeypoint.new(a, colorA))
+        table.insert(kps, ColorSequenceKeypoint.new(a + 0.0999, colorA))
+        table.insert(kps, ColorSequenceKeypoint.new(a + 0.1, WIN.BLACK))
+        table.insert(kps, ColorSequenceKeypoint.new(i == 4 and 1 or a + 0.1999, WIN.BLACK))
+    end
+    wnew("UIGradient", {Color = ColorSequence.new(kps), Rotation = 45}, f)
+    return f
+end
+
+local function wtitle(root, text, withX)
+    local bar = wnew("Frame", {Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, BorderSizePixel = 0}, root)
+    wnew("Frame", {Size = UDim2.new(1, 0, 0, 20 - CUT), Position = UDim2.new(0, 0, 0, CUT), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bar)
+    for i = 0, CUT - 1 do
+        wnew("Frame", {Size = UDim2.new(1, -2 * (CUT - i), 0, 1), Position = UDim2.new(0, CUT - i, 0, i), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bar)
+    end
+    wlabel(bar, {Size = UDim2.new(1, -28, 1, 0), Position = UDim2.new(0, 6, 0, 0), Text = text, TextColor3 = WIN.BLACK, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left})
+    if withX ~= false then
+        wlabel(bar, {Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -22, 0, 0), Text = "X", TextColor3 = WIN.BLACK, Font = Enum.Font.GothamBold, TextSize = 12})
+    end
+    return bar
+end
+
+local WIN_SIZE = {
+    ALERT = {240, 170}, BIO = {240, 150}, HEX = {240, 170},
+    GAUGE = {230, 160}, DIALOG = {220, 130}, KANJI = {250, 120},
+}
+local WIN_KINDS = {{"ALERT", 22}, {"BIO", 18}, {"HEX", 18}, {"GAUGE", 16}, {"DIALOG", 14}, {"KANJI", 12}}
+
+local function pickWinKind()
+    local total = 0
+    for _, e in ipairs(WIN_KINDS) do total += e[2] end
+    local r = math.random() * total
+    for _, e in ipairs(WIN_KINDS) do
+        r -= e[2]
+        if r <= 0 then return e[1] end
+    end
+    return "ALERT"
+end
+
+-- cada builder devolve uma função tick(t, life) chamada a ~20x por segundo
+local WIN_BUILD = {}
+
+WIN_BUILD.ALERT = function(root, W, H)
+    wtitle(root, "ALERT_" .. hex4())
+    local dia = wnew("Frame", {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(0, 24, 0, 54), BackgroundTransparency = 1, Rotation = 45}, root)
+    local diaStroke = wnew("UIStroke", {Color = WIN.RED, Thickness = 4}, dia)
+    wlabel(root, {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(0, 24, 0, 54), Text = "!", Font = Enum.Font.SciFi, TextSize = 40, TextColor3 = WIN.RED})
+    local warn = wlabel(root, {Size = UDim2.new(0, 132, 0, 34), Position = UDim2.new(0, 98, 0, 50), Text = "WARNING", Font = Enum.Font.SciFi, TextSize = 26, TextColor3 = WIN.RED, TextXAlignment = Enum.TextXAlignment.Left})
+    wlabel(root, {Size = UDim2.new(0, 132, 0, 30), Position = UDim2.new(0, 98, 0, 88), Text = "NEURAL INTEGRITY\n0x" .. hex4() .. " CRITICAL", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+    local psy = wlabel(root, {Size = UDim2.new(1, -20, 0, 16), Position = UDim2.new(0, 10, 1, -40), Text = "PSYCHOSIS DETECTED", TextSize = 12})
+    whazard(root, H - 16, 12, WIN.RED)
+    return function(t)
+        local on = math.floor(t * 10) % 2 == 0
+        warn.TextColor3 = on and WIN.RED or WIN.WHITE
+        psy.TextTransparency = on and 0 or 0.6
+        diaStroke.Color = math.random() < 0.2 and WIN.WHITE or WIN.RED
+    end
+end
+
+WIN_BUILD.BIO = function(root, W, H)
+    wtitle(root, "BIOMONITOR_" .. hex4())
+    local N, mid = 28, 62
+    local bars, buf = {}, {}
+    for i = 1, N do
+        buf[i] = 0
+        bars[i] = wnew("Frame", {Size = UDim2.new(0, 6, 0, 2), Position = UDim2.new(0, 8 + (i - 1) * 8, 0, mid), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, root)
+    end
+    wnew("Frame", {Size = UDim2.new(1, -16, 0, 1), Position = UDim2.new(0, 8, 0, mid), BackgroundColor3 = WIN.DARK, BackgroundTransparency = 0.3, BorderSizePixel = 0, ZIndex = 0}, root)
+    local bpm = wlabel(root, {Size = UDim2.new(0, 130, 0, 30), Position = UDim2.new(0, 8, 1, -42), Text = "187 BPM", Font = Enum.Font.SciFi, TextSize = 24, TextColor3 = WIN.RED, TextXAlignment = Enum.TextXAlignment.Left})
+    local arr = wlabel(root, {Size = UDim2.new(0, 90, 0, 14), Position = UDim2.new(1, -98, 1, -30), Text = "ARRHYTHMIA", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Right})
+    local pattern = {0, 0, 0.08, 0.16, 0.08, 0, -0.12, 1, -0.55, 0.05, 0, 0, 0.18, 0.3, 0.18, 0, 0, 0, 0}
+    local pi = 0
+    return function(t)
+        for _ = 1, 2 do
+            table.remove(buf, 1)
+            pi = pi % #pattern + 1
+            local v = pattern[pi]
+            if math.random() < 0.15 then v += (math.random() - 0.5) * 0.7 end
+            table.insert(buf, v)
+        end
+        for i = 1, N do
+            local v = buf[i]
+            local hpx = math.max(2, math.floor(math.abs(v) * 34))
+            local b = bars[i]
+            b.Size = UDim2.new(0, 6, 0, hpx)
+            b.Position = UDim2.new(0, 8 + (i - 1) * 8, 0, v >= 0 and mid - hpx or mid)
+            b.BackgroundColor3 = (i > N - 3) and WIN.WHITE or WIN.RED
+        end
+        bpm.Text = math.random(150, 245) .. " BPM"
+        arr.TextTransparency = (math.floor(t * 8) % 2 == 0) and 0 or 0.7
+    end
+end
+
+WIN_BUILD.HEX = function(root, W, H)
+    wtitle(root, "CORE_DUMP_" .. hex4())
+    local body = wlabel(root, {Size = UDim2.new(1, -16, 0, 96), Position = UDim2.new(0, 8, 0, 26), Text = "", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+    local lbl = wlabel(root, {Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 126), Text = "OVERWRITE 0%", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left})
+    local bg = wnew("Frame", {Size = UDim2.new(1, -16, 0, 8), Position = UDim2.new(0, 8, 0, 144), BackgroundColor3 = WIN.DARK, BorderSizePixel = 0}, root)
+    wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, bg)
+    local fill = wnew("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bg)
+    return function(t, life)
+        local lines = {}
+        for i = 1, 7 do
+            lines[i] = string.format("%s  %s %s %s %s", hex4(), hex4(), hex4(), hex4(), hex4())
+        end
+        lines[math.random(1, 7)] = "FFFF  ERR  ERR  ERR  ERR"
+        body.Text = table.concat(lines, "\n")
+        local a = math.clamp(t / life, 0, 1)
+        fill.Size = UDim2.new(a, 0, 1, 0)
+        lbl.Text = "OVERWRITE " .. math.floor(a * 100) .. "%"
+    end
+end
+
+WIN_BUILD.GAUGE = function(root, W, H)
+    wtitle(root, "SYS_STATUS_" .. hex4())
+    local rows = {
+        {"NEURAL LOAD", 88}, {"CHROME REJECTION", 94}, {"SANDEVISTAN OC", 76}, {"HUMANITY", 18},
+    }
+    local fills, pcts = {}, {}
+    for i, r in ipairs(rows) do
+        local y = 28 + (i - 1) * 32
+        wlabel(root, {Size = UDim2.new(1, -16, 0, 12), Position = UDim2.new(0, 8, 0, y), Text = r[1], TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left})
+        local bg = wnew("Frame", {Size = UDim2.new(1, -62, 0, 8), Position = UDim2.new(0, 8, 0, y + 16), BackgroundColor3 = WIN.DARK, BorderSizePixel = 0}, root)
+        wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, bg)
+        fills[i] = wnew("Frame", {Size = UDim2.new(r[2] / 100, 0, 1, 0), BackgroundColor3 = (i == 4) and WIN.WHITE or WIN.RED, BorderSizePixel = 0}, bg)
+        pcts[i] = wlabel(root, {Size = UDim2.new(0, 44, 0, 12), Position = UDim2.new(1, -50, 0, y + 14), Text = r[2] .. "%", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right})
+    end
+    return function(t, life)
+        for i, r in ipairs(rows) do
+            local v = r[2] + (math.random() - 0.5) * 14
+            if i == 4 then v = r[2] * (1 - t / life) + (math.random() - 0.5) * 6 end
+            v = math.clamp(v, 0, 100)
+            fills[i].Size = UDim2.new(v / 100, 0, 1, 0)
+            pcts[i].Text = math.floor(v) .. "%"
+        end
+    end
+end
+
+WIN_BUILD.DIALOG = function(root, W, H)
+    wtitle(root, "FATAL_EXCEPTION")
+    local texts = Constants.ERROR_TEXTS
+    wlabel(root, {Size = UDim2.new(1, -20, 0, 40), Position = UDim2.new(0, 10, 0, 28), Text = texts[math.random(1, #texts)], Font = Enum.Font.SciFi, TextSize = 18, TextColor3 = WIN.RED, TextWrapped = true})
+    wlabel(root, {Size = UDim2.new(1, -20, 0, 14), Position = UDim2.new(0, 10, 0, 72), Text = "0x" .. hex4() .. "_NEURAL_CRITICAL", TextSize = 10, TextColor3 = WIN.HOT})
+    local btns = {}
+    for i, name in ipairs({"RETRY", "ABORT"}) do
+        local b = wnew("Frame", {Size = UDim2.new(0, 80, 0, 22), Position = UDim2.new(0, 22 + (i - 1) * 100, 1, -32), BackgroundColor3 = WIN.RED, BackgroundTransparency = 0.7, BorderSizePixel = 0}, root)
+        wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, b)
+        wlabel(b, {Size = UDim2.new(1, 0, 1, 0), Text = name, TextSize = 12})
+        btns[i] = b
+    end
+    return function(t)
+        local hot = math.random(1, 2)
+        btns[hot].BackgroundTransparency = 0.1
+        btns[3 - hot].BackgroundTransparency = 0.7
+    end
+end
+
+WIN_BUILD.KANJI = function(root, W, H)
+    local jp = Module.Config.Windows.Japanese ~= false
+    whazard(root, 0, 8, WIN.YELLOW)
+    whazard(root, H - 8, 8, WIN.YELLOW)
+    local function big(color, x)
+        return wlabel(root, {Size = UDim2.new(1, 0, 0, 66), Position = UDim2.new(0, x, 0, 12), Text = jp and "警告" or "ERROR", Font = Enum.Font.GothamBlack, TextSize = jp and 58 or 44, TextColor3 = color})
+    end
+    local c, m = big(WIN.CYAN, -3), big(WIN.MAGENTA, 3)
+    local main = big(WIN.RED, 0)
+    wlabel(root, {Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 80), Text = jp and "サイバーサイコシス" or "SYSTEM OVERLOAD", Font = jp and Enum.Font.GothamBold or Enum.Font.Code, TextSize = 14})
+    wlabel(root, {Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 98), Text = "// CYBERPSYCHOSIS //", TextSize = 10, TextColor3 = WIN.RED})
+    return function(t)
+        local j = math.random(2, 7)
+        c.Position = UDim2.new(0, -j, 0, 12 + math.random(-2, 2))
+        m.Position = UDim2.new(0, j, 0, 12 + math.random(-2, 2))
+        main.TextTransparency = (math.random() < 0.15) and 0.6 or 0
+    end
+end
+
+local function spawnPopupDavid()
+    if not HRP then return end
+    local WC = Module.Config.Windows
+    if winAlive >= (WC.MaxAlive or 16) then return end
+
+    -- posição: ao redor do BONECO (não da câmera). Cada janela orbita devagar,
+    -- flutua e nasce "saindo" do boneco. Só gira pra mostrar a frente pra câmera.
+    local cam = Workspace.CurrentCamera
+    local ang0 = math.random() * math.pi * 2
+    local angV = (math.random() - 0.5) * 1.1
+    local radius = 5.5 + math.random() * 2.5
+    local height = -1 + math.random() * 4
+    local orbitSpeed = (math.random() < 0.5 and -1 or 1) * (WC.OrbitSpeed or 0.3) * (0.5 + math.random())
+    local bobPhase = math.random() * math.pi * 2
+    local tilt = CFrame.Angles(math.rad(math.random(-8, 8)), math.rad(math.random(-12, 12)), math.rad(math.random(-6, 6)))
+    local center = HRP.Position
+    local born = os.clock()
+
+    local kind = pickWinKind()
+    local W, H = WIN_SIZE[kind][1], WIN_SIZE[kind][2]
+    local sc = 0.85 + math.random() * 0.4
+    local fw, fh = W / 52 * sc, H / 52 * sc
+
+    local part = Instance.new("Part")
+    part.Name = "GlitchWindow"
+    part.Size = Vector3.new(0.05, 0.04, 0.07)
+    part.Color = Color3.fromRGB(9, 0, 2)
+    part.Material = Enum.Material.Neon
+    part.Transparency = 1 -- invisível: o formato (pontas cortadas) é desenhado pela UI
+    part.CanCollide = false
+    part.CanQuery = false
+    part.CanTouch = false
+    part.Anchored = true
+    part.CastShadow = false
+
+    -- atualiza posição/rotação a cada frame (órbita + flutuação + saída do boneco)
+    local function place(dt, first)
+        local t = os.clock() - born
+        if WC.FollowCharacter ~= false and HRP then
+            center = center:Lerp(HRP.Position, first and 1 or (1 - math.exp(-8 * dt)))
+        end
+        local g = math.min(t / 0.35, 1)
+        local r = radius * (0.3 + 0.7 * (1 - (1 - g) ^ 3)) -- voa do boneco até a órbita
+        local a = ang0 + orbitSpeed * t
+        local bob = math.sin(t * 1.6 + bobPhase) * 0.25
+        local off = Vector3.new(
+            math.cos(a) * math.cos(angV) * r,
+            math.sin(angV) * r + height + bob,
+            math.sin(a) * math.cos(angV) * r)
+        local pos = center + off
+
+        local cf
+        local camPos = cam and cam.CFrame.Position
+        if WC.FaceCamera == true and camPos then
+            cf = CFrame.lookAt(pos, camPos)
+        else
+            -- orientação presa ao boneco: frente da janela aponta pra fora do anel.
+            -- Não depende da câmera (o verso também tem a UI, então vê de qualquer lado).
+            cf = CFrame.lookAt(pos, pos + Vector3.new(off.X, 0, off.Z))
+        end
+        part.CFrame = cf * tilt
+    end
+    place(0, true)
+
+    -- duas faces (frente e verso) pra a janela aparecer de qualquer lado sem precisar virar
+    local faces = {}
+    for _, nf in ipairs({Enum.NormalId.Front, Enum.NormalId.Back}) do
+        local sgui = Instance.new("SurfaceGui")
+        sgui.Face = nf
+        sgui.LightInfluence = 0
+        sgui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+        sgui.CanvasSize = Vector2.new(W, H)
+        sgui.Parent = part
+
+        local root = wnew("Frame", {Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true}, sgui)
+        local setFill, setBorder = wshape(root, W - 4, H - 4)
+        local okB, tickFn = pcall(WIN_BUILD[kind], root, W, H)
+        if not okB then part:Destroy() return end
+        local tear = wnew("Frame", {Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = WIN.WHITE, BackgroundTransparency = 0.55, BorderSizePixel = 0, Visible = false, ZIndex = 50}, root)
+        table.insert(faces, {root = root, setFill = setFill, setBorder = setBorder, tear = tear, tick = tickFn})
+    end
+
+    part.Parent = Workspace
+    winAlive += 1
+
+    local moveConn
+    moveConn = RunService.RenderStepped:Connect(function(dt)
+        if not part.Parent then moveConn:Disconnect() return end
+        cam = Workspace.CurrentCamera
+        place(dt, false)
+    end)
+
+    -- liga como CRT: linha -> abre
+    TweenService:Create(part, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = Vector3.new(fw, 0.04, 0.07)}):Play()
+    task.delay(0.05, function()
+        if part.Parent then
+            TweenService:Create(part, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = Vector3.new(fw, fh, 0.07)}):Play()
+        end
+    end)
+
+    local life = Constants.CYBERPSYCHOSIS.WindowLifeTime * (WC.LifeMult or 1.6) * (0.8 + math.random() * 0.6)
+    task.spawn(function()
+        while part.Parent do
+            local t = os.clock() - born
+            if t >= life then break end
+            local shake = math.random() < 0.2
+            local sx, sy, sc = math.random(-6, 6), math.random(-3, 3), math.random() < 0.5
+            local tearOn = math.random() < 0.25
+            local tearH = math.random(2, 10)
+            local tearY = (CUT + math.random() * math.max(1, H - 4 - 2 * CUT - tearH)) / (H - 4)
+            for _, f in ipairs(faces) do
+                if shake then
+                    f.root.Position = UDim2.new(0, 2 + sx, 0, 2 + sy)
+                    f.setBorder(sc and WIN.WHITE or WIN.RED)
+                else
+                    f.root.Position = UDim2.new(0, 2, 0, 2)
+                    f.setBorder(WIN.RED)
+                end
+                f.tear.Visible = tearOn
+                if tearOn then
+                    f.tear.Position = UDim2.new(0, 0, tearY, 0)
+                    f.tear.Size = UDim2.new(1, 0, 0, tearH)
+                end
+                if f.tick then pcall(f.tick, t, life) end
+            end
+            task.wait(0.05)
+        end
+        if part.Parent then
+            -- glitch final e desliga colapsando (CRT off)
+            for i = 1, 3 do
+                for _, f in ipairs(faces) do
+                    f.setFill((i % 2 == 0) and WIN.DARK or WIN.RED)
+                end
+                task.wait(0.025)
+            end
+            TweenService:Create(part, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = Vector3.new(fw, 0.04, 0.07)}):Play()
+            task.wait(0.1)
+            TweenService:Create(part, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = Vector3.new(0.02, 0.04, 0.07)}):Play()
+            task.wait(0.08)
+        end
+        winAlive = math.max(0, winAlive - 1)
+        moveConn:Disconnect()
+        part:Destroy()
+    end)
+end
+
+local function spawnPopup()
+    if Module.Config.Windows.Style == "ORIGINAL" then
+        return spawnPopupOriginal()
+    end
+    return spawnPopupDavid()
 end
 
 local function shakeCamera()
@@ -1939,264 +2898,1134 @@ local function SystemRestorePopup()
     end)
 end
 
+
+
+-- ============================================================
+-- ==============  REWORK: estilo David Martinez  =============
+-- Mantém a mecânica do original (paralisia -> drenagem de vida -> overdrive
+-- na fase 3 -> 30% de chance do SYSTEM RESTORE) e a coreografia de janelas
+-- sincronizada com o áudio. Por cima adiciona: visão de túnel vermelha
+-- pulsando no ritmo do coração, alerta WARNING, título com separação RGB,
+-- rasgos de tela, scanlines, terminal de falhas, contador de HUMANITY,
+-- câmera inclinando/zoom no batimento, boneco imóvel e GLITCH EM VIEWPORTFRAME
+-- (clones 2D do boneco: camadas ciano/roxa + fatias horizontais deslocadas).
+-- ============================================================
+local function SpeechActive()
+    local S = Module.Config.Speech
+    return S and S.Enabled and S.Lines and #S.Lines > 0
+end
+
+-- duração total do efeito: a da fala (se ligada) ou a original
+local function EffectiveDuration()
+    if SpeechActive() then
+        local S = Module.Config.Speech
+        if S.Duration then return S.Duration end
+        local last = 0
+        for _, l in ipairs(S.Lines) do
+            last = math.max(last, (l.t or 0) + (l.hold or 1.5))
+        end
+        return last + (S.Offset or 0) + (S.Tail or 1.2)
+    end
+    return Constants.CYBERPSYCHOSIS.Duration
+end
+
+local SPEAKER_COLORS = {
+    FARADAY = Color3.fromRGB(255, 200, 60),
+    DAVID = Color3.fromRGB(0, 240, 255),
+    REBECCA = Color3.fromRGB(255, 0, 140),
+    LUCY = Color3.fromRGB(190, 120, 255),
+}
+local SCRAMBLE_CHARS = {"#", "@", "%", "&", "?", "!", "/", "|", "0", "1", "<", ">", "X"}
+
+local function ScrambleText(text, amount)
+    local out = {}
+    for _, cp in utf8.codes(text) do
+        if cp ~= 32 and math.random() < amount then
+            table.insert(out, SCRAMBLE_CHARS[math.random(1, #SCRAMBLE_CHARS)])
+        else
+            table.insert(out, utf8.char(cp))
+        end
+    end
+    return table.concat(out)
+end
+
 function ExecCyberpsychosis()
-    Falar("psicose", true)
-    PlaySFX(Sounds.PSYCHOSIS)
-    PlaySFX(Sounds.PSYCHOSIS2)
-    
-task.spawn(function()
-    spawnPopup()
-    task.wait(0.30)
-    
-    spawnPopup()
-    task.wait(0.25)
-    
-    spawnPopup()
-    spawnPopup()
-    task.wait(0.25)
-    
-    spawnPopup()
-    task.wait(0.25)
-    
-    spawnPopup()
-    task.wait(0.20)
-    
-    for i = 1, 7 do
-        spawnPopup()
-        task.wait(0.06)
+    Sync()
+    local FX = Module.Config.FX
+    local CFG = Constants.CYBERPSYCHOSIS
+    local DURATION = EffectiveDuration()
+    local phaseDuration = DURATION / 3
+    local S = Module.Config.Speech
+    local speechOn = SpeechActive() and true or false
+
+    if not (speechOn and S.MuteOriginalSounds) then
+        PlaySFX(Sounds.PSYCHOSIS)
+        PlaySFX(Sounds.PSYCHOSIS2)
     end
-    task.wait(0.30)
-    
-    for i = 1, 3 do
-        spawnPopup()
-        task.wait(0.15)
+    local speechSound
+    if speechOn and S.SoundId and S.SoundId ~= "" then
+        speechSound = Instance.new("Sound")
+        speechSound.SoundId = S.SoundId
+        speechSound.Volume = S.Volume or 2
+        speechSound.Parent = HRP or Camera
+        speechSound:Play()
+        Debris:AddItem(speechSound, DURATION + 3)
     end
-    task.wait(0.30)
-    
-    spawnPopup()
-    spawnPopup()
-    task.wait(0.35)
-    
-    spawnPopup()
-    spawnPopup()
-    task.wait(0.40)
-    
-    for i = 1, 5 do
-        spawnPopup()
-        task.wait(0.08)
+    local hbSound
+    if Module.Config.HeartbeatSound then
+        hbSound = PlaySFX(Module.Config.HeartbeatSound)
+        hbSound.Looped = true
     end
-    task.wait(0.35)
-    
-    for i = 1, 14 do
+
+    -- coreografia das janelas (ORIGINAL, sincronizada com o áudio)
+    -- com Speech ligado, as janelas vêm das falas (veja "events" mais abaixo)
+    if not speechOn then task.spawn(function()
         spawnPopup()
-        task.wait(0.04)
-    end
-end)
+        task.wait(0.30)
+    
+        spawnPopup()
+        task.wait(0.25)
+    
+        spawnPopup()
+        spawnPopup()
+        task.wait(0.25)
+    
+        spawnPopup()
+        task.wait(0.25)
+    
+        spawnPopup()
+        task.wait(0.20)
+    
+        for i = 1, 7 do
+            spawnPopup()
+            task.wait(0.06)
+        end
+        task.wait(0.30)
+    
+        for i = 1, 3 do
+            spawnPopup()
+            task.wait(0.15)
+        end
+        task.wait(0.30)
+    
+        spawnPopup()
+        spawnPopup()
+        task.wait(0.35)
+    
+        spawnPopup()
+        spawnPopup()
+        task.wait(0.40)
+    
+        for i = 1, 5 do
+            spawnPopup()
+            task.wait(0.08)
+        end
+        task.wait(0.35)
+    
+        for i = 1, 14 do
+            spawnPopup()
+            task.wait(0.04)
+        end
+    end) end
 
     if Humanoid then Humanoid.WalkSpeed = 0 Humanoid.JumpPower = 0 end
-    
     if Lighting:FindFirstChild("SandiEffect") then Lighting.SandiEffect:Destroy() end
+    if Lighting:FindFirstChild("SandiEffect2") then Lighting.SandiEffect2:Destroy() end
     local cc, blur = createLightingEffects()
     local startTime = tick()
     local connection
-    
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt") or Create("ScreenGui", {Name = "CyberRebuilt", Parent = Player.PlayerGui, IgnoreGuiInset = true})
 
-local psychoImage = Instance.new("ImageLabel")
-psychoImage.Name = "PsychoImage"
-psychoImage.Size = UDim2.new(0, 200, 0, 200)
-psychoImage.Position = UDim2.new(1, -220, 0, 10)
-psychoImage.BackgroundTransparency = 1
-psychoImage.Image = "rbxassetid://138778899925146"
-psychoImage.ImageTransparency = 1
-psychoImage.ZIndex = 10
-psychoImage.Parent = gui
+    local RED = Color3.fromRGB(255, 25, 60)
+    local DARKRED = Color3.fromRGB(130, 0, 18)
+    local CYAN = Color3.fromRGB(0, 240, 255)
+    local MAGENTA = Color3.fromRGB(255, 0, 140)
+    local WHITE = Color3.new(1, 1, 1)
+    local TEAR_COLORS = {RED, CYAN, MAGENTA, WHITE}
 
-psychoImage.Position = UDim2.new(1.2, 0, 0, 10)
-TweenService:Create(psychoImage, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Position = UDim2.new(1, -220, 0, 10),
-    ImageTransparency = 0
-}):Play()
+    local sg = Create("ScreenGui", {Name = "CyberPsychosisFX", IgnoreGuiInset = true, ResetOnSpawn = false, DisplayOrder = 900, Parent = Player.PlayerGui})
+    pcall(function() sg.ScreenInsets = Enum.ScreenInsets.None end)   -- tela cheia: ignora notch/bordas do celular
 
-task.spawn(function()
-    task.wait(0.5)
-    local piscaStart = tick()
-    while psychoImage.Parent and tick() - piscaStart < Constants.CYBERPSYCHOSIS.Duration - 0.7 do
-        local targetTransparency = math.random(20, 55) / 100
-        TweenService:Create(psychoImage, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-            ImageTransparency = targetTransparency
-        }):Play()
-        task.wait(0.35)
+    -- estado dos efeitos (declarado antes das funções que usam)
+    local hitKick, beatKick, rollKick = 0, 0, 0
+    local camRoll, fovDelta, fovApplied = 0, 0, 0
+
+    -- ---------- visão de túnel (bordas vermelhas que pulsam) ----------
+    local edges = {}
+    local function makeEdge(pos, size, rot, anchor)
+        local f = Create("Frame", {Position = pos, Size = size, AnchorPoint = anchor, BackgroundColor3 = DARKRED, BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 1, Parent = sg})
+        Create("UIGradient", {Rotation = rot, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)}), Parent = f})
+        table.insert(edges, f)
     end
-end)
+    makeEdge(UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0.3, 0), 90, Vector2.new(0, 0))
+    makeEdge(UDim2.new(0, 0, 1, 0), UDim2.new(1, 0, 0.3, 0), -90, Vector2.new(0, 1))
+    makeEdge(UDim2.new(0, 0, 0, 0), UDim2.new(0.22, 0, 1, 0), 0, Vector2.new(0, 0))
+    makeEdge(UDim2.new(1, 0, 0, 0), UDim2.new(0.22, 0, 1, 0), 180, Vector2.new(1, 0))
 
-task.delay(Constants.CYBERPSYCHOSIS.Duration - 0.6, function()
-    if psychoImage and psychoImage.Parent then
-        TweenService:Create(psychoImage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            Position = UDim2.new(1.2, 0, 0, 10),
-            ImageTransparency = 1
-        }):Play()
-        task.delay(0.6, function()
-            psychoImage:Destroy()
+    -- ---------- scanlines ----------
+    for i = 1, 3 do
+        local sl = Create("Frame", {Size = UDim2.new(1, 0, 0, 2 + i), Position = UDim2.new(0, 0, -0.05, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 11, Parent = sg})
+        TweenService:Create(sl, TweenInfo.new(1.1 + i * 0.4, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), {Position = UDim2.new(0, 0, 1.05, 0)}):Play()
+    end
+
+    -- ---------- rasgos horizontais de glitch ----------
+    local bars, barIndex = {}, 0
+    for i = 1, 6 do
+        bars[i] = Create("Frame", {Size = UDim2.new(1, 0, 0, 10), BorderSizePixel = 0, Visible = false, ZIndex = 12, Parent = sg})
+    end
+    local function Tear(count)
+        if not FX.TearBars then return end
+        for _ = 1, count do
+            barIndex = barIndex % #bars + 1
+            local b = bars[barIndex]
+            b.Size = UDim2.new(1, 0, 0, math.random(3, 36))
+            b.Position = UDim2.new(0, math.random(-40, 40), math.random(), 0)
+            b.BackgroundColor3 = TEAR_COLORS[math.random(1, #TEAR_COLORS)]
+            b.BackgroundTransparency = math.random(45, 85) / 100
+            b.Visible = true
+            task.delay(math.random(3, 9) / 100, function() b.Visible = false end)
+        end
+    end
+
+    -- ---------- flash de tela ----------
+    local flash = Create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 20, Parent = sg})
+    local function Flash(color, trans, t)
+        flash.BackgroundColor3 = color
+        flash.BackgroundTransparency = trans
+        TweenService:Create(flash, TweenInfo.new(t or 0.15), {BackgroundTransparency = 1}):Play()
+    end
+
+    -- ---------- título com separação RGB ----------
+    local function mkTitle(color, z)
+        local l = Create("TextLabel", {Size = UDim2.new(1, 0, 0.2, 0), Position = UDim2.new(0, 0, 0.4, 0), BackgroundTransparency = 1, Text = "CYBERPSYCHOSIS", TextColor3 = color, Font = Enum.Font.SciFi, TextScaled = true, TextTransparency = 1, ZIndex = z, Parent = sg})
+        Create("UITextSizeConstraint", {MaxTextSize = 80, Parent = l})
+        return l
+    end
+    local titleC = mkTitle(CYAN, 13)
+    local titleM = mkTitle(MAGENTA, 13)
+    local titleMain = mkTitle(Color3.fromRGB(255, 0, 0), 14)
+
+    -- ---------- faixa de WARNING ----------
+    local banner = Create("Frame", {Size = UDim2.new(1, 0, 0, 34), Position = UDim2.new(0, 0, -0.1, 0), BackgroundColor3 = Color3.fromRGB(20, 0, 4), BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 15, Parent = sg})
+    Create("UIStroke", {Color = RED, Thickness = 2, Parent = banner})
+    local bannerText = Create("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "!! WARNING !!   NEURAL INTEGRITY CRITICAL   !! WARNING !!", TextColor3 = RED, Font = Enum.Font.Code, TextSize = 16, ZIndex = 16, Parent = banner})
+    TweenService:Create(banner, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0.1, 0)}):Play()
+
+    -- ---------- HUMANITY + terminal de falhas ----------
+    local humLabel = Create("TextLabel", {Size = UDim2.new(0.6, 0, 0, 26), Position = UDim2.new(0.02, 0, 0.2, 0), BackgroundTransparency = 1, Text = "HUMANITY 100%", TextColor3 = RED, Font = Enum.Font.SciFi, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 15, Parent = sg})
+    local terminal = Create("TextLabel", {Size = UDim2.new(0.6, 0, 0, 170), Position = UDim2.new(0.02, 0, 0.2, 30), BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(255, 90, 110), Font = Enum.Font.Code, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 15, Parent = sg})
+    local logLines = {}
+    local function Log(txt)
+        table.insert(logLines, txt)
+        if #logLines > 9 then table.remove(logLines, 1) end
+        terminal.Text = table.concat(logLines, "\n")
+    end
+    local logSchedule = {
+        {0.1, "> BIOMONITOR ........ ERROR"},
+        {0.7, "> SANDEVISTAN ....... 187% OVERCLOCK"},
+        {1.4, "> NEURAL LINK ....... UNSTABLE"},
+        {2.2, "> CHROME REJECTION .. 94%"},
+        {3.0, "> MOTOR CONTROL ..... LOST"},
+        {3.8, "> SAFETY LIMITERS ... OFFLINE"},
+        {4.6, "> HUMANITY .......... CRITICAL"},
+        {5.2, "> FLATLINE .......... IMMINENT"},
+    }
+    for _, e in ipairs(logSchedule) do
+        task.delay(e[1] * DURATION / 6, function() if sg.Parent then Log(e[2]) end end)
+    end
+
+    -- ---------- LEGENDA GLITCHADA SINCRONIZADA COM A FALA ----------
+    local subRoot = Create("Frame", {Size = UDim2.new(0.84, 0, 0, 84), Position = UDim2.new(0.08, 0, 0.78, 0), BackgroundTransparency = 1, Visible = false, ZIndex = 17, Parent = sg})
+    local subName = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = Enum.Font.Code, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 19, Parent = subRoot})
+    local function mkSub(color, z)
+        local l = Create("TextLabel", {Size = UDim2.new(1, 0, 1, -20), Position = UDim2.new(0, 0, 0, 20), BackgroundTransparency = 1, Text = "", TextColor3 = color, Font = Enum.Font.Code, TextScaled = true, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = z, Parent = subRoot})
+        Create("UITextSizeConstraint", {MaxTextSize = 26, MinTextSize = 10, Parent = l})
+        return l
+    end
+    local subC = mkSub(CYAN, 17)
+    local subM = mkSub(MAGENTA, 17)
+    local subMain = mkSub(WHITE, 18)
+    subC.TextTransparency = 0.35
+    subM.TextTransparency = 0.35
+    local subText, subHideAt = "", 0
+    local function ShowLine(line)
+        if S.Subtitles == false or not line.text then return end
+        local who = line.who and tostring(line.who):upper() or ""
+        subText = tostring(line.text)
+        subName.Text = who
+        subName.TextColor3 = SPEAKER_COLORS[who] or WHITE
+        subMain.Text, subC.Text, subM.Text = subText, subText, subText
+        subHideAt = tick() + (line.hold or 1.5)
+        subRoot.Visible = true
+    end
+
+    -- ---------- ícone da psicose (ORIGINAL) ----------
+    local psychoImage = Instance.new("ImageLabel")
+    psychoImage.Name = "PsychoImage"
+    psychoImage.Size = UDim2.new(0, 200, 0, 200)
+    psychoImage.BackgroundTransparency = 1
+    psychoImage.Image = "rbxassetid://138778899925146"
+    psychoImage.ImageTransparency = 1
+    psychoImage.ZIndex = 10
+    psychoImage.Position = UDim2.new(1.2, 0, 0, 10)
+    psychoImage.Parent = sg
+    TweenService:Create(psychoImage, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(1, -220, 0, 10),
+        ImageTransparency = 0
+    }):Play()
+    task.spawn(function()
+        task.wait(0.5)
+        local piscaStart = tick()
+        while psychoImage.Parent and tick() - piscaStart < DURATION - 0.7 do
+            TweenService:Create(psychoImage, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                ImageTransparency = math.random(20, 55) / 100
+            }):Play()
+            task.wait(0.35)
+        end
+    end)
+    task.delay(DURATION - 0.6, function()
+        if psychoImage and psychoImage.Parent then
+            TweenService:Create(psychoImage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(1.2, 0, 0, 10),
+                ImageTransparency = 1
+            }):Play()
+        end
+    end)
+
+    -- ---------- boneco completamente imóvel ----------
+    local frozenHRP
+    local frozenTracks = {}
+    local function FreezeBody()
+        if not FX.FreezeBody then return end
+        if HRP and HRP ~= frozenHRP then
+            if frozenHRP then frozenHRP.Anchored = false end
+            frozenHRP = HRP
+            HRP.AssemblyLinearVelocity = Vector3.zero
+            HRP.AssemblyAngularVelocity = Vector3.zero
+            HRP.Anchored = true
+        end
+        if Humanoid then
+            Humanoid.WalkSpeed = 0
+            Humanoid.JumpPower = 0
+            local animator = Humanoid:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
+                    if FX.BodyAnim ~= false then
+                        frozenTracks[tr] = true
+                        tr:Stop(0)
+                    elseif tr.Speed ~= 0 then
+                        frozenTracks[tr] = true
+                        tr:AdjustSpeed(0)
+                    end
+                end
+            end
+        end
+    end
+    local function UnfreezeBody()
+        if frozenHRP then frozenHRP.Anchored = false frozenHRP = nil end
+        for tr in pairs(frozenTracks) do
+            pcall(function()
+                tr:AdjustSpeed(1)
+                if FX.BodyAnim ~= false and tr.Looped and not tr.IsPlaying then tr:Play(0.2) end
+            end)
+        end
+        frozenTracks = {}
+    end
+
+    local BA = {char = nil, J = {}, cur = {}, spasm = {}, out = {}, conns = {}, animate = nil, animateWas = nil, nextSpasm = 0, poseIdx = 1, nextPose = 0, seed = math.random() * 100}
+    local V3 = Vector3.new
+    local BA_MAP = {
+        waist = {"UpperTorso", "Torso"},
+        neck = {"Head"},
+        rs = {"RightUpperArm", "Right Arm"},
+        ls = {"LeftUpperArm", "Left Arm"},
+        re = {"RightLowerArm"},
+        le = {"LeftLowerArm"},
+        rw = {"RightHand"},
+        lw = {"LeftHand"},
+        rh = {"RightUpperLeg", "Right Leg"},
+        lh = {"LeftUpperLeg", "Left Leg"},
+        rk = {"RightLowerLeg"},
+        lk = {"LeftLowerLeg"},
+    }
+    local BA_KEYS = {"waist", "neck", "rs", "ls", "re", "le", "rw", "lw", "rh", "lh", "rk", "lk"}
+    local BA_SHAKE = {waist = 2, neck = 4, rs = 3, ls = 3, re = 4, le = 4, rw = 9, lw = 9, rh = 2, lh = 2, rk = 3, lk = 3}
+    local BA_SPASM = {waist = 12, neck = 30, rs = 26, ls = 26, re = 22, le = 22, rw = 32, lw = 32, rh = 11, lh = 11, rk = 13, lk = 13}
+    local BA_POSES = {
+        {waist = V3(-24, 0, 0), neck = V3(-16, 0, 0), rs = V3(125, 0, 14), ls = V3(125, 0, -14), re = V3(115, 0, 0), le = V3(115, 0, 0),
+         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(14, 0, 5), lh = V3(14, 0, -5), rk = V3(-28, 0, 0), lk = V3(-28, 0, 0)},
+        {waist = V3(14, 0, 0), neck = V3(38, 0, 0), rs = V3(25, 0, 100), ls = V3(25, 0, -100), re = V3(30, 0, 0), le = V3(30, 0, 0),
+         rw = V3(0, 0, 25), lw = V3(0, 0, -25), rh = V3(6, 0, 10), lh = V3(6, 0, -10), rk = V3(-12, 0, 0), lk = V3(-12, 0, 0)},
+        {waist = V3(-10, 25, 0), neck = V3(-5, -30, 8), rs = V3(135, 0, 10), ls = V3(10, 0, -70), re = V3(120, 0, 0), le = V3(40, 0, 0),
+         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(10, 0, 4), lh = V3(-8, 0, -4), rk = V3(-20, 0, 0), lk = V3(-10, 0, 0)},
+        {waist = V3(-34, -18, 6), neck = V3(10, 28, -12), rs = V3(60, 0, 40), ls = V3(150, 0, -8), re = V3(90, 0, 0), le = V3(100, 0, 0),
+         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(20, 0, 6), lh = V3(4, 0, -6), rk = V3(-34, 0, 0), lk = V3(-16, 0, 0)},
+    }
+    for _, pose in ipairs(BA_POSES) do
+        for _, key in ipairs(BA_KEYS) do pose[key] = pose[key] or V3(0, 0, 0) end
+    end
+
+    local function BodyAnimApply()
+        for key, T in pairs(BA.out) do
+            local m = BA.J[key]
+            if m and m.Parent then m.Transform = T end
+        end
+    end
+
+    local function BA_Find(char)
+        BA.char = char
+        BA.J = {}
+        BA.cur = {}
+        BA.spasm = {}
+        BA.out = {}
+        local an = char:FindFirstChild("Animate")
+        if an and an:IsA("LocalScript") then
+            BA.animate = an
+            if BA.animateWas == nil then BA.animateWas = an.Enabled end
+            an.Enabled = false
+        end
+        if #BA.conns == 0 then
+            table.insert(BA.conns, RunService.Stepped:Connect(BodyAnimApply))
+            table.insert(BA.conns, RunService.Heartbeat:Connect(BodyAnimApply))
+            table.insert(BA.conns, RunService.PreSimulation:Connect(BodyAnimApply))
+        end
+        for _, d in ipairs(char:GetDescendants()) do
+            if (d:IsA("Motor6D") or d:IsA("AnimationConstraint")) and d.Part0 and d.Part1 then
+                for key, names in pairs(BA_MAP) do
+                    if not BA.J[key] then
+                        for _, n in ipairs(names) do
+                            if d.Part1.Name == n then BA.J[key] = d end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local function BodyAnimKick(power)
+        for _, key in ipairs(BA_KEYS) do
+            if math.random() < 0.75 then
+                BA.spasm[key] = V3(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * BA_SPASM[key] * (power or 1)
+            end
+        end
+        BA.nextPose = 0
+    end
+
+    local function BodyAnimRelease()
+        for _, c in ipairs(BA.conns) do c:Disconnect() end
+        BA.conns = {}
+        BA.out = {}
+        for _, m in pairs(BA.J) do
+            if m.Parent then m.Transform = CFrame.new() end
+        end
+        if BA.animate and BA.animate.Parent and BA.animateWas ~= nil then BA.animate.Enabled = BA.animateWas end
+        BA.animate, BA.animateWas = nil, nil
+        BA.J, BA.cur, BA.spasm, BA.char = {}, {}, {}, nil
+    end
+
+    local function BodyAnimStep(dt, elapsed, k, phase)
+        if FX.BodyAnim == false then return end
+        local char = Player.Character
+        if not char then return end
+        if BA.char ~= char or not BA.J.waist or not BA.J.waist.Parent then BA_Find(char) end
+        local I = (FX.BodyAnimIntensity or 1) * (0.7 + 0.45 * phase)
+        local t = elapsed
+
+        if t >= BA.nextPose then
+            local n
+            repeat n = math.random(1, #BA_POSES) until n ~= BA.poseIdx
+            BA.poseIdx = n
+            BA.nextPose = t + (0.45 + math.random() * 0.9) / (0.6 + 0.4 * phase)
+        end
+        if t >= BA.nextSpasm then
+            local count = math.random(1, 3 + phase)
+            for _ = 1, count do
+                local key = BA_KEYS[math.random(1, #BA_KEYS)]
+                BA.spasm[key] = V3(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * BA_SPASM[key] * I * (0.5 + math.random() * 0.8)
+            end
+            BA.nextSpasm = t + (0.05 + math.random() * 0.22) / (0.7 + 0.4 * phase)
+        end
+
+        local pose = BA_POSES[BA.poseIdx]
+        local blend = math.min(1, dt * (7 + 4 * phase))
+        local decay = math.exp(-dt * 14)
+        local w = math.min(1, t * 3) * k
+        local freq = 9 + 6 * phase
+
+        for i, key in ipairs(BA_KEYS) do
+            local m = BA.J[key]
+            if m and m.Parent and m.Part0 and m.Part1 then
+                BA.cur[key] = (BA.cur[key] or pose[key]):Lerp(pose[key], blend)
+                local sp = BA.spasm[key]
+                if sp then
+                    sp = sp * decay
+                    BA.spasm[key] = sp
+                end
+                local sa = BA_SHAKE[key] * I
+                local nx = math.noise(t * freq + BA.seed + i * 7.3, i * 1.7, 0) * 2
+                local ny = math.noise(t * freq + BA.seed + i * 3.1, i * 2.9, 5.5) * 2
+                local nz = math.noise(t * freq + BA.seed + i * 5.7, i * 4.3, 9.1) * 2
+                local a = BA.cur[key] * w * I ^ 0.35 + V3(nx, ny, nz) * sa * w + (sp or V3(0, 0, 0)) * w
+                local c0 = m.C0 - m.C0.Position
+                local T = c0:Inverse() * CFrame.Angles(math.rad(a.X), math.rad(a.Y), math.rad(a.Z)) * c0
+                BA.out[key] = T
+                m.Transform = T
+            end
+        end
+    end
+
+    -- ============================================================
+    -- GLITCH EM VIEWPORTFRAME  (+ PHASESHIFT POR PEÇA: corpo e acessórios)
+    -- O boneco (parado) é clonado para dentro de ViewportFrames que usam a MESMA
+    -- câmera do jogo => alinhados 1:1 com o corpo real. Em cima dele:
+    --   * 2 camadas de tela cheia (ciano/roxa) com deslocamento em PIXELS (RGB split)
+    --   * fatias horizontais do corpo que saltam de lado (o "datamosh" do glitch)
+    -- ============================================================
+    local GLITCH = FX.ViewportGlitch and FX.FreezeBody
+    local SPLIT_CYAN = Color3.fromRGB(0, 240, 255)
+    local SPLIT_PURPLE = Color3.fromRGB(160, 50, 255)
+    local SLICE_TINTS = {WHITE, WHITE, CYAN, MAGENTA, RED}
+    local VP_JUNK = {"Script", "LocalScript", "ModuleScript", "Sound", "ParticleEmitter", "Trail", "Beam", "Highlight", "BillboardGui", "ForceField", "Fire", "Smoke", "Sparkles", "PointLight", "SpotLight", "SurfaceLight", "BodyMover", "VectorForce", "Animator", "JointInstance", "Constraint"}
+    local PART_TINTS = {CYAN, MAGENTA, RED, WHITE}
+    local PART_KINDS = {"jump", "jump", "rot", "blink", "tint"}
+
+    local vpRoot = Create("Frame", {Name = "GlitchLayer", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 5, Parent = sg})
+    local layers, slices, glitchQueue = {}, {}, {}
+
+    -- ---------- PHASESHIFT POR PEÇA ----------
+    -- Cada peça do boneco (e cada acessório inteiro) vira um "grupo". O clone no
+    -- ViewportFrame é pareado com o boneco real pelo caminho (igual ao PhaseGhost do
+    -- SANDEVISTAN) e segue ele todo frame. Quando um grupo glitcha, só a cópia dele
+    -- sai do lugar / gira / pisca / vira neon, e a peça real some por um instante.
+    local groupList, groupOf, srcMap, srcGroup, prevLTM = {}, {}, nil, {}, {}
+
+    local function KeyedParts(root)
+        local map, used = {}, {}
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("BasePart") then
+                local names, o = {}, d
+                while o and o ~= root do
+                    table.insert(names, 1, o.Name)
+                    o = o.Parent
+                end
+                local key = table.concat(names, "/")
+                used[key] = (used[key] or 0) + 1
+                if used[key] > 1 then key = key .. "#" .. used[key] end
+                map[key] = d
+            end
+        end
+        return map
+    end
+
+    local function EnsureSource()
+        if srcMap then return srcMap end
+        local char = Player.Character
+        if not char then return nil end
+        srcMap = KeyedParts(char)
+        for _, op in pairs(srcMap) do
+            if op.Name ~= "HumanoidRootPart" and op.Transparency < 0.99 then
+                local acc = op:FindFirstAncestorOfClass("Accessory")
+                local keyObj = (acc and acc:IsDescendantOf(char)) and acc or op
+                local g = groupOf[keyObj]
+                if not g then
+                    g = {parts = {}, active = false, life = 0, jit = 0, power = 1, kind = "jump",
+                         off = Vector3.zero, world = Vector3.zero, rot = CFrame.new(),
+                         show = false, hidden = false, hideOrig = false, tint = nil}
+                    groupOf[keyObj] = g
+                    table.insert(groupList, g)
+                end
+                table.insert(g.parts, op)
+                srcGroup[op] = g
+            end
+        end
+        return srcMap
+    end
+
+    local function RandSign() return math.random() < 0.5 and -1 or 1 end
+
+    -- esconde/mostra a peça REAL (só no seu cliente)
+    local function SetHidden(g, on)
+        if g.hidden == on then return end
+        g.hidden = on
+        for _, op in ipairs(g.parts) do
+            if op.Parent then
+                if on then
+                    if prevLTM[op] == nil then prevLTM[op] = op.LocalTransparencyModifier end
+                    op.LocalTransparencyModifier = 1
+                else
+                    op.LocalTransparencyModifier = prevLTM[op] or 0
+                end
+            end
+        end
+    end
+
+    -- sorteia o deslocamento da peça (em espaço da câmera: x = direita, y = cima)
+    local function RollGroup(g)
+        local s = (FX.GlitchIntensity or 1) * g.power
+        local kind = g.kind
+        g.off = Vector3.zero
+        g.rot = CFrame.new()
+        if kind == "jump" then
+            g.off = Vector3.new(RandSign() * (0.4 + math.random() * 1.4), (math.random() - 0.5) * 0.9, 0) * s
+            g.show = true
+        elseif kind == "rot" then
+            g.off = Vector3.new((math.random() - 0.5) * 1.2, (math.random() - 0.5) * 0.6, 0) * s
+            g.rot = CFrame.Angles(
+                math.rad((math.random() - 0.5) * 50 * s),
+                math.rad((math.random() - 0.5) * 80 * s),
+                math.rad((math.random() - 0.5) * 90 * s))
+            g.show = true
+        elseif kind == "blink" then
+            g.show = not g.show                      -- a cópia pisca ligando/desligando
+            g.off = Vector3.new(RandSign() * math.random() * 0.3 * s, 0, 0)
+        else
+            g.show = true                            -- "tint": overlay neon sem deslocar
+        end
+        g.tint = nil
+        if FX.PartTint ~= false and (kind == "tint" or math.random() < 0.3) then
+            g.tint = PART_TINTS[math.random(1, #PART_TINTS)]
+        end
+    end
+
+    local function StartGroup(g, power)
+        local kind = PART_KINDS[math.random(1, #PART_KINDS)]
+        if kind == "tint" and FX.PartTint == false then kind = "jump" end
+        g.kind = kind
+        g.power = power
+        g.life = (0.05 + math.random() * 0.12) * (power > 1 and 1.3 or 1)
+        g.jit = 0.03
+        g.show = true
+        g.active = true
+        g.hideOrig = kind ~= "tint" and FX.HideOriginal ~= false and math.random() > 0.3
+        SetHidden(g, g.hideOrig)
+        RollGroup(g)
+    end
+
+    local function EndGroup(g)
+        g.active = false
+        g.show = false
+        g.tint = nil
+        g.off = Vector3.zero
+        g.world = Vector3.zero
+        g.rot = CFrame.new()
+        SetHidden(g, false)
+    end
+
+    local function GlitchCF(cf, g)
+        return CFrame.new(cf.Position + g.world) * g.rot * cf.Rotation
+    end
+
+    -- lista {ghostPart, originalPart} -> pares com o estado de cada peça do clone
+    local function MakePairs(list, main)
+        local out = {}
+        for _, e in ipairs(list) do
+            local gp = e.gp
+            table.insert(out, {gp = gp, op = e.op, g = srcGroup[e.op], t = gp.Transparency, color = gp.Color, mat = gp.Material, vis = not main, tinted = false, cf = nil})
+            if main then gp.Transparency = 1 end   -- a camada principal só mostra peças em glitch
+        end
+        return out
+    end
+
+    -- copia a pose do boneco real pro clone (+ deslocamento do glitch)
+    local function SyncLayer(L)
+        local main = L.main
+        for _, pr in ipairs(L.pairs) do
+            local gp, op, g = pr.gp, pr.op, pr.g
+            if gp.Parent and op.Parent then
+                local active = g ~= nil and g.active
+                local cf = op.CFrame
+                if active then cf = GlitchCF(cf, g) end
+                if main then
+                    local show = active and g.show
+                    local want = (show and g.tint) or false
+                    if want ~= pr.tinted then
+                        if want then
+                            gp.Color = want
+                            gp.Material = Enum.Material.Neon
+                        else
+                            gp.Color = pr.color
+                            gp.Material = pr.mat
+                        end
+                        pr.tinted = want
+                    end
+                    if show then
+                        if pr.cf ~= cf then gp.CFrame = cf pr.cf = cf end
+                        if not pr.vis then gp.Transparency = pr.t pr.vis = true end
+                    elseif pr.vis then
+                        gp.Transparency = 1
+                        pr.vis = false
+                    end
+                elseif pr.cf ~= cf then
+                    gp.CFrame = cf
+                    pr.cf = cf
+                end
+            end
+        end
+    end
+
+    -- clone EXATO do boneco (cores, roupas, acessórios) para dentro de um ViewportFrame
+    local function CloneForViewport()
+        local char = Player.Character
+        if not char or not char.Parent then return nil end
+        local ghost
+        local prevArch = char.Archivable
+        pcall(function()
+            char.Archivable = true
+            ghost = char:Clone()
+        end)
+        pcall(function() char.Archivable = prevArch end)
+        if not ghost then return nil end
+
+        for _, obj in ipairs(ghost:GetDescendants()) do
+            local junk = false
+            for _, cls in ipairs(VP_JUNK) do
+                if obj:IsA(cls) then junk = true break end
+            end
+            if junk then
+                pcall(function() obj:Destroy() end)
+            elseif obj:IsA("BasePart") then
+                obj.Anchored = true
+                obj.CanCollide = false
+                obj.CanQuery = false
+                obj.CanTouch = false
+                obj.CastShadow = false
+            end
+        end
+        local hum = ghost:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                hum.PlatformStand = true
+                hum.AutoRotate = false
+                hum.RequiresNeck = false
+                hum.BreakJointsOnDeath = false
+                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+            end)
+        end
+        ghost.Name = "PsychoGlitchBody"
+
+        -- pareia cada peça do clone com a peça real (mesmo caminho/nome)
+        local list = {}
+        local map = EnsureSource()
+        if map then
+            for key, gp in pairs(KeyedParts(ghost)) do
+                local op = map[key]
+                if op then table.insert(list, {gp = gp, op = op}) end
+            end
+        end
+        return ghost, list
+    end
+
+    local function MakeViewport(parent, tint, imgTransparency)
+        return Create("ViewportFrame", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Ambient = Color3.fromRGB(200, 200, 200),   -- padrão do ViewportFrame (cores fiéis)
+            LightColor = Color3.fromRGB(140, 140, 140),
+            ImageColor3 = tint,
+            ImageTransparency = imgTransparency,
+            CurrentCamera = Workspace.CurrentCamera,
+            Parent = parent,
+        })
+    end
+
+    if GLITCH then
+        -- fila: 1 clone por frame (clonar tudo de uma vez trava o celular)
+        pcall(EnsureSource)
+        -- camada principal: cores reais, só mostra as peças que estão em glitch
+        if FX.PartGlitch ~= false then
+            table.insert(glitchQueue, function()
+                local body, list = CloneForViewport()
+                if not body then return end
+                local vpf = MakeViewport(vpRoot, WHITE, 0)
+                vpf.ZIndex = 2
+                body.Parent = vpf
+                table.insert(layers, {vpf = vpf, main = true, pairs = MakePairs(list, true)})
+            end)
+        end
+        if FX.ColorSplit then
+            for _, def in ipairs({{SPLIT_CYAN, -1}, {SPLIT_PURPLE, 1}}) do
+                table.insert(glitchQueue, function()
+                    local body, list = CloneForViewport()
+                    if not body then return end
+                    local vpf = MakeViewport(vpRoot, def[1], 0.45)
+                    vpf.ZIndex = 1
+                    body.Parent = vpf
+                    table.insert(layers, {vpf = vpf, main = false, side = def[2], base = 0.45, pairs = MakePairs(list, false)})
+                end)
+            end
+        end
+        for _ = 1, (FX.GlitchSlices or 0) do
+            table.insert(glitchQueue, function()
+                local body = CloneForViewport()
+                if not body then return end
+                -- moldura que recorta a fatia + viewport de tela cheia lá dentro (deslocado p/ cima)
+                local clip = Create("Frame", {BackgroundTransparency = 1, ClipsDescendants = true, Size = UDim2.new(1, 0, 0, 20), Visible = false, ZIndex = 3, Parent = vpRoot})
+                local vpf = MakeViewport(clip, WHITE, 0)
+                vpf.Size = UDim2.new(1, 0, 0, math.max(1, sg.AbsoluteSize.Y))
+                body.Parent = vpf
+                table.insert(slices, {clip = clip, vpf = vpf, life = 0, jit = 0, y = 0, dx = 0})
+            end)
+        end
+    end
+
+    -- faixa vertical (em pixels) que o boneco ocupa na tela
+    local function BodyScreenRange()
+        local cam = Workspace.CurrentCamera
+        local root = frozenHRP or HRP
+        if not cam or not root then return nil end
+        local a = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 3.2, 0))
+        local b = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3.2, 0))
+        return math.min(a.Y, b.Y), math.max(a.Y, b.Y)
+    end
+
+    -- dispara uma fatia: um pedaço horizontal do corpo salta de lado por alguns frames
+    local function ActivateSlice(sl, power)
+        local top, bot = BodyScreenRange()
+        if not top then return end
+        local bodyH = math.max(40, bot - top)
+        local h = math.max(4, math.floor(bodyH * (0.04 + math.random() * 0.16)))
+        local y = math.floor(top + math.random() * math.max(1, bodyH - h))
+        local maxDx = (30 + bodyH * 0.35) * (FX.GlitchIntensity or 1) * power
+        sl.y = y
+        sl.dx = (math.random() < 0.5 and -1 or 1) * (0.25 + math.random() * 0.75) * maxDx
+        sl.life = 0.05 + math.random() * 0.08
+        sl.jit = 0
+        sl.clip.Size = UDim2.new(1, 0, 0, h)
+        sl.clip.Position = UDim2.new(0, sl.dx, 0, y)
+        sl.vpf.Position = UDim2.new(0, 0, 0, -y)
+        sl.vpf.ImageColor3 = SLICE_TINTS[math.random(1, #SLICE_TINTS)]
+        sl.clip.Visible = true
+    end
+
+    local function UpdateGlitch(dt, phase, fadeProgress)
+        if not GLITCH then return end
+        local k = 1 - fadeProgress
+
+        local make = table.remove(glitchQueue, 1)
+        if make then pcall(make) end
+
+        -- glitch por peça: sorteia/atualiza cada grupo e copia a pose do boneco pros clones
+        if FX.PartGlitch ~= false then
+            local cam = Workspace.CurrentCamera
+            local camCF = cam and cam.CFrame or CFrame.new()
+            local chance = ({0.003, 0.009, 0.022})[phase] * k * (FX.PartGlitchRate or 1)
+            for _, g in ipairs(groupList) do
+                if g.active then
+                    g.life -= dt
+                    g.jit -= dt
+                    if g.jit <= 0 then
+                        g.jit = 0.03
+                        RollGroup(g)
+                    end
+                    if g.life <= 0 or fadeProgress >= 1 then EndGroup(g) end
+                elseif math.random() < chance then
+                    StartGroup(g, 1)
+                end
+                if g.active then
+                    g.world = camCF:VectorToWorldSpace(g.off * k)
+                    if g.hidden then   -- reafirma (o script de câmera do jogo pode mexer no LTM)
+                        for _, op in ipairs(g.parts) do
+                            if op.Parent then op.LocalTransparencyModifier = 1 end
+                        end
+                    end
+                end
+            end
+            for _, L in ipairs(layers) do SyncLayer(L) end
+        end
+
+        -- RGB split: base em pixels + estouro nas batidas + micro-estouros aleatórios
+        local px = FX.SplitPixels + hitKick * 14 * (FX.GlitchIntensity or 1)
+        if math.random() < ({0.03, 0.08, 0.16})[phase] then px += math.random(3, 10) end
+        px = math.floor(px * k + 0.5)
+        for _, L in ipairs(layers) do
+            if not L.main then
+                L.vpf.Position = UDim2.new(0, px * L.side, 0, 0)
+                L.vpf.ImageTransparency = 1 - (1 - L.base) * k
+            end
+        end
+
+        -- fatias deslocadas (gaguejam o deslocamento enquanto vivas)
+        local chance = ({0.01, 0.025, 0.05})[phase] * k
+        for _, sl in ipairs(slices) do
+            if sl.clip.Visible then
+                sl.life -= dt
+                sl.jit -= dt
+                if sl.jit <= 0 then
+                    sl.jit = 0.03
+                    sl.dx = sl.dx * (0.6 + math.random() * 0.8)
+                    sl.clip.Position = UDim2.new(0, sl.dx, 0, sl.y)
+                end
+                if sl.life <= 0 or fadeProgress >= 1 then sl.clip.Visible = false end
+            elseif math.random() < chance then
+                ActivateSlice(sl, 1)
+            end
+        end
+    end
+
+    -- ---------- câmera: inclinação + zoom (somados, sem brigar com os outros FOV do script) ----------
+    local CAM_NAME = "CyberPsychosisCam"
+    if FX.Camera then
+        RunService:BindToRenderStep(CAM_NAME, Enum.RenderPriority.Camera.Value + 1, function()
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            if camRoll ~= 0 then cam.CFrame = cam.CFrame * CFrame.Angles(0, 0, math.rad(camRoll)) end
+            cam.FieldOfView = cam.FieldOfView + (fovDelta - fovApplied)
+            fovApplied = fovDelta
         end)
     end
-end)
 
-    local vignette = Create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0.5, BackgroundColor3 = Color3.new(0, 0, 0), Parent = gui})
-    local vignetteGradient = Create("UIGradient", {Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.5), NumberSequenceKeypoint.new(1, 1)}), Rotation = 0, Parent = vignette})
-    task.spawn(function()
-        while vignette.Parent do
-            TweenService:Create(vignette, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.3}):Play()
-            task.wait(0.5)
-            TweenService:Create(vignette, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.7}):Play()
-            task.wait(0.5)
+    local function Cleanup()
+        if connection then connection:Disconnect() connection = nil end
+        if FX.Camera then
+            pcall(function() RunService:UnbindFromRenderStep(CAM_NAME) end)
+            local cam = Workspace.CurrentCamera
+            if cam then cam.FieldOfView = cam.FieldOfView - fovApplied end
+            fovApplied = 0
         end
-    end)
-    local psychosisText = Create("TextLabel", {Size = UDim2.new(1, 0, 0.2, 0), Position = UDim2.new(0, 0, 0.4, 0), BackgroundTransparency = 1, Text = "CYBERPSYCHOSIS", TextColor3 = Color3.fromRGB(255, 0, 0), Font = Enum.Font.SciFi, TextSize = 80, TextTransparency = 0.5, Parent = gui})
-    task.spawn(function()
-        while psychosisText.Parent do
-            TweenService:Create(psychosisText, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
-            task.wait(0.2)
-            TweenService:Create(psychosisText, TweenInfo.new(0.2), {TextTransparency = 1}):Play()
-            task.wait(0.2)
-        end
-    end)
-    
-    local redOverlay = Create("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ImageColor3 = Color3.fromRGB(255, 0, 0), ImageTransparency = 0.8, Parent = gui})
-    local blueOverlay = Create("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ImageColor3 = Color3.fromRGB(0, 0, 255), ImageTransparency = 0.8, Parent = gui})
-    task.spawn(function()
-        while redOverlay.Parent do
-            redOverlay.Position = UDim2.new(0, math.random(-2, 2), 0, math.random(-2, 2))
-            blueOverlay.Position = UDim2.new(0, math.random(-2, 2), 0, math.random(-2, 2))
-            task.wait(0.05)
-        end
-    end)
-    
-    local phaseDuration = Constants.CYBERPSYCHOSIS.Duration / 3
-    local currentPhase = 1
-    local syncTimesDistortion = {0.3, 1.4, 2.7, 3.55, 4.05, 4.55, 5.1}
-    for _, t in ipairs(syncTimesDistortion) do
-        task.delay(t, function()
-            TweenService:Create(vignette, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
-            TweenService:Create(psychosisText, TweenInfo.new(0.1), {TextTransparency = 0}):Play()
-            task.wait(0.1)
-            TweenService:Create(vignette, TweenInfo.new(0.1), {BackgroundTransparency = 0.5}):Play()
-            TweenService:Create(psychosisText, TweenInfo.new(0.1), {TextTransparency = 0.5}):Play()
-        end)
+        if hbSound then hbSound:Destroy() end
+        if speechSound then speechSound:Destroy() end
+        for _, g in ipairs(groupList) do pcall(SetHidden, g, false) end   -- devolve as peças reais
+        if Module.ActiveCleanup == Cleanup then Module.ActiveCleanup = nil end
+        BodyAnimRelease()
+        UnfreezeBody()
+        if sg then sg:Destroy() end
     end
-    
-    
-        connection = RunService.RenderStepped:Connect(function(dt)
+
+    -- ---------- batidas sincronizadas com o áudio (ORIGINAL: syncTimesDistortion) ----------
+    Module.ActiveCleanup = Cleanup
+    local syncHits = speechOn and {} or {0.3, 1.4, 2.7, 3.55, 4.05, 4.55, 5.1}
+    local hitIndex = 1
+    local function Hit(power)
+        power = math.clamp(power or 1, 0.4, 2)
+        hitKick = power
+        BodyAnimKick(power)
+        rollKick = (math.random() < 0.5 and -1 or 1) * (3 + math.random() * 3) * power
+        Flash(RED, math.clamp(0.5 - (power - 1) * 0.3, 0.1, 0.85), 0.18)
+        Tear(math.random(3, 5) + math.floor(math.max(0, power - 1) * 4))
+        for _, sl in ipairs(slices) do ActivateSlice(sl, 1.4 * power) end
+        if GLITCH and FX.PartGlitch ~= false then
+            for _, g in ipairs(groupList) do
+                if math.random() < math.min(0.95, 0.65 * power) then StartGroup(g, 1.6 * power) end
+            end
+        end
+    end
+
+    -- eventos da fala: cada linha (e cada Hit extra) vira um estouro no tempo certo
+    local events = {}
+    if speechOn then
+        local off = S.Offset or 0
+        for _, l in ipairs(S.Lines) do
+            table.insert(events, {t = (l.t or 0) + off, line = l, hit = l.hit ~= false, power = l.power or 1, windows = l.windows or 3, final = l.final})
+        end
+        for _, h in ipairs(S.Hits or {}) do
+            table.insert(events, {t = (h.t or 0) + off, hit = true, power = h.power or 1, windows = h.windows or 0, final = h.final})
+        end
+        table.sort(events, function(a, b) return a.t < b.t end)
+    end
+    local eventIndex = 1
+
+    local BPM = {90, 125, 170}
+    local nextBeat, nextDub = 0, nil
+
+    FreezeBody()
+
+    connection = RunService.RenderStepped:Connect(function(dt)
+        FreezeBody()   -- mantém tudo parado (pega animação nova que o jogo tentar tocar)
         local elapsed = tick() - startTime
-    
-    local fadeStartTime = 5.5
-    
-    if elapsed > fadeStartTime then
-        local fadeProgress = (elapsed - fadeStartTime) / 0.5
-        fadeProgress = math.clamp(fadeProgress, 0, 1)
-        
-        if blur then
-            blur.Size = math.random(4, 12) * (1 - fadeProgress)
+        local fadeStart = DURATION - 0.5
+        local fadeProgress = elapsed > fadeStart and math.clamp((elapsed - fadeStart) / 0.5, 0, 1) or 0
+        local k = 1 - fadeProgress
+        local phase = elapsed < phaseDuration and 1 or (elapsed < phaseDuration * 2 and 2 or 3)
+        local okBA, errBA = pcall(BodyAnimStep, dt, elapsed, k, phase)
+        if not okBA then warn(errBA) end
+
+        -- fade-out final (ORIGINAL)
+        if fadeProgress > 0 and cc then
+            cc.TintColor = Color3.fromRGB(255, 80, 80):Lerp(WHITE, fadeProgress)
+            cc.Saturation = 1.3 * k
+            cc.Contrast = 0.6 * k
         end
-        
-        Constants.CYBERPSYCHOSIS.ShakeIntensity = 1.0 * (1 - fadeProgress)
-        
-        if cc then
-            local normalColor = Color3.fromRGB(255, 80, 80):Lerp(Color3.new(1, 1, 1), fadeProgress)
-            cc.TintColor = normalColor
-            cc.Saturation = 1.3 * (1 - fadeProgress)
-            cc.Contrast = 0.6 * (1 - fadeProgress)
-        end
-        
-        if vignette and vignette.Parent then
-            vignette.BackgroundTransparency = 0.5 + (fadeProgress * 0.5)
-        end
-        
-        if psychosisText and psychosisText.Parent then
-            psychosisText.TextTransparency = fadeProgress
-        end
-        
-        if redOverlay and redOverlay.Parent then
-            redOverlay.ImageTransparency = 0.8 + (fadeProgress * 0.2)
-        end
-        if blueOverlay and blueOverlay.Parent then
-            blueOverlay.ImageTransparency = 0.8 + (fadeProgress * 0.2)
-        end
-    end
-    
-    if elapsed > Constants.CYBERPSYCHOSIS.Duration then
-            if Humanoid then Humanoid.WalkSpeed = 16 Humanoid.JumpPower = 50 Humanoid.CameraOffset = Vector3.zero end
-            TweenService:Create(cc, TweenInfo.new(0.5), {TintColor = Color3.new(1,1,1), Saturation = 0}):Play()
+
+        -- fim (ORIGINAL)
+        if elapsed > DURATION then
+            if Humanoid then Humanoid.WalkSpeed = Constants.BASE_WALKSPEED or 16 Humanoid.JumpPower = 50 Humanoid.CameraOffset = Vector3.zero end
+            TweenService:Create(cc, TweenInfo.new(0.5), {TintColor = WHITE, Saturation = 0}):Play()
             TweenService:Create(blur, TweenInfo.new(0.5), {Size = 0}):Play()
             Debris:AddItem(cc, 0.5)
             Debris:AddItem(blur, 0.5)
-            connection:Disconnect()
-            
+            Cleanup()
             if math.random(1, 100) <= 30 then
-                task.delay(0.5, function()
-                    SystemRestorePopup()
-                end)
+                task.delay(0.5, function() SystemRestorePopup() end)
             end
-            
-            vignette:Destroy()
-            psychosisText:Destroy()
-            redOverlay:Destroy()
-            blueOverlay:Destroy()
             return
         end
-        
+
+        -- mecânica por fase (ORIGINAL)
         if Humanoid and Humanoid.Health > 0 then
             local drainRate = 0
-            
-            if elapsed < phaseDuration then
-                currentPhase = 1
+            if phase == 1 then
                 drainRate = Humanoid.MaxHealth * 0.05 * dt
-                Constants.CYBERPSYCHOSIS.ShakeIntensity = 0.2
-                Constants.CYBERPSYCHOSIS.PopupRate = 0.05
-                blur.Size = math.random(2, 6)
-                
-            elseif elapsed < phaseDuration * 2 then
-                currentPhase = 2
+                CFG.ShakeIntensity = 0.2
+                CFG.PopupRate = 0.05
+            elseif phase == 2 then
                 drainRate = Humanoid.MaxHealth * 0.08 * dt
-                Constants.CYBERPSYCHOSIS.ShakeIntensity = 0.6
-                Constants.CYBERPSYCHOSIS.PopupRate = 0.1
-                blur.Size = math.random(8, 16)
-                
+                CFG.ShakeIntensity = 0.6
+                CFG.PopupRate = 0.1
             else
-                currentPhase = 3
                 drainRate = Humanoid.MaxHealth * 0.12 * dt
-                Constants.CYBERPSYCHOSIS.ShakeIntensity = 1.0
-                Constants.CYBERPSYCHOSIS.PopupRate = 0.15
-                blur.Size = math.random(12, 20)
-                
-                if Humanoid then
-                    Humanoid.WalkSpeed = 50
-                end
+                CFG.ShakeIntensity = 1.0
+                CFG.PopupRate = 0.15
+                if not FX.FreezeBody then Humanoid.WalkSpeed = 50 end
             end
-            
-            local newHealth = math.max(1, Humanoid.Health - drainRate)
-            Humanoid.Health = newHealth
+            Humanoid.Health = math.max(1, Humanoid.Health - drainRate)
         end
-        
-        blur.Size = math.random(4, 12)
+
+        CFG.ShakeIntensity = CFG.ShakeIntensity * k
+        blur.Size = math.random(4, 12) * k
         shakeCamera()
-        if math.random() < Constants.CYBERPSYCHOSIS.PopupRate then spawnPopup() end
-        
+        if math.random() < CFG.PopupRate then spawnPopup() end
+
         if math.random() < 0.10 then
-            cc.TintColor = Color3.fromRGB(
-                math.random(200, 255),
-                math.random(0, 60),
-                math.random(0, 60)
-            )
-            task.delay(0.08, function()
-                if cc and cc.Parent then
-                    cc.TintColor = Color3.fromRGB(255, 80, 80)
-                end
-            end)
+            cc.TintColor = Color3.fromRGB(math.random(200, 255), math.random(0, 60), math.random(0, 60))
+            task.delay(0.08, function() if cc and cc.Parent then cc.TintColor = Color3.fromRGB(255, 80, 80) end end)
+        elseif phase >= 2 and math.random() < 0.05 then
+            cc.TintColor = Color3.fromRGB(90, 200, 255)   -- aberração cromática (ciano)
+            task.delay(0.06, function() if cc and cc.Parent then cc.TintColor = Color3.fromRGB(255, 80, 80) end end)
         end
-        
+
+        -- ================= REWORK =================
+        -- batimento cardíaco (lub-dub), cada fase mais rápido
+        if elapsed >= nextBeat then
+            nextBeat = elapsed + 60 / BPM[phase]
+            nextDub = elapsed + (60 / BPM[phase]) * 0.28
+            beatKick = 1
+        end
+        if nextDub and elapsed >= nextDub then
+            nextDub = nil
+            beatKick = math.max(beatKick, 0.6)
+        end
+        beatKick = math.max(0, beatKick - dt * 6)
+        hitKick = math.max(0, hitKick - dt * 5)
+        rollKick = rollKick * math.max(0, 1 - dt * 8)
+
+        while hitIndex <= #syncHits and elapsed >= syncHits[hitIndex] do
+            hitIndex += 1
+            Hit()
+        end
+
+        -- fala: legenda + estouro de glitch + janelas no tempo de cada linha
+        while eventIndex <= #events and elapsed >= events[eventIndex].t do
+            local ev = events[eventIndex]
+            eventIndex += 1
+            if ev.line then ShowLine(ev.line) end
+            if ev.hit then Hit(ev.power) end
+            if ev.final then
+                Flash(WHITE, 0.05, 0.5)
+                Tear(8)
+            end
+            for i = 1, (ev.windows or 0) do
+                task.delay((i - 1) * 0.05, spawnPopup)
+            end
+        end
+        if subRoot.Visible then
+            if tick() > subHideAt then
+                subRoot.Visible = false
+            else
+                local jit = 1 + math.floor(hitKick * 8)
+                subC.Position = UDim2.new(0, -math.random(0, jit), 0, 20 + math.random(-1, 1))
+                subM.Position = UDim2.new(0, math.random(0, jit), 0, 20 + math.random(-1, 1))
+                subMain.Text = hitKick > 0.4 and ScrambleText(subText, 0.12 * hitKick) or subText
+                local fade = fadeProgress
+                subMain.TextTransparency, subName.TextTransparency = fade, fade
+            end
+        end
+
+        -- visão de túnel
+        local edgeT = math.clamp(0.78 - 0.14 * (phase - 1) - 0.5 * beatKick - 0.2 * hitKick, 0.04, 1)
+        local edgeFinal = 1 - (1 - edgeT) * k
+        for _, e in ipairs(edges) do e.BackgroundTransparency = edgeFinal end
+
+        -- título RGB
+        local titleT = ((elapsed % 0.4) < 0.2) and 0.1 or 0.85
+        if hitKick > 0.4 then titleT = 0 end
+        titleT = 1 - (1 - titleT) * k
+        local j = math.floor(2 + phase * 3 + hitKick * 8)
+        local jy = math.max(1, math.floor(j / 2))
+        titleMain.TextTransparency = titleT
+        titleM.TextTransparency = math.clamp(titleT + 0.25, 0, 1)
+        titleC.TextTransparency = math.clamp(titleT + 0.25, 0, 1)
+        titleM.Position = UDim2.new(0, math.random(0, j), 0.4, math.random(-jy, jy))
+        titleC.Position = UDim2.new(0, -math.random(0, j), 0.4, math.random(-jy, jy))
+
+        -- banner piscando
+        bannerText.TextTransparency = 1 - (1 - (((elapsed % 0.3) < 0.15) and 0 or 0.6)) * k
+        banner.BackgroundTransparency = 1 - (1 - 0.25) * k
+
+        -- HUMANITY caindo
+        local shown = math.floor(math.max(0, 100 * (1 - elapsed / (DURATION * 0.92))))
+        if phase == 3 and math.random() < 0.3 then shown = math.random(0, 99) end
+        humLabel.Text = "HUMANITY " .. shown .. "%"
+        humLabel.TextTransparency = fadeProgress
+        terminal.TextTransparency = fadeProgress
+
+        -- rasgos de tela
+        if math.random() < ({0.05, 0.14, 0.3})[phase] * k then Tear(1) end
+
+        -- glitch em ViewportFrame
+        UpdateGlitch(dt, phase, fadeProgress)
+
+        -- câmera
+        local rollAmp = ({0.6, 1.4, 2.6})[phase]
+        camRoll = (math.sin(elapsed * 6.3) * rollAmp + rollKick) * k
+        fovDelta = (({0, 4, 12})[phase] - 5 * beatKick + 10 * hitKick) * k
     end)
 end
+
+-- ============================================================
+-- API + BOTÃO
+-- ============================================================
+local Active = false
+local CooldownUntil = 0
+local endsAt = 0
+
+local function Run()
+    if Active or os.clock() < CooldownUntil then return false end
+    Sync()
+    Active = true
+    local dur = EffectiveDuration()
+    endsAt = os.clock() + dur
+    task.delay(dur + 0.15, function()
+        Active = false
+        CooldownUntil = os.clock() + Module.Config.Cooldown
+    end)
+    ExecCyberpsychosis()
+    return true
+end
+
+function Module.Activate()   -- botão / atalho
+    return Run()
+end
+
+function Module.Exec()       -- chamado pelo SANDEVISTAN.lua (automático)
+    if not Module.Config.AutoTrigger then return false end
+    return Run()
+end
+
+function Module.IsActive()
+    return Active
+end
+
+function Module.Destroy()
+    if Module.ActiveCleanup then pcall(Module.ActiveCleanup) end
+    if syncConn then syncConn:Disconnect() end
+    if env.CyberPsychosis == Module then env.CyberPsychosis = nil end
+end
+
+env.CyberPsychosis = Module
+PsiModule = Module
+
+end)
+
 
 local function ToggleNoclip()
     Noclip = not Noclip
@@ -2409,6 +4238,7 @@ local function ActivateDodgeReady()
         State.Energy -= Constants.ENERGY_COSTS.DODGE
         State.Energy = math.max(0, State.Energy)
         State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
+        if PsyBar.Use("Dodge") then return end
         
         State.IsDodgeReady = true
         
@@ -2424,6 +4254,7 @@ local function ActivateDodgeReady()
         end)
     else
         State.Cooldowns.DODGE = os.clock() + Constants.COOLDOWNS.DODGE
+        if PsyBar.Use("Dodge") then return end
         State.IsDodgeReady = true
     end
 end
@@ -2462,6 +4293,561 @@ local function UpdateOpticalButton()
     end
 end
 
+-- ============================================================
+-- CONGELAR O TEMPO (Sandevistan)
+-- Ao ativar: tudo no mundo para (peças soltas, outros jogadores/NPCs, animações,
+-- partículas e sons do jogo). Sons e efeitos DESTE script continuam normais.
+-- Ao desativar: o mundo volta aos poucos (em lotes por frame) pra não dar pico de FPS.
+-- Obs.: é tudo local (só na sua tela); o servidor continua rodando normalmente.
+-- ============================================================
+local TimeFreeze = {
+    Active = false,
+    Radius = math.huge,      -- raio (studs) do congelamento; math.huge = mundo inteiro
+    FreezeNew = true,        -- congela também o que NASCE depois de ativar (projéteis, jogadores que entram, efeitos do jogo)
+    PriorityRadii = {60, 150, 320}, -- congela PRIMEIRO o que está perto de você (no mesmo frame da ativação)
+    PriorityBudget = 0.012,  -- seg gastos (no máx.) nessa passada instantânea
+    PriorityMaxParts = 4000,
+    FastScanFrames = 12,     -- nos primeiros frames a varredura do mundo usa um orçamento maior
+    FastScanBudget = 0.008,
+    ScanBudget = 0.003,      -- seg/frame gastos varrendo o resto do mundo ao ATIVAR
+    ReleaseBudget = 0.0015,  -- seg/frame gastos soltando as coisas ao DESATIVAR
+    Parts = {},              -- [BasePart] = true (as que EU ancorei)
+    Anims = {},              -- [AnimationTrack] = velocidade original
+    Emitters = {},           -- [ParticleEmitter/Fire/Smoke/Sparkles] = TimeScale original
+    Trails = {},             -- [Trail] = Lifetime original (Lifetime enorme = rastro não some enquanto congelado)
+    Beams = {},              -- [Beam] = TextureSpeed original
+    Kinds = {ParticleEmitter = "emitter", Fire = "emitter", Smoke = "emitter", Sparkles = "emitter", Trail = "trail", Beam = "beam", Animator = "animator", Sound = "sound"},
+    TrailFrozenLifetime = 3600,
+    Videos = {},             -- [VideoFrame] = estava tocando?
+    Props = {},              -- [inst] = {orig = {prop=valor}, want = {prop=último valor que o jogo tentou pôr}}
+    PropEnforce = {},        -- lista (ronda circular) de quem tem propriedades travadas
+    PropIndex = 1,
+    PropConn = nil,
+    PropBudget = 0.002,      -- seg/frame gastos desfazendo mudanças de VFX/imagens/decals/luzes
+    PropPartMax = 6000,      -- máx. de peças (VFX feito de parte: tween de tamanho/cor/transparência) com propriedades travadas
+    PropPartCount = 0,
+    PropList = {},           -- [ClassName] = {propriedades} (preenchido em InitProps)
+    PartProps = {"Transparency", "Color", "Size"},
+    IgnoreNames = {PhaseGhost = true, GlitchWindow = true, SystemRestoreWindow = true, RebootSystemWindow = true},
+    Sounds = {},             -- [Sound] = true (os que EU pausei)
+    AnimatorConns = {},
+    Conns = {},
+    ScanConn = nil,
+    ReleaseConn = nil,
+    EnforceConn = nil,
+    AddedConn = nil,
+    Locks = {},              -- [BasePart] = conexão que trava o CFrame (movimento vindo do servidor)
+    LockCount = 0,
+    LockMax = 4000,          -- máx. de peças com CFrame travado
+    LockRadii = {80, 200, 400}, -- as mais próximas de você ganham o travamento primeiro
+    Debug = true,            -- imprime no output quanto foi congelado ao ativar
+    EnforceBudget = 0.0015,  -- seg/frame gastos garantindo que o que congelou continue congelado
+    Enforce = {},            -- {{tipo, instância}, ...} (ronda circular)
+    EnforceIndex = 1,
+    Queue = nil,
+    QueueIndex = 1,
+}
+
+local function tfIsMine(inst: Instance): boolean
+    return Character ~= nil and inst:IsDescendantOf(Character)
+end
+
+-- coisas criadas pelo próprio script (clones holográficos, fantasma de fase, janelas, GUIs do Kiroshi) nunca congelam
+function TimeFreeze.IsIgnored(inst: Instance): boolean
+    if ScriptSounds[inst] or tfIsMine(inst) then return true end
+    local p = inst.Parent
+    while p and p ~= Workspace do
+        if ScriptSounds[p] or TimeFreeze.IgnoreNames[p.Name] or string.sub(p.Name, 1, 13) == "HologramClone" then return true end
+        p = p.Parent
+    end
+    if TimeFreeze.IgnoreNames[inst.Name] then return true end
+    return false
+end
+
+-- Trava o CFrame: peças ancoradas movidas pelo servidor (portas, plataformas, tweens,
+-- NPCs por script) voltam na hora pra posição de quando o tempo congelou.
+local function tfLock(part: BasePart)
+    if TimeFreeze.Locks[part] or TimeFreeze.LockCount >= TimeFreeze.LockMax then return end
+    local saved = part.CFrame
+    TimeFreeze.LockCount += 1
+    TimeFreeze.Locks[part] = part:GetPropertyChangedSignal("CFrame"):Connect(function()
+        if TimeFreeze.Active and part.CFrame ~= saved then
+            part.CFrame = saved
+        end
+    end)
+end
+
+local function tfFreezePart(part: BasePart)
+    if part.Anchored or part:IsA("Terrain") then return end
+    if tfIsMine(part) then return end
+    -- não congela o que está preso a mim (veículo, assento, ferramentas)
+    local myRoot = HRP and HRP.AssemblyRootPart
+    if myRoot and part.AssemblyRootPart == myRoot then return end
+    if TimeFreeze.Radius < math.huge and HRP and (part.Position - HRP.Position).Magnitude > TimeFreeze.Radius then return end
+    TimeFreeze.Parts[part] = true
+    part.Anchored = true
+    table.insert(TimeFreeze.Enforce, {"part", part})
+    tfLock(part)
+end
+
+local function tfFreezeTrack(track: AnimationTrack)
+    if TimeFreeze.Anims[track] == nil then
+        TimeFreeze.Anims[track] = track.Speed
+        table.insert(TimeFreeze.Enforce, {"anim", track})
+    end
+    track:AdjustSpeed(0)
+end
+
+local function tfFreezeAnimator(animator: Animator)
+    if tfIsMine(animator) then return end
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        pcall(tfFreezeTrack, track)
+    end
+    if not TimeFreeze.AnimatorConns[animator] then
+        TimeFreeze.AnimatorConns[animator] = animator.AnimationPlayed:Connect(function(track)
+            if TimeFreeze.Active then pcall(tfFreezeTrack, track) end
+        end)
+    end
+end
+
+local function tfFreezeEmitter(emitter: Instance)
+    if TimeFreeze.Emitters[emitter] == nil then
+        TimeFreeze.Emitters[emitter] = emitter.TimeScale
+        emitter.TimeScale = 0
+        table.insert(TimeFreeze.Enforce, {"emitter", emitter})
+    end
+end
+
+-- Trail: sem peça se mexendo não nasce segmento novo; Lifetime enorme impede os existentes de sumir
+function TimeFreeze.FreezeTrail(trail: Trail)
+    if TimeFreeze.Trails[trail] == nil then
+        TimeFreeze.Trails[trail] = trail.Lifetime
+        trail.Lifetime = TimeFreeze.TrailFrozenLifetime
+        table.insert(TimeFreeze.Enforce, {"trail", trail})
+    end
+end
+
+-- Beam: a textura que rola (TextureSpeed) para; as pontas já param junto com as peças
+function TimeFreeze.FreezeBeam(beam: Beam)
+    if TimeFreeze.Beams[beam] == nil then
+        TimeFreeze.Beams[beam] = beam.TextureSpeed
+        beam.TextureSpeed = 0
+        table.insert(TimeFreeze.Enforce, {"beam", beam})
+    end
+end
+
+-- VÍDEO (VideoFrame em SurfaceGui): pausa
+function TimeFreeze.FreezeVideo(video: VideoFrame)
+    if TimeFreeze.Videos[video] == nil then
+        TimeFreeze.Videos[video] = video.Playing
+        video:Pause()
+        table.insert(TimeFreeze.Enforce, {"video", video})
+    end
+end
+
+-- PROPRIEDADES TRAVADAS: imagens, decals, texturas, luzes, highlights, GUIs no mundo e VFX feito de peça.
+-- Não dá pra pausar script/tween do jogo, então guardo o valor de agora e desfaço qualquer mudança
+-- a cada frame (RenderStepped). O último valor que o jogo tentou pôr é aplicado ao descongelar.
+function TimeFreeze.FreezeProps(inst: Instance, list)
+    if TimeFreeze.Props[inst] or not list then return end
+    local orig = {}
+    for _, prop in ipairs(list) do
+        local o: any = inst
+        local ok, v = pcall(function() return o[prop] end)
+        if ok then orig[prop] = v end
+    end
+    TimeFreeze.Props[inst] = {orig = orig, want = {}}
+    table.insert(TimeFreeze.PropEnforce, inst)
+end
+
+function TimeFreeze.FreezePartProps(part: BasePart)
+    if TimeFreeze.Props[part] or TimeFreeze.PropPartCount >= TimeFreeze.PropPartMax then return end
+    if part.CanCollide or part.Transparency >= 1 or part:IsA("Terrain") then return end
+    if TimeFreeze.IsIgnored(part) then return end
+    TimeFreeze.PropPartCount += 1
+    TimeFreeze.FreezeProps(part, TimeFreeze.PartProps)
+end
+
+function TimeFreeze.EnforceProps(inst: Instance, rec)
+    local o: any = inst
+    for prop, v in pairs(rec.orig) do
+        local cur = o[prop]
+        if cur ~= v then
+            rec.want[prop] = cur
+            o[prop] = v
+        end
+    end
+end
+
+function TimeFreeze.InitProps()
+    local L = TimeFreeze.PropList
+    local gui = {"Visible", "Position", "Size", "Rotation", "BackgroundTransparency", "BackgroundColor3"}
+    local function with(extra)
+        local t = table.clone(gui)
+        for _, p in ipairs(extra) do table.insert(t, p) end
+        return t
+    end
+    L.Frame, L.ScrollingFrame, L.CanvasGroup = gui, gui, gui
+    L.ImageLabel = with({"Image", "ImageTransparency", "ImageColor3", "ImageRectOffset", "ImageRectSize"})
+    L.ImageButton = L.ImageLabel
+    L.TextLabel = with({"Text", "TextTransparency", "TextColor3", "TextStrokeTransparency"})
+    L.TextButton = L.TextLabel
+    L.UIGradient = {"Enabled", "Offset", "Rotation", "Transparency", "Color"}
+    L.UIStroke = {"Transparency", "Color", "Thickness"}
+    L.Decal = {"Texture", "Transparency", "Color3"}
+    L.Texture = {"Texture", "Transparency", "Color3", "OffsetStudsU", "OffsetStudsV", "StudsPerTileU", "StudsPerTileV"}
+    L.PointLight = {"Enabled", "Brightness", "Range", "Color"}
+    L.SpotLight = {"Enabled", "Brightness", "Range", "Angle", "Color"}
+    L.SurfaceLight = L.SpotLight
+    L.Highlight = {"Enabled", "FillTransparency", "OutlineTransparency", "FillColor", "OutlineColor"}
+    L.SurfaceGui = {"Enabled"}
+    L.BillboardGui = {"Enabled", "Size", "StudsOffset"}
+    for cn in pairs(L) do TimeFreeze.Kinds[cn] = "props" end
+    TimeFreeze.Kinds.VideoFrame = "video"
+end
+TimeFreeze.InitProps()
+
+-- watch = true: se o som ainda não está tocando (acabou de nascer), pausa assim que começar
+local function tfFreezeSound(snd: Sound, watch: boolean?)
+    if ScriptSounds[snd] or tfIsMine(snd) then return end
+    if snd.IsPlaying then
+        if not TimeFreeze.Sounds[snd] then
+            TimeFreeze.Sounds[snd] = true
+            snd:Pause()
+            table.insert(TimeFreeze.Enforce, {"sound", snd})
+        end
+    elseif watch then
+        table.insert(TimeFreeze.Conns, snd.Played:Connect(function()
+            if TimeFreeze.Active and not ScriptSounds[snd] then
+                pcall(tfFreezeSound, snd)
+            end
+        end))
+    end
+end
+
+local function tfProcess(inst: Instance)
+    if inst:IsA("BasePart") then
+        tfFreezePart(inst)
+        TimeFreeze.FreezePartProps(inst)
+        return
+    end
+    local k = TimeFreeze.Kinds[inst.ClassName]
+    if k == "props" then
+        if not TimeFreeze.IsIgnored(inst) then
+            TimeFreeze.FreezeProps(inst, TimeFreeze.PropList[inst.ClassName])
+        end
+    elseif k == "video" then
+        TimeFreeze.FreezeVideo(inst)
+    elseif k == "emitter" then
+        tfFreezeEmitter(inst)
+    elseif k == "trail" then
+        TimeFreeze.FreezeTrail(inst)
+    elseif k == "beam" then
+        TimeFreeze.FreezeBeam(inst)
+    elseif k == "animator" then
+        tfFreezeAnimator(inst)
+    elseif k == "sound" then
+        tfFreezeSound(inst)
+    end
+end
+
+-- aplica a restauração de 1 item da fila
+local function tfRestoreEntry(e)
+    local kind, inst, value = e[1], e[2], e[3]
+    if kind == "sound" then
+        if inst.Parent then inst:Resume() end
+    elseif kind == "anim" then
+        if inst.IsPlaying then inst:AdjustSpeed(value) end
+    elseif kind == "emitter" then
+        if inst.Parent then inst.TimeScale = value end
+    elseif kind == "trail" then
+        if inst.Parent then inst.Lifetime = value end
+    elseif kind == "beam" then
+        if inst.Parent then inst.TextureSpeed = value end
+    elseif kind == "video" then
+        if inst.Parent and value then inst:Play() end
+    elseif kind == "props" then
+        if inst.Parent then
+            local o: any = inst
+            for prop, v in pairs(value) do pcall(function() o[prop] = v end) end
+        end
+    elseif kind == "part" then
+        if inst.Parent then inst.Anchored = false end
+    end
+end
+
+-- termina na hora o que ainda estiver sendo solto (usado se o Sandevistan reativar)
+local function tfFlushRelease()
+    if TimeFreeze.ReleaseConn then
+        TimeFreeze.ReleaseConn:Disconnect()
+        TimeFreeze.ReleaseConn = nil
+    end
+    local q = TimeFreeze.Queue
+    if q then
+        for i = TimeFreeze.QueueIndex, #q do
+            if q[i] then pcall(tfRestoreEntry, q[i]) end
+        end
+    end
+    TimeFreeze.Queue = nil
+    TimeFreeze.QueueIndex = 1
+end
+
+-- partículas/sons pendurados numa peça (direto nela ou dentro de um Attachment)
+function TimeFreeze.FreezeChildren(part: BasePart)
+    for _, c in ipairs(part:GetChildren()) do
+        if c:IsA("Attachment") then
+            for _, cc in ipairs(c:GetChildren()) do
+                pcall(tfProcess, cc)
+            end
+        elseif c:IsA("LayerCollector") then
+            pcall(tfProcess, c)
+            for _, d in ipairs(c:GetDescendants()) do
+                pcall(tfProcess, d)
+            end
+        else
+            pcall(tfProcess, c)
+        end
+    end
+end
+
+-- PASSADA INSTANTÂNEA: congela primeiro tudo que está perto de você (o que aparece na tela),
+-- em anéis de raio crescente, no mesmo frame da ativação. O resto vem pela varredura.
+function TimeFreeze.PriorityPass()
+    local origin = HRP and HRP.Position or Camera.CFrame.Position
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {Character}
+    params.MaxParts = TimeFreeze.PriorityMaxParts
+    local seenModels = {}
+    local t0 = os.clock()
+    for _, radius in ipairs(TimeFreeze.PriorityRadii) do
+        for _, part in ipairs(Workspace:GetPartBoundsInRadius(origin, radius, params)) do
+            pcall(tfFreezePart, part)
+            pcall(TimeFreeze.FreezePartProps, part)
+            pcall(TimeFreeze.FreezeChildren, part)
+            local model = part:FindFirstAncestorOfClass("Model")
+            if model and not seenModels[model] then
+                seenModels[model] = true
+                if model:FindFirstChildWhichIsA("Humanoid") or model:FindFirstChildWhichIsA("AnimationController") then
+                    local animator = model:FindFirstChildWhichIsA("Animator", true)
+                    if animator then pcall(tfFreezeAnimator, animator) end
+                end
+            end
+            if os.clock() - t0 > TimeFreeze.PriorityBudget then return end
+        end
+    end
+end
+
+local function tfLockNearbyAnchored()
+    if not HRP then return end
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {Character}
+    params.MaxParts = TimeFreeze.LockMax
+    local myRoot = HRP.AssemblyRootPart
+    for _, radius in ipairs(TimeFreeze.LockRadii) do
+        if TimeFreeze.LockCount >= TimeFreeze.LockMax then break end
+        for _, part in ipairs(Workspace:GetPartBoundsInRadius(HRP.Position, radius, params)) do
+            if part.Anchored and not part:IsA("Terrain") and part.AssemblyRootPart ~= myRoot then
+                tfLock(part)
+            end
+        end
+    end
+end
+
+function TimeFreeze.Start()
+    if TimeFreeze.Active then return end
+    tfFlushRelease()
+    TimeFreeze.Active = true
+
+    -- 1) outros jogadores primeiro (o que mais aparece na tela)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Player and plr.Character then
+            for _, d in ipairs(plr.Character:GetDescendants()) do
+                pcall(tfProcess, d)
+            end
+        end
+    end
+
+    -- 1.5) tudo que está perto de você, instantâneo (anéis de raio crescente)
+    pcall(TimeFreeze.PriorityPass)
+
+    -- 2) sons do jogo (SoundService)
+    for _, d in ipairs(SoundService:GetDescendants()) do
+        if d:IsA("Sound") then pcall(tfFreezeSound, d) end
+    end
+
+    -- 2.5) peças ANCORADAS próximas: trava o CFrame (movimentos feitos pelo servidor)
+    pcall(tfLockNearbyAnchored)
+
+    -- 3) resto do mundo, em fatias de tempo (sem travar a ativação).
+    --    Nos primeiros frames o orçamento é maior, então o mundo inteiro para quase de imediato.
+    local list = Workspace:GetDescendants()
+    local idx, n, frame = 1, #list, 0
+    TimeFreeze.ScanConn = RunService.Heartbeat:Connect(function()
+        frame += 1
+        local budget = (frame <= TimeFreeze.FastScanFrames) and TimeFreeze.FastScanBudget or TimeFreeze.ScanBudget
+        local t0 = os.clock()
+        while idx <= n do
+            local inst = list[idx]
+            idx += 1
+            if inst.Parent then pcall(tfProcess, inst) end
+            if idx % 64 == 0 and os.clock() - t0 > budget then return end
+        end
+        if TimeFreeze.ScanConn then
+            TimeFreeze.ScanConn:Disconnect()
+            TimeFreeze.ScanConn = nil
+        end
+        if TimeFreeze.Debug then
+            local function count(t) local c = 0 for _ in pairs(t) do c += 1 end return c end
+            print(string.format("[TimeFreeze] varridas %d instâncias em %d frames | peças soltas ancoradas: %d | CFrame travado: %d | animações: %d | partículas: %d | rastros: %d | beams: %d | props travadas: %d | sons pausados: %d",
+                n, frame, count(TimeFreeze.Parts), TimeFreeze.LockCount, count(TimeFreeze.Anims), count(TimeFreeze.Emitters), count(TimeFreeze.Trails), count(TimeFreeze.Beams), count(TimeFreeze.Props), count(TimeFreeze.Sounds)))
+        end
+    end)
+
+    -- 3.5) o que NASCE depois de ativar também congela (projéteis, jogadores que entram,
+    --      sons novos, efeitos do jogo). Clones/efeitos deste script são ignorados.
+    if TimeFreeze.FreezeNew then
+        TimeFreeze.AddedConn = Workspace.DescendantAdded:Connect(function(inst)
+            task.defer(function()
+                if not TimeFreeze.Active or not inst.Parent then return end
+                if TimeFreeze.IsIgnored(inst) then return end
+                if inst:IsA("Sound") then
+                    pcall(tfFreezeSound, inst, true)
+                else
+                    pcall(tfProcess, inst)
+                end
+            end)
+        end)
+    end
+
+    -- 3.8) VFX/imagens/decals/luzes/GUIs: desfaz qualquer mudança vinda de script/tween do jogo
+    TimeFreeze.PropIndex = 1
+    TimeFreeze.PropConn = RunService.RenderStepped:Connect(function()
+        local list = TimeFreeze.PropEnforce
+        local n = #list
+        if n == 0 then return end
+        local t0 = os.clock()
+        local checked = 0
+        local i = TimeFreeze.PropIndex
+        while checked < n do
+            if i > n then i = 1 end
+            local inst = list[i]
+            local rec = TimeFreeze.Props[inst]
+            if rec and inst.Parent then pcall(TimeFreeze.EnforceProps, inst, rec) end
+            i += 1
+            checked += 1
+            if checked % 32 == 0 and os.clock() - t0 > TimeFreeze.PropBudget then break end
+        end
+        TimeFreeze.PropIndex = i
+    end)
+
+    -- 4) o que entrou NÃO sai: uma ronda circular religa o congelamento de qualquer
+    --    peça/animação/partícula/som que o jogo tente soltar.
+    TimeFreeze.EnforceIndex = 1
+    TimeFreeze.EnforceConn = RunService.Heartbeat:Connect(function()
+        local list = TimeFreeze.Enforce
+        local n = #list
+        if n == 0 then return end
+        local t0 = os.clock()
+        local checked = 0
+        local i = TimeFreeze.EnforceIndex
+        while checked < n do
+            if i > n then i = 1 end
+            local e = list[i]
+            local kind, inst = e[1], e[2]
+            if kind == "part" then
+                if inst.Parent and not inst.Anchored then inst.Anchored = true end
+            elseif kind == "emitter" then
+                if inst.Parent and inst.TimeScale ~= 0 then inst.TimeScale = 0 end
+            elseif kind == "sound" then
+                if inst.Parent and inst.IsPlaying then inst:Pause() end
+            elseif kind == "trail" then
+                if inst.Parent and inst.Lifetime < TimeFreeze.TrailFrozenLifetime then inst.Lifetime = TimeFreeze.TrailFrozenLifetime end
+            elseif kind == "beam" then
+                if inst.Parent and inst.TextureSpeed ~= 0 then inst.TextureSpeed = 0 end
+            elseif kind == "video" then
+                if inst.Parent and inst.Playing then inst:Pause() end
+            elseif kind == "anim" then
+                if inst.IsPlaying and inst.Speed ~= 0 then inst:AdjustSpeed(0) end
+            end
+            i += 1
+            checked += 1
+            if checked % 32 == 0 and os.clock() - t0 > TimeFreeze.EnforceBudget then break end
+        end
+        TimeFreeze.EnforceIndex = i
+    end)
+end
+
+function TimeFreeze.Stop()
+    if not TimeFreeze.Active then return end
+    TimeFreeze.Active = false
+
+    if TimeFreeze.ScanConn then TimeFreeze.ScanConn:Disconnect() TimeFreeze.ScanConn = nil end
+    if TimeFreeze.EnforceConn then TimeFreeze.EnforceConn:Disconnect() TimeFreeze.EnforceConn = nil end
+    if TimeFreeze.AddedConn then TimeFreeze.AddedConn:Disconnect() TimeFreeze.AddedConn = nil end
+    if TimeFreeze.PropConn then TimeFreeze.PropConn:Disconnect() TimeFreeze.PropConn = nil end
+    TimeFreeze.Enforce = {}
+    TimeFreeze.EnforceIndex = 1
+    for _, c in pairs(TimeFreeze.Locks) do c:Disconnect() end
+    TimeFreeze.Locks = {}
+    TimeFreeze.LockCount = 0
+    for _, c in ipairs(TimeFreeze.Conns) do c:Disconnect() end
+    TimeFreeze.Conns = {}
+    for _, c in pairs(TimeFreeze.AnimatorConns) do c:Disconnect() end
+    TimeFreeze.AnimatorConns = {}
+
+    -- monta a fila de restauração: sons -> animações -> partículas -> peças (perto de mim primeiro)
+    local queue = {}
+    for snd in pairs(TimeFreeze.Sounds) do table.insert(queue, {"sound", snd}) end
+    for track, speed in pairs(TimeFreeze.Anims) do table.insert(queue, {"anim", track, speed}) end
+    for em, ts in pairs(TimeFreeze.Emitters) do table.insert(queue, {"emitter", em, ts}) end
+    for tr, lt in pairs(TimeFreeze.Trails) do table.insert(queue, {"trail", tr, lt}) end
+    for bm, sp in pairs(TimeFreeze.Beams) do table.insert(queue, {"beam", bm, sp}) end
+    for vd, was in pairs(TimeFreeze.Videos) do table.insert(queue, {"video", vd, was}) end
+    for inst, rec in pairs(TimeFreeze.Props) do
+        if next(rec.want) ~= nil then table.insert(queue, {"props", inst, rec.want}) end
+    end
+
+    local origin = HRP and HRP.Position or Vector3.zero
+    local partList = {}
+    for part in pairs(TimeFreeze.Parts) do
+        if part.Parent then
+            table.insert(partList, {"part", part, (part.Position - origin).Magnitude})
+        end
+    end
+    table.sort(partList, function(a, b) return a[3] < b[3] end)
+    for _, e in ipairs(partList) do table.insert(queue, e) end
+
+    TimeFreeze.Sounds, TimeFreeze.Anims, TimeFreeze.Emitters, TimeFreeze.Parts = {}, {}, {}, {}
+    TimeFreeze.Trails, TimeFreeze.Beams, TimeFreeze.Videos = {}, {}, {}
+    TimeFreeze.Props, TimeFreeze.PropEnforce, TimeFreeze.PropIndex, TimeFreeze.PropPartCount = {}, {}, 1, 0
+    TimeFreeze.Queue = queue
+    TimeFreeze.QueueIndex = 1
+
+    -- solta em lotes: nunca gasta mais que ReleaseBudget por frame
+    TimeFreeze.ReleaseConn = RunService.Heartbeat:Connect(function()
+        local q = TimeFreeze.Queue
+        if not q then return end
+        local t0 = os.clock()
+        local total = #q
+        local i = TimeFreeze.QueueIndex
+        while i <= total do
+            pcall(tfRestoreEntry, q[i])
+            q[i] = false
+            i += 1
+            if i % 16 == 0 and os.clock() - t0 > TimeFreeze.ReleaseBudget then break end
+        end
+        TimeFreeze.QueueIndex = i
+        if i > total then
+            TimeFreeze.ReleaseConn:Disconnect()
+            TimeFreeze.ReleaseConn = nil
+            TimeFreeze.Queue = nil
+            TimeFreeze.QueueIndex = 1
+        end
+    end)
+end
+
 local function ResetSandi()
     if os.clock() < SandiLockTime then return end
     if not State.IsSandiActive then return end
@@ -2481,6 +4867,7 @@ local function ResetSandi()
 
     State.IsSandiActive = false
     PlaySFX(Sounds.SANDI_OFF)
+    TimeFreeze.Stop()
     Falar("sandi_off")
     State.Cooldowns.SANDI = os.clock() + Constants.COOLDOWNS.SANDI
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
@@ -2495,6 +4882,18 @@ local function ResetSandi()
             Saturation = 0
         }):Play()
         task.delay(0.5, function() sandiEffect:Destroy() end)
+    end
+
+    -- Remove a segunda camada do filtro
+    local sandiEffect2 = Lighting:FindFirstChild("SandiEffect2")
+    if sandiEffect2 then
+        TweenService:Create(sandiEffect2, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            TintColor = Color3.new(1,1,1),
+            Contrast = 0,
+            Saturation = 0,
+            Brightness = 0
+        }):Play()
+        task.delay(0.5, function() sandiEffect2:Destroy() end)
     end
 
     -- Restaura walk speed e pulo
@@ -2568,23 +4967,6 @@ local function ResetSandi()
         State.MusicSound = nil
     end
 
-    -- Restaura horário do dia (se alterado)
-    if originalClockTime then
-        task.spawn(function()
-            local targetTime = originalClockTime
-            local startTime = Lighting.ClockTime
-            local duration = 3.0
-            local startTick = tick()
-            while tick() - startTick < duration do
-                local alpha = math.min(1, (tick() - startTick) / duration)
-                local eased = 1 - (1 - alpha) ^ 3
-                Lighting.ClockTime = startTime + (targetTime - startTime) * eased
-                RunService.Heartbeat:Wait()
-            end
-            Lighting.ClockTime = targetTime
-        end)
-    end
-
 -- Limpeza do ViewportFrame (CORRIGIDO)
 if _G.SandiViewport then
     if _G.SandiViewport.syncConn then
@@ -2654,7 +5036,7 @@ local function ExecSandi()
     if os.clock() < State.Cooldowns.SANDI and not State.IsSandiActive then return end
     if State.IsSandiActive then ResetSandi() return end
     if State.Energy < Constants.ENERGY_COSTS.SANDI_ACTIVATE then return end
-    if math.random() < Constants.SANDEVISTAN_FAILURE_CHANCE then TriggerSandevistanFailure() return end
+    if math.random() < PsyBar.FailChance("Sandi") then TriggerSandevistanFailure() return end
     
     SandiLockTime = os.clock() + 3
     LastSandiActivationTime = os.clock()
@@ -2663,32 +5045,73 @@ local function ExecSandi()
     State.Energy = math.max(0, State.Energy)
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
     State.IsSandiActive = true
+    PsyBar.Add(PsyBar.GAIN_ACTIVATE * (1 + PsyBar.SPAM_GAIN_STEP * math.min(PsyBar.RecentUses(), 5)))
+    table.insert(PsyBar.Recent, os.clock())
     Falar("sandi_on")
+    TimeFreeze.Start()
     
-    -- Áudio e shake
+    -- Áudio
     task.spawn(function() pcall(PlaySFX, Sounds.SANDI_ON) end)
-    task.spawn(function() pcall(CamShake, 1.5, 0.4) end)
     
-    -- FOV e efeito de cor
-    TweenService:Create(Camera, TweenInfo.new(0.4), {FieldOfView = 115}):Play()
+    -- MICRO-PAUSA DRAMÁTICA: o mundo já congelou; a câmera "aperta" (FOV fecha) e um flash
+    -- branco curto marca o instante. Só depois a câmera estoura pro FOV 115, o shake bate
+    -- e o filtro verde entra. Não mexe em nenhum relógio/velocidade do jogo.
+    local MICRO_PAUSE = 0.12
+    local baseFov = Camera.FieldOfView
+    TweenService:Create(Camera, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        FieldOfView = baseFov - 10
+    }):Play()
     
     local sandiEffect = Create("ColorCorrectionEffect", {
         Name = "SandiEffect",
         TintColor = Color3.new(1,1,1),
         Contrast = 0,
-        Saturation = 0,
+        Saturation = -0.4,
+        Brightness = 0.3,
         Parent = Lighting
     })
-    TweenService:Create(sandiEffect, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        TintColor = Colors.LIGHT_GREEN,
-        Contrast = 0.15,
-        Saturation = 0.3
-    }):Play()
+    TweenService:Create(sandiEffect, TweenInfo.new(MICRO_PAUSE), {Brightness = 0}):Play()
+
+    -- SEGUNDA CAMADA do filtro: empilha sobre o verde principal, escurece levemente
+    -- e puxa pro ciano/verde-água, dando profundidade (vinheta de cor + contraste extra).
+    local old2 = Lighting:FindFirstChild("SandiEffect2")
+    if old2 then old2:Destroy() end
+    local sandiEffect2 = Create("ColorCorrectionEffect", {
+        Name = "SandiEffect2",
+        TintColor = Color3.new(1,1,1),
+        Contrast = 0,
+        Saturation = 0,
+        Brightness = 0,
+        Parent = Lighting
+    })
+
+    task.delay(MICRO_PAUSE, function()
+        if not State.IsSandiActive then return end
+        task.spawn(function() pcall(CamShake, 1.5, 0.4) end)
+        TweenService:Create(Camera, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            FieldOfView = 115
+        }):Play()
+        if sandiEffect.Parent then
+            TweenService:Create(sandiEffect, TweenInfo.new(0.4), {
+                TintColor = Color3.fromRGB(85, 255, 127),
+                Contrast = 0.5,
+                Saturation = 0.25
+            }):Play()
+        end
+        if sandiEffect2.Parent then
+            TweenService:Create(sandiEffect2, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TintColor = Color3.fromRGB(170, 255, 235),
+                Contrast = 0.2,
+                Saturation = 0.15,
+                Brightness = -0.06
+            }):Play()
+        end
+    end)
     
     -- ========== ANIMAÇÃO DE ATIVAÇÃO (TEXTURAS) ==========
     -- Primeiro toca a animação
     PlayActivationSequence()
-    ScreenFade(0.25, 0.1, 0.4, Colors.LIGHT_GREEN, 0.7, 0.3)
+    -- (ScreenFade verde removido: o filtro agora é igual ao do script mobile)
     
     -- ========== VIEWPORTFRAME SÓ DEPOIS DA ANIMAÇÃO ==========
     -- Aguarda a animação terminar (PlayActivationSequence dura cerca de 0.6~0.8 segundos)
@@ -2796,7 +5219,7 @@ local function ExecSandi()
     
     -- Ajustes de walk speed e outros efeitos lentos
     for _, hum in pairs(workspace:GetDescendants()) do
-        if hum:IsA("Humanoid") and hum ~= Humanoid then
+        if hum:IsA("Humanoid") and hum ~= Humanoid and not (hum.Parent and hum.Parent.Name == "PhaseGhost") then
             originalWalkSpeeds[hum] = hum.WalkSpeed
             hum.WalkSpeed = hum.WalkSpeed * Constants.SLOW_FACTOR
         end
@@ -2806,8 +5229,7 @@ local function ExecSandi()
     UpdateKiroshiButton()
     UpdateOpticalButton()
     State.MusicSound = tocarMusica()
-    originalClockTime = Lighting.ClockTime
-    Lighting.ClockTime = 17.7
+    -- (mudança de ClockTime removida: o script mobile não altera o horário)
 end
 
 local function ExecDash()
@@ -2818,6 +5240,7 @@ local function ExecDash()
     State.Energy = math.max(0, State.Energy)
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
     State.Cooldowns.DASH = os.clock() + Constants.COOLDOWNS.DASH
+    if PsyBar.Use("Dash") then return end
     
     -- Efeitos sonoros e visuais
     -- Detecta dash pra trás (no chão, movendo contra a direção que o personagem olha)
@@ -3125,6 +5548,7 @@ local function ExecKiroshi()
     State.Energy -= Constants.ENERGY_COSTS.KIROSHI
     State.Energy = math.max(0, State.Energy)
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
+    if PsyBar.Use("Kiroshi") then return end
     State.IsKiroshiActive = true
     PlaySFX(Sounds.KIROSHI_ON)
     Falar("kiroshi")
@@ -3320,6 +5744,37 @@ function PhaseGhost.Stop()
         PhaseGhost.Conn:Disconnect()
         PhaseGhost.Conn = nil
     end
+    if PhaseGhost.Gui then
+        pcall(function() PhaseGhost.Gui:Destroy() end)
+        PhaseGhost.Gui = nil
+        PhaseGhost.Viewport = nil
+    end
+end
+
+-- ViewportFrame unico que guarda todos os clones (fora do Workspace = zero conflito
+-- com fisica, Humanoids, deteccao de inimigos, etc). Usa a mesma camera do jogo,
+-- entao os clones aparecem 1:1 no tamanho/posicao do seu boneco (R6 e R15).
+function PhaseGhost.GetViewport()
+    if PhaseGhost.Viewport and PhaseGhost.Viewport.Parent then return PhaseGhost.Viewport end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "PhaseGhostGui"
+    gui.IgnoreGuiInset = true
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = -1
+    gui.Parent = Player:WaitForChild("PlayerGui")
+
+    local vpf = Instance.new("ViewportFrame")
+    vpf.Name = "PhaseGhostViewport"
+    vpf.Size = UDim2.new(1, 0, 1, 0)
+    vpf.BackgroundTransparency = 1
+    vpf.Ambient = Color3.fromRGB(200, 200, 200)    -- padrao do ViewportFrame (cores fieis)
+    vpf.LightColor = Color3.fromRGB(140, 140, 140)
+    vpf.CurrentCamera = Workspace.CurrentCamera
+    vpf.Parent = gui
+
+    PhaseGhost.Gui = gui
+    PhaseGhost.Viewport = vpf
+    return vpf
 end
 
 -- remove os clones na hora (eles nao ficam no mapa)
@@ -3430,7 +5885,7 @@ function PhaseGhost.Create(index: number)
     end
 
     ghost.Name = "PhaseGhost"
-    ghost.Parent = Workspace   -- Workspace = tamanho 1:1 idêntico ao boneco
+    ghost.Parent = PhaseGhost.GetViewport()   -- ViewportFrame: 1:1 com o boneco e sem conflito
 
     table.insert(PhaseGhost.List, {
         model = ghost,
@@ -3556,11 +6011,109 @@ local function FinalizePhase()
     phaseSafeCF = nil
 end
 
+-- ============================================================
+-- ANIMAÇÃO DE TELA DO PHASE SHIFT
+-- Entrada: desfoque de dissolução (dessatura + blur + FOV abre)
+-- Saída:   rebobinar (flash branco + FOV "puxa" e volta + filtro neutro)
+-- ============================================================
+local phaseFxCC, phaseFxBlur = nil, nil
+local phaseBaseFOV = nil
+local phaseFxToken = 0
+local PHASE_FOV_OUT = 10   -- quanto o FOV abre na entrada
+
+local function PhaseFxClear()
+    if phaseFxCC then pcall(function() phaseFxCC:Destroy() end) phaseFxCC = nil end
+    if phaseFxBlur then pcall(function() phaseFxBlur:Destroy() end) phaseFxBlur = nil end
+end
+
+local function PhaseScreenIn()
+    if LiteMode then return end
+    phaseFxToken += 1
+    PhaseFxClear()
+    phaseBaseFOV = Camera.FieldOfView
+
+    phaseFxCC = Create("ColorCorrectionEffect", {Name = "PhaseDissolveCC", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Brightness = 0, Parent = Lighting})
+    phaseFxBlur = Create("BlurEffect", {Name = "PhaseDissolveBlur", Size = 0, Parent = Lighting})
+
+    -- dessatura e esfria a cor (corpo virando fantasma)
+    TweenService:Create(phaseFxCC, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Saturation = -0.85,
+        Contrast = 0.12,
+        TintColor = Color3.fromRGB(205, 235, 255),
+    }):Play()
+
+    -- blur de dissolução: sobe rápido e some
+    local up = TweenService:Create(phaseFxBlur, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 16})
+    up:Play()
+    local blur = phaseFxBlur
+    up.Completed:Connect(function()
+        if blur and blur.Parent then
+            TweenService:Create(blur, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = 0}):Play()
+        end
+    end)
+
+    -- FOV abre
+    TweenService:Create(Camera, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = phaseBaseFOV + PHASE_FOV_OUT}):Play()
+end
+
+local function PhaseScreenOut()
+    if LiteMode then return end
+    phaseFxToken += 1
+    local myFx = phaseFxToken
+    local cc, blur = phaseFxCC, phaseFxBlur
+    local baseFOV = phaseBaseFOV
+    phaseFxCC, phaseFxBlur = nil, nil
+    if not cc or not cc.Parent then
+        cc = Create("ColorCorrectionEffect", {Name = "PhaseDissolveCC", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Brightness = 0, Parent = Lighting})
+    end
+    if not blur or not blur.Parent then
+        blur = Create("BlurEffect", {Name = "PhaseDissolveBlur", Size = 0, Parent = Lighting})
+    end
+
+    -- rebobinar: flash branco + filtro volta ao neutro
+    local flash = TweenService:Create(cc, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Brightness = 0.55, Saturation = -0.3, Contrast = 0.1, TintColor = Color3.new(1,1,1),
+    })
+    flash:Play()
+    flash.Completed:Connect(function()
+        if cc.Parent then
+            TweenService:Create(cc, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Brightness = 0, Saturation = 0, Contrast = 0, TintColor = Color3.new(1,1,1),
+            }):Play()
+        end
+    end)
+
+    -- blur curto de "fita rebobinando"
+    TweenService:Create(blur, TweenInfo.new(0.08), {Size = 10}):Play()
+    task.delay(0.08, function()
+        if blur.Parent then
+            TweenService:Create(blur, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = 0}):Play()
+        end
+    end)
+
+    -- FOV é puxado pra dentro e volta ao normal (se o Sandevistan não estiver usando)
+    if baseFOV and not State.IsSandiActive then
+        local pull = TweenService:Create(Camera, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = baseFOV - 8})
+        pull:Play()
+        pull.Completed:Connect(function()
+            if not State.IsSandiActive then
+                TweenService:Create(Camera, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = baseFOV}):Play()
+            end
+        end)
+    end
+
+    task.delay(0.6, function()
+        pcall(function() cc:Destroy() end)
+        pcall(function() blur:Destroy() end)
+    end)
+end
+
 local function ResetOptical()
     if not State.IsOpticalActive then return end
     opticalToken += 1
     State.IsOpticalActive = false
     PhaseGhost.Retract()
+    PhaseScreenOut()
     Falar("optical_off")
     State.Cooldowns.OPTICAL = os.clock() + Constants.COOLDOWNS.OPTICAL
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
@@ -3584,10 +6137,11 @@ local function ExecOptical()
     State.Energy -= Constants.ENERGY_COSTS.OPTICAL
     State.Energy = math.max(0, State.Energy)
     State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
+    if PsyBar.Use("Optical") then return end
     State.IsOpticalActive = true
     Falar("optical_on")
     PlaySFX(Sounds.OPTICAL_CAMO)
-    ScreenFade(0.1, 0.05, 0.3, Colors.OPTICAL, 0.3, 0.2)
+    PhaseScreenIn()
 
     phaseChar = Character
     phaseStart = os.clock()
@@ -3666,7 +6220,7 @@ local function ExecOptical()
     -- clones exatos do boneco: so esquerda e direita, acompanham o personagem
     PhaseGhost.Spawn()
 
-    task.delay(Constants.OPTICAL_DURATION, function()
+    task.delay(Constants.OPTICAL_DURATION * (1 - 0.4 * math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)), function()
         if myToken == opticalToken then ResetOptical() end
     end)
 end
@@ -3730,6 +6284,7 @@ end
 
 local function SpawnAnimation()
     local spawnSound = Instance.new("Sound")
+    ScriptSounds[spawnSound] = true
     spawnSound.SoundId = "rbxassetid://121480304779842"
     spawnSound.Volume = 2.0
     spawnSound.PlaybackSpeed = 1
@@ -3917,20 +6472,6 @@ local function CreateEnergyBar(gui)
         end
     end)
 
-    local coreLabel = Create("TextLabel", {
-        Size = UDim2.new(0, 34, 0, 160),
-        Position = UDim2.new(1, 14, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
-        BackgroundTransparency = 1,
-        Text = "NEURAL\nCORE",
-        TextColor3 = Colors.CYBER_ORANGE,
-        Font = Enum.Font.SciFi,
-        TextSize = 16,
-        TextStrokeTransparency = 0.35,
-        Rotation = -90,
-        Parent = container
-    })
-
     energyPercentLabel = Create("TextLabel", {
         Size = UDim2.new(0, 50, 0, 22),
         Position = UDim2.new(0.5, 0, 1, 12),
@@ -3949,6 +6490,73 @@ local function CreateEnergyBar(gui)
 
     local circuitBottom = Create("Frame", {Size = UDim2.new(1, -14, 0, 2), Position = UDim2.new(0, 7, 1, -11), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, Parent = container})
     Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(255,255,255), Colors.UI_NEON), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(0.4,0), NumberSequenceKeypoint.new(1,1)}), Parent = circuitBottom})
+
+    -- ========== BARRA PEQUENA DE CYBERPSYCHOSIS (0–200%) ==========
+    -- Filha do container da energia: anda junto quando a barra é arrastada no modo de edição.
+    local psyBar = Create("Frame", {
+        Name = "PsychosisBar",
+        Size = UDim2.new(0, 14, 0, 150),
+        Position = UDim2.new(1, 12, 1, 0),
+        AnchorPoint = Vector2.new(0, 1),
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BorderSizePixel = 0,
+        Parent = container
+    })
+    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = psyBar})
+    Create("UIStroke", {Color = Color3.fromRGB(80, 0, 8), Thickness = 3, Transparency = 0.05, Parent = psyBar})
+    Create("UIStroke", {Color = PsyBar.COLOR_MID, Thickness = 1.5, Transparency = 0.5, Parent = psyBar})
+
+    local psyInner = Create("Frame", {
+        Size = UDim2.new(1, -6, 1, -6),
+        Position = UDim2.new(0, 3, 0, 3),
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        Parent = psyBar
+    })
+    Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = psyInner})
+
+    psyFill = Create("Frame", {
+        Name = "PsyFill",
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.new(0, 0, 1, 0),
+        AnchorPoint = Vector2.new(0, 1),
+        BackgroundColor3 = PsyBar.COLOR_LOW,
+        BorderSizePixel = 0,
+        Parent = psyInner
+    })
+    -- degrade preto (base) -> vermelho (ponta)
+    Create("UIGradient", {
+        Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(18, 18, 18)),
+        Rotation = 90,
+        Parent = psyFill
+    })
+
+    -- Marca dos 100% (metade da barra): daqui pra cima é zona de perigo
+    Create("Frame", {
+        Name = "Mark100",
+        Size = UDim2.new(1, 0, 0, 2),
+        Position = UDim2.new(0, 0, 0.5, -1),
+        BackgroundColor3 = Color3.fromRGB(255, 60, 60),
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        ZIndex = 3,
+        Parent = psyInner
+    })
+
+    psyPercentLabel = Create("TextLabel", {
+        Name = "PsyPercent",
+        Size = UDim2.new(0, 60, 0, 14),
+        Position = UDim2.new(0.5, 0, 0, -4),
+        AnchorPoint = Vector2.new(0.5, 1),
+        BackgroundTransparency = 1,
+        Text = "PSY 0%",
+        TextColor3 = PsyBar.COLOR_MID,
+        Font = Enum.Font.Code,
+        TextSize = 12,
+        TextStrokeTransparency = 0.25,
+        Parent = psyBar
+    })
 
     return container
 end
@@ -4461,7 +7069,7 @@ RunService.Heartbeat:Connect(function(dt)
         params.FilterDescendantsInstances = {Character}
         for _, p in ipairs(Workspace:GetPartBoundsInRadius(HRP.Position, 25, params)) do
             local model = p:FindFirstAncestorOfClass("Model")
-            if model and model ~= Character and model:FindFirstChildOfClass("Humanoid") then
+            if model and model ~= Character and model.Name ~= "PhaseGhost" and model.Name ~= "HologramClone" and model:FindFirstChildOfClass("Humanoid") then
                 local r = model:FindFirstChild("HumanoidRootPart")
                 if r then
                     local d = (HRP.Position - r.Position).Magnitude
@@ -4502,8 +7110,11 @@ end
         if State.Energy <= 0 then
             State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_ZERO
             Falar("sandi_zerou")
-            local luck = math.random(1, 100)
-            if luck <= 30 then ExecCyberpsychosis() end
+            PsyBar.Add(PsyBar.GAIN_ZERO)
+            if math.random() < (PsyBar.DIRECT_ZERO_BASE + PsyBar.DIRECT_ZERO_SCALE * (State.Psychosis / PsyBar.MAX)) then
+                ExecCyberpsychosis()
+                if not PsyBar.Busy then State.Psychosis = PsyBar.RESET_TO end
+            end
             ResetSandi()
         end
     else
@@ -4514,6 +7125,48 @@ end
     if DodgeMode == "Auto" and os.clock() >= State.Cooldowns.DODGE and not State.IsDodgeReady and not IsDodging and State.Energy >= Constants.ENERGY_COSTS.DODGE and EnabledAbilities.Dodge then
         ActivateDodgeReady()
     end
+    -- ========== BARRA DE CYBERPSYCHOSIS: ganho, queda e gatilho em 200% ==========
+    do
+        local now = os.clock()
+        if State.IsSandiActive then
+            State.PsychosisIdleSince = now
+            PsyBar.Add(PsyBar.GAIN_SANDI * dt)
+        elseif not PsyBar.Busy and now - State.PsychosisIdleSince > PsyBar.DECAY_DELAY then
+            local rate = State.Psychosis > 100 and PsyBar.DECAY_RATE_HIGH or PsyBar.DECAY_RATE
+            State.Psychosis = math.max(0, State.Psychosis - rate * dt)
+        end
+
+        if State.Psychosis >= PsyBar.MAX and not PsyBar.Busy then
+            PsyBar.Busy = true
+            task.spawn(function()
+                pcall(ExecCyberpsychosis)
+                -- ResetSandi ignora chamadas dentro da janela de trava logo após ativar
+                local wait_t = SandiLockTime - os.clock()
+                if wait_t > 0 then task.wait(wait_t) end
+                pcall(ResetSandi)
+                task.wait(Constants.CYBERPSYCHOSIS.Duration)
+                State.Psychosis = PsyBar.RESET_TO
+                State.PsychosisIdleSince = os.clock()
+                PsyBar.Busy = false
+            end)
+        end
+    end
+    if psyFill and psyPercentLabel and psyFill.Parent then
+        local v = State.Psychosis
+        local col
+        if v < 100 then
+            col = PsyBar.COLOR_LOW:Lerp(PsyBar.COLOR_MID, v / 100)
+        else
+            col = PsyBar.COLOR_MID:Lerp(PsyBar.COLOR_HIGH, (v - 100) / 100)
+        end
+        psyFill.Size = UDim2.new(1, 0, math.clamp(v / PsyBar.MAX, 0, 1), 0)
+        psyFill.BackgroundColor3 = col
+        -- zona de perigo (>100%): pulsa, cada vez mais rápido
+        psyPercentLabel.Text = string.format("PSY %d%%", math.floor(v))
+        psyPercentLabel.TextColor3 = col
+        psyFill.BackgroundTransparency = v > 100 and (0.1 + 0.3 * math.abs(math.sin(os.clock() * (4 + (v - 100) / 12)))) or 0
+    end
+
     if energyFill and energyPercentLabel then
         local percent = State.Energy / Constants.MAX_ENERGY
         local safePercent = math.max(0.02, percent)

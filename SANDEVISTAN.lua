@@ -133,7 +133,7 @@ local Constants = {
     },
     SANDEVISTAN_FAILURE_CHANCE = 0.2,
     CYBERPSYCHOSIS = {
-        Duration = 6,
+        Duration = 9,
         PopupRate = 0.08,
         Radius = 7,
         ShakeIntensity = 0.6,
@@ -294,8 +294,8 @@ local Sounds = {
     SANDI_OFF = {id = "rbxassetid://118534165523355", volume = 1.5, pitch = 1, looped = false},
     SANDI_LOOP = {id = "rbxassetid://74707394872868", volume = 1.5, pitch = 1, looped = true},
     SANDI_FAILURE = {id = "rbxassetid://132281440773764", volume = 5, pitch = 1, looped = false},
-    PSYCHOSIS = {id = "rbxassetid://87597277352254", volume = 2, pitch = 1, looped = false},
-    PSYCHOSIS2 = {id = "rbxassetid://116079585368153", volume = 2, pitch = 1, looped = false},
+    PSYCHOSIS = {id = "rbxassetid://113922641197855", volume = 2, pitch = 1, looped = false},  -- David crash out part 1 (5s)
+    PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false}, -- David crash out part 2 (4s)
     OPTICAL_CAMO = {id = "rbxassetid://134007213357026", volume = 1, pitch = 1, looped = false},
     COLLISION_IMPACT = {id = "rbxassetid://86227700557194", volume = 1.7, pitch = 1, looped = false},
     SPAWN = {id = "rbxassetid://138566469626743", volume = 1.5, pitch = 1, looped = false},
@@ -1977,29 +1977,26 @@ local Module = {
         -- ====================================================
         Speech = {
             Enabled = true,
-            SoundId = nil,              -- "rbxassetid://SEU_ID" da fala (opcional; sem ele só roda legenda + efeitos)
+            SoundId = nil,              -- sons em sequência (PSYCHOSIS + PSYCHOSIS2) no Exec; não usa SoundId único
             Volume = 2,
             Offset = 0,                 -- soma em todos os tempos (use negativo se os efeitos estão atrasados)
-            Duration = 6,               -- o áudio tem 6s: o efeito dura exatamente isso
-            Tail = 1.2,                 -- segundos de sobra depois da última fala
+            Duration = 9,               -- áudio total 5s + 4s = 9s
+            Tail = 0.8,                 -- segundos de sobra depois da última fala
             Subtitles = true,
-            MuteOriginalSounds = false, -- true = não toca os 2 sons PSYCHOSIS originais (só a fala)
+            MuteOriginalSounds = true,  -- sons originais substituídos pela sequência com crossfade
             Lines = {
-                -- t = quando a fala começa | hold = quanto tempo fica na tela
-                -- power = força do glitch (1 normal, 2 máximo) | windows = nº de janelas que estouram
-                -- hit = false (sem estouro) | final = true (estouro branco gigante)
-                -- Tempos ESTIMADOS para o áudio de 6s: se algo ficar adiantado/atrasado, mude o Offset ou o t da linha.
-                {t = 0.15, hold = 1.6, who = "DAVID", text = "I'm gonna rip out his spine!", power = 1.5, windows = 5},
-                {t = 1.90, hold = 0.9, who = "DAVID", text = "I'll kill him!",               power = 1.6, windows = 4},
-                {t = 2.90, hold = 0.9, who = "DAVID", text = "I'll kill him.",               power = 0.9, windows = 2},
-                {t = 3.85, hold = 0.9, who = "DAVID", text = "You're dead.",                 power = 1.3, windows = 4},
-                {t = 4.65, hold = 0.6, who = "DAVID", text = "Dead.",                        power = 1.7, windows = 6},
-                {t = 5.30, hold = 0.7, who = "DAVID", text = "Dead.",                        power = 2,   windows = 14, final = true},
+                -- Part 1 (0–5s): "I'm gonna rip out his spine! / I'll kill him! / I'll kill him."
+                -- Part 2 (5–9s): "You're dead. / Dead. / Dead."
+                {t = 0.15, hold = 1.8, who = "DAVID", text = "I'm gonna rip out his spine!", power = 1.5, windows = 5},
+                {t = 2.20, hold = 1.0, who = "DAVID", text = "I'll kill him!",               power = 1.6, windows = 4},
+                {t = 3.40, hold = 1.3, who = "DAVID", text = "I'll kill him.",               power = 0.9, windows = 2},
+                {t = 5.15, hold = 1.0, who = "DAVID", text = "You're dead.",                 power = 1.3, windows = 4},
+                {t = 6.40, hold = 0.8, who = "DAVID", text = "Dead.",                        power = 1.7, windows = 6},
+                {t = 7.40, hold = 1.0, who = "DAVID", text = "Dead.",                        power = 2,   windows = 14, final = true},
             },
-            -- estouros extras no meio de uma fala (palavra gritada, etc.): {t = 3.1, power = 1.5, windows = 3}
             Hits = {
-                {t = 1.10, power = 1.9, windows = 2},   -- "spine!" gritado
-                {t = 5.55, power = 2,   windows = 0},   -- segundo golpe no último "Dead."
+                {t = 1.20, power = 1.9, windows = 2},   -- "spine!" gritado
+                {t = 7.70, power = 2,   windows = 0},   -- segundo golpe no último "Dead."
             },
         },
     },
@@ -2016,7 +2013,7 @@ local Fallback = {
     Constants = {
         MAX_ENERGY = 100,
         CYBERPSYCHOSIS = {
-            Duration = 6,
+            Duration = 9,
             PopupRate = 0.08,
             Radius = 7,
             ShakeIntensity = 0.6,
@@ -2029,8 +2026,8 @@ local Fallback = {
         },
     },
     Sounds = {
-        PSYCHOSIS  = {id = "rbxassetid://87597277352254",  volume = 2, pitch = 1, looped = false},
-        PSYCHOSIS2 = {id = "rbxassetid://116079585368153", volume = 2, pitch = 1, looped = false},
+        PSYCHOSIS  = {id = "rbxassetid://113922641197855",  volume = 2, pitch = 1, looped = false},
+        PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false},
     },
     State = {Energy = 100},
 }
@@ -2958,23 +2955,84 @@ function ExecCyberpsychosis()
     local S = Module.Config.Speech
     local speechOn = SpeechActive() and true or false
 
-    if not (speechOn and S.MuteOriginalSounds) then
-        PlaySFX(Sounds.PSYCHOSIS)
-        PlaySFX(Sounds.PSYCHOSIS2)
-    end
+    -- Sons de crashing out do David (parte 1: 5s → parte 2: 4s) com crossfade suave
     local speechSound
-    if speechOn and S.SoundId and S.SoundId ~= "" then
-        speechSound = Instance.new("Sound")
-        speechSound.SoundId = S.SoundId
-        speechSound.Volume = S.Volume or 2
-        speechSound.Parent = HRP or Camera
-        speechSound:Play()
-        Debris:AddItem(speechSound, DURATION + 3)
+    do
+        local vol = (S and S.Volume) or 2
+        local parent = HRP or Camera
+        local s1 = Instance.new("Sound")
+        s1.SoundId = Sounds.PSYCHOSIS.id
+        s1.Volume = vol
+        s1.PlaybackSpeed = Sounds.PSYCHOSIS.pitch or 1
+        s1.Parent = parent
+        s1:Play()
+        Debris:AddItem(s1, 7)
+
+        local s2 = Instance.new("Sound")
+        s2.SoundId = Sounds.PSYCHOSIS2.id
+        s2.Volume = 0
+        s2.PlaybackSpeed = Sounds.PSYCHOSIS2.pitch or 1
+        s2.Parent = parent
+
+        -- Crossfade: ~0.6s antes dos 5s (parte 1) começa a descer e a parte 2 sobe
+        task.delay(4.4, function()
+            if s1 and s1.Parent then
+                TweenService:Create(s1, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
+            end
+            if s2 and s2.Parent then
+                s2:Play()
+                TweenService:Create(s2, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Volume = vol}):Play()
+            end
+        end)
+        Debris:AddItem(s2, 10)
+        speechSound = s1
     end
+
+    if speechOn and S.SoundId and S.SoundId ~= "" then
+        local extra = Instance.new("Sound")
+        extra.SoundId = S.SoundId
+        extra.Volume = S.Volume or 2
+        extra.Parent = HRP or Camera
+        extra:Play()
+        Debris:AddItem(extra, DURATION + 3)
+    end
+
     local hbSound
     if Module.Config.HeartbeatSound then
         hbSound = PlaySFX(Module.Config.HeartbeatSound)
         hbSound.Looped = true
+    end
+
+    -- Tom ambiente (Creator Store) tocando os 9s inteiros, pitch variando
+    local toneSound
+    do
+        local parent = HRP or Camera
+        toneSound = Instance.new("Sound")
+        toneSound.Name = "CyberPsychosisTone"
+        toneSound.SoundId = "rbxassetid://117921005109261"
+        toneSound.Volume = 1.6
+        toneSound.Looped = true
+        toneSound.PlaybackSpeed = 0.85
+        toneSound.Parent = parent
+        toneSound:Play()
+        Debris:AddItem(toneSound, DURATION + 2)
+
+        -- tonalidades diferentes ao longo dos 9s (grave → agudo → distorcido)
+        task.spawn(function()
+            local t0 = os.clock()
+            while toneSound and toneSound.Parent and (os.clock() - t0) < DURATION do
+                local p = math.clamp((os.clock() - t0) / DURATION, 0, 1)
+                -- curva: começa grave, sobe, oscila no meio, sobe no final
+                local base = 0.75 + p * 0.55
+                local wobble = math.sin(os.clock() * (2.2 + p * 4)) * (0.08 + p * 0.18)
+                local glitch = (math.random() < 0.12 + p * 0.2) and (math.random() * 0.35 - 0.1) or 0
+                toneSound.PlaybackSpeed = math.clamp(base + wobble + glitch, 0.55, 1.85)
+                task.wait(0.08)
+            end
+            if toneSound and toneSound.Parent then
+                TweenService:Create(toneSound, TweenInfo.new(0.4), {Volume = 0}):Play()
+            end
+        end)
     end
 
     -- coreografia das janelas (ORIGINAL, sincronizada com o áudio)
@@ -3221,14 +3279,36 @@ function ExecCyberpsychosis()
         end
     end
     local function UnfreezeBody()
-        if frozenHRP then frozenHRP.Anchored = false frozenHRP = nil end
+        if frozenHRP then
+            pcall(function()
+                frozenHRP.Anchored = false
+                frozenHRP.AssemblyLinearVelocity = Vector3.zero
+                frozenHRP.AssemblyAngularVelocity = Vector3.zero
+            end)
+            frozenHRP = nil
+        end
         for tr in pairs(frozenTracks) do
             pcall(function()
-                tr:AdjustSpeed(1)
-                if FX.BodyAnim ~= false and tr.Looped and not tr.IsPlaying then tr:Play(0.2) end
+                if tr and tr.Parent then
+                    tr:AdjustSpeed(1)
+                    if FX.BodyAnim ~= false and tr.Looped and not tr.IsPlaying then
+                        tr:Play(0.15)
+                    end
+                end
             end)
         end
         frozenTracks = {}
+        if Humanoid and Humanoid.Parent then
+            pcall(function()
+                Humanoid.PlatformStand = false
+                Humanoid.Sit = false
+                Humanoid.AutoRotate = true
+                local st = Humanoid:GetState()
+                if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.PlatformStanding then
+                    Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end)
+        end
     end
 
     local BA = {char = nil, J = {}, cur = {}, spasm = {}, out = {}, conns = {}, animate = nil, animateWas = nil, nextSpasm = 0, poseIdx = 1, nextPose = 0, seed = math.random() * 100}
@@ -3311,15 +3391,41 @@ function ExecCyberpsychosis()
     end
 
     local function BodyAnimRelease()
-        for _, c in ipairs(BA.conns) do c:Disconnect() end
+        for _, c in ipairs(BA.conns) do pcall(function() c:Disconnect() end) end
         BA.conns = {}
         BA.out = {}
         for _, m in pairs(BA.J) do
-            if m.Parent then m.Transform = CFrame.new() end
+            pcall(function()
+                if m and m.Parent then m.Transform = CFrame.new() end
+            end)
         end
-        if BA.animate and BA.animate.Parent and BA.animateWas ~= nil then BA.animate.Enabled = BA.animateWas end
+        local animateScript = BA.animate
+        local wasEnabled = BA.animateWas
         BA.animate, BA.animateWas = nil, nil
         BA.J, BA.cur, BA.spasm, BA.char = {}, {}, {}, nil
+        if animateScript and animateScript.Parent then
+            pcall(function()
+                animateScript.Enabled = false
+                task.defer(function()
+                    if animateScript and animateScript.Parent then
+                        animateScript.Enabled = (wasEnabled ~= false)
+                    end
+                end)
+            end)
+        else
+            local char = Player.Character
+            if char then
+                local an = char:FindFirstChild("Animate")
+                if an and an:IsA("LocalScript") then
+                    pcall(function()
+                        an.Enabled = false
+                        task.defer(function()
+                            if an and an.Parent then an.Enabled = true end
+                        end)
+                    end)
+                end
+            end
+        end
     end
 
     local function BodyAnimStep(dt, elapsed, k, phase)
@@ -3784,6 +3890,13 @@ function ExecCyberpsychosis()
         end
         if hbSound then hbSound:Destroy() end
         if speechSound then speechSound:Destroy() end
+        if toneSound then
+            pcall(function()
+                toneSound:Stop()
+                toneSound:Destroy()
+            end)
+            toneSound = nil
+        end
         for _, g in ipairs(groupList) do pcall(SetHidden, g, false) end   -- devolve as peças reais
         if Module.ActiveCleanup == Cleanup then Module.ActiveCleanup = nil end
         BodyAnimRelease()
@@ -3848,7 +3961,23 @@ function ExecCyberpsychosis()
 
         -- fim (ORIGINAL)
         if elapsed > DURATION then
-            if Humanoid then Humanoid.WalkSpeed = Constants.BASE_WALKSPEED or 16 Humanoid.JumpPower = 50 Humanoid.CameraOffset = Vector3.zero end
+            if Humanoid and Humanoid.Parent then
+                pcall(function()
+                    Humanoid.WalkSpeed = Constants.BASE_WALKSPEED or 16
+                    Humanoid.JumpPower = 50
+                    if Humanoid.UseJumpPower == false then
+                        Humanoid.JumpHeight = 7.2
+                    end
+                    Humanoid.PlatformStand = false
+                    Humanoid.Sit = false
+                    Humanoid.AutoRotate = true
+                    Humanoid.CameraOffset = Vector3.zero
+                    local st = Humanoid:GetState()
+                    if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.PlatformStanding or st == Enum.HumanoidStateType.Seated then
+                        Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                end)
+            end
             TweenService:Create(cc, TweenInfo.new(0.5), {TintColor = WHITE, Saturation = 0}):Play()
             TweenService:Create(blur, TweenInfo.new(0.5), {Size = 0}):Play()
             Debris:AddItem(cc, 0.5)
@@ -5232,6 +5361,175 @@ local function ExecSandi()
     -- (mudança de ClockTime removida: o script mobile não altera o horário)
 end
 
+-- ========== ANIMAÇÕES DO DASH (estilo Battlegrounds) ==========
+-- Procedural: mexe nos Motor6D (C0), então funciona em R6 e R15 sem precisar de asset de animação.
+-- Poses: Front (dash pra frente), Back (dash pra trás), Air (dash no ar).
+-- Valores em graus {X, Y, Z} no espaço da Part0 do joint. X+ = balança pra frente, X- = pra trás.
+local DASH_ANIM = {
+    IN_TIME = 0.06,    -- tempo pra entrar na pose
+    HOLD_TIME = 0.14,  -- tempo segurando a pose
+    OUT_TIME = 0.16,   -- tempo voltando ao normal
+}
+
+local DASH_POSES = {
+    Front = {
+        Root = {-18, 0, 0}, Waist = {-6, 4, 0}, Neck = {10, 0, 0},
+        LArm = {70, 0, -6},  RArm = {25, 0, 10},
+        LElbow = {55, 0, 0}, RElbow = {75, 0, 0},
+        LLeg = {38, 0, 0},   RLeg = {-34, 0, 0},
+        LKnee = {-12, 0, 0}, RKnee = {-65, 0, 0},
+    },
+    Back = {
+        Root = {24, 0, 0}, Waist = {6, 0, 0}, Neck = {-16, 0, 0},
+        LArm = {55, 0, -22}, RArm = {55, 0, 22},
+        LLeg = {26, 0, 0},   RLeg = {-12, 0, 0},
+        LKnee = {-4, 0, 0},  RKnee = {-40, 0, 0},
+    },
+    Air = {
+        Root = {-80, 0, 0}, Waist = {-6, 0, 0}, Neck = {55, 0, 0},
+        LArm = {150, 0, -10}, RArm = {150, 0, 10},
+        LLeg = {-10, 0, -4},  RLeg = {-18, 0, 4},
+        LKnee = {-30, 0, 0},  RKnee = {-45, 0, 0},
+    },
+}
+
+local function dashGetJoints()
+    local j = {}
+    if not Character or not Humanoid then return j end
+    local function J(partName, jointName)
+        local p = Character:FindFirstChild(partName)
+        return p and p:FindFirstChild(jointName)
+    end
+    if Humanoid.RigType == Enum.HumanoidRigType.R15 then
+        j.Root  = J("LowerTorso", "Root")
+        j.Waist = J("UpperTorso", "Waist")
+        j.Neck  = J("Head", "Neck")
+        j.LArm  = J("LeftUpperArm", "LeftShoulder")
+        j.RArm  = J("RightUpperArm", "RightShoulder")
+        j.LLeg  = J("LeftUpperLeg", "LeftHip")
+        j.RLeg  = J("RightUpperLeg", "RightHip")
+        j.LElbow = J("LeftLowerArm", "LeftElbow")
+        j.RElbow = J("RightLowerArm", "RightElbow")
+        j.LKnee = J("LeftLowerLeg", "LeftKnee")
+        j.RKnee = J("RightLowerLeg", "RightKnee")
+    else
+        j.Root = HRP and HRP:FindFirstChild("RootJoint")
+        j.Neck = J("Torso", "Neck")
+        j.LArm = J("Torso", "Left Shoulder")
+        j.RArm = J("Torso", "Right Shoulder")
+        j.LLeg = J("Torso", "Left Hip")
+        j.RLeg = J("Torso", "Right Hip")
+    end
+    for name, joint in pairs(j) do
+        if not (joint and joint:IsA("Motor6D")) then j[name] = nil end
+    end
+    return j
+end
+
+local function dashApplyPose(joints, base, pose, alpha)
+    for name, joint in pairs(joints) do
+        local c0 = base[name]
+        local r = pose and pose[name]
+        if r then
+            local rot = CFrame.Angles(math.rad(r[1] * alpha), math.rad(r[2] * alpha), math.rad(r[3] * alpha))
+            -- gira em volta do pivô do joint (mantém a posição, só rotaciona)
+            joint.C0 = CFrame.new(c0.Position) * rot * (c0 - c0.Position)
+        else
+            joint.C0 = c0
+        end
+    end
+end
+
+local DashAnimState = {Token = 0, Joints = nil, Base = nil, AutoRotate = nil}
+
+local function dashRestore()
+    if DashAnimState.Joints and DashAnimState.Base then
+        for name, joint in pairs(DashAnimState.Joints) do
+            if joint and joint.Parent and DashAnimState.Base[name] then
+                joint.C0 = DashAnimState.Base[name]
+            end
+        end
+    end
+    if DashAnimState.AutoRotate ~= nil and Humanoid and Humanoid.Parent then
+        Humanoid.AutoRotate = DashAnimState.AutoRotate
+    end
+    DashAnimState.Joints, DashAnimState.Base, DashAnimState.AutoRotate = nil, nil, nil
+end
+
+-- kind: "Front" | "Back" | "Air"; direction: Vector3 unitário do dash
+local function PlayDashAnim(kind, direction)
+    if not Character or not Humanoid or not HRP then return end
+    dashRestore() -- cancela animação anterior, se tiver
+
+    local joints = dashGetJoints()
+    if not joints.Root then return end
+
+    DashAnimState.Token += 1
+    local token = DashAnimState.Token
+
+    local base = {}
+    for name, joint in pairs(joints) do base[name] = joint.C0 end
+    DashAnimState.Joints, DashAnimState.Base = joints, base
+
+    -- copia a pose pra poder ajustar a inclinação conforme a direção (dash no ar)
+    local pose = {}
+    for k, v in pairs(DASH_POSES[kind]) do pose[k] = {v[1], v[2], v[3]} end
+
+    DashAnimState.AutoRotate = Humanoid.AutoRotate
+    Humanoid.AutoRotate = false -- evita o boneco girar sozinho durante o dash
+
+    if kind == "Air" then
+        local flat = Vector3.new(direction.X, 0, direction.Z)
+        if flat.Magnitude > 0.05 then
+            HRP.CFrame = CFrame.lookAt(HRP.Position, HRP.Position + flat)
+        end
+        -- cabeça aponta na direção do dash (subindo ou descendo)
+        local elev = math.deg(math.asin(math.clamp(direction.Y, -1, 1)))
+        pose.Root[1] = -math.clamp(80 - elev, 25, 110)
+    end
+
+    -- reduz o peso das animações normais (andar/cair) pra não brigar com a pose
+    local dimmed = {}
+    local animator = Humanoid:FindFirstChildOfClass("Animator")
+    if animator then
+        for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
+            pcall(function() tr:AdjustWeight(0.05, 0.05) end)
+            table.insert(dimmed, tr)
+        end
+    end
+
+    task.spawn(function()
+        local t0 = os.clock()
+        local total = DASH_ANIM.IN_TIME + DASH_ANIM.HOLD_TIME + DASH_ANIM.OUT_TIME
+        while true do
+            if DashAnimState.Token ~= token then return end -- outro dash assumiu
+            local t = os.clock() - t0
+            if t >= total or not Character or not Character.Parent then break end
+
+            local alpha
+            if t < DASH_ANIM.IN_TIME then
+                local x = t / DASH_ANIM.IN_TIME
+                alpha = 1 - (1 - x) ^ 3                              -- ease-out
+            elseif t < DASH_ANIM.IN_TIME + DASH_ANIM.HOLD_TIME then
+                alpha = 1
+            else
+                local x = (t - DASH_ANIM.IN_TIME - DASH_ANIM.HOLD_TIME) / DASH_ANIM.OUT_TIME
+                alpha = 1 - x * x                                     -- ease-in
+            end
+            dashApplyPose(joints, base, pose, alpha)
+            RunService.RenderStepped:Wait()
+        end
+
+        if DashAnimState.Token == token then
+            dashRestore()
+            for _, tr in ipairs(dimmed) do
+                pcall(function() if tr.IsPlaying then tr:AdjustWeight(1, 0.1) end end)
+            end
+        end
+    end)
+end
+-- ========== FIM DAS ANIMAÇÕES DO DASH ==========
+
 local function ExecDash()
     if State.IsSandiActive then return end
     if State.Energy < Constants.ENERGY_COSTS.DASH or os.clock() < State.Cooldowns.DASH then return end
@@ -5334,6 +5632,11 @@ local function ExecDash()
     end
     
     local bv = Create("BodyVelocity", {MaxForce = Vector3.new(1e6, 1e6, 1e6), Velocity = direction * Constants.DASH_FORCE, Parent = HRP})
+
+    -- Animação do dash (frente / trás / ar)
+    local isAirDash = Humanoid.FloorMaterial == Enum.Material.Air
+    PlayDashAnim(isAirDash and "Air" or (isBackDash and "Back" or "Front"), direction)
+
     local collisionConn
     collisionConn = HRP.Touched:Connect(function(hit)
         local hitParent = hit.Parent

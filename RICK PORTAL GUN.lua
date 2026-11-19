@@ -7230,6 +7230,20 @@ State._buildFollowMorty = function(character, Z, newGui)
 			{ "Uau, daqui de cima dá pra ver tudo!", "animado", 1 },
 			{ "Segura firme, {nome}!", "nervoso", 1 },
 		},
+		pulando = {
+			{ "Ah geez, lá vou eu!", "nervoso", 1 },
+			{ "Segura, {nome}! Eu vou pular!", "grito", 1 },
+			{ "Geronimooo!", "animado", 1 },
+		},
+		pendurado = {
+			{ "Ei! Me segura direito, {nome}!", "grito", 1 },
+			{ "Ah geez, não me balança!", "nervoso", 1 },
+		},
+		solto = {
+			{ "AAAH! Você me soltou?!", "grito", 2 },
+			{ "Isso não foi legal, {nome}!", "nervoso", 1 },
+			{ "Ai! Eu tô bem... eu acho.", "nervoso", 1 },
+		},
 		descendo = {
 			{ "Calma, calma, {nome}, devagar!", "nervoso", 1 },
 			{ "Ah geez, cuidado com a cabeça!", "nervoso", 1 },
@@ -7257,7 +7271,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 			{ "Isso vai dar muito errado... *segura firme*", "nervoso", 1 },
 		},
 	}
-	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, descendo = 1, desceu = 1, sentou = 1, dormiu = 1, acordou = 1, resgate1 = 1, resgate2 = 1, resgate3 = 1, resgatePegou = 1, devolve = 1 }
+	PG.CHANCE = { ir = 1, pegou = 1, pegouPesado = 1, largou = 1, largouPesado = 1, perdeu = 1, falhou = 1, portal = 0.7, portalCarga = 1, costas = 1, pulando = 1, pendurado = 1, solto = 1, descendo = 1, desceu = 1, sentou = 1, dormiu = 1, acordou = 1, resgate1 = 1, resgate2 = 1, resgate3 = 1, resgatePegou = 1, devolve = 1 }
 	PG.MF = nil
 	pcall(function()
 		if Z.fala and Z.fala.criar then
@@ -7791,7 +7805,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		if menuRefs.rideTitle then
 			if ctl.piggy and ctl.piggy.ph == "down" then
 				menuRefs.rideTitle.Text = "Descendo..."
-				menuRefs.rideDesc.Text = "Colocando o Morty no chão"
+				menuRefs.rideDesc.Text = "Segurando o Morty"
 			elseif ctl.piggy then
 				menuRefs.rideTitle.Text = "Descer"
 				menuRefs.rideDesc.Text = "Ele está nas suas costas"
@@ -8141,8 +8155,8 @@ State._buildFollowMorty = function(character, Z, newGui)
 		end
 	end
 
-	PB.PICK = 2.1
-	PB.DOWN = 2.0   -- v76: duracao da animacao de descer o Morty das costas
+	PB.PICK = 1.9   -- v101: pulo nas costas
+	PB.DOWN = 2.3   -- v101: Rick pega pela gola, ergue e solta o Morty
 	PB.L = { J = nil, AJ = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, ap = {} }
 
 	function PB.torso()
@@ -8198,6 +8212,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 			fl = swap and { V3(-0.7, 0, 0), V3(0.7, 0, 0) } or { V3(0.7, 0, 0), V3(-0.7, 0, 0) },
 		}
 		PB.lock()
+		PG.diz("pulando")
 		for _, d in ipairs(rig:GetDescendants()) do
 			if d:IsA("BasePart") then
 				d.CanCollide, d.CanTouch, d.CanQuery, d.Massless = false, false, false, true
@@ -8217,7 +8232,7 @@ State._buildFollowMorty = function(character, Z, newGui)
 		pg.land = V3(sp.X, gy + 3 * S, sp.Z)
 		pg.fl = { V3(0.7, 0, 0), V3(-0.7, 0, 0) }
 		PB.lock()
-		PG.diz("descendo")
+		PG.diz("pendurado")
 	end
 	function PB.stop(instant)
 		local pg0 = ctl.piggy
@@ -8278,44 +8293,90 @@ State._buildFollowMorty = function(character, Z, newGui)
 		local k = { sp = 0.85, lz = 1.3, u = u }
 		local rcf, a, b
 		if pg.ph == "pick" then
-			local pu = sg(u, 0.22, 0.82)
+			-- v101 PEGAR: Morty se agacha, toma impulso, SALTA girando no ar e cai nas costas do Rick (que cambaleia com o impacto)
 			local P0, P2 = pg.from.Position, ride.Position
-			local mid = sh.Position + sh.UpVector * 2.3 + sh.RightVector * 0.9
-			local pos = bez(P0, mid * 2 - (P0 + P2) * 0.5, P2, pu)
-			local rot = pg.from.Rotation:Lerp(ride.Rotation, sg(u, 0.3, 0.88))
-			rcf = CF(pos) * rot * ANG(0, 0, -0.6 * math.sin(math.pi * pu))
-			local env = sg(u, 0.25, 0.4) * (1 - sg(u, 0.8, 0.95))
-			k.sp = 0.85 * sg(u, 0.4, 0.95)
-			k.lz = 0.35 + 0.95 * sg(u, 0.3, 1) + 0.35 * math.sin(now * 16) * env
-			local bl = sg(u, 0.72, 1)
-			local wob = V3(0, 0.3 * math.sin(now * 12) * env, 0)
-			a = shPt(1):Lerp(headPt(1), bl) + wob
-			b = shPt(-1):Lerp(headPt(-1), bl) + wob
-			local hb = sg(u, 0.68, 0.95)
-			k.pr = (rcf * pg.fl[1]):Lerp(ride * V3(0.78, -0.72, -0.25), hb)
-			k.pl = (rcf * pg.fl[2]):Lerp(ride * V3(-0.78, -0.72, -0.25), hb)
-		elseif pg.ph == "down" then
-			-- Rick se inclina, segura o Morty pelas pernas e o desce pelo lado direito ate o chao
-			local land = pg.land
-			local pu = sg(u, 0.18, 0.86)
-			local P0 = ride.Position
-			local mid = (P0 + land) * 0.5 + V3(0, 0.9, 0) + sh.RightVector * 0.6
-			local pos = bez(P0, mid * 2 - (P0 + land) * 0.5, land, pu)
-			pos = pos + V3(0, 0.28 * S * math.sin(math.pi * sg(u, 0.9, 1)), 0)
-			local rl = rootPart.CFrame.LookVector
-			local rot = rotOnly(ride):Lerp(ANG(0, math.atan2(-rl.X, -rl.Z), 0), sg(u, 0.3, 0.92))
-			rcf = CF(pos) * rot * ANG(0, 0, -0.45 * math.sin(math.pi * pu))
-			local env = sg(u, 0, 0.22) * (1 - sg(u, 0.72, 0.95))
-			k.sp = 0.85 * (1 - sg(u, 0.35, 0.9))
-			k.lz = 1.3 - 0.95 * sg(u, 0.3, 0.95) + 0.25 * math.sin(now * 14) * env
-			local rel = sg(u, 0.55, 0.9)
-			local function mh(s)
-				return headPt(s):Lerp(shPt(s), sg(u, 0, 0.3)):Lerp(sh * V3(s * 1.5, 0.1, 0.6), rel)
+			local crouch = sg(u, 0, 0.2) * (1 - sg(u, 0.2, 0.26))
+			local e = math.clamp((u - 0.24) / 0.54, 0, 1)
+			local air = sg(u, 0.24, 0.3) * (1 - sg(u, 0.72, 0.78))
+			local land = sg(u, 0.76, 0.82) * (1 - sg(u, 0.82, 1))
+			local base = P0 + V3(0, -0.45 * S * crouch, 0)
+			local half = (base + P2) * 0.5
+			local apex = half + V3(0, 2.8, 0) + sh.RightVector * 0.8
+			local pos = bez(base, apex * 2 - half, P2, e) - V3(0, 0.3 * S * land, 0)
+			local rot = pg.from.Rotation:Lerp(ride.Rotation, sg(e, 0.1, 0.9))
+			local wob = 0.1 * math.sin((u - 0.76) * 36) * (1 - sg(u, 0.76, 1)) * (u > 0.76 and 1 or 0)
+			rcf = CF(pos) * rot * ANG(0, 2 * math.pi * sg(e, 0.04, 0.86), 0) * ANG(-0.45 * math.sin(math.pi * e), 0, wob)
+			k.sp = 0.85 * sg(u, 0.62, 0.8)
+			k.lz = 0.8 * crouch + 1.3 * sg(u, 0.26, 0.78) + 0.18 * math.sin(now * 18) * air - 0.12 * land
+			local function wind(s)
+				return rcf * V3(s * 0.9, -0.15, 0.9)
 			end
-			a, b = mh(1), mh(-1)
-			local hb = 1 - sg(u, 0.12, 0.6)
-			k.pr = (rcf * pg.fl[1]):Lerp(ride * V3(0.78, -0.72, -0.25), hb)
-			k.pl = (rcf * pg.fl[2]):Lerp(ride * V3(-0.78, -0.72, -0.25), hb)
+			local reach = sg(u, 0.24, 0.5)
+			local bl = sg(u, 0.68, 0.84)
+			a = wind(1):Lerp(shPt(1) + V3(0, 0.6, 0), reach):Lerp(headPt(1), bl)
+			b = wind(-1):Lerp(shPt(-1) + V3(0, 0.6, 0), reach):Lerp(headPt(-1), bl)
+			-- Rick leva as maos pra baixo das pernas do Morty antes do pulo e so amortece o impacto
+			-- (maos ja em posicao de apoio)
+			k.pr = (sh * V3(1.3, -0.9, 0.1)):Lerp(ride * V3(0.78, -0.72, -0.25), sg(u, 0.05, 0.45))
+			k.pl = (sh * V3(-1.3, -0.9, 0.1)):Lerp(ride * V3(-0.78, -0.72, -0.25), sg(u, 0.05, 0.45))
+		elseif pg.ph == "down" then
+			-- v102 SOLTAR: Rick segura o Morty com as duas maos, ergue pra frente-direita, ele fica pendurado esperneando e Rick SOLTA;
+			-- ele cai, amassa no chao e cambaleia
+			local land = pg.land
+			local rl = rootPart.CFrame.LookVector
+			local face = ANG(0, math.atan2(-rl.X, -rl.Z), 0)
+			local outW = sh * V3(1.0, 0.1, -1.6)
+			local hangPos = outW
+			local P0 = ride.Position
+			local lift = sg(u, 0.22, 0.5)
+			local hang = sg(u, 0.4, 0.5) * (1 - sg(u, 0.62, 0.66))
+			local pos = bez(P0, (P0 + hangPos) * 0.5 + V3(0, 1.4, 0), hangPos, lift)
+			pos = pos + sh.RightVector * 0.18 * math.sin(now * 9) * hang
+			local d = math.clamp((u - 0.64) / 0.13, 0, 1)
+			if d > 0 then
+				pos = V3(
+					hangPos.X + (land.X - hangPos.X) * d,
+					hangPos.Y + (land.Y - hangPos.Y) * d * d,
+					hangPos.Z + (land.Z - hangPos.Z) * d
+				)
+			end
+			if u >= 0.64 and not pg.dropSaid then
+				pg.dropSaid = true
+				PG.diz("solto")
+			end
+			local sS = math.clamp((u - 0.77) / 0.23, 0, 1)
+			local sq = sg(u, 0.77, 0.83) * (1 - sg(u, 0.83, 0.95))
+			local fwd = V3(rl.X, 0, rl.Z)
+			fwd = fwd.Magnitude > 0.01 and fwd.Unit or V3(0, 0, -1)
+			pos = pos - V3(0, 0.4 * S * sq, 0) + fwd * 0.5 * math.sin(math.pi * sS)
+			local rot = rotOnly(ride):Lerp(face, sg(u, 0.1, 0.45))
+			local roll = 0.38 * math.sin(now * 9) * hang + 0.5 * math.sin(math.pi * d)
+			rcf = CF(pos) * rot * ANG(-0.4 * math.sin(math.pi * sS), 0, roll)
+			-- pernas: desenrolam da cintura, ficam balancando pendurado e amassam no pouso
+			local dang = sg(u, 0.22, 0.4) * (1 - sg(u, 0.77, 0.82))
+			k.sp = 0.85 * (1 - sg(u, 0.05, 0.3)) + 0.3 * math.sin(now * 10) * dang
+			k.lz = 1.3 * (1 - sg(u, 0.05, 0.3)) + (0.35 + 0.3 * math.sin(now * 12)) * dang + 0.8 * sq
+			-- bracos do Morty: soltam o pescoco e balancam no ar
+			local function flap(s)
+				return rcf * V3(s * 1.0, 0.7 + 0.8 * math.sin(now * 12 + s * 1.7), -0.2)
+			end
+			local function rest(s)
+				return rcf * V3(s * 0.9, -0.7, 0.1)
+			end
+			a = headPt(1):Lerp(flap(1), sg(u, 0.04, 0.26)):Lerp(rest(1), sg(u, 0.85, 1))
+			b = headPt(-1):Lerp(flap(-1), sg(u, 0.04, 0.26)):Lerp(rest(-1), sg(u, 0.85, 1))
+			-- Rick: segura o Morty com as duas maos embaixo dos bracos, ergue pra frente e solta
+			local function grip(s)
+				return rcf * V3(s * 0.75, 0.8 * S, 0.05)
+			end
+			local legR = ride * V3(0.78, -0.72, -0.25)
+			local legL = ride * V3(-0.78, -0.72, -0.25)
+			local prA = legR:Lerp(grip(1), sg(u, 0, 0.25))
+			local plA = legL:Lerp(grip(-1), sg(u, 0, 0.25))
+			local prB = grip(1):Lerp(sh * V3(1.1, -0.7, -0.5), sg(u, 0.64, 0.86))
+			local plB = grip(-1):Lerp(sh * V3(-1.1, -0.7, -0.5), sg(u, 0.64, 0.86))
+			k.pr = prA:Lerp(prB, sg(u, 0.62, 0.66))
+			k.pl = plA:Lerp(plB, sg(u, 0.62, 0.66))
 		else
 			rcf = ride * ANG(0, 0, math.sin(now * 1.7) * 0.03)
 			k.lz = 1.3 + 0.04 * math.sin(now * 2.2)
@@ -8346,13 +8407,17 @@ State._buildFollowMorty = function(character, Z, newGui)
 		local w = 1
 		if pg.ph == "pick" then
 			w = sg(u, 0, 0.2)
-			local env = sg(u, 0, 0.2) * (1 - sg(u, 0.55, 0.85))
-			tgt.waist = V3(-32 * env, 0, 0)
-			tgt.neck = V3(22 * env, 0, 0)
+			-- v101: Rick se prepara (leve agachada) e leva um tranco forte quando o Morty aterrissa nas costas
+			local ready = sg(u, 0, 0.15) * (1 - sg(u, 0.3, 0.6))
+			local land = sg(u, 0.76, 0.82) * (1 - sg(u, 0.82, 1))
+			tgt.waist = V3(-5 * ready - 13 * land, 0, 0)
+			tgt.neck = V3(3 * ready + 9 * land, 0, 0)
 		elseif pg.ph == "down" then
-			local env = sg(u, 0, 0.22) * (1 - sg(u, 0.72, 0.95))
-			tgt.waist = V3(-30 * env, 0, 0)
-			tgt.neck = V3(20 * env, 0, 0)
+			-- v101: Rick se inclina olhando o Morty pendurado e relaxa depois de solta-lo
+			local env = sg(u, 0, 0.2) * (1 - sg(u, 0.66, 0.9))
+			w = 1 - sg(u, 0.92, 1)
+			tgt.waist = V3(-9 * env, 0, 0)
+			tgt.neck = V3(7 * env, 0, 0)
 		end
 		arms.R = { pos = k.pr, w = w }
 		arms.L = { pos = k.pl, w = w }
@@ -16729,6 +16794,671 @@ local function setupRickGun(character)
 			end
 		end
 
+		-- ===== v104: CIDADE SUBURBANA em volta da garagem (estilo Rick and Morty) =====
+		-- Ruas em grade, casas detalhadas, casa dos Smith, Blips & Chitz, escola, posto, parque,
+		-- centro da cidade ao fundo, colinas e transito. Retorna a funcao de animacao (carros andando).
+		-- Eixos locais: x = direita da garagem, f = pra frente (rumo a rua principal), y = altura.
+		-- Tudo e montado numa escala base (avatar de ~5 studs) e depois ajustado ao tamanho do SEU avatar (ScaleTo).
+		-- Se as empenas (triangulos nas laterais dos telhados) aparecerem invertidas, troque WEDGE_TALL_Z para -1.
+		function Dim.buildSuburb(model, O, r, env)
+			local WEDGE_TALL_Z = 1
+			local abs, max, min, sqrt, pi = math.abs, math.max, math.min, math.sqrt, math.pi
+			local atan2 = math.atan2 or function(y, x) return math.atan(y / x) end
+			local V3, CF, ANG = Vector3.new, CFrame.new, CFrame.Angles
+			local envCF = env.cf
+			local parent = model
+			model = Instance.new("Model")
+			model.Name = "Cidade"
+			pcall(function() model.WorldPivot = CFrame.new(O) end)
+
+			local S = 1
+			pcall(function()
+				local ch = player.Character
+				if ch then S = math.clamp(ch:GetExtentsSize().Y / 5.4, 0.9, 1.25) end
+			end)
+			local depthF, widthF = env.depthF / S, env.widthF / S
+			local LIM = 930 / S
+
+			local function rnd(a, b) return r:NextNumber(a, b) end
+			local function ri(a, b) return r:NextInteger(a, b) end
+			local function chance(p) return r:NextNumber() < p end
+
+			local made = 0
+			local function step()
+				made = made + 1
+				if made % 240 == 0 then task.wait() end
+			end
+			local function P(x, y, f) return envCF * CF(x, y, -f) end
+			local function box(size, x, y, f, color, mat, o, rx, ry)
+				step()
+				local cf = P(x, y, f)
+				if rx or ry then cf = cf * ANG(rx or 0, ry or 0, 0) end
+				return mk(model, size, cf, color, mat, o)
+			end
+			-- cilindro em pe (eixo vertical)
+			local function pillar(h, d, x, y, f, color, mat, o)
+				step()
+				o = o or {}
+				o.cyl = true
+				return mk(model, V3(h, d, d), P(x, y, f) * ANG(0, 0, pi / 2), color, mat, o)
+			end
+			local function blob(x, y, f, sx, sy, sz, color, mat)
+				step()
+				return mk(model, V3(sx, sy, sz), P(x, y, f), color, mat or M.Grass, { ellipsoid = true, shadow = false })
+			end
+			-- triangulo (empena). Base reta no eixo Z local, ponta alta em +Z (padrao do WedgePart).
+			local function wedge(size, x, y, f, color, mat, extraYaw)
+				step()
+				local p = Instance.new("WedgePart")
+				p.Anchored = true
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.CastShadow = false
+				p.Size = size
+				local yaw = (extraYaw or 0) + ((WEDGE_TALL_Z == 1) and 0 or pi)
+				p.CFrame = P(x, y, f) * ANG(0, yaw, 0)
+				p.Color = color
+				p.Material = mat or M.SmoothPlastic
+				p.Parent = model
+				return p
+			end
+
+			local function wedgeAt(par, size, cf, color, mat, o)
+				step()
+				o = o or {}
+				local p = Instance.new("WedgePart")
+				p.Anchored = true
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.CastShadow = false
+				p.Size = size
+				p.CFrame = cf * ANG(0, (WEDGE_TALL_Z == 1) and 0 or pi, 0)
+				p.Color = color
+				p.Material = mat or M.SmoothPlastic
+				p.Transparency = o.trans or 0
+				p.Reflectance = o.refl or 0
+				p.Parent = par
+				return p
+			end
+
+			local ASPH, WALK, YEL, WHITE = C(54, 54, 58), C(172, 172, 168), C(236, 196, 56), C(240, 240, 236)
+			local RW, SW = 14, 7
+			local setback = 16
+			local half = max(widthF / 2 + 55, 100)
+			local f0 = depthF / 2 + 59
+			local fb = -(depthF / 2 + 75)
+			local B = max(150, min(190, (LIM - f0 - 440) / 2))
+			local FS = { fb - B, fb, f0, f0 + B, f0 + 2 * B }
+			local XS = { -(half + B), -half, half, half + B }
+			local XE = half + B + 170
+			local FA, FZ = FS[1] - 110, FS[#FS] + 110
+
+			local function crossZoneX(x, hw)
+				for _, xs in ipairs(XS) do
+					if abs(x - xs) < RW + SW + hw + 2 then return true end
+				end
+				return false
+			end
+
+			-- ===== ruas e calcadas =====
+			for _, fs in ipairs(FS) do
+				box(V3(XE * 2, 0.2, RW * 2), 0, 0.1, fs, ASPH, M.Asphalt)
+			end
+			for _, xs in ipairs(XS) do
+				box(V3(RW * 2, 0.22, FZ - FA), xs, 0.11, (FA + FZ) / 2, ASPH, M.Asphalt)
+			end
+			local function spans(list, lo, hi)
+				local out, a = {}, lo
+				for _, v in ipairs(list) do
+					local b = v - RW
+					if b - a > 6 then out[#out + 1] = { a, b } end
+					a = v + RW
+				end
+				if hi - a > 6 then out[#out + 1] = { a, hi } end
+				return out
+			end
+			local xSpans, fSpans = spans(XS, -XE, XE), spans(FS, FA, FZ)
+			for _, fs in ipairs(FS) do
+				for _, sp in ipairs(xSpans) do
+					local len, cx = sp[2] - sp[1], (sp[1] + sp[2]) / 2
+					box(V3(len, 0.3, SW), cx, 0.15, fs + RW + SW / 2, WALK, M.Concrete, { shadow = false })
+					box(V3(len, 0.3, SW), cx, 0.15, fs - RW - SW / 2, WALK, M.Concrete, { shadow = false })
+					box(V3(len - 6, 0.04, 0.5), cx, 0.22, fs, YEL, M.SmoothPlastic, { shadow = false })
+				end
+			end
+			for _, xs in ipairs(XS) do
+				for _, sp in ipairs(fSpans) do
+					local len, cz = sp[2] - sp[1], (sp[1] + sp[2]) / 2
+					box(V3(SW, 0.3, len), xs + RW + SW / 2, 0.15, cz, WALK, M.Concrete, { shadow = false })
+					box(V3(SW, 0.3, len), xs - RW - SW / 2, 0.15, cz, WALK, M.Concrete, { shadow = false })
+					box(V3(0.5, 0.04, len - 6), xs, 0.24, cz, YEL, M.SmoothPlastic, { shadow = false })
+				end
+			end
+			-- faixas de pedestre atravessando a rua principal
+			for _, xs in ipairs({ -half, half }) do
+				for _, sd in ipairs({ -1, 1 }) do
+					for k = 0, 5 do
+						box(V3(1.1, 0.03, RW * 2 - 3), xs + sd * (RW + 3 + k * 2.1), 0.215, f0, WHITE, M.SmoothPlastic, { shadow = false })
+					end
+				end
+			end
+
+			-- ===== reservas =====
+			local reserved = { { -(widthF / 2 + 10), widthF / 2 + 10, -depthF / 2 - 14, depthF / 2 + 50 } }
+			local function reserve(x, f, w, d)
+				reserved[#reserved + 1] = { x - w / 2 - 3, x + w / 2 + 3, f - d / 2 - 3, f + d / 2 + 3 }
+			end
+			local function isReserved(x, f, w, d)
+				for _, z in ipairs(reserved) do
+					if x + w / 2 > z[1] and x - w / 2 < z[2] and f + d / 2 > z[3] and f - d / 2 < z[4] then return true end
+				end
+				return false
+			end
+
+			-- ===== arvores =====
+			local function tree(x, f, sc)
+				sc = sc or rnd(0.9, 1.4)
+				local kind = ri(1, 4)
+				if kind == 4 then
+					local th = 4 * sc
+					pillar(th, 1.3 * sc, x, th / 2, f, C(92, 64, 40), M.Wood, { solid = true, shadow = false })
+					local g = C(40, 104, 58)
+					blob(x, th + 4.5 * sc, f, 9.5 * sc, 8 * sc, 9.5 * sc, g)
+					blob(x, th + 8.8 * sc, f, 7.2 * sc, 7 * sc, 7.2 * sc, g:Lerp(C(60, 130, 70), 0.3))
+					blob(x, th + 12.4 * sc, f, 4.6 * sc, 6.4 * sc, 4.6 * sc, g)
+				else
+					local th = rnd(6, 8) * sc
+					pillar(th, 1.7 * sc, x, th / 2, f, (kind == 3) and C(225, 222, 210) or C(100, 70, 42), M.Wood, { solid = true, shadow = false })
+					local g = (kind == 2) and C(84, 150, 62) or C(62, 132, 58)
+					local g2 = g:Lerp(C(40, 110, 50), 0.35)
+					local cd = 10.5 * sc
+					blob(x, th + cd * 0.35, f, cd, cd * 0.8, cd, g)
+					blob(x + rnd(-2, 2) * sc, th + cd * 0.72, f + rnd(-2, 2) * sc, cd * 0.75, cd * 0.7, cd * 0.75, g2)
+					blob(x + rnd(-3, 3) * sc, th + cd * 0.3, f + rnd(-3, 3) * sc, cd * 0.7, cd * 0.6, cd * 0.7, g)
+				end
+			end
+
+			local function signGui(part, face, text, tcol, bg)
+				pcall(function()
+					local g = Instance.new("SurfaceGui")
+					g.Face = face
+					g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+					g.PixelsPerStud = 36
+					local tl = Instance.new("TextLabel")
+					tl.Size = UDim2.fromScale(1, 1)
+					tl.BackgroundColor3 = bg
+					tl.BorderSizePixel = 0
+					tl.Text = text
+					tl.TextColor3 = tcol
+					tl.Font = Enum.Font.GothamBlack
+					tl.TextScaled = true
+					tl.Parent = g
+					g.Parent = part
+				end)
+			end
+
+			-- ===== casas =====
+			local WALLS = { C(226, 200, 156), C(196, 214, 224), C(238, 234, 224), C(228, 218, 130), C(172, 192, 170), C(176, 92, 78), C(216, 172, 152) }
+			local BRICK = WALLS[6]
+			local ROOFS = { C(78, 62, 58), C(60, 66, 74), C(104, 64, 52), C(52, 70, 60) }
+			local DOORS = { C(150, 40, 40), C(40, 80, 130), C(60, 110, 70), C(230, 190, 60) }
+			local GLASS = C(150, 200, 225)
+			local FOUND = C(150, 150, 146)
+
+			local function win(x, y, fz, s, ww, wh)
+				box(V3(ww + 0.9, wh + 0.9, 0.3), x, y, fz, WHITE, M.SmoothPlastic, { shadow = false })
+				box(V3(ww, wh, 0.4), x, y, fz + s * 0.12, GLASS, M.Glass, { trans = 0.2, refl = 0.1, shadow = false })
+				box(V3(ww, 0.25, 0.5), x, y, fz + s * 0.2, WHITE, M.SmoothPlastic, { shadow = false })
+				box(V3(0.25, wh, 0.5), x, y, fz + s * 0.2, WHITE, M.SmoothPlastic, { shadow = false })
+			end
+
+			-- s = +1: fachada virada pra +f ; s = -1: fachada virada pra -f
+			local function house(x, f, s, o)
+				o = o or {}
+				local w = o.w or rnd(26, 33)
+				local dep = o.dep or rnd(20, 25)
+				local fl = o.floors or (chance(0.45) and 2 or 1)
+				local FH = 9.5
+				local h = fl * FH
+				local wall = o.wall or WALLS[ri(1, #WALLS)]
+				local roof = o.roof or ROOFS[ri(1, #ROOFS)]
+				local mat = (wall == BRICK) and M.Brick or M.SmoothPlastic
+				local rich = not o.far
+				box(V3(w + 0.5, 1.2, dep + 0.5), x, 0.6, f, FOUND, M.Concrete, { shadow = false })
+				box(V3(w, h, dep), x, h / 2, f, wall, mat, { solid = true, shadow = false })
+				if fl == 2 then
+					box(V3(w + 0.5, 0.5, dep + 0.5), x, FH, f, WHITE, M.SmoothPlastic, { shadow = false })
+				end
+
+				-- telhado de duas aguas + empenas triangulares de verdade
+				local rise = 7
+				local run = dep / 2 + 1.4
+				local ang = atan2(rise + 0.4, run)
+				local L = sqrt(run * run + (rise + 0.4) * (rise + 0.4))
+				local yc = h + (rise - 0.4) / 2
+				for _, sg in ipairs({ 1, -1 }) do
+					box(V3(w + 2.4, 0.8, L), x, yc, f + sg * run / 2, roof, M.Slate, { shadow = false }, -sg * ang)
+				end
+				box(V3(w + 2.4, 0.7, 1.5), x, h + rise + 0.5, f, roof, M.Slate, { shadow = false })
+				for _, ex in ipairs({ -1, 1 }) do
+					local ex_x = x + ex * (w / 2 - 0.25)
+					wedge(V3(0.5, rise, dep / 2), ex_x, h + rise / 2, f + dep / 4, wall, mat, 0)
+					wedge(V3(0.5, rise, dep / 2), ex_x, h + rise / 2, f - dep / 4, wall, mat, pi)
+				end
+				if rich and chance(0.55) then
+					box(V3(2.6, 8, 2.6), x + w * 0.3, h + 4.2, f - dep * 0.18, BRICK, M.Brick, { shadow = false })
+					box(V3(3.2, 0.5, 3.2), x + w * 0.3, h + 8.3, f - dep * 0.18, C(90, 88, 90), M.Concrete, { shadow = false })
+				end
+
+				-- fachada
+				local fz = f + s * (dep / 2 + 0.15)
+				local dsd = o.doorSide or (chance(0.5) and 1 or -1)
+				local dx = x + dsd * w * 0.12
+				box(V3(4.2, 7.6, 0.4), dx, 3.8, fz, WHITE, M.SmoothPlastic, { shadow = false })
+				box(V3(3.4, 7, 0.5), dx, 3.5, fz + s * 0.1, o.door or DOORS[ri(1, #DOORS)], M.SmoothPlastic, { shadow = false })
+				if rich then box(V3(0.4, 0.4, 0.3), dx + dsd * 1.1, 3.6, fz + s * 0.45, C(230, 190, 60), M.Metal, { shadow = false }) end
+				local gx = x - dsd * w * 0.3
+				box(V3(8.6, 6.8, 0.4), gx, 3.4, fz, C(238, 238, 232), M.SmoothPlastic, { shadow = false })
+				if rich then
+					for _, gy in ipairs({ 1.7, 3.4, 5.1 }) do
+						box(V3(8.6, 0.15, 0.5), gx, gy, fz + s * 0.08, C(200, 200, 196), M.SmoothPlastic, { shadow = false })
+					end
+				end
+				win(x + dsd * w * 0.36, 5.2, fz, s, 4.4, 3.8)
+				if fl == 2 then
+					for _, wx in ipairs({ -0.3, 0, 0.3 }) do
+						win(x + wx * w, FH + 4.6, fz, s, 4.4, 3.8)
+					end
+				end
+				if rich then
+					-- varanda coberta
+					box(V3(7.6, 0.3, 5.4), dx, 0.15, fz + s * 2.7, C(190, 186, 176), M.Concrete, { shadow = false })
+					box(V3(8, 0.5, 5.6), dx, 8.4, fz + s * 2.8, roof, M.Slate, { shadow = false })
+					for _, cx in ipairs({ -3.3, 3.3 }) do
+						box(V3(0.6, 8, 0.6), dx + cx, 4.2, fz + s * 5.1, WHITE, M.SmoothPlastic, { shadow = false })
+					end
+					-- calcada ate a rua + garagem
+					box(V3(3.4, 0.1, setback - 5), dx, 0.05, fz + s * (5.4 + (setback - 5) / 2), WALK, M.Concrete, { shadow = false })
+					-- arbustos
+					for _, bx in ipairs({ -1, 1 }) do
+						blob(x + bx * (w / 2 - 2), 1.4, fz + s * 2, 4, 2.8, 3.4, C(58, 118, 52))
+					end
+					-- caixa de correio
+					local mf = f + s * (dep / 2 + setback - 1.5)
+					box(V3(0.3, 3, 0.3), dx + dsd * 4, 1.5, mf, C(90, 90, 96), M.Metal, { shadow = false })
+					box(V3(1.3, 1.1, 2.1), dx + dsd * 4, 3.4, mf, C(50, 90, 170), M.Metal, { shadow = false })
+					if chance(0.6) then tree(x + dsd * w * 0.4, f + s * (dep / 2 + 9)) end
+				end
+				-- entrada de carros
+				box(V3(8.6, 0.12, setback + 1), gx, 0.06, f + s * (dep / 2 + (setback + 1) / 2), WALK, M.Concrete, { shadow = false })
+				if chance(rich and 0.55 or 0.3) then
+					tree(x + rnd(-8, 8), f - s * (dep / 2 + rnd(10, 18)))
+				end
+			end
+
+			-- ===== marcos da serie =====
+			local function shop(x, f, s, w, dep, h, col, name, tcol, bg, roofCol)
+				box(V3(w, h, dep), x, h / 2, f, col, M.SmoothPlastic, { solid = true, shadow = false })
+				box(V3(w + 1.6, 1.2, dep + 1.6), x, h + 0.6, f, roofCol or C(74, 74, 80), M.Concrete, { shadow = false })
+				local fz = f + s * (dep / 2 + 0.2)
+				box(V3(w * 0.78, h * 0.42, 0.4), x, h * 0.34, fz, C(120, 176, 205), M.Glass, { trans = 0.3, refl = 0.1, shadow = false })
+				box(V3(4.4, 7, 0.5), x, 3.5, fz + s * 0.1, C(50, 50, 56), M.SmoothPlastic, { shadow = false })
+				local sp = box(V3(w * 0.8, h * 0.28, 0.6), x, h * 0.82, fz + s * 0.2, bg, M.SmoothPlastic, { shadow = false })
+				signGui(sp, (s == 1) and Enum.NormalId.Front or Enum.NormalId.Back, name, tcol, bg)
+			end
+
+			-- casa dos Smith, ao lado da garagem
+			local smx, smf = widthF / 2 + 36, f0 - RW - SW - setback - 14
+			house(smx, smf, 1, { w = 36, dep = 27, floors = 2, wall = C(232, 206, 140), roof = C(84, 70, 66), door = C(160, 40, 40), doorSide = 1 })
+			reserve(smx, smf, 36, 27)
+			do
+				local mf = smf + 13.5 + setback - 1.5
+				local sp = box(V3(5, 1.6, 0.4), smx + 8, 3.6, mf, C(250, 250, 245), M.SmoothPlastic, { shadow = false })
+				signGui(sp, Enum.NormalId.Front, "SMITH", C(40, 40, 50), C(250, 250, 245))
+				box(V3(0.4, 3.4, 0.4), smx + 8, 1.7, mf - 0.2, C(90, 90, 96), M.Metal, { shadow = false })
+			end
+
+			-- Blips & Chitz (fliperama)
+			do
+				local bx, bf = half + B / 2, f0 + RW + SW + 10 + 17
+				shop(bx, bf, -1, 64, 34, 15, C(120, 70, 170), "BLIPS & CHITZ", C(255, 235, 120), C(30, 20, 60))
+				reserve(bx, bf, 64, 34)
+			end
+
+			-- Escola Harry Herpson
+			do
+				local scx, scf = -(half + B / 2), f0 + B + RW + SW + 10 + 20
+				shop(scx, scf, -1, 110, 40, 20, C(176, 92, 78), "HARRY HERPSON HIGH", C(255, 255, 255), C(30, 60, 120), C(90, 60, 54))
+				reserve(scx, scf, 110, 40)
+				pillar(24, 0.5, scx + 40, 12, scf - 21.5, C(200, 200, 205), M.Metal, { shadow = false })
+				box(V3(5, 3, 0.2), scx + 42.5, 22, scf - 21.5, C(200, 40, 50), M.Fabric, { shadow = false })
+				box(V3(70, 0.08, 40), scx, 0.04, scf + 48, C(96, 168, 76), M.Grass, { shadow = false })
+				for _, ln in ipairs({ { 70, 0.5, 0, -20 }, { 70, 0.5, 0, 20 }, { 0.5, 40, -35, 0 }, { 0.5, 40, 35, 0 }, { 0.5, 40, 0, 0 } }) do
+					box(V3(ln[1], 0.06, ln[2]), scx + ln[3], 0.1, scf + 48 + ln[4], C(245, 245, 245), M.SmoothPlastic, { shadow = false })
+				end
+			end
+
+			-- Posto de gasolina
+			do
+				local gx, gf = -(half + B / 2), f0 - RW - SW - setback - 10
+				shop(gx, gf, 1, 26, 20, 9, C(235, 235, 225), "GAZ-N-GO", C(255, 255, 255), C(200, 40, 40))
+				reserve(gx, gf, 40, 20)
+				box(V3(36, 0.8, 11), gx, 11, gf + 16, C(210, 40, 40), M.SmoothPlastic, { shadow = false })
+				for _, px in ipairs({ -15, 15 }) do
+					pillar(11, 0.9, gx + px, 5.5, gf + 16, C(220, 220, 220), M.Metal, { shadow = false })
+				end
+				for _, px in ipairs({ -6, 6 }) do
+					box(V3(1.8, 4.4, 1.3), gx + px, 2.2, gf + 16, C(235, 235, 235), M.SmoothPlastic, { shadow = false })
+				end
+			end
+
+			-- Parque
+			do
+				local pkx, pkf = half + B / 2, f0 + B + B / 2
+				reserve(pkx, pkf, B - 60, B - 60)
+				step()
+				mk(model, V3(0.3, 50, 36), P(pkx + 25, 0.18, pkf) * ANG(0, 0, pi / 2), C(70, 140, 190), M.Glass, { cyl = true, trans = 0.25, shadow = false })
+				box(V3(6, 0.15, B - 70), pkx - 30, 0.08, pkf, WALK, M.Concrete, { shadow = false })
+				box(V3(B - 70, 0.15, 6), pkx, 0.08, pkf - 20, WALK, M.Concrete, { shadow = false })
+				for _, bp in ipairs({ { -24, -12 }, { -36, 14 }, { 8, -28 } }) do
+					box(V3(5, 0.6, 1.8), pkx + bp[1], 1.5, pkf + bp[2], C(130, 90, 55), M.Wood, { shadow = false })
+					box(V3(5, 1.4, 0.4), pkx + bp[1], 2.4, pkf + bp[2] - 0.8, C(130, 90, 55), M.Wood, { shadow = false })
+				end
+				local placed, guard = 0, 0
+				while placed < 10 and guard < 200 do
+					guard = guard + 1
+					local tx, tf = pkx + rnd(-55, 55), pkf + rnd(-55, 55)
+					local px, pz = (tx - (pkx + 25)) / 32, (tf - pkf) / 26
+					if px * px + pz * pz > 1 and abs(tx - (pkx - 30)) > 6 and abs(tf - (pkf - 20)) > 6 then
+						tree(tx, tf, rnd(1, 1.5))
+						placed = placed + 1
+					end
+				end
+			end
+
+			-- ===== casas do bairro =====
+			for _, fs in ipairs(FS) do
+				for _, sg in ipairs({ 1, -1 }) do
+					local s = -sg
+					local x = -XE + 34 + rnd(0, 10)
+					while x < XE - 34 do
+						local w, dep = rnd(26, 33), rnd(20, 25)
+						local f = fs + sg * (RW + SW + setback + dep / 2)
+						if not crossZoneX(x, w / 2) and not isReserved(x, f, w, dep) then
+							if chance(0.06) then
+								tree(x, f, rnd(1.1, 1.5))
+							else
+								local far = abs(x) > half + B * 0.7 or f > f0 + B * 1.5 or f < fb - B * 0.4
+								house(x, f, s, { w = w, dep = dep, far = far })
+							end
+						end
+						x = x + w + rnd(10, 16)
+					end
+				end
+			end
+
+			-- ===== postes de luz =====
+			for _, fs in ipairs(FS) do
+				local x = -XE + 40
+				while x < XE - 20 do
+					if not crossZoneX(x, 1) then
+						local pf = fs - RW - 1.5
+						pillar(17, 0.7, x, 8.5, pf, C(70, 70, 76), M.Metal, { shadow = false })
+						box(V3(0.5, 0.5, 3.4), x, 16.9, pf + 1.6, C(70, 70, 76), M.Metal, { shadow = false })
+						box(V3(2.6, 0.6, 1.6), x, 16.6, pf + 3.2, C(230, 230, 210), M.SmoothPlastic, { shadow = false })
+					end
+					x = x + 80
+				end
+			end
+
+			-- ===== carros =====
+			local CARCOL = {
+				C(196, 36, 44), C(34, 84, 170), C(236, 236, 238), C(28, 28, 32), C(226, 186, 46), C(40, 130, 96),
+				C(150, 154, 162), C(232, 120, 40), C(120, 60, 170), C(70, 190, 200),
+			}
+			local KINDS = {
+				sedan = { L = 13.2, W = 5.4, hl = 3.8, fw = 2.4, cm = 2.6, rw = 2.2, ch = 1.35 },
+				coupe = { L = 12.6, W = 5.5, hl = 4.6, fw = 3.0, cm = 1.6, rw = 3.2, ch = 1.15 },
+				suv = { L = 13.4, W = 5.7, hl = 3.4, fw = 1.8, cm = 5.4, rw = 0.9, ch = 1.8, flat = true },
+				pickup = { L = 14.8, W = 5.7, hl = 4.4, fw = 1.9, cm = 1.8, rw = 0.7, ch = 1.5, bed = true },
+			}
+			local KIND_LIST = { "sedan", "sedan", "coupe", "suv", "pickup" }
+			local CHROME, TIRE, GLASSC, DARK = C(200, 200, 206), C(22, 22, 24), C(30, 44, 62), C(36, 36, 42)
+
+			-- Carro so de caixas, cunhas (capo / para-brisa / vidro traseiro inclinados) e cilindros (rodas).
+			-- Frente do carro = -Z. Retorna o modelo e a lista de raios das rodas (pra girar enquanto anda).
+			local function car(cf, col, kindName, lod, wantSpin)
+				step()
+				local K = KINDS[kindName]
+				local L, W, ch = K.L, K.W, K.ch
+				local m = Instance.new("Model")
+				local root = mk(m, V3(1, 0.2, 1), cf, col, M.SmoothPlastic, { shadow = false, trans = 1 })
+				m.PrimaryPart = root
+				local SH = { shadow = false }
+				local PAINT = { shadow = false, refl = 0.12 }
+				local GL = { shadow = false, refl = 0.2, trans = 0.05 }
+				local function part(size, x, y, z, c, mat, o)
+					return mk(m, size, cf * CF(x, y, z), c, mat, o or SH)
+				end
+				local function wpart(size, x, y, z, c, mat, o, yaw)
+					return wedgeAt(m, size, cf * CF(x, y, z) * ANG(0, yaw or 0, 0), c, mat, o or SH)
+				end
+
+				local LT, HR = 2.1, 0.5          -- topo da carroceria / subida do capo
+				local DT = LT + HR               -- topo do convés (base da cabine)
+				local zs = -L / 2 + K.hl         -- onde comeca a cabine
+				local span = K.fw + K.cm + K.rw
+				local tl = L / 2 - (zs + span)   -- comprimento do porta-malas / caçamba
+				local gw = W - 1.2
+				local zc = zs + K.fw + K.cm / 2
+
+				-- chassi e carroceria
+				part(V3(W - 0.6, 0.6, L - 1.0), 0, 0.7, 0, DARK, M.SmoothPlastic)
+				part(V3(W, 1.3, L), 0, 1.45, 0, col, M.SmoothPlastic, PAINT)
+				wpart(V3(W - 0.2, HR, K.hl), 0, LT + HR / 2, -L / 2 + K.hl / 2, col, M.SmoothPlastic, PAINT, 0)
+				part(V3(W - 0.2, HR, span), 0, LT + HR / 2, zs + span / 2, col, M.SmoothPlastic, PAINT)
+				if K.bed then
+					part(V3(W - 0.5, 0.12, tl), 0, LT + 0.06, zs + span + tl / 2, DARK, M.SmoothPlastic)
+					for _, sx in ipairs({ -1, 1 }) do
+						part(V3(0.3, 1.1, tl), sx * (W / 2 - 0.15), LT + 0.55, zs + span + tl / 2, col, M.SmoothPlastic, PAINT)
+					end
+					part(V3(W - 0.3, 1.1, 0.3), 0, LT + 0.55, zs + span + 0.15, col, M.SmoothPlastic, PAINT)
+					part(V3(W - 0.3, 1.1, 0.3), 0, LT + 0.55, L / 2 - 0.15, col, M.SmoothPlastic, PAINT)
+				elseif K.flat or tl < 1.0 then
+					if tl > 0.05 then part(V3(W - 0.2, HR, tl), 0, LT + HR / 2, zs + span + tl / 2, col, M.SmoothPlastic, PAINT) end
+				else
+					wpart(V3(W - 0.2, HR, tl), 0, LT + HR / 2, zs + span + tl / 2, col, M.SmoothPlastic, PAINT, pi)
+				end
+
+				-- cabine: para-brisa e vidro traseiro em cunha, vidros laterais em caixa, teto reto
+				wpart(V3(gw, ch, K.fw), 0, DT + ch / 2, zs + K.fw / 2, GLASSC, M.Glass, GL, 0)
+				part(V3(gw, ch, K.cm), 0, DT + ch / 2, zc, GLASSC, M.Glass, GL)
+				wpart(V3(gw, ch, K.rw), 0, DT + ch / 2, zs + K.fw + K.cm + K.rw / 2, GLASSC, M.Glass, GL, pi)
+				part(V3(gw - 0.3, 0.22, K.cm + 0.5), 0, DT + ch + 0.11, zc, col, M.SmoothPlastic, PAINT)
+				if K.cm >= 2.2 then
+					for _, sx in ipairs({ -1, 1 }) do
+						part(V3(0.35, ch, 0.5), sx * gw / 2, DT + ch / 2, zc, col, M.SmoothPlastic, PAINT)
+					end
+				end
+
+				-- rodas: pneu (cilindro) + aro cromado + raios que giram
+				local spokes = {}
+				local wz = L / 2 - 2.7
+				for _, sx in ipairs({ -1, 1 }) do
+					for _, zz in ipairs({ -wz, wz }) do
+						local xo = sx * (W / 2 - 0.45)
+						part(V3(1.3, 2.2, 2.2), xo, 1.1, zz, TIRE, M.SmoothPlastic, { cyl = true, shadow = false })
+						part(V3(1.4, 1.35, 1.35), xo + sx * 0.02, 1.1, zz, CHROME, M.Metal, { cyl = true, shadow = false })
+						spokes[#spokes + 1] = part(V3(1.5, 0.28, 1.3), xo + sx * 0.03, 1.1, zz, DARK, M.SmoothPlastic)
+						spokes[#spokes + 1] = part(V3(1.5, 1.3, 0.28), xo + sx * 0.03, 1.1, zz, DARK, M.SmoothPlastic)
+						if not lod then
+							part(V3(0.12, 1.5, 3.0), sx * (W / 2 + 0.06), 1.5, zz, C(14, 14, 16), M.SmoothPlastic)
+						end
+					end
+				end
+
+				-- frente: farois, grade, para-choque
+				for _, sx in ipairs({ -1, 1 }) do
+					part(V3(1.5, 0.65, 0.3), sx * (W / 2 - 1.2), 1.8, -L / 2 - 0.1, C(255, 246, 205), M.Neon)
+					part(V3(1.6, 0.6, 0.3), sx * (W / 2 - 1.1), 1.8, L / 2 + 0.1, C(255, 40, 40), M.Neon)
+				end
+				part(V3(W + 0.1, 0.5, 0.5), 0, 1.05, -L / 2 - 0.1, CHROME, M.Metal)
+				part(V3(W + 0.1, 0.5, 0.5), 0, 1.05, L / 2 + 0.1, CHROME, M.Metal)
+				part(V3(W - 1.2, 0.3, 0.9), 0, 0.65, -L / 2 - 0.2, DARK, M.SmoothPlastic)
+				if not lod then
+					part(V3(2.6, 0.7, 0.3), 0, 1.7, -L / 2 - 0.1, DARK, M.SmoothPlastic)
+					part(V3(1.6, 0.6, 0.12), 0, 1.15, -L / 2 - 0.4, C(245, 245, 240), M.SmoothPlastic)
+					part(V3(1.6, 0.6, 0.12), 0, 1.15, L / 2 + 0.4, C(245, 245, 240), M.SmoothPlastic)
+					part(V3(W - 1.4, 0.3, 0.3), 0, 2.0, L / 2 + 0.1, C(255, 60, 60), M.Neon)
+					-- soleiras, linhas de porta, macanetas, retrovisores, escapamento
+					for _, sx in ipairs({ -1, 1 }) do
+						part(V3(0.2, 0.4, L - 7.6), sx * (W / 2 + 0.05), 1.0, 0, DARK, M.SmoothPlastic)
+						part(V3(0.1, 1.2, 0.1), sx * (W / 2 + 0.06), 1.45, zs + 0.6, DARK, M.SmoothPlastic)
+						part(V3(0.1, 1.2, 0.1), sx * (W / 2 + 0.06), 1.45, zs + K.fw + K.cm + K.rw * 0.4, DARK, M.SmoothPlastic)
+						part(V3(0.15, 0.15, 0.9), sx * (W / 2 + 0.08), 2.0, zc - K.cm * 0.2, CHROME, M.Metal)
+						part(V3(0.7, 0.45, 0.5), sx * (W / 2 + 0.1), DT + 0.35, zs + 0.4, col, M.SmoothPlastic, PAINT)
+					end
+					mk(m, V3(0.9, 0.5, 0.5), cf * CF(W / 2 - 1.3, 0.8, L / 2 + 0.25) * ANG(0, pi / 2, 0), C(120, 120, 126), M.Metal, { cyl = true, shadow = false })
+				end
+
+				-- detalhes de cada modelo
+				if kindName == "coupe" then
+					for _, sx in ipairs({ -1, 1 }) do
+						part(V3(0.3, 0.8, 0.4), sx * (W / 2 - 1.2), DT + 0.4, L / 2 - 0.9, DARK, M.SmoothPlastic)
+					end
+					part(V3(W - 0.8, 0.18, 1.4), 0, DT + 0.85, L / 2 - 0.9, col, M.SmoothPlastic, PAINT)
+					if not lod and (col.R + col.G + col.B) < 2.2 then
+						for _, sx in ipairs({ -0.55, 0.55 }) do
+							wpart(V3(0.5, HR + 0.04, K.hl), sx, LT + (HR + 0.04) / 2, -L / 2 + K.hl / 2, C(245, 245, 245), M.SmoothPlastic, SH, 0)
+							part(V3(0.5, 0.05, K.cm + 0.5), sx, DT + ch + 0.245, zc, C(245, 245, 245), M.SmoothPlastic)
+						end
+					end
+				elseif kindName == "suv" then
+					for _, sx in ipairs({ -1, 1 }) do
+						part(V3(0.2, 0.25, K.cm + 0.2), sx * (gw / 2 - 0.6), DT + ch + 0.35, zc, DARK, M.SmoothPlastic)
+					end
+					part(V3(gw - 0.6, 0.2, 0.2), 0, DT + ch + 0.35, zc - K.cm * 0.3, DARK, M.SmoothPlastic)
+					part(V3(gw - 0.6, 0.2, 0.2), 0, DT + ch + 0.35, zc + K.cm * 0.3, DARK, M.SmoothPlastic)
+				end
+				if wantSpin and chance(0.3) then
+					part(V3(W - 1.2, 0.1, L - 4), 0, 0.42, 0, C(70, 200, 255), M.Neon, { shadow = false, trans = 0.35 })
+				end
+
+				m.Parent = model
+				return m, spokes
+			end
+
+			-- carros estacionados no meio-fio
+			for _, fs in ipairs(FS) do
+				for _, sgc in ipairs({ 1, -1 }) do
+					local x = -XE + 30 + rnd(0, 20)
+					while x < XE - 30 do
+						if not crossZoneX(x, 7) and chance(0.09) then
+							car(P(x, 0, fs + sgc * (RW - 3.2)) * ANG(0, -sgc * pi / 2, 0), CARCOL[ri(1, #CARCOL)], KIND_LIST[ri(1, #KIND_LIST)], abs(x) > half + B * 0.35)
+						end
+						x = x + 40
+					end
+				end
+			end
+
+			-- transito andando
+			local movers = {}
+			for _, fs in ipairs({ f0, f0 + B, fb }) do
+				for _, dir in ipairs({ 1, -1 }) do
+					for _ = 1, (fs == f0) and 3 or 1 do
+						local c = {
+							f = fs + dir * 4.8, dir = dir, yaw = -dir * pi / 2,
+							speed = rnd(18, 34), ph = rnd(0, XE * 2),
+						}
+						c.m, c.spokes = car(P(0, 0, c.f), CARCOL[ri(1, #CARCOL)], KIND_LIST[ri(1, #KIND_LIST)], false, true)
+						movers[#movers + 1] = c
+					end
+				end
+			end
+
+			-- ===== centro da cidade ao fundo =====
+			local DT = { C(120, 140, 165), C(150, 160, 175), C(95, 110, 135), C(170, 150, 130), C(110, 125, 120) }
+			local BAND = C(165, 205, 232)
+			local function tower(x, f, w, d, h)
+				local col = DT[ri(1, #DT)]
+				if chance(0.3) then
+					pillar(h, w, x, h / 2, f, col, M.SmoothPlastic, { solid = true, shadow = false, refl = 0.06 })
+					for k = 1, 4 do
+						pillar(2.4, w + 0.4, x, h * k / 5, f, BAND, M.SmoothPlastic, { shadow = false, refl = 0.15 })
+					end
+					box(V3(w * 0.6, 3, w * 0.6), x, h + 1.5, f, C(90, 96, 108), M.Metal, { shadow = false })
+				else
+					box(V3(w, h, d), x, h / 2, f, col, M.SmoothPlastic, { solid = true, shadow = false, refl = 0.06 })
+					for k = 1, 4 do
+						box(V3(w + 0.2, 2.4, 0.3), x, h * k / 5, f - d / 2 - 0.1, BAND, M.SmoothPlastic, { shadow = false, refl = 0.15 })
+					end
+					box(V3(w * 0.5, 3, d * 0.5), x, h + 1.5, f, C(90, 96, 108), M.Metal, { shadow = false })
+				end
+				if h > 110 then pillar(18, 0.6, x, h + 9, f, C(200, 200, 205), M.Metal, { shadow = false }) end
+			end
+			do
+				local dtf = FZ + 45
+				local avail = LIM - dtf
+				if avail > 40 then
+					local x = -XE - 120
+					while x < XE + 120 do
+						local w, d = rnd(34, 64), rnd(34, 54)
+						local h = rnd(45, 120) * (1 - min(abs(x) / 900, 0.5))
+						tower(x, min(dtf + d / 2 + rnd(0, min(60, max(avail - d, 0))), LIM - d / 2), w, d, h)
+						x = x + w + rnd(8, 20)
+					end
+					if avail > 190 then
+						x = -XE - 60
+						while x < XE + 60 do
+							local w, d = rnd(40, 70), rnd(40, 60)
+							local h = rnd(90, 200) * (1 - min(abs(x) / 1100, 0.5))
+							tower(x, min(dtf + 150 + d / 2 + rnd(0, 40), LIM - d / 2), w, d, h)
+							x = x + w + rnd(20, 50)
+						end
+					end
+				end
+			end
+
+			-- ===== colinas distantes =====
+			for i = 1, 12 do
+				local a = i / 12 * pi * 2
+				local hr = LIM - 100
+				local hx, hf = hr * math.cos(a), hr * math.sin(a)
+				if not (hf > FZ - 20 and abs(hx) < XE + 150) then
+					blob(hx, 10, hf, rnd(220, 300), rnd(60, 90), rnd(180, 240), C(74, 120, 72))
+				end
+			end
+
+			-- ajusta ao tamanho do avatar e publica
+			if abs(S - 1) > 0.01 then
+				local okS = pcall(function() model:ScaleTo(S) end)
+				if not okS then S = 1 end
+			end
+			model.Parent = parent
+
+			-- animacao do transito (chamada enquanto voce esta na dimensao)
+			return function(t)
+				local span = XE * 2
+				for _, c in ipairs(movers) do
+					if c.m and c.m.Parent then
+						local x = ((t * c.speed * c.dir + c.ph) % span) - XE
+						local bob = math.sin(t * 2.2 + c.ph) * 0.06
+						c.m:PivotTo(envCF * CF(x * S, bob * S, -c.f * S) * ANG(0, c.yaw, 0))
+						local dt = c.lt and (t - c.lt) or 0
+						c.lt = t
+						if dt > 0 and dt < 0.5 and c.spokes then
+							local rot = -(c.speed * dt) / 1.1
+							for _, sp in ipairs(c.spokes) do
+								sp.CFrame = sp.CFrame * ANG(rot, 0, 0)
+							end
+						end
+					end
+				end
+			end
+		end
+
 		local function buildModelId(assetId)
 			return function(model, O, r, def)
 				local function fallbackFloor()
@@ -16852,18 +17582,26 @@ local function setupRickGun(character)
 
 				mk(model, Vector3.new(1900, 4, 1900), O + Vector3.new(0, -2.02, 0), C(82, 140, 70), M.Grass, {solid = true, shadow = false})
 				envPart(Vector3.new(widthF * 0.9, 0.2, 45), 0, 0.05, -(depthF / 2 + 22.5), C(150, 150, 150), M.Concrete)
-				envPart(Vector3.new(1900, 0.2, 28), 0, 0.05, -(depthF / 2 + 59), C(55, 55, 58), M.Asphalt)
-				envPart(Vector3.new(1900, 0.22, 0.6), 0, 0.06, -(depthF / 2 + 59), C(240, 200, 60), M.SmoothPlastic)
-				for _ = 1, 14 do
-					local ang = r:NextNumber(0, math.pi * 2)
-					local dist = r:NextNumber(math.max(gx, gz) / 2 + 25, 260)
-					local rel = Vector3.new(math.cos(ang) * dist, 0, math.sin(ang) * dist)
-					if rel:Dot(fd) < depthF / 2 + 30 then
-						local h = r:NextNumber(9, 16)
-						local tp = Vector3.new(O.X + rel.X, O.Y, O.Z + rel.Z)
-						mk(model, Vector3.new(1.6, h, 1.6), tp + Vector3.new(0, h / 2, 0), C(100, 70, 40), M.Wood, {shadow = false})
-						ball(model, h * 0.9, tp + Vector3.new(0, h + h * 0.2, 0), C(60, 130, 55), M.Grass, {shadow = false})
+				local cityAnim = nil
+				if def and def.city and Dim.buildSuburb then
+					local okC, resC = pcall(Dim.buildSuburb, model, O, r, { cf = envCF, depthF = depthF, widthF = widthF })
+					if okC then cityAnim = resC else warnRG("cidade da garagem falhou:", resC) end
+				end
+				if not cityAnim then
+					envPart(Vector3.new(1900, 0.2, 28), 0, 0.05, -(depthF / 2 + 59), C(55, 55, 58), M.Asphalt)
+					envPart(Vector3.new(1900, 0.22, 0.6), 0, 0.06, -(depthF / 2 + 59), C(240, 200, 60), M.SmoothPlastic)
+					for _ = 1, 14 do
+						local ang = r:NextNumber(0, math.pi * 2)
+						local dist = r:NextNumber(math.max(gx, gz) / 2 + 25, 260)
+						local rel = Vector3.new(math.cos(ang) * dist, 0, math.sin(ang) * dist)
+						if rel:Dot(fd) < depthF / 2 + 30 then
+							local h = r:NextNumber(9, 16)
+							local tp = Vector3.new(O.X + rel.X, O.Y, O.Z + rel.Z)
+							mk(model, Vector3.new(1.6, h, 1.6), tp + Vector3.new(0, h / 2, 0), C(100, 70, 40), M.Wood, {shadow = false})
+							ball(model, h * 0.9, tp + Vector3.new(0, h + h * 0.2, 0), C(60, 130, 55), M.Grass, {shadow = false})
+						end
 					end
+
 				end
 
 				if def then
@@ -16872,6 +17610,7 @@ local function setupRickGun(character)
 					local pos = O + fd * sign * (depthF / 2 - inset) + Vector3.new(0, 5.05, 0) + (def.arriveShift or Vector3.zero)
 					def.arriveCF = CFrame.lookAt(pos, pos - fd * sign)
 				end
+				return cityAnim
 			end
 		end
 
@@ -16904,9 +17643,9 @@ local function setupRickGun(character)
 				cc = {Saturation = 0.15, Contrast = 0.1, TintColor = C(225, 240, 255)},
 			},
 			{
-				id = "garage", name = "Garagem", info = "A garagem do Rick (modelo do Creator Store).",
+				id = "garage", name = "Garagem", info = "A garagem do Rick no meio de uma cidade suburbana: ruas, casas, Blips & Chitz, escola, parque e centro ao fundo.",
 				build = buildModelId(89126957082495), stars = 0, daySky = true, preload = true,
-				scale = 1.3,
+				scale = 1.3, city = true,
 				noGlobalShadows = true, cullSize = 0.4,
 
 				frontDir = Vector3.new(-1, 0, 0), arriveWall = "front", arriveShift = Vector3.new(0, 0, 0),

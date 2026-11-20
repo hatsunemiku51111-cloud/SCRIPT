@@ -1942,6 +1942,7 @@ local Module = {
             FreezeBody = true,       -- boneco 100% imóvel durante toda a ciberpsicose (ancora + congela animação)
             BodyAnim = true,
             BodyAnimIntensity = 1,
+            BodyTimeline = true,     -- animação roteirizada do David sincronizada com a fala (false = poses aleatórias antigas)
             ViewportGlitch = true,   -- glitch do boneco em ViewportFrame (fatias deslocadas + RGB split). Precisa de FreezeBody
             ColorSplit = true,       -- camadas ciano (esquerda) e roxa (direita) sobre o boneco
             SplitPixels = 1,         -- deslocamento base das camadas em PIXELS (nos estouros do glitch aumenta sozinho)
@@ -3344,6 +3345,51 @@ function ExecCyberpsychosis()
         for _, key in ipairs(BA_KEYS) do pose[key] = pose[key] or V3(0, 0, 0) end
     end
 
+
+    -- ============================================================
+    -- ANIMAÇÃO DO DAVID: timeline de poses sincronizada com a fala (ângulos em graus)
+    -- t = segundos desde o início da fala | fast = entra com snap (ease-out)
+    -- ============================================================
+    local function TP(t) for _, k in ipairs(BA_KEYS) do t[k] = t[k] or V3(0, 0, 0) end return t end
+    local BA_TL = {
+        -- agachado, cabeça baixa, respirando fundo
+        {t = 0.00, p = TP{waist = V3(22,0,0), neck = V3(28,0,0), rs = V3(8,0,12), ls = V3(8,0,-12), re = V3(25,0,0), le = V3(25,0,0), rh = V3(-6,0,6), lh = V3(-6,0,-6), rk = V3(-18,0,0), lk = V3(-18,0,0)}},
+        -- "I'm gonna rip out his spine!" -> prepara o braço
+        {t = 0.55, p = TP{waist = V3(-14,28,0), neck = V3(-10,-20,0), rs = V3(-35,0,25), ls = V3(70,0,-30), re = V3(100,0,0), le = V3(60,0,0), rh = V3(12,0,4), lh = V3(-10,0,-4), rk = V3(-30,0,0), lk = V3(-10,0,0)}},
+        -- "spine!" -> bote com a mão em garra
+        {t = 1.20, fast = true, p = TP{waist = V3(32,-30,0), neck = V3(12,15,0), rs = V3(105,0,8), ls = V3(-25,0,-20), re = V3(8,0,0), le = V3(70,0,0), rw = V3(0,0,-35), rh = V3(-24,0,4), lh = V3(22,0,-4), rk = V3(-8,0,0), lk = V3(-40,0,0)}},
+        -- "I'll kill him!" -> grito, cabeça pra trás, braços abertos
+        {t = 2.20, fast = true, p = TP{waist = V3(-26,0,0), neck = V3(-32,0,0), rs = V3(25,0,85), ls = V3(25,0,-85), re = V3(35,0,0), le = V3(35,0,0), rw = V3(0,0,30), lw = V3(0,0,-30), rh = V3(8,0,10), lh = V3(8,0,-10), rk = V3(-18,0,0), lk = V3(-18,0,0)}},
+        -- cambaleia pra frente
+        {t = 3.00, p = TP{waist = V3(30,-12,6), neck = V3(34,10,-10), rs = V3(40,0,30), ls = V3(40,0,-30), re = V3(60,0,0), le = V3(60,0,0), rh = V3(10,0,5), lh = V3(-8,0,-5), rk = V3(-20,0,0), lk = V3(-10,0,0)}},
+        -- "I'll kill him." -> baixo, tremendo, punhos no peito
+        {t = 3.70, p = TP{waist = V3(24,0,0), neck = V3(36,0,0), rs = V3(18,0,8), ls = V3(18,0,-8), re = V3(105,0,0), le = V3(105,0,0), rh = V3(6,0,5), lh = V3(6,0,-5), rk = V3(-22,0,0), lk = V3(-22,0,0)}},
+        -- "You're dead." -> cabeça levanta e aponta
+        {t = 5.15, p = TP{waist = V3(-8,10,0), neck = V3(-18,-14,10), rs = V3(92,0,6), ls = V3(8,0,-14), le = V3(30,0,0), rh = V3(8,0,4), lh = V3(-6,0,-4), rk = V3(-14,0,0), lk = V3(-6,0,0)}},
+        -- "Dead." -> dedo cravado
+        {t = 6.40, fast = true, p = TP{waist = V3(18,12,0), neck = V3(8,10,0), rs = V3(110,0,4), ls = V3(-30,0,-20), le = V3(60,0,0), rh = V3(-20,0,4), lh = V3(16,0,-4), rk = V3(-6,0,0), lk = V3(-30,0,0)}},
+        -- "Dead." final -> braços pro alto, convulsão
+        {t = 7.40, fast = true, p = TP{waist = V3(-30,0,0), neck = V3(-38,0,0), rs = V3(150,0,35), ls = V3(150,0,-35), re = V3(20,0,0), le = V3(20,0,0), rw = V3(0,0,30), lw = V3(0,0,-30), rh = V3(10,0,12), lh = V3(10,0,-12), rk = V3(-30,0,0), lk = V3(-30,0,0)}},
+        -- desaba no fim
+        {t = 8.60, p = TP{waist = V3(32,0,0), neck = V3(40,0,0), rs = V3(6,0,10), ls = V3(6,0,-10), re = V3(20,0,0), le = V3(20,0,0), rh = V3(-4,0,5), lh = V3(-4,0,-5), rk = V3(-24,0,0), lk = V3(-24,0,0)}},
+    }
+    local function BA_TLPose(t)
+        local n = #BA_TL
+        if t <= BA_TL[1].t then return BA_TL[1].p end
+        if t >= BA_TL[n].t then return BA_TL[n].p end
+        for i = 1, n - 1 do
+            local a, b = BA_TL[i], BA_TL[i + 1]
+            if t >= a.t and t < b.t then
+                local x = (t - a.t) / (b.t - a.t)
+                x = b.fast and (1 - (1 - x) ^ 3) or x * x * (3 - 2 * x)
+                local out = {}
+                for _, k in ipairs(BA_KEYS) do out[k] = a.p[k]:Lerp(b.p[k], x) end
+                return out
+            end
+        end
+        return BA_TL[n].p
+    end
+
     local function BodyAnimApply()
         for key, T in pairs(BA.out) do
             local m = BA.J[key]
@@ -3433,10 +3479,11 @@ function ExecCyberpsychosis()
         local char = Player.Character
         if not char then return end
         if BA.char ~= char or not BA.J.waist or not BA.J.waist.Parent then BA_Find(char) end
-        local I = (FX.BodyAnimIntensity or 1) * (0.7 + 0.45 * phase)
+        local tl = FX.BodyTimeline ~= false and speechOn
+        local I = (FX.BodyAnimIntensity or 1) * (0.7 + 0.45 * phase) * (tl and 0.6 or 1)
         local t = elapsed
 
-        if t >= BA.nextPose then
+        if not tl and t >= BA.nextPose then
             local n
             repeat n = math.random(1, #BA_POSES) until n ~= BA.poseIdx
             BA.poseIdx = n
@@ -3453,6 +3500,7 @@ function ExecCyberpsychosis()
 
         local pose = BA_POSES[BA.poseIdx]
         local blend = math.min(1, dt * (7 + 4 * phase))
+        if tl then pose = BA_TLPose(t - (S.Offset or 0)); blend = math.min(1, dt * 28) end
         local decay = math.exp(-dt * 14)
         local w = math.min(1, t * 3) * k
         local freq = 9 + 6 * phase
@@ -7902,7 +7950,12 @@ local function InitDirectionalMovement()
 end
 
 do
-local PsyGlitch = {START = 45, STEP = 10, Active = {}, NextAt = 0}
+local PsyGlitch = {
+    START = 45, STEP = 10, Active = {}, NextAt = 0,
+    VIEWPORT_START = 120,      -- % da barra: daqui pra cima entra o glitch de ViewportFrame
+    STOP_OLD_GLITCH = true,    -- true = o glitch antigo (tremer/piscar a peça real) PARA em 120% | false = só trava no nível de 120%
+    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil},
+}
 
 function PsyGlitch.Level()
     local v = State.Psychosis
@@ -7929,11 +7982,180 @@ local function psyJitter(mag, rot)
         * CFrame.Angles(math.rad(r() * rot), math.rad(r() * rot), math.rad(r() * rot))
 end
 
+
+-- ============================================================
+-- GLITCH DE VIEWPORTFRAME (a partir de VIEWPORT_START %)
+-- Cópia FIEL (mesma cor, textura e malha, sem neon) das peças e acessórios do boneco, na MESMA
+-- câmera do jogo. A peça real some e a cópia pula/gira/pisca no lugar dela.
+-- ============================================================
+-- O ViewportFrame recebe um CLONE do personagem INTEIRO (com Humanoid, roupas e cor do corpo, que só
+-- renderizam certo dentro de um Model com Humanoid). O clone fica ancorado e escondido; só as peças
+-- sorteadas aparecem, seguindo a peça real com deslocamento.
+local function vpIsJunk(d)
+    return d:IsA("LuaSourceContainer") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam")
+        or d:IsA("Highlight") or d:IsA("BillboardGui") or d:IsA("ForceField") or d:IsA("Fire") or d:IsA("Smoke")
+        or d:IsA("Sparkles") or d:IsA("Light") or d:IsA("JointInstance") or d:IsA("WeldConstraint")
+        or d:IsA("Constraint") or d:IsA("BodyMover")
+end
+
+local function vpEndRec(r)
+    if r.g and r.g.Parent then r.g.LocalTransparencyModifier = 1 end
+    if r.src and r.src.Parent then r.src.LocalTransparencyModifier = 0 end
+    PsyGlitch.VP.used[r.src] = nil
+end
+
+local function vpBuildClone(char)
+    local V = PsyGlitch.VP
+    for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
+    V.recs, V.used, V.map = {}, {}, {}
+    if V.clone then V.clone:Destroy() V.clone = nil end
+    V.char = char
+    local was = char.Archivable
+    char.Archivable = true
+    local ok, clone = pcall(function() return char:Clone() end)
+    char.Archivable = was
+    if not ok or not clone then return false end
+    local realD, cloneD = char:GetDescendants(), clone:GetDescendants()
+    if #realD ~= #cloneD then clone:Destroy() return false end
+    for i, d in ipairs(realD) do
+        local c = cloneD[i]
+        if d:IsA("BasePart") and c:IsA("BasePart") then V.map[d] = c end
+    end
+    for _, c in ipairs(cloneD) do
+        if c:IsA("BasePart") then
+            c.Anchored = true
+            c.CanCollide = false
+            c.CanQuery = false
+            c.CanTouch = false
+            c.CastShadow = false
+            c.LocalTransparencyModifier = 1   -- escondido até a peça ser sorteada
+        elseif vpIsJunk(c) then
+            c:Destroy()
+        end
+    end
+    local hum = clone:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    end
+    clone.Parent = V.vp
+    V.clone = clone
+    return true
+end
+
+local function vpFollow()
+    local V = PsyGlitch.VP
+    local cam = Workspace.CurrentCamera
+    if not cam or not V.vp then return end
+    if V.vp.CurrentCamera ~= cam then V.vp.CurrentCamera = cam end
+    local now = os.clock()
+    for i = #V.recs, 1, -1 do
+        local r = V.recs[i]
+        if now >= r.untilT or not r.src.Parent or not r.g.Parent then
+            vpEndRec(r)
+            table.remove(V.recs, i)
+        else
+            if now >= r.reroll then
+                r.reroll = now + 0.03 + math.random() * 0.04
+                r.dx = (math.random() * 2 - 1) * r.mag
+                r.dy = (math.random() * 2 - 1) * r.mag * 0.4
+                r.rot = CFrame.Angles(math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg))
+                r.blink = math.random() < 0.2
+            end
+            local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
+            r.g.CFrame = (r.src.CFrame * r.rot) + right * r.dx + up * r.dy
+            r.g.LocalTransparencyModifier = r.blink and 1 or 0
+            r.src.LocalTransparencyModifier = 1   -- a peça real some enquanto a cópia glitcha
+        end
+    end
+end
+
+local function vpEnsure()
+    local V = PsyGlitch.VP
+    if V.gui and V.gui.Parent and V.vp then return true end
+    local pg = Player:FindFirstChildOfClass("PlayerGui")
+    if not pg then return false end
+    local g = Instance.new("ScreenGui")
+    g.Name = "PsyViewportGlitch"
+    g.IgnoreGuiInset = true
+    g.ResetOnSpawn = false
+    g.DisplayOrder = 850
+    g.Parent = pg
+    local vp = Instance.new("ViewportFrame")
+    vp.Size = UDim2.fromScale(1, 1)
+    vp.BackgroundTransparency = 1
+    vp.Ambient = Color3.fromRGB(170, 170, 170)
+    vp.LightColor = Color3.new(1, 1, 1)
+    pcall(function() vp.LightDirection = -Lighting:GetSunDirection() end)
+    vp.CurrentCamera = Workspace.CurrentCamera
+    vp.ZIndex = 5
+    vp.Parent = g
+    V.gui, V.vp, V.clone, V.char = g, vp, nil, nil
+    if V.conn then V.conn:Disconnect() end
+    V.conn = RunService.RenderStepped:Connect(vpFollow)
+    return true
+end
+
+function PsyGlitch.ClearViewport()
+    local V = PsyGlitch.VP
+    if not V.gui and not V.conn and #V.recs == 0 then return end
+    for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
+    V.recs, V.used, V.map = {}, {}, {}
+    if V.conn then V.conn:Disconnect() V.conn = nil end
+    if V.gui then V.gui:Destroy() end
+    V.gui, V.vp, V.clone, V.char = nil, nil, nil, nil
+end
+
+function PsyGlitch.UpdateViewport(dt)
+    local V = PsyGlitch.VP
+    if not vpEnsure() then return end
+    if V.char ~= Character or not V.clone or not V.clone.Parent then
+        if not vpBuildClone(Character) then return end
+    end
+    local p = math.clamp((State.Psychosis - PsyGlitch.VIEWPORT_START) / math.max(1, PsyBar.MAX - PsyGlitch.VIEWPORT_START), 0, 1)
+    local now = os.clock()
+    if now < V.nextAt then return end
+    V.nextAt = now + (0.4 - 0.3 * p) * (0.5 + math.random())
+    local room = 2 + math.floor(p * 6) - #V.recs
+    if room <= 0 then return end
+    local cand = {}
+    for real, g in pairs(V.map) do
+        if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 and not V.used[real] then
+            table.insert(cand, real)
+        end
+    end
+    local n = math.min(#cand, room, 1 + math.floor(p * 3))
+    for _ = 1, n do
+        local src = table.remove(cand, math.random(#cand))
+        local g = V.map[src]
+        if g and g.Parent then
+            V.used[src] = true
+            table.insert(V.recs, {
+                src = src, g = g,
+                untilT = now + 0.06 + math.random() * 0.14 + p * 0.1,
+                reroll = 0, dx = 0, dy = 0, rot = CFrame.identity, blink = false,
+                mag = 0.3 + 1.4 * p, rotDeg = 6 + 20 * p,
+            })
+        end
+    end
+end
+
 function PsyGlitch.Update(dt)
     local level = PsyGlitch.Level()
     if level == 0 or PsyBar.Busy or not Character or not Character.Parent then
         if next(PsyGlitch.Active) then PsyGlitch.Clear() end
+        PsyGlitch.ClearViewport()
         return
+    end
+    if State.Psychosis >= PsyGlitch.VIEWPORT_START then
+        PsyGlitch.UpdateViewport(dt)
+        if PsyGlitch.STOP_OLD_GLITCH then
+            if next(PsyGlitch.Active) then PsyGlitch.Clear() end   -- o glitch antigo para aqui
+            return
+        end
+        level = math.floor((PsyGlitch.VIEWPORT_START - PsyGlitch.START) / PsyGlitch.STEP) + 1   -- só trava no nível de 120%
+    else
+        PsyGlitch.ClearViewport()
     end
     local now = os.clock()
     local mag = 0.05 + level * 0.04

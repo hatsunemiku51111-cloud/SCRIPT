@@ -12,6 +12,58 @@ local Camera = Workspace.CurrentCamera
 local Character, HRP, Humanoid
 local ContentProvider = game:GetService("ContentProvider")
 
+do
+    local Env = (getgenv and getgenv()) or _G
+    local Plrs = game:GetService("Players")
+    local WS = game:GetService("Workspace")
+    local LP = Plrs.LocalPlayer
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.IgnoreWater = true
+    params.RespectCanCollide = false
+
+    local function blocked(origin, target)
+        local dir = target - origin
+        local dist = dir.Magnitude - 0.4
+        if dist < 1 then return false end
+        dir = dir.Unit * dist
+        local ignore = {LP.Character, WS.CurrentCamera}
+        for _ = 1, 8 do
+            params.FilterDescendantsInstances = ignore
+            local r = WS:Raycast(origin, dir, params)
+            if not r then return false end
+            local inst = r.Instance
+            if inst:IsA("BasePart") and inst.Transparency < 0.6 and inst.CanQuery then
+                return true
+            end
+            table.insert(ignore, inst)
+        end
+        return false
+    end
+
+    Env.SandiVPOccluded = function(points)
+        local cam = WS.CurrentCamera
+        if not cam or not points then return false end
+        local origin = cam.CFrame.Position
+        for _, pt in ipairs(points) do
+            if not blocked(origin, pt) then return false end
+        end
+        return #points > 0
+    end
+
+    Env.SandiVPBodyPoints = function(root, spread)
+        if not root or not root.Parent then return nil end
+        local pos = root.Position
+        local pts = {pos + Vector3.new(0, 2.2, 0), pos, pos - Vector3.new(0, 2.2, 0)}
+        if spread then
+            local r = root.CFrame.RightVector * spread
+            table.insert(pts, pos + r)
+            table.insert(pts, pos - r)
+        end
+        return pts
+    end
+end
+
 -- Forward declarations (evita chamar funcao nil antes da definicao)
 local pararMusica
 local ExecCyberpsychosis
@@ -38,7 +90,7 @@ local CONFIG_FILE = "CyberRebuilt_2077_Config.json"
 
 local DefaultConfig = {
         UIPositions = {
-        EnergyBar = {ScaleX = 0, OffsetX = 28, ScaleY = 0.5, OffsetY = -155},
+        EnergyBar = {ScaleX = 0, OffsetX = 28, ScaleY = 0.5, OffsetY = -140},
         DashBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.25, OffsetY = 0},
         SandiBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.35, OffsetY = 0},
         KiroshiBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.45, OffsetY = 0},
@@ -133,7 +185,7 @@ local Constants = {
     },
     SANDEVISTAN_FAILURE_CHANCE = 0.2,
     CYBERPSYCHOSIS = {
-        Duration = 9,
+        Duration = 12,
         PopupRate = 0.08,
         Radius = 7,
         ShakeIntensity = 0.6,
@@ -296,6 +348,7 @@ local Sounds = {
     SANDI_FAILURE = {id = "rbxassetid://132281440773764", volume = 5, pitch = 1, looped = false},
     PSYCHOSIS = {id = "rbxassetid://113922641197855", volume = 2, pitch = 1, looped = false},  -- David crash out part 1 (5s)
     PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false}, -- David crash out part 2 (4s)
+    PSYCHOSIS3 = {id = "rbxassetid://92219907157626", volume = 2.2, pitch = 1, looped = false}, -- "Fucking dead!" (2s)
     OPTICAL_CAMO = {id = "rbxassetid://134007213357026", volume = 1, pitch = 1, looped = false},
     COLLISION_IMPACT = {id = "rbxassetid://86227700557194", volume = 1.7, pitch = 1, looped = false},
     SPAWN = {id = "rbxassetid://138566469626743", volume = 1.5, pitch = 1, looped = false},
@@ -493,22 +546,22 @@ local State: SystemState = {
     PsychosisIdleSince = 0
 }
 
--- ========== BARRA DE CYBERPSYCHOSIS (0 a 200%) ==========
+-- ========== BARRA DE CYBERPSYCHOSIS (0 a 100%) ==========
 -- Sobe enquanto o Sandevistan está ativo e a cada uso/falha; desce sozinha quando você
--- fica um tempo sem usar. Passou de 100% = zona de perigo (vermelho pulsando).
--- Chegou em 200% = dispara a Cyberpsychosis e a barra reseta.
+-- fica um tempo sem usar. Passou de 50% = zona de perigo (vermelho pulsando).
+-- Chegou em 100% = dispara a Cyberpsychosis e a barra reseta.
 local PsyBar = {
-    MAX = 200,
+    MAX = 100,
     -- ganhos (bem mais baixos que antes) --
-    GAIN_SANDI = 2.2,     -- % por segundo com o Sandevistan ligado
-    GAIN_ACTIVATE = 8,    -- % ao ativar o Sandevistan
-    GAIN_FAILURE = 12,    -- % quando o Sandevistan falha (overload)
-    GAIN_ZERO = 10,       -- % quando a energia zera com o Sandevistan ligado
-    -- resistencia: quanto mais perto dos 200%, menos cada ganho rende (0.75 = ganho cai ate 25%)
+    GAIN_SANDI = 1.1,     -- % por segundo com o Sandevistan ligado
+    GAIN_ACTIVATE = 4,    -- % ao ativar o Sandevistan
+    GAIN_FAILURE = 6,    -- % quando o Sandevistan falha (overload)
+    GAIN_ZERO = 5,       -- % quando a energia zera com o Sandevistan ligado
+    -- resistencia: quanto mais perto dos 100%, menos cada ganho rende (0.75 = ganho cai ate 25%)
     RESISTANCE = 0.75,
-    -- queda (mais rapida, e ainda mais rapida acima de 100%)
+    -- queda (mais rapida, e ainda mais rapida acima de 50%)
     DECAY_DELAY = 4,      -- segundos sem usar NENHUMA habilidade antes de comecar a cair
-    DECAY_STEP = 2,       -- % que cai por tick
+    DECAY_STEP = 1,       -- % que cai por tick
     DECAY_INTERVAL = 3,   -- segundos entre cada tick de queda
     -- spam: usar habilidades em sequencia (janela abaixo) aumenta ganho e chance de falha
     SPAM_WINDOW = 8,
@@ -523,16 +576,16 @@ local PsyBar = {
     -- Quanto mais forte/roubada a habilidade, mais cara em psicose e mais arriscada:
     --  gain      = % de psicose por uso
     --  failBase  = chance de falha com a barra "limpa" (a partir de failStart)
-    --  failMax   = chance de falha com a barra em 200%
+    --  failMax   = chance de falha com a barra em 100%
     --  failStart = % da barra a partir da qual o risco comeca a subir
-    --  surcharge = energia extra gasta com a barra em 200% (proporcional)
+    --  surcharge = energia extra gasta com a barra em 100% (proporcional)
     --  extraCd   = segundos a mais de cooldown quando a habilidade da glitch
     ABILITY = {
-        Dash    = {gain = 2,  failBase = 0,    failMax = 0.12, failStart = 80, surcharge = 2,  extraCd = 1.5, label = "DASH MISFIRE"},
-        Kiroshi = {gain = 4,  failBase = 0,    failMax = 0.18, failStart = 60, surcharge = 4,  extraCd = 3,   label = "KIROSHI GLITCH"},
-        Dodge   = {gain = 6,  failBase = 0,    failMax = 0.22, failStart = 60, surcharge = 3,  extraCd = 4,   label = "DODGE LAG"},
-        Optical = {gain = 12, failBase = 0.05, failMax = 0.40, failStart = 0,  surcharge = 10, extraCd = 6,   label = "PHASE MALFUNCTION"},
-        Sandi   = {gain = 8,  failBase = 0.20, failMax = 0.50, failStart = 0,  surcharge = 0,  extraCd = 0,   label = "SANDEVISTAN OVERLOAD"},
+        Dash    = {gain = 1,  failBase = 0,    failMax = 0.12, failStart = 40, surcharge = 2,  extraCd = 1.5, label = "DASH MISFIRE"},
+        Kiroshi = {gain = 2,  failBase = 0,    failMax = 0.18, failStart = 30, surcharge = 4,  extraCd = 3,   label = "KIROSHI GLITCH"},
+        Dodge   = {gain = 3,  failBase = 0,    failMax = 0.22, failStart = 30, surcharge = 3,  extraCd = 4,   label = "DODGE LAG"},
+        Optical = {gain = 6,  failBase = 0.05, failMax = 0.40, failStart = 0,  surcharge = 10, extraCd = 6,   label = "PHASE MALFUNCTION"},
+        Sandi   = {gain = 4,  failBase = 0.20, failMax = 0.50, failStart = 0,  surcharge = 0,  extraCd = 0,   label = "SANDEVISTAN OVERLOAD"},
     },
     -- cores: vermelho e preto
     COLOR_LOW = Color3.fromRGB(95, 0, 10),
@@ -646,15 +699,19 @@ end
 
 
 -- ============================================================
--- SISTEMA DE FALAS (1 unico TXT sobre a cabeca do personagem)
--- Tamanho fixo em PIXELS: nao muda com o zoom da camera.
+-- SISTEMA DE FALAS = LEGENDAS (estilo CyberPsychosis)
+-- Cada fala aparece como legenda de tela (nome do falante + texto com
+-- camadas ciano/magenta e glitch), no mesmo visual da cena da Cyberpsychosis.
 -- ============================================================
 local TextService = game:GetService("TextService")
 
 local FALAS_ATIVAS = true
-local FALA_TAMANHO_BASE = 14      -- tamanho da letra (pequeno)
-local FALA_LARGURA_MAX = 240      -- largura maxima antes de quebrar linha
-local FALA_ALTURA_CABECA = 1.9    -- studs acima do centro da cabeca
+local LEGENDA_NOME = nil              -- nil = nome da sua conta | ou fixe, ex.: "DAVID"
+local LEGENDA_POS_Y = 0.72            -- altura da legenda na tela (0 = topo, 1 = base)
+local LEGENDA_COR_NOME = Color3.fromRGB(0, 240, 255)
+local LEGENDA_CIANO = Color3.fromRGB(0, 240, 255)
+local LEGENDA_MAGENTA = Color3.fromRGB(255, 0, 140)
+local LEGENDA_BRANCO = Color3.new(1, 1, 1)
 
 -- Nome usado nas falas (troca o "David" pelo nome da sua conta)
 local function NomeNaFala()
@@ -663,7 +720,7 @@ local function NomeNaFala()
     return n
 end
 
--- Emocoes: cor, velocidade de digitacao, tremor, pulso e extras
+-- Emocoes: tremor/glitch/sussurro/pulo definem o estilo da legenda (cor e vel nao sao mais usados)
 local EMOCOES = {
     calmo   = {cor = Color3.fromRGB(190, 255, 210), vel = 0.040, tremor = 0,   pulso = 0.00},
     focado  = {cor = Color3.fromRGB(110, 255, 160), vel = 0.032, tremor = 0,   pulso = 0.03},
@@ -811,7 +868,7 @@ local EVENTOS = {
     }},
 }
 
-local fala = {gui = nil, label = nil, escala = nil, token = 0, prio = 0, fim = 0, gapAte = 0}
+local fala = {gui = nil, raiz = nil, nome = nil, ciano = nil, magenta = nil, principal = nil, token = 0, prio = 0, fim = 0, gapAte = 0}
 local falaMisturas = {}
 local falaUltimoUso = {}
 local falaUltimoTexto = nil
@@ -834,44 +891,93 @@ local function falaTexto(def, evento)
     return def.falas[idx]
 end
 
-local function falaGarantirGui()
-    local head = Character and Character:FindFirstChild("Head")
-    if not head then return nil end
-    if fala.gui and fala.gui.Parent then
-        if fala.gui.Adornee ~= head then fala.gui.Adornee = head end
-        return fala.gui
+-- ---------- LEGENDA (estilo CyberPsychosis) ----------
+-- Tela inteira, canto inferior: nome do falante em cima, texto branco com
+-- camadas ciano (esquerda) e magenta (direita) tremendo por cima, estouros de
+-- glitch (letras viram simbolos) e fade no fim. A emocao muda a intensidade.
+local SIMBOLOS_GLITCH = {"#", "@", "%", "&", "?", "!", "/", "|", "0", "1", "<", ">", "X"}
+
+local function falaEmbaralhar(texto, quantidade)
+    local out = {}
+    for _, cp in utf8.codes(texto) do
+        if cp ~= 32 and math.random() < quantidade then
+            table.insert(out, SIMBOLOS_GLITCH[math.random(1, #SIMBOLOS_GLITCH)])
+        else
+            table.insert(out, utf8.char(cp))
+        end
     end
-    local gui = Create("BillboardGui", {
-        Name = "CyberFalas",
-        Adornee = head,
-        AlwaysOnTop = true,
-        LightInfluence = 0,
-        ResetOnSpawn = false,
-        Active = false,
-        Size = UDim2.fromOffset(40, 24), -- OFFSET = pixels, ignora zoom/distancia
-        StudsOffsetWorldSpace = Vector3.new(0, FALA_ALTURA_CABECA, 0),
-        Parent = Player:WaitForChild("PlayerGui"),
-    })
-    -- Container unico: as letras (1 TextLabel por letra) ficam dentro dele
-    local caixa = Create("Frame", {
-        Name = "Fala",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromOffset(40, 20),
-        BackgroundTransparency = 1,
-        Visible = false,
-        Parent = gui,
-    })
-    fala.gui, fala.label = gui, caixa
-    return gui
+    return table.concat(out)
 end
 
-local SIMBOLOS_GLITCH = {"#", "@", "%", "&", "$", "0", "X", "/", "?"}
+-- true enquanto a Cyberpsychosis esta rodando (ela tem a propria legenda no mesmo lugar)
+local function falaPsicoseAtiva()
+    local ok, ativa = pcall(function()
+        local m = ((getgenv and getgenv()) or _G).CyberPsychosis
+        return m ~= nil and m.IsActive ~= nil and m.IsActive() == true
+    end)
+    return ok and ativa
+end
+
+local function falaGarantirGui()
+    if fala.gui and fala.gui.Parent then return fala end
+    local gui = Create("ScreenGui", {
+        Name = "CyberFalas",
+        IgnoreGuiInset = true,
+        ResetOnSpawn = false,
+        DisplayOrder = 850,
+        Parent = Player:WaitForChild("PlayerGui"),
+    })
+    pcall(function() gui.ScreenInsets = Enum.ScreenInsets.None end)
+
+    local raiz = Create("Frame", {
+        Name = "Legenda",
+        Size = UDim2.new(0.84, 0, 0, 84),
+        Position = UDim2.new(0.08, 0, LEGENDA_POS_Y, 0),
+        BackgroundTransparency = 1,
+        Visible = false,
+        ZIndex = 17,
+        Parent = gui,
+    })
+    local nome = Create("TextLabel", {
+        Name = "Nome",
+        Size = UDim2.new(1, 0, 0, 18),
+        BackgroundTransparency = 1,
+        Text = "",
+        TextColor3 = LEGENDA_COR_NOME,
+        Font = Enum.Font.Code,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 19,
+        Parent = raiz,
+    })
+    local function camada(cor, z)
+        local l = Create("TextLabel", {
+            Size = UDim2.new(1, 0, 1, -20),
+            Position = UDim2.new(0, 0, 0, 20),
+            BackgroundTransparency = 1,
+            Text = "",
+            TextColor3 = cor,
+            Font = Enum.Font.Code,
+            TextScaled = true,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            ZIndex = z,
+            Parent = raiz,
+        })
+        Create("UITextSizeConstraint", {MaxTextSize = 26, MinTextSize = 10, Parent = l})
+        return l
+    end
+    fala.gui, fala.raiz, fala.nome = gui, raiz, nome
+    fala.ciano = camada(LEGENDA_CIANO, 17)
+    fala.magenta = camada(LEGENDA_MAGENTA, 17)
+    fala.principal = camada(LEGENDA_BRANCO, 18)
+    return fala
+end
 
 local function falaMostrar(texto, emo, inten, prio)
-    local gui = falaGarantirGui()
-    if not gui then return end
-    local caixa = fala.label
+    local ui = falaGarantirGui()
+    if not ui then return end
     local e = EMOCOES[emo] or EMOCOES.calmo
     if emo == "glitch" then
         inten = math.clamp(inten or 2, 1, 3)
@@ -881,162 +987,75 @@ local function falaMostrar(texto, emo, inten, prio)
 
     fala.token += 1
     local meuToken = fala.token
-    local tam = FALA_TAMANHO_BASE + (inten - 1) * 1.5
-    local altLinha = tam + 4
+    local quem = tostring(LEGENDA_NOME or NomeNaFala()):upper()
 
-    caixa:ClearAllChildren()
-
-    -- 1) Mede cada letra e quebra em linhas (a fala inteira sempre cabe)
-    local function larguraChar(ch)
-        if ch == " " then return tam * 0.32 end
-        local ok, v = pcall(function()
-            return TextService:GetTextSize(ch, tam, Enum.Font.GothamBold, Vector2.new(1000, 1000))
-        end)
-        return (ok and v) and v.X or tam * 0.6
-    end
-
-    local palavras = {}
-    for palavra in texto:gmatch("%S+") do
-        local chars, larg = {}, 0
-        for _, cp in utf8.codes(palavra) do
-            local ch = utf8.char(cp)
-            local lw = larguraChar(ch)
-            table.insert(chars, {ch = ch, w = lw})
-            larg += lw
-        end
-        table.insert(palavras, {chars = chars, w = larg})
-    end
-
-    local espaco = larguraChar(" ")
-    local linhas, atual, atualW = {}, {}, 0
-    for _, p in ipairs(palavras) do
-        local extra = (#atual > 0) and espaco or 0
-        if #atual > 0 and atualW + extra + p.w > FALA_LARGURA_MAX then
-            table.insert(linhas, {palavras = atual, w = atualW})
-            atual, atualW, extra = {}, 0, 0
-        end
-        table.insert(atual, p)
-        atualW += extra + p.w
-    end
-    if #atual > 0 then table.insert(linhas, {palavras = atual, w = atualW}) end
-
-    local larguraTotal = 0
-    for _, l in ipairs(linhas) do larguraTotal = math.max(larguraTotal, l.w) end
-    local alturaTotal = #linhas * altLinha
-
-    -- 2) Cria 1 TextLabel por letra, centralizado por linha
-    local letras = {}
-    for li, l in ipairs(linhas) do
-        local x = (larguraTotal - l.w) / 2
-        local y = (li - 1) * altLinha
-        for pi, p in ipairs(l.palavras) do
-            for _, c in ipairs(p.chars) do
-                local lbl = Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Size = UDim2.fromOffset(c.w + 4, altLinha),
-                    Position = UDim2.fromOffset(x - 2, y),
-                    Font = Enum.Font.GothamBold,
-                    Text = c.ch,
-                    TextSize = tam,
-                    TextColor3 = e.cor,
-                    TextTransparency = 1,
-                    TextStrokeTransparency = 1,
-                    TextStrokeColor3 = Color3.fromRGB(0, 0, 0),
-                    Parent = caixa,
-                })
-                table.insert(letras, {lbl = lbl, ch = c.ch, bx = x - 2, by = y, dx = 0, dy = 0, fase = math.random() * 6.28})
-                x += c.w
-            end
-            if pi < #l.palavras then x += espaco end
-        end
-    end
-
-    local margem = 20 + e.tremor * inten * 2
-    gui.Size = UDim2.fromOffset(larguraTotal + margem * 2, alturaTotal + margem * 2)
-    caixa.Size = UDim2.fromOffset(larguraTotal, alturaTotal)
-    caixa.Position = UDim2.fromScale(0.5, 0.5)
-    caixa.Visible = true
-
-    local total = #letras
-    local vel = e.vel / (0.75 + 0.25 * inten)
-    local tDigitar = total * vel
-    local tLer = 1.1 + total * 0.045
+    -- tempos: entrada rapida com glitch, leitura proporcional ao tamanho, fade
+    local nChars = utf8.len(texto) or #texto
+    local tEntrada = 0.18
+    local tLer = 1.3 + nChars * 0.05
     local tFade = 0.4
-    local tFim = tDigitar + tLer + tFade
+    local tFim = tLer + tFade
     local baseTrans = e.sussurro and 0.25 or 0
-    local amp = e.tremor * inten * 0.8   -- tremor de CADA letra
+    local jitBase = 1 + math.floor(e.tremor * inten)
+    local chanceKick = e.glitch and (1.2 * inten) or (e.tremor * 0.25)   -- estouros por segundo
 
     fala.prio = prio
     fala.fim = os.clock() + tFim
     fala.gapAte = fala.fim + 0.5
     falaUltimoTexto = texto
 
+    ui.nome.Text = quem
+    ui.nome.TextColor3 = LEGENDA_COR_NOME
+    ui.principal.Text, ui.ciano.Text, ui.magenta.Text = texto, texto, texto
+    ui.raiz.Visible = true
+
     task.spawn(function()
         local t0 = os.clock()
-        local proxTremor = 0
+        local ultimo = t0
+        local kick = 1   -- estouro de glitch na entrada
         while fala.token == meuToken do
-            local t = os.clock() - t0
-            if t >= tFim then break end
+            local agora = os.clock()
+            local dt = agora - ultimo
+            ultimo = agora
+            local t = agora - t0
+            if t >= tFim or falaPsicoseAtiva() then break end
 
-            local sorteia = t >= proxTremor
-            if sorteia then proxTremor = t + 0.04 end
+            kick = math.max(0, kick - dt * 5)
+            if chanceKick > 0 and math.random() < chanceKick * dt then kick = 1 end
 
-            local tFadeIni = tDigitar + tLer
-            local fadeK = (t > tFadeIni) and math.clamp((t - tFadeIni) / tFade, 0, 1) or 0
+            local fadeK = (t > tLer) and math.clamp((t - tLer) / tFade, 0, 1) or 0
+            local entra = math.clamp(t / tEntrada, 0, 1)
+            local trans = baseTrans + (1 - baseTrans) * fadeK
+            trans = 1 - (1 - trans) * entra
+            local transCamada = 1 - (1 - 0.35) * (1 - trans)
 
-            for i, L in ipairs(letras) do
-                local lbl = L.lbl
-                local tLetra = t - (i - 1) * vel
-                if tLetra < 0 then
-                    lbl.TextTransparency = 1
-                    lbl.TextStrokeTransparency = 1
-                else
-                    -- tremor independente por letra
-                    if sorteia and amp > 0 then
-                        L.dx = (math.random() * 2 - 1) * amp
-                        L.dy = (math.random() * 2 - 1) * amp
-                    end
-                    local dx, dy = L.dx, L.dy
+            -- camadas ciano/magenta tremem para lados opostos
+            local jit = jitBase + math.floor(kick * 8) + ((t < tEntrada) and 4 or 0)
+            ui.ciano.Position = UDim2.new(0, -math.random(0, jit), 0, 20 + math.random(-1, 1))
+            ui.magenta.Position = UDim2.new(0, math.random(0, jit), 0, 20 + math.random(-1, 1))
 
-                    -- euforia: onda pulando letra por letra
-                    if e.pulo then dy -= math.abs(math.sin(t * 9 + i * 0.55)) * 2.2 * inten end
-                    -- dor: letras "pesadas" caindo de leve
-                    if emo == "dor" then dy += math.sin(t * 5 + L.fase) * 0.8 * inten end
+            -- letras viram simbolos nos estouros (e levemente o tempo todo na emocao glitch)
+            local scr = (kick > 0.4) and (0.12 * kick) or 0
+            if e.glitch then scr = math.max(scr, 0.04 * inten) end
+            if t < tEntrada then scr = math.max(scr, 0.25) end
+            local novo = (scr > 0) and falaEmbaralhar(texto, scr) or texto
+            if ui.principal.Text ~= novo then ui.principal.Text = novo end
 
-                    -- aparece com um pulinho (cada letra entra de baixo)
-                    local entra = math.clamp(tLetra / 0.1, 0, 1)
-                    dy += (1 - entra) * 5
+            ui.principal.TextTransparency = trans
+            ui.nome.TextTransparency = trans
+            ui.ciano.TextTransparency = transCamada
+            ui.magenta.TextTransparency = transCamada
 
-                    lbl.Position = UDim2.fromOffset(L.bx + dx, L.by + dy)
-
-                    -- pulso de tamanho por letra
-                    local pulso = e.pulso * inten * math.sin(t * 11 + L.fase)
-                    lbl.TextSize = tam * (1 + pulso) * (0.8 + 0.2 * entra)
-
-                    -- cor / glitch por letra
-                    if e.glitch and sorteia then
-                        local c = math.random()
-                        if c < 0.18 then lbl.TextColor3 = Color3.fromRGB(0, 255, 255)
-                        elseif c < 0.3 then lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-                        else lbl.TextColor3 = e.cor end
-                        if L.ch ~= " " and math.random() < 0.06 * inten then
-                            lbl.Text = SIMBOLOS_GLITCH[math.random(1, #SIMBOLOS_GLITCH)]
-                        else
-                            lbl.Text = L.ch
-                        end
-                    end
-
-                    local trans = baseTrans + (1 - baseTrans) * fadeK
-                    lbl.TextTransparency = trans * 1 + (1 - entra) * (1 - trans)
-                    lbl.TextStrokeTransparency = 0.35 + 0.65 * lbl.TextTransparency
-                end
-            end
+            -- extras por emocao: euforia pula, dor balanca devagar
+            local dy = 0
+            if e.pulo then dy = -math.abs(math.sin(t * 9)) * 3 end
+            if emo == "dor" then dy = math.sin(t * 3) * 1.5 end
+            ui.raiz.Position = UDim2.new(0.08, 0, LEGENDA_POS_Y, dy)
 
             RunService.RenderStepped:Wait()
         end
         if fala.token == meuToken then
-            caixa.Visible = false
-            caixa:ClearAllChildren()
+            ui.raiz.Visible = false
             fala.prio = 0
             fala.fim = 0
         end
@@ -1045,6 +1064,7 @@ end
 
 local function Falar(evento, forcar)
     if not FALAS_ATIVAS then return end
+    if falaPsicoseAtiva() then return end   -- a Cyberpsychosis tem a propria legenda
     local def = EVENTOS[evento]
     if not def then return end
     local agora = os.clock()
@@ -1978,26 +1998,29 @@ local Module = {
         -- ====================================================
         Speech = {
             Enabled = true,
-            SoundId = nil,              -- sons em sequência (PSYCHOSIS + PSYCHOSIS2) no Exec; não usa SoundId único
+            SoundId = nil,              -- sons em sequência (1→2→3) no Exec; não usa SoundId único
             Volume = 2,
             Offset = 0,                 -- soma em todos os tempos (use negativo se os efeitos estão atrasados)
-            Duration = 9,               -- áudio total 5s + 4s = 9s
-            Tail = 0.8,                 -- segundos de sobra depois da última fala
+            Duration = 12,              -- 5s + 4s + 2s + 1s fade = 12s
+            Tail = 1.0,                 -- 1s de desligamento suave no final
             Subtitles = true,
             MuteOriginalSounds = true,  -- sons originais substituídos pela sequência com crossfade
             Lines = {
                 -- Part 1 (0–5s): "I'm gonna rip out his spine! / I'll kill him! / I'll kill him."
                 -- Part 2 (5–9s): "You're dead. / Dead. / Dead."
+                -- Part 3 (9–11s): "Fucking dead!" + 1s fade-out
                 {t = 0.15, hold = 1.8, who = "DAVID", text = "I'm gonna rip out his spine!", power = 1.5, windows = 5},
                 {t = 2.20, hold = 1.0, who = "DAVID", text = "I'll kill him!",               power = 1.6, windows = 4},
                 {t = 3.40, hold = 1.3, who = "DAVID", text = "I'll kill him.",               power = 0.9, windows = 2},
                 {t = 5.15, hold = 1.0, who = "DAVID", text = "You're dead.",                 power = 1.3, windows = 4},
                 {t = 6.40, hold = 0.8, who = "DAVID", text = "Dead.",                        power = 1.7, windows = 6},
-                {t = 7.40, hold = 1.0, who = "DAVID", text = "Dead.",                        power = 2,   windows = 14, final = true},
+                {t = 7.40, hold = 1.0, who = "DAVID", text = "Dead.",                        power = 1.8, windows = 8, final = true},
+                {t = 9.15, hold = 1.6, who = "DAVID", text = "Fucking dead!",                power = 2,   windows = 16, chance = 0.1},
             },
             Hits = {
                 {t = 1.20, power = 1.9, windows = 2},   -- "spine!" gritado
-                {t = 7.70, power = 2,   windows = 0},   -- segundo golpe no último "Dead."
+                {t = 7.70, power = 1.8, windows = 2},   -- segundo "Dead."
+                {t = 9.40, power = 2,   windows = 4, chance = 0.1},   -- "Fucking dead!" (10%)
             },
         },
     },
@@ -2014,7 +2037,7 @@ local Fallback = {
     Constants = {
         MAX_ENERGY = 100,
         CYBERPSYCHOSIS = {
-            Duration = 9,
+            Duration = 12,
             PopupRate = 0.08,
             Radius = 7,
             ShakeIntensity = 0.6,
@@ -2029,6 +2052,7 @@ local Fallback = {
     Sounds = {
         PSYCHOSIS  = {id = "rbxassetid://113922641197855",  volume = 2, pitch = 1, looped = false},
         PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false},
+        PSYCHOSIS3 = {id = "rbxassetid://92219907157626", volume = 2.2, pitch = 1, looped = false},
     },
     State = {Energy = 100},
 }
@@ -2955,11 +2979,14 @@ function ExecCyberpsychosis()
     local phaseDuration = DURATION / 3
     local S = Module.Config.Speech
     local speechOn = SpeechActive() and true or false
+    -- "Fucking dead!" (fala + som 3) só em 10% das vezes
+    local playFuckingDead = math.random() < 0.1
 
-    -- Sons de crashing out do David (parte 1: 5s → parte 2: 4s) com crossfade suave
+    -- Sons de crashing out do David (parte 1: 5s → parte 2: 4s → parte 3: 2s "Fucking dead!") + 1s fade
     local speechSound
     do
         local vol = (S and S.Volume) or 2
+        local vol3 = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.volume) or 2.2
         local parent = HRP or Camera
         local s1 = Instance.new("Sound")
         s1.SoundId = Sounds.PSYCHOSIS.id
@@ -2975,7 +3002,17 @@ function ExecCyberpsychosis()
         s2.PlaybackSpeed = Sounds.PSYCHOSIS2.pitch or 1
         s2.Parent = parent
 
-        -- Crossfade: ~0.6s antes dos 5s (parte 1) começa a descer e a parte 2 sobe
+        local playPart3 = playFuckingDead
+        local s3 = nil
+        if playPart3 then
+            s3 = Instance.new("Sound")
+            s3.SoundId = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.id) or "rbxassetid://92219907157626"
+            s3.Volume = 0
+            s3.PlaybackSpeed = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.pitch) or 1
+            s3.Parent = parent
+        end
+
+        -- Crossfade 1→2 em ~4.4s
         task.delay(4.4, function()
             if s1 and s1.Parent then
                 TweenService:Create(s1, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
@@ -2985,7 +3022,35 @@ function ExecCyberpsychosis()
                 TweenService:Create(s2, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Volume = vol}):Play()
             end
         end)
-        Debris:AddItem(s2, 10)
+
+        if playPart3 and s3 then
+            -- Crossfade 2→3 em ~8.7s ("Fucking dead!" 2s)
+            task.delay(8.7, function()
+                if s2 and s2.Parent then
+                    TweenService:Create(s2, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
+                end
+                if s3 and s3.Parent then
+                    s3:Play()
+                    TweenService:Create(s3, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Volume = vol3}):Play()
+                end
+            end)
+            -- Fade-out final do s3 no último 1s (não corta seco)
+            task.delay(10.8, function()
+                if s3 and s3.Parent then
+                    TweenService:Create(s3, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
+                end
+            end)
+            Debris:AddItem(s3, 14)
+        else
+            -- sem parte 3: fade-out do s2 no final
+            task.delay(10.8, function()
+                if s2 and s2.Parent then
+                    TweenService:Create(s2, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
+                end
+            end)
+        end
+
+        Debris:AddItem(s2, 12)
         speechSound = s1
     end
 
@@ -3854,6 +3919,10 @@ function ExecCyberpsychosis()
     local function UpdateGlitch(dt, phase, fadeProgress)
         if not GLITCH then return end
         local k = 1 - fadeProgress
+        do
+            local __o = (getgenv and getgenv()) or _G
+            vpRoot.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(frozenHRP or HRP)))
+        end
 
         local make = table.remove(glitchQueue, 1)
         if make then pcall(make) end
@@ -3976,10 +4045,23 @@ function ExecCyberpsychosis()
     if speechOn then
         local off = S.Offset or 0
         for _, l in ipairs(S.Lines) do
-            table.insert(events, {t = (l.t or 0) + off, line = l, hit = l.hit ~= false, power = l.power or 1, windows = l.windows or 3, final = l.final})
+            -- chance: se a linha tem .chance, usa o mesmo roll de playFuckingDead (10%)
+            local ok = true
+            if l.chance ~= nil then
+                ok = playFuckingDead
+            end
+            if ok then
+                table.insert(events, {t = (l.t or 0) + off, line = l, hit = l.hit ~= false, power = l.power or 1, windows = l.windows or 3, final = l.final})
+            end
         end
         for _, h in ipairs(S.Hits or {}) do
-            table.insert(events, {t = (h.t or 0) + off, hit = true, power = h.power or 1, windows = h.windows or 0, final = h.final})
+            local ok = true
+            if h.chance ~= nil then
+                ok = playFuckingDead
+            end
+            if ok then
+                table.insert(events, {t = (h.t or 0) + off, hit = true, power = h.power or 1, windows = h.windows or 0, final = h.final})
+            end
         end
         table.sort(events, function(a, b) return a.t < b.t end)
     end
@@ -3993,8 +4075,8 @@ function ExecCyberpsychosis()
     connection = RunService.RenderStepped:Connect(function(dt)
         FreezeBody()   -- mantém tudo parado (pega animação nova que o jogo tentar tocar)
         local elapsed = tick() - startTime
-        local fadeStart = DURATION - 0.5
-        local fadeProgress = elapsed > fadeStart and math.clamp((elapsed - fadeStart) / 0.5, 0, 1) or 0
+        local fadeStart = DURATION - 1.0  -- 1s de desligamento suave (não corta seco)
+        local fadeProgress = elapsed > fadeStart and math.clamp((elapsed - fadeStart) / 1.0, 0, 1) or 0
         local k = 1 - fadeProgress
         local phase = elapsed < phaseDuration and 1 or (elapsed < phaseDuration * 2 and 2 or 3)
         local okBA, errBA = pcall(BodyAnimStep, dt, elapsed, k, phase)
@@ -4279,6 +4361,7 @@ local function ExecDodge(enemyPart: BasePart?)
     
     local syncConn = RunService.RenderStepped:Connect(function()
         if not Character or not Character.Parent then return end
+        local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
         
         local realParts = {}
         local function indexRealParts(instance, path)
@@ -5343,6 +5426,7 @@ local function ExecSandi()
             if not Character or not Character.Parent or not State.IsSandiActive then
                 return
             end
+            local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
             
             -- Mapeia as partes reais
             local realParts = {}
@@ -6154,6 +6238,7 @@ local function ExecDash()
     
     local syncConn = RunService.RenderStepped:Connect(function()
         if not Character or not Character.Parent then return end
+        local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
         
         local realParts = {}
         local function indexRealParts(instance, path)
@@ -6511,7 +6596,9 @@ function KiroshiVP.On()
         end
         local cam = Workspace.CurrentCamera
         vpf.CurrentCamera = cam
+        local __o = (getgenv and getgenv()) or _G
         vpf.Visible = (cam.CFrame.Position - HRP.Position).Magnitude >= 1.6
+            and not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(HRP)))
         for _, pr in ipairs(pairsList) do
             local copy, real = pr[1], pr[2]
             if real.Parent and copy.Parent then
@@ -6902,6 +6989,14 @@ function PhaseGhost.Update()
 
     local now = os.clock()
     local right = HRP.CFrame.RightVector
+
+    do
+        local __o = (getgenv and getgenv()) or _G
+        local vp = PhaseGhost.Viewport
+        if vp and vp.Parent then
+            vp.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(HRP, 3.4)))
+        end
+    end
 
     for i = #list, 1, -1 do
         local g = list[i]
@@ -7326,8 +7421,8 @@ end
 local function CreateEnergyBar(gui)
     local container = Create("Frame", {
         Name = "EnergyBar",
-        Size = UDim2.new(0, 32, 0, 310),
-        Position = UDim2.new(0, 28, 0.5, -155),
+        Size = UDim2.new(0, 32, 0, 190),
+        Position = UDim2.new(0, 28, 0.5, -140),
         BackgroundColor3 = Color3.fromRGB(4, 4, 9),
         BorderSizePixel = 0,
         Parent = gui
@@ -7384,11 +7479,11 @@ local function CreateEnergyBar(gui)
     local circuitBottom = Create("Frame", {Size = UDim2.new(1, -14, 0, 2), Position = UDim2.new(0, 7, 1, -11), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, Parent = container})
     Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(255,255,255), Colors.UI_NEON), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(0.4,0), NumberSequenceKeypoint.new(1,1)}), Parent = circuitBottom})
 
-    -- ========== BARRA PEQUENA DE CYBERPSYCHOSIS (0–200%) ==========
+    -- ========== BARRA PEQUENA DE CYBERPSYCHOSIS (0–100%) ==========
     -- Filha do container da energia: anda junto quando a barra é arrastada no modo de edição.
     local psyBar = Create("Frame", {
         Name = "PsychosisBar",
-        Size = UDim2.new(0, 14, 0, 150),
+        Size = UDim2.new(0, 14, 0, 110),
         Position = UDim2.new(1, 12, 1, 0),
         AnchorPoint = Vector2.new(0, 1),
         BackgroundColor3 = Color3.fromRGB(0, 0, 0),
@@ -7425,9 +7520,9 @@ local function CreateEnergyBar(gui)
         Parent = psyFill
     })
 
-    -- Marca dos 100% (metade da barra): daqui pra cima é zona de perigo
+    -- Marca dos 50% (metade da barra): daqui pra cima é zona de perigo
     Create("Frame", {
-        Name = "Mark100",
+        Name = "Mark50",
         Size = UDim2.new(1, 0, 0, 2),
         Position = UDim2.new(0, 0, 0.5, -1),
         BackgroundColor3 = Color3.fromRGB(255, 60, 60),
@@ -7951,10 +8046,15 @@ end
 
 do
 local PsyGlitch = {
-    START = 45, STEP = 10, Active = {}, NextAt = 0,
-    VIEWPORT_START = 120,      -- % da barra: daqui pra cima entra o glitch de ViewportFrame
-    STOP_OLD_GLITCH = true,    -- true = o glitch antigo (tremer/piscar a peça real) PARA em 120% | false = só trava no nível de 120%
-    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil},
+    START = 22.5, STEP = 5, Active = {}, NextAt = 0,
+    VIEWPORT_START = 60,       -- % da barra: daqui pra cima entra o glitch de ViewportFrame
+    STOP_OLD_GLITCH = false,   -- true = o glitch antigo (tremer/piscar a peça real) PARA em 60% | false = só trava no nível de 60% e continua junto com o do ViewportFrame
+    VIEWPORT_MAX = 75,         -- % da barra onde o glitch de ViewportFrame chega no máximo (sobe de VIEWPORT_START até aqui)
+    CLONE_START = 85,          -- % da barra: daqui pra cima aparecem CLONES do corpo inteiro (ecos) no ViewportFrame
+    ECHO_MIN = 1,              -- quantidade de clones ao mesmo tempo em CLONE_START (sobe até ECHO_MAX em 100%)
+    ECHO_MAX = 4,              -- máximo de clones ao mesmo tempo
+    ECHO_TINT = false,         -- false = clones com a MESMA cor do seu boneco | true = piscam em neon (ciano/magenta/vermelho)
+    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil, echoes = {}, echoNextAt = 0},
 }
 
 function PsyGlitch.Level()
@@ -7986,7 +8086,7 @@ end
 -- ============================================================
 -- GLITCH DE VIEWPORTFRAME (a partir de VIEWPORT_START %)
 -- Cópia FIEL (mesma cor, textura e malha, sem neon) das peças e acessórios do boneco, na MESMA
--- câmera do jogo. A peça real some e a cópia pula/gira/pisca no lugar dela.
+-- câmera do jogo. A peça real continua visível e a cópia pula/gira/pisca por cima (duplicação).
 -- ============================================================
 -- O ViewportFrame recebe um CLONE do personagem INTEIRO (com Humanoid, roupas e cor do corpo, que só
 -- renderizam certo dentro de um Model com Humanoid). O clone fica ancorado e escondido; só as peças
@@ -7999,36 +8099,63 @@ local function vpIsJunk(d)
 end
 
 local function vpEndRec(r)
-    if r.g and r.g.Parent then r.g.LocalTransparencyModifier = 1 end
+    if r.g and r.g.Parent then r.g.Transparency = 1 end
     if r.src and r.src.Parent then r.src.LocalTransparencyModifier = 0 end
     PsyGlitch.VP.used[r.src] = nil
 end
 
+-- ECOS: clones do corpo INTEIRO (a partir de CLONE_START %), congelados na pose do momento,
+-- deslocados pro lado, piscando por pouco tempo. O corpo real continua visível.
+local function vpClearEchoes()
+    local V = PsyGlitch.VP
+    for _, e in ipairs(V.echoes) do
+        if e.model then pcall(function() e.model:Destroy() end) end
+    end
+    V.echoes = {}
+end
+
 local function vpBuildClone(char)
     local V = PsyGlitch.VP
+    vpClearEchoes()
     for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
     V.recs, V.used, V.map = {}, {}, {}
     if V.clone then V.clone:Destroy() V.clone = nil end
     V.char = char
+    -- marca cada peça real com um id; o clone herda o id e o mapa real->cópia nasce por id
+    -- (não depende mais da ordem/quantidade de descendentes, que quebrava com objetos não-clonáveis)
+    local byId, n = {}, 0
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then
+            n += 1
+            byId[n] = d
+            d:SetAttribute("PsyVpId", n)
+        end
+    end
     local was = char.Archivable
     char.Archivable = true
     local ok, clone = pcall(function() return char:Clone() end)
     char.Archivable = was
-    if not ok or not clone then return false end
-    local realD, cloneD = char:GetDescendants(), clone:GetDescendants()
-    if #realD ~= #cloneD then clone:Destroy() return false end
-    for i, d in ipairs(realD) do
-        local c = cloneD[i]
-        if d:IsA("BasePart") and c:IsA("BasePart") then V.map[d] = c end
+    for _, d in ipairs(byId) do
+        if d.Parent then d:SetAttribute("PsyVpId", nil) end
     end
-    for _, c in ipairs(cloneD) do
+    if not ok or not clone then
+        warn("[Sandevistan] glitch ViewportFrame: não consegui clonar o personagem")
+        return false
+    end
+    for _, c in ipairs(clone:GetDescendants()) do
+        if c:IsA("BasePart") then
+            local i = c:GetAttribute("PsyVpId")
+            if i and byId[i] then V.map[byId[i]] = c end
+        end
+    end
+    for _, c in ipairs(clone:GetDescendants()) do
         if c:IsA("BasePart") then
             c.Anchored = true
             c.CanCollide = false
             c.CanQuery = false
             c.CanTouch = false
             c.CastShadow = false
-            c.LocalTransparencyModifier = 1   -- escondido até a peça ser sorteada
+            c.Transparency = 1   -- escondido até a peça ser sorteada
         elseif vpIsJunk(c) then
             c:Destroy()
         end
@@ -8040,7 +8167,100 @@ local function vpBuildClone(char)
     end
     clone.Parent = V.vp
     V.clone = clone
-    return true
+    return next(V.map) ~= nil
+end
+
+local function vpSpawnEcho(p2)
+    local V = PsyGlitch.VP
+    if not V.vp or not V.clone or not V.clone.Parent or not HRP or not HRP.Parent then return end
+    local was = V.clone.Archivable
+    V.clone.Archivable = true
+    local ok, model = pcall(function() return V.clone:Clone() end)
+    V.clone.Archivable = was
+    if not ok or not model then return end
+    local ghostById = {}
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local i = d:GetAttribute("PsyVpId")
+            if i then ghostById[i] = d end
+        end
+    end
+    local parts, reals, bases, pj = {}, {}, {}, {}
+    for real, g in pairs(V.map) do
+        local gp = ghostById[g:GetAttribute("PsyVpId")]
+        if gp then
+            if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 then
+                gp.CFrame = real.CFrame
+                gp.Transparency = real.Transparency   -- opaco (sem semi-transparência)
+                table.insert(parts, gp)
+                table.insert(reals, real)
+                table.insert(bases, real.Transparency)
+                table.insert(pj, Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1))
+            else
+                gp.Transparency = 1
+            end
+        end
+    end
+    if PsyGlitch.ECHO_TINT and math.random() < 0.45 then
+        local tints = {Color3.fromRGB(0, 240, 255), Color3.fromRGB(255, 0, 140), Color3.fromRGB(255, 30, 30), Color3.new(1, 1, 1)}
+        local tint = tints[math.random(#tints)]
+        for _, gp in ipairs(parts) do
+            gp.Color = tint
+            gp.Material = Enum.Material.Neon
+        end
+    end
+    model.Parent = V.vp
+    local now = os.clock()
+    table.insert(V.echoes, {
+        model = model, parts = parts, reals = reals, bases = bases, partJit = pj,
+        born = now, life = 0.3 + math.random() * 0.5,
+        side = (math.random() < 0.5 and -1 or 1) * (1.4 + math.random() * 3 + p2 * 2.5),
+        lift = (math.random() * 2 - 1) * 1.2,
+        rotY = (math.random() * 2 - 1) * (14 + 30 * p2), rotZ = (math.random() * 2 - 1) * (6 + 16 * p2),
+        jx = 0, jy = 0, jmag = 0.5 + 0.8 * p2,
+        nextRoll = 0, blink = false,
+    })
+end
+
+-- cada eco SAI do corpo (deslocamento sobe de 0), buga (pulos, giros, piscadas) e VOLTA pro corpo (0),
+-- seguindo o boneco real em todo frame, nunca fica solto no mapa
+local function vpEchoStep(now)
+    local V = PsyGlitch.VP
+    local cam = Workspace.CurrentCamera
+    for i = #V.echoes, 1, -1 do
+        local e = V.echoes[i]
+        local u = (now - e.born) / e.life
+        if u >= 1 or not e.model.Parent or not cam or not HRP or not HRP.Parent then
+            pcall(function() e.model:Destroy() end)
+            table.remove(V.echoes, i)
+        else
+            if now >= e.nextRoll then
+                e.nextRoll = now + 0.03 + math.random() * 0.04
+                e.blink = math.random() < 0.3
+                if math.random() < 0.4 then
+                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag * 3, (math.random() * 2 - 1) * e.jmag * 1.5   -- pulo brusco
+                else
+                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag, (math.random() * 2 - 1) * e.jmag * 0.5
+                end
+            end
+            local env = math.sin(math.pi * u)            -- 0 -> 1 -> 0
+            env = math.floor(env * 6 + 0.5) / 6          -- degraus: movimento travado/glitchado
+            local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
+            local offset = right * (e.side * env + e.jx * env) + up * (e.lift * env + e.jy * env)
+            local pivot = HRP.CFrame
+            local rot = CFrame.Angles(0, math.rad(e.rotY * env), math.rad(e.rotZ * env))
+            local base = pivot * rot * pivot:Inverse()
+            for k, gp in ipairs(e.parts) do
+                local real = e.reals[k]
+                if real.Parent then
+                    gp.CFrame = base * real.CFrame + offset + e.partJit[k] * (0.35 * env)
+                    gp.Transparency = e.blink and 1 or e.bases[k]
+                else
+                    gp.Transparency = 1
+                end
+            end
+        end
+    end
 end
 
 local function vpFollow()
@@ -8049,6 +8269,7 @@ local function vpFollow()
     if not cam or not V.vp then return end
     if V.vp.CurrentCamera ~= cam then V.vp.CurrentCamera = cam end
     local now = os.clock()
+    vpEchoStep(now)
     for i = #V.recs, 1, -1 do
         local r = V.recs[i]
         if now >= r.untilT or not r.src.Parent or not r.g.Parent then
@@ -8060,12 +8281,12 @@ local function vpFollow()
                 r.dx = (math.random() * 2 - 1) * r.mag
                 r.dy = (math.random() * 2 - 1) * r.mag * 0.4
                 r.rot = CFrame.Angles(math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg))
-                r.blink = math.random() < 0.2
+                r.blink = math.random() < 0.1
             end
             local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
             r.g.CFrame = (r.src.CFrame * r.rot) + right * r.dx + up * r.dy
-            r.g.LocalTransparencyModifier = r.blink and 1 or 0
-            r.src.LocalTransparencyModifier = 1   -- a peça real some enquanto a cópia glitcha
+            r.g.Transparency = r.blink and 1 or r.src.Transparency
+            -- a peça real continua VISÍVEL: a cópia glitchada aparece por cima como uma duplicação
         end
     end
 end
@@ -8100,6 +8321,7 @@ function PsyGlitch.ClearViewport()
     local V = PsyGlitch.VP
     if not V.gui and not V.conn and #V.recs == 0 then return end
     for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
+    vpClearEchoes()
     V.recs, V.used, V.map = {}, {}, {}
     if V.conn then V.conn:Disconnect() V.conn = nil end
     if V.gui then V.gui:Destroy() end
@@ -8110,13 +8332,30 @@ function PsyGlitch.UpdateViewport(dt)
     local V = PsyGlitch.VP
     if not vpEnsure() then return end
     if V.char ~= Character or not V.clone or not V.clone.Parent then
-        if not vpBuildClone(Character) then return end
+        if os.clock() < (V.buildRetry or 0) then return end
+        if not vpBuildClone(Character) then
+            V.buildRetry = os.clock() + 2
+            return
+        end
     end
-    local p = math.clamp((State.Psychosis - PsyGlitch.VIEWPORT_START) / math.max(1, PsyBar.MAX - PsyGlitch.VIEWPORT_START), 0, 1)
+    local p = math.clamp((State.Psychosis - PsyGlitch.VIEWPORT_START) / math.max(1, PsyGlitch.VIEWPORT_MAX - PsyGlitch.VIEWPORT_START), 0, 1)
+    if State.Psychosis >= PsyGlitch.CLONE_START then
+        local p2 = math.clamp((State.Psychosis - PsyGlitch.CLONE_START) / math.max(1, PsyBar.MAX - PsyGlitch.CLONE_START), 0, 1)
+        local t = os.clock()
+        local maxE = PsyGlitch.ECHO_MIN + math.floor(p2 * (PsyGlitch.ECHO_MAX - PsyGlitch.ECHO_MIN) + 0.5)
+        if t >= V.echoNextAt and #V.echoes < maxE then
+            V.echoNextAt = t + (0.14 - 0.09 * p2) * (0.5 + math.random())
+            for _ = 1, math.min(maxE - #V.echoes, 1 + math.floor(p2 * 2)) do
+                vpSpawnEcho(p2)
+            end
+        end
+    elseif #V.echoes > 0 then
+        vpClearEchoes()
+    end
     local now = os.clock()
     if now < V.nextAt then return end
-    V.nextAt = now + (0.4 - 0.3 * p) * (0.5 + math.random())
-    local room = 2 + math.floor(p * 6) - #V.recs
+    V.nextAt = now + (0.55 - 0.25 * p) * (0.5 + math.random())
+    local room = 1 + math.floor(p * 3) - #V.recs
     if room <= 0 then return end
     local cand = {}
     for real, g in pairs(V.map) do
@@ -8124,7 +8363,7 @@ function PsyGlitch.UpdateViewport(dt)
             table.insert(cand, real)
         end
     end
-    local n = math.min(#cand, room, 1 + math.floor(p * 3))
+    local n = math.min(#cand, room, 1 + math.floor(p * 1.5))
     for _ = 1, n do
         local src = table.remove(cand, math.random(#cand))
         local g = V.map[src]
@@ -8132,9 +8371,9 @@ function PsyGlitch.UpdateViewport(dt)
             V.used[src] = true
             table.insert(V.recs, {
                 src = src, g = g,
-                untilT = now + 0.06 + math.random() * 0.14 + p * 0.1,
+                untilT = now + 0.06 + math.random() * 0.12 + p * 0.06,
                 reroll = 0, dx = 0, dy = 0, rot = CFrame.identity, blink = false,
-                mag = 0.3 + 1.4 * p, rotDeg = 6 + 20 * p,
+                mag = 0.12 + 0.5 * p, rotDeg = 3 + 8 * p,
             })
         end
     end
@@ -8153,7 +8392,7 @@ function PsyGlitch.Update(dt)
             if next(PsyGlitch.Active) then PsyGlitch.Clear() end   -- o glitch antigo para aqui
             return
         end
-        level = math.floor((PsyGlitch.VIEWPORT_START - PsyGlitch.START) / PsyGlitch.STEP) + 1   -- só trava no nível de 120%
+        level = math.floor((PsyGlitch.VIEWPORT_START - PsyGlitch.START) / PsyGlitch.STEP) + 1   -- só trava no nível de 60%
     else
         PsyGlitch.ClearViewport()
     end
@@ -8281,7 +8520,7 @@ end
     if DodgeMode == "Auto" and os.clock() >= State.Cooldowns.DODGE and not State.IsDodgeReady and not IsDodging and State.Energy >= Constants.ENERGY_COSTS.DODGE and EnabledAbilities.Dodge then
         ActivateDodgeReady()
     end
-    -- ========== BARRA DE CYBERPSYCHOSIS: ganho, queda e gatilho em 200% ==========
+    -- ========== BARRA DE CYBERPSYCHOSIS: ganho, queda e gatilho em 100% ==========
     do
         local now = os.clock()
         if State.IsSandiActive then
@@ -8298,7 +8537,11 @@ end
         else
             PsyBar.DecayAcc = 0
         end
-        PsyBar.Glitch.Update(dt)
+        local okG, errG = pcall(PsyBar.Glitch.Update, dt)
+        if not okG and not PsyBar.GlitchErrWarned then
+            PsyBar.GlitchErrWarned = true
+            warn("[Sandevistan] erro no glitch da psicose: " .. tostring(errG))
+        end
 
         if State.Psychosis >= PsyBar.MAX and not PsyBar.Busy then
             PsyBar.Busy = true
@@ -8318,17 +8561,17 @@ end
     if psyFill and psyPercentLabel and psyFill.Parent then
         local v = State.Psychosis
         local col
-        if v < 100 then
-            col = PsyBar.COLOR_LOW:Lerp(PsyBar.COLOR_MID, v / 100)
+        if v < 50 then
+            col = PsyBar.COLOR_LOW:Lerp(PsyBar.COLOR_MID, v / 50)
         else
-            col = PsyBar.COLOR_MID:Lerp(PsyBar.COLOR_HIGH, (v - 100) / 100)
+            col = PsyBar.COLOR_MID:Lerp(PsyBar.COLOR_HIGH, (v - 50) / 50)
         end
         psyFill.Size = UDim2.new(1, 0, math.clamp(v / PsyBar.MAX, 0, 1), 0)
         psyFill.BackgroundColor3 = col
-        -- zona de perigo (>100%): pulsa, cada vez mais rápido
+        -- zona de perigo (>50%): pulsa, cada vez mais rápido
         psyPercentLabel.Text = string.format("%d%%", math.floor(v))
         psyPercentLabel.TextColor3 = col
-        psyFill.BackgroundTransparency = v > 100 and (0.1 + 0.3 * math.abs(math.sin(os.clock() * (4 + (v - 100) / 12)))) or 0
+        psyFill.BackgroundTransparency = v > 50 and (0.1 + 0.3 * math.abs(math.sin(os.clock() * (4 + (v - 50) / 6)))) or 0
     end
 
     if energyFill and energyPercentLabel then

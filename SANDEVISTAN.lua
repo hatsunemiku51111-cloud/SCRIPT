@@ -1,8859 +1,10708 @@
+local __ok, __err = xpcall(function()
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Debris = game:GetService("Debris")
-local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local SoundService = game:GetService("SoundService")
-local ContextActionService = game:GetService("ContextActionService")
-local Player = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
-local Character, HRP, Humanoid
-local ContentProvider = game:GetService("ContentProvider")
-
-do
-    local Env = (getgenv and getgenv()) or _G
-    local Plrs = game:GetService("Players")
-    local WS = game:GetService("Workspace")
-    local LP = Plrs.LocalPlayer
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.IgnoreWater = true
-    params.RespectCanCollide = false
-
-    local function blocked(origin, target)
-        local dir = target - origin
-        local dist = dir.Magnitude - 0.4
-        if dist < 1 then return false end
-        dir = dir.Unit * dist
-        local ignore = {LP.Character, WS.CurrentCamera}
-        for _ = 1, 8 do
-            params.FilterDescendantsInstances = ignore
-            local r = WS:Raycast(origin, dir, params)
-            if not r then return false end
-            local inst = r.Instance
-            if inst:IsA("BasePart") and inst.Transparency < 0.6 and inst.CanQuery then
-                return true
-            end
-            table.insert(ignore, inst)
-        end
-        return false
-    end
-
-    Env.SandiVPOccluded = function(points)
-        local cam = WS.CurrentCamera
-        if not cam or not points then return false end
-        local origin = cam.CFrame.Position
-        for _, pt in ipairs(points) do
-            if not blocked(origin, pt) then return false end
-        end
-        return #points > 0
-    end
-
-    Env.SandiVPBodyPoints = function(root, spread)
-        if not root or not root.Parent then return nil end
-        local pos = root.Position
-        local pts = {pos + Vector3.new(0, 2.2, 0), pos, pos - Vector3.new(0, 2.2, 0)}
-        if spread then
-            local r = root.CFrame.RightVector * spread
-            table.insert(pts, pos + r)
-            table.insert(pts, pos - r)
-        end
-        return pts
-    end
-end
-
--- Forward declarations (evita chamar funcao nil antes da definicao)
-local pararMusica
-local ExecCyberpsychosis
-
-local SANDI_TEXTURES = {
-    "rbxassetid://118003464090928", "rbxassetid://100849825361179", "rbxassetid://96105818070338",
-    "rbxassetid://110826337725055", "rbxassetid://139215133344337", "rbxassetid://98416340638203",
-    "rbxassetid://114952882072808", "rbxassetid://87959360506687", "rbxassetid://99027028936189",
-    "rbxassetid://126972351917677"
-}
-
-task.spawn(function()
-    local instancesToLoad = {}
-    for _, id in ipairs(SANDI_TEXTURES) do
-        local img = Instance.new("ImageLabel")
-        img.Image = id
-        table.insert(instancesToLoad, img)
-    end
-    ContentProvider:PreloadAsync(instancesToLoad)
-end)
-
-local HttpService = game:GetService("HttpService")
-local CONFIG_FILE = "CyberRebuilt_2077_Config.json"
-
-local DefaultConfig = {
-        UIPositions = {
-        EnergyBar = {ScaleX = 0, OffsetX = 28, ScaleY = 0.5, OffsetY = -140},
-        DashBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.25, OffsetY = 0},
-        SandiBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.35, OffsetY = 0},
-        KiroshiBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.45, OffsetY = 0},
-        OpticalBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.55, OffsetY = 0},
-        DodgeBtn = {ScaleX = 0.93, OffsetX = 0, ScaleY = 0.65, OffsetY = 0}
-    },
-    EnabledAbilities = {
-        Dash = true,
-        Sandi = true,
-        Kiroshi = true,
-        Optical = true,
-        Dodge = true
-    },
-    Keybinds = {
-        Dash = "Q",
-        Sandi = "E",
-        Kiroshi = "K",
-        Optical = "O",
-        Dodge = "N"
-    },
-    Settings = {
-        DodgeMode = "Counter",  
-        LiteMode = false,        
-        CurrentSet = 1,          
-        CloneColorIndex = 34
-    }
-}
-
-type Cooldowns = {
-    SANDI: number,
-    DASH: number,
-    DODGE: number,
-    KIROSHI: number,
-    OPTICAL: number
-}
-
-local IsDodging = false
-
-type SystemState = {
-    Energy: number,
-    IsSandiActive: boolean,
-    IsKiroshiActive: boolean,
-    IsOpticalActive: boolean,
-    IsDodgeReady: boolean,
-    Cooldowns: Cooldowns,
-    EditMode: boolean,
-    LastVelocityY: number,
-    LastHealth: number,
-    NoRegenUntil: number,
-    MusicSound: Sound?,
-LastSandiActivation: number,
-    Psychosis: number,
-    PsychosisIdleSince: number,
-}
-
-local Constants = {
-    MAX_ENERGY = 100,
-    SANDI_SPEED = 67,
-    DASH_FORCE = 100,
-    MOVING_THRESHOLD = 1,
-    OPTICAL_DURATION = 2,
-    SLOW_FACTOR = 0.8,
-    COOLDOWNS = {
-        SANDI = 10,
-        DASH = 3.5,
-        DODGE = 5,
-        KIROSHI = 3.5,
-        OPTICAL = 10
-    },
-    HOLOGRAM_CLONE = {
-        SANDI = {DELAY = 0.075, DURATION = 3, END_TRANSPARENCY = 1},
-        DASH = {DELAY = 0.07, DURATION = 0.35, END_TRANSPARENCY = 0.9},
-        DODGE = {DELAY = 0.2, DURATION = 0.5, END_TRANSPARENCY = 0.9}
-    },
-    ENERGY_COSTS = {
-        SANDI_ACTIVATE = 30,
-        SANDI_DRAIN = 2.5,
-        DASH = 8,
-        DODGE = 5,
-        KIROSHI = 10,
-        OPTICAL = 15
-    },
-    REGEN_RATE = 15,
-    REGEN_DELAY_ZERO = 10,
-    REGEN_DELAY_USE = 5,
-    DODGE_CONFIG = {
-        VARIANT_THRESHOLD = 5.5,
-        VARIANT_DURATION = 0.35,
-        VARIANT_CLONE_INTERVAL = 0.05,
-        NORMAL_DISTANCE_NO_ENEMY = 12,
-        NORMAL_DISTANCE_ENEMY = 6
-    },
-    SANDEVISTAN_FAILURE_CHANCE = 0.2,
-    CYBERPSYCHOSIS = {
-        Duration = 12,
-        PopupRate = 0.08,
-        Radius = 7,
-        ShakeIntensity = 0.6,
-        WindowLifeTime = 0.5
-    },
-        ERROR_TEXTS = {
-        "SYSTEM FAILURE", "CRITICAL ERROR", "NEURAL OVERLOAD",
-        "CONNECTION LOST", "0xFF0029A CORRUPT", "PSYCHOSIS DETECTED",
-        "FATAL EXCEPTION", "REBOOTING...", "NO SIGNAL"
-    },
-    BASE_WALKSPEED = 16,
-    SANDI_WALKSPEED = 100,
-    CLONE_INTERVAL = 0.05,
-    
-    HIGHLIGHT_CONFIG = {
-        ENABLED = true,
-        INITIAL_FILL_TRANS = 0.7,
-        INITIAL_OUTLINE_TRANS = 1,
-        FADEIN_FILL_TRANS = 0.3,
-        FADEIN_OUTLINE_TRANS = 1,
-        FADEIN_DURATION = 0.2,
-        FADEOUT_START_FACTOR = 0.7,
-        FADEOUT_DURATION_FACTOR = 0.3,
-        COLORS = {
-            sandi = { outline = "RAINBOW", fill = "RAINBOW" },
-            dash = { outline = Color3.fromRGB(255, 40, 40), fill = Color3.fromRGB(255, 130, 30) },
-            dodge = { outline = Color3.fromRGB(0, 255, 90), fill = Color3.fromRGB(80, 255, 170) },
-            glitch = { outline = Color3.fromRGB(255, 0, 255), fill = Color3.fromRGB(200, 0, 200) }
-        },
-        ENABLE_COLOR_CYCLE = true,
-    },
-}
-
-local Configurations = {
-    SLOW_GRAVITY_MULTIPLIER = Constants.SLOW_FACTOR ^ 2,
-    HOLOGRAM_MATERIAL = Enum.Material.Glass,
-    HOLOGRAM_PRESERVE = {
-        ACCESSORIES = true,
-        HAIR = true,
-        FACE = false
-    }
-}
-
-local Colors = {
-    SANDI_TINT = Color3.fromRGB(175, 255, 190),
-    LIGHT_GREEN = Color3.fromRGB(105, 255, 140),
-    DASH_GREEN = Color3.fromRGB(105, 255, 140),
-    KIROSHI_RED = Color3.fromRGB(90, 215, 255),
-    DODGE_LIME = Color3.fromRGB(200, 255, 200),
-    RAINBOW_SEQUENCE = {
-        Color3.fromRGB(255, 0, 0), Color3.fromRGB(255, 8, 0), Color3.fromRGB(255, 15, 0), Color3.fromRGB(255, 23, 0), Color3.fromRGB(255, 31, 0),
-        Color3.fromRGB(255, 38, 0), Color3.fromRGB(255, 46, 0), Color3.fromRGB(255, 54, 0), Color3.fromRGB(255, 61, 0), Color3.fromRGB(255, 69, 0),
-        Color3.fromRGB(255, 77, 0), Color3.fromRGB(255, 84, 0), Color3.fromRGB(255, 92, 0), Color3.fromRGB(255, 99, 0), Color3.fromRGB(255, 107, 0),
-        Color3.fromRGB(255, 115, 0), Color3.fromRGB(255, 122, 0), Color3.fromRGB(255, 130, 0), Color3.fromRGB(255, 138, 0), Color3.fromRGB(255, 145, 0),
-        Color3.fromRGB(255, 153, 0), Color3.fromRGB(255, 161, 0), Color3.fromRGB(255, 168, 0), Color3.fromRGB(255, 176, 0), Color3.fromRGB(255, 184, 0),
-        Color3.fromRGB(255, 191, 0), Color3.fromRGB(255, 199, 0), Color3.fromRGB(255, 207, 0), Color3.fromRGB(255, 214, 0), Color3.fromRGB(255, 222, 0),
-        Color3.fromRGB(255, 230, 0), Color3.fromRGB(255, 237, 0), Color3.fromRGB(255, 245, 0), Color3.fromRGB(255, 252, 0), Color3.fromRGB(250, 255, 0),
-        Color3.fromRGB(242, 255, 0), Color3.fromRGB(235, 255, 0), Color3.fromRGB(227, 255, 0), Color3.fromRGB(219, 255, 0), Color3.fromRGB(212, 255, 0),
-        Color3.fromRGB(204, 255, 0), Color3.fromRGB(196, 255, 0), Color3.fromRGB(189, 255, 0), Color3.fromRGB(181, 255, 0), Color3.fromRGB(173, 255, 0),
-        Color3.fromRGB(166, 255, 0), Color3.fromRGB(158, 255, 0), Color3.fromRGB(150, 255, 0), Color3.fromRGB(143, 255, 0), Color3.fromRGB(135, 255, 0),
-        Color3.fromRGB(128, 255, 0), Color3.fromRGB(120, 255, 0), Color3.fromRGB(112, 255, 0), Color3.fromRGB(105, 255, 0), Color3.fromRGB(97, 255, 0),
-        Color3.fromRGB(89, 255, 0), Color3.fromRGB(82, 255, 0), Color3.fromRGB(74, 255, 0), Color3.fromRGB(66, 255, 0), Color3.fromRGB(59, 255, 0),
-        Color3.fromRGB(51, 255, 0), Color3.fromRGB(43, 255, 0), Color3.fromRGB(36, 255, 0), Color3.fromRGB(28, 255, 0), Color3.fromRGB(20, 255, 0),
-        Color3.fromRGB(13, 255, 0), Color3.fromRGB(5, 255, 0), Color3.fromRGB(0, 255, 3), Color3.fromRGB(0, 255, 10), Color3.fromRGB(0, 255, 18),
-        Color3.fromRGB(0, 255, 25), Color3.fromRGB(0, 255, 33), Color3.fromRGB(0, 255, 41), Color3.fromRGB(0, 255, 48), Color3.fromRGB(0, 255, 56),
-        Color3.fromRGB(0, 255, 64), Color3.fromRGB(0, 255, 71), Color3.fromRGB(0, 255, 79), Color3.fromRGB(0, 255, 87), Color3.fromRGB(0, 255, 94),
-        Color3.fromRGB(0, 255, 102), Color3.fromRGB(0, 255, 110), Color3.fromRGB(0, 255, 117), Color3.fromRGB(0, 255, 125), Color3.fromRGB(0, 255, 133),
-        Color3.fromRGB(0, 255, 140), Color3.fromRGB(0, 255, 148), Color3.fromRGB(0, 255, 156), Color3.fromRGB(0, 255, 163), Color3.fromRGB(0, 255, 171),
-        Color3.fromRGB(0, 255, 179), Color3.fromRGB(0, 255, 186), Color3.fromRGB(0, 255, 194), Color3.fromRGB(0, 255, 201), Color3.fromRGB(0, 255, 209),
-        Color3.fromRGB(0, 255, 217), Color3.fromRGB(0, 255, 224), Color3.fromRGB(0, 255, 232), Color3.fromRGB(0, 255, 240), Color3.fromRGB(0, 255, 247),
-        Color3.fromRGB(0, 255, 255), Color3.fromRGB(0, 247, 255), Color3.fromRGB(0, 240, 255), Color3.fromRGB(0, 232, 255), Color3.fromRGB(0, 224, 255),
-        Color3.fromRGB(0, 217, 255), Color3.fromRGB(0, 209, 255), Color3.fromRGB(0, 201, 255), Color3.fromRGB(0, 194, 255), Color3.fromRGB(0, 186, 255),
-        Color3.fromRGB(0, 179, 255), Color3.fromRGB(0, 171, 255), Color3.fromRGB(0, 163, 255), Color3.fromRGB(0, 156, 255), Color3.fromRGB(0, 148, 255),
-        Color3.fromRGB(0, 140, 255), Color3.fromRGB(0, 133, 255), Color3.fromRGB(0, 125, 255), Color3.fromRGB(0, 117, 255), Color3.fromRGB(0, 110, 255),
-        Color3.fromRGB(0, 102, 255), Color3.fromRGB(0, 94, 255), Color3.fromRGB(0, 87, 255), Color3.fromRGB(0, 79, 255), Color3.fromRGB(0, 71, 255),
-        Color3.fromRGB(0, 64, 255), Color3.fromRGB(0, 56, 255), Color3.fromRGB(0, 48, 255), Color3.fromRGB(0, 41, 255), Color3.fromRGB(0, 33, 255),
-        Color3.fromRGB(0, 25, 255), Color3.fromRGB(0, 18, 255), Color3.fromRGB(0, 10, 255), Color3.fromRGB(0, 3, 255), Color3.fromRGB(5, 0, 255),
-        Color3.fromRGB(13, 0, 255), Color3.fromRGB(20, 0, 255), Color3.fromRGB(28, 0, 255), Color3.fromRGB(36, 0, 255), Color3.fromRGB(43, 0, 255),
-        Color3.fromRGB(51, 0, 255), Color3.fromRGB(59, 0, 255), Color3.fromRGB(66, 0, 255), Color3.fromRGB(74, 0, 255), Color3.fromRGB(82, 0, 255),
-        Color3.fromRGB(89, 0, 255), Color3.fromRGB(97, 0, 255), Color3.fromRGB(105, 0, 255), Color3.fromRGB(112, 0, 255), Color3.fromRGB(120, 0, 255),
-        Color3.fromRGB(128, 0, 255), Color3.fromRGB(135, 0, 255), Color3.fromRGB(143, 0, 255), Color3.fromRGB(150, 0, 255), Color3.fromRGB(158, 0, 255),
-        Color3.fromRGB(166, 0, 255), Color3.fromRGB(173, 0, 255), Color3.fromRGB(181, 0, 255), Color3.fromRGB(189, 0, 255), Color3.fromRGB(196, 0, 255),
-        Color3.fromRGB(204, 0, 255), Color3.fromRGB(212, 0, 255), Color3.fromRGB(219, 0, 255), Color3.fromRGB(227, 0, 255), Color3.fromRGB(235, 0, 255),
-        Color3.fromRGB(242, 0, 255), Color3.fromRGB(250, 0, 255), Color3.fromRGB(255, 0, 252), Color3.fromRGB(255, 0, 245), Color3.fromRGB(255, 0, 237),
-        Color3.fromRGB(255, 0, 230), Color3.fromRGB(255, 0, 222), Color3.fromRGB(255, 0, 214), Color3.fromRGB(255, 0, 207), Color3.fromRGB(255, 0, 199),
-        Color3.fromRGB(255, 0, 191), Color3.fromRGB(255, 0, 184), Color3.fromRGB(255, 0, 176), Color3.fromRGB(255, 0, 168), Color3.fromRGB(255, 0, 161),
-        Color3.fromRGB(255, 0, 153), Color3.fromRGB(255, 0, 145), Color3.fromRGB(255, 0, 138), Color3.fromRGB(255, 0, 130), Color3.fromRGB(255, 0, 122),
-        Color3.fromRGB(255, 0, 115), Color3.fromRGB(255, 0, 107), Color3.fromRGB(255, 0, 99), Color3.fromRGB(255, 0, 92), Color3.fromRGB(255, 0, 84),
-        Color3.fromRGB(255, 0, 77), Color3.fromRGB(255, 0, 69), Color3.fromRGB(255, 0, 61), Color3.fromRGB(255, 0, 54), Color3.fromRGB(255, 0, 46),
-        Color3.fromRGB(255, 0, 38), Color3.fromRGB(255, 0, 31), Color3.fromRGB(255, 0, 23), Color3.fromRGB(255, 0, 15), Color3.fromRGB(255, 0, 8)
-    },
-    DODGE_START = Color3.fromRGB(160, 0, 255),
-    DODGE_END = Color3.fromRGB(255, 0, 130),
-    EDIT_MODE = Color3.fromRGB(0, 255, 255),
-    UI_BG = Color3.fromRGB(6, 6, 10),
-    UI_ACCENT = Color3.fromRGB(18, 18, 24),
-    UI_NEON = Color3.fromRGB(0, 255, 200),
-    UI_GLOW = Color3.fromRGB(255, 255, 255),
-    UI_DARK = Color3.fromRGB(3, 3, 7),
-    KIROSHI_TINT = Color3.fromRGB(90, 215, 255),
-    KIROSHI = Color3.fromRGB(90, 215, 255),
-    OPTICAL = Color3.fromRGB(210, 220, 235), -- Prateado / Chrome
-    ENERGY_FULL = Color3.fromRGB(105, 255, 140),
-    ENERGY_MEDIUM = Color3.fromRGB(255, 215, 0),
-    ENERGY_LOW = Color3.fromRGB(255, 40, 40),
-    CYBER_CHROME = Color3.fromRGB(180, 190, 210),
-    CYBER_ORANGE = Color3.fromRGB(255, 130, 40)
-}
-
-local ButtonConfigs = {
-    LockBtn = {Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(0, 8, 0.5, -210), BackgroundColor3 = Colors.UI_DARK, TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 22, Text = ""},
-    DashBtn = {Key = "D", Color = Color3.fromRGB(255, 80, 0), Position = UDim2.new(0.93, 0, 0.25, 0)},
-    SandiBtn = {Key = "S", Color = Color3.new(1,1,1), Position = UDim2.new(0.93, 0, 0.35, 0)},
-    KiroshiBtn = {Key = "Ko", Color = Colors.KIROSHI, Position = UDim2.new(0.93, 0, 0.45, 0)},
-    OpticalBtn = {Key = "Ph", Color = Colors.OPTICAL, Position = UDim2.new(0.93, 0, 0.55, 0)},
-    DodgeBtn = {Key = "N", Color = Color3.fromRGB(0, 255, 140), Position = UDim2.new(0.93, 0, 0.65, 0)}
-}
-
-local EnabledAbilities = {
-    Dash = true,
-    Sandi = true,
-    Kiroshi = true,
-    Optical = true,
-    Dodge = true
-}
-
-local AbilityMap = {
-    Dash = "DashBtn",
-    Sandi = "SandiBtn",
-    Kiroshi = "KiroshiBtn",
-    Optical = "OpticalBtn",
-    Dodge = "DodgeBtn"
-}
-
-local SkillContainers = {}
-
-local SET_1 = {120005268911290}
-local SET_2 = {84715312484929, 120005268911290, 129989646284308}  
-local SET_3 = {76673357358456, 101607241306335, 79690388560983}
-
-local setColors = {
-    [1] = Color3.fromRGB(45, 45, 45),      
-    [2] = Color3.fromRGB(0, 120, 215),     
-    [3] = Color3.fromRGB(200, 50, 50)       
-}
-
-local AbilityActions = {Dash = "CyberDash", Sandi = "CyberSandi", Kiroshi = "CyberKiroshi", Optical = "CyberOptical", Dodge = "CyberDodge"}
-local CurrentKeybinds = {Dash = Enum.KeyCode.Q, Sandi = Enum.KeyCode.E, Kiroshi = Enum.KeyCode.K, Optical = Enum.KeyCode.O, Dodge = Enum.KeyCode.N}
-local RebindingAbility = nil
-local KeybindCurrentTexts = {}
-
-local Sounds = {
-    DODGE_NORMAL = {id = "rbxassetid://104594227753486", volume = 1.5, pitch = 1, looped = false},
-    DODGE_VARIANT = {id = "rbxassetid://136915991425056", volume = 1.5, pitch = 1, looped = false},
-    DASH = {id = "rbxassetid://103247005619946", volume = 1.5, pitch = 1, looped = false},
-    DASH_BACK = {id = "rbxassetid://93442668796353", volume = 1.5, pitch = 1, looped = false},
-    SANDI_ON = {id = "rbxassetid://123844681344865", volume = 1.5, pitch = 1, looped = false},
-    SANDI_OFF = {id = "rbxassetid://118534165523355", volume = 1.5, pitch = 1, looped = false},
-    SANDI_LOOP = {id = "rbxassetid://74707394872868", volume = 1.5, pitch = 1, looped = true},
-    SANDI_FAILURE = {id = "rbxassetid://132281440773764", volume = 5, pitch = 1, looped = false},
-    PSYCHOSIS = {id = "rbxassetid://113922641197855", volume = 2, pitch = 1, looped = false},  -- David crash out part 1 (5s)
-    PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false}, -- David crash out part 2 (4s)
-    PSYCHOSIS3 = {id = "rbxassetid://92219907157626", volume = 2.2, pitch = 1, looped = false}, -- "Fucking dead!" (2s)
-    OPTICAL_CAMO = {id = "rbxassetid://134007213357026", volume = 1, pitch = 1, looped = false},
-    COLLISION_IMPACT = {id = "rbxassetid://86227700557194", volume = 1.7, pitch = 1, looped = false},
-    SPAWN = {id = "rbxassetid://138566469626743", volume = 1.5, pitch = 1, looped = false},
-    KIROSHI_ON = {id = "rbxassetid://101563346734882", volume = 2.2, pitch = 1.05, looped = false},
-    KIROSHI_OFF = {id = "rbxassetid://79307196411649", volume = 1.8, pitch = 0.95, looped = false}
-}
-
--- PRÉ-CARREGAMENTO: sons e imagens baixam em segundo plano ao carregar o script, então a
--- primeira ativação/dash/esquiva não engasga esperando o asset chegar do servidor.
-task.spawn(function()
-    local PRELOAD_DEBUG = false -- true = imprime no output o que falhou ao carregar
-    local extraSounds = {
-        "rbxassetid://97097078816969",  -- SystemRestore
-        "rbxassetid://121480304779842", -- spawn
-    }
-    local extraImages = {
-        "rbxassetid://138778899925146", -- ícone da psicose
-        "rbxassetid://11540569225",     -- ícone da notificação
-    }
-
-    local list = {}
-    for _, cfg in pairs(Sounds) do
-        local snd = Instance.new("Sound")
-        snd.SoundId = cfg.id
-        table.insert(list, snd)
-    end
-    for _, id in ipairs(extraSounds) do
-        local snd = Instance.new("Sound")
-        snd.SoundId = id
-        table.insert(list, snd)
-    end
-    for _, id in ipairs(extraImages) do
-        local img = Instance.new("ImageLabel")
-        img.Image = id
-        table.insert(list, img)
-    end
-
-    -- em lotes pequenos (não trava o carregamento do jogo)
-    local BATCH = 8
-    for i = 1, #list, BATCH do
-        local batch = table.move(list, i, math.min(i + BATCH - 1, #list), 1, {})
-        pcall(function()
-            ContentProvider:PreloadAsync(batch, function(assetId, status)
-                if PRELOAD_DEBUG and status ~= Enum.AssetFetchStatus.Success then
-                    warn("[Preload] falhou:", assetId, status)
-                end
-            end)
-        end)
-    end
-
-    for _, inst in ipairs(list) do inst:Destroy() end
-end)
-
-local NOME_ARQUIVO = "I Really Want to Stay at Your House.mp3"
-local GITHUB_URL = "https://github.com/Loader-Tester/Test-Sound/raw/refs/heads/main/I%20Really%20Want%20to%20Stay%20at%20Your%20House.mp3"
-
-local VOLUME = 0.9
-local LOOP = false
-
-local function detectarExecutor()
-    if KRNL_LOADED then return "KRNL", getcustomasset
-    elseif syn then return "Synapse X", syn.getcustomasset
-    elseif fluxus then return "Fluxus", fluxus.getcustomasset
-    elseif getcustomasset then return "Executor Genérico", getcustomasset
-    else return nil, nil end
-end
-
-local function verificarEBaixarMusica()
-    if writefile and readfile then
-        local sucesso, existe = pcall(function()
-            return readfile(NOME_ARQUIVO)
-        end)
-        
-        if not sucesso or not existe then
-            
-            local downloadSucesso, conteudo = pcall(function()
-                return game:HttpGet(GITHUB_URL)
-            end)
-            
-            if downloadSucesso and conteudo then
-                pcall(function()
-                    writefile(NOME_ARQUIVO, conteudo)
-                end)
-            else
-            end
-        else
-        end
-    else
-    end
-end
-
-local function encontrarMusica()
-    local executor, getasset = detectarExecutor()
-    if not executor then return nil end
-    
-    verificarEBaixarMusica()
-    
-    local possibilidades = {NOME_ARQUIVO, "musica.mp3", "musica.ogg", "musica.wav"}
-    if getasset then
-        for _, nome in ipairs(possibilidades) do
-            local sucesso, resultado = pcall(function() return getasset(nome) end)
-            if sucesso and resultado then return resultado end
-        end
-    end
-    return nil
-end
-
--- Sons criados por ESTE script (não são pausados quando o tempo congela)
-local ScriptSounds = setmetatable({}, {__mode = "k"})
-
-local VOLUME_MAXIMO = 0.9 
-local FADE_DURATION = 2.5 
-
-local function tocarMusica()
-    local musicaId = encontrarMusica()
-    if not musicaId then return end
-    
-    local somAntigo = SoundService:FindFirstChild("MinhaMusicaLocal")
-    if somAntigo then
-        pararMusica(somAntigo)
-    end
-    
-    local som = Instance.new("Sound")
-    ScriptSounds[som] = true
-    som.Name = "MinhaMusicaLocal"
-    som.SoundId = musicaId
-    som.Volume = 0 
-    som.Looped = LOOP
-    som.RollOffMode = Enum.RollOffMode.Linear
-    som.RollOffMaxDistance = 1000
-    som.Parent = SoundService
-    
-    local fadeIniciado = false
-    local function iniciarFadeIn()
-        if fadeIniciado or not som.Parent then return end
-        fadeIniciado = true
-        som:Play()
-        TweenService:Create(
-            som,
-            TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-            {Volume = VOLUME_MAXIMO}
-        ):Play()
-    end
-
-    if som.IsLoaded then
-        iniciarFadeIn()
-    else
-        som.Loaded:Connect(iniciarFadeIn)
-    end
-    
-    task.delay(2, function()
-        if som and som.Parent and not som.IsPlaying then
-            iniciarFadeIn()
-        end
-    end)
-    
-    return som
-end
-
-function pararMusica(som)
-    local somParaRemover = som or SoundService:FindFirstChild("MinhaMusicaLocal")
-    
-    if somParaRemover then
-        somParaRemover.Name = "MusicaSaindo" 
-        
-        local fadeOut = TweenService:Create(
-            somParaRemover,
-            TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {Volume = 0}
-        )
-        
-        fadeOut:Play()
-        
-        fadeOut.Completed:Connect(function()
-            somParaRemover:Stop()
-            somParaRemover:Destroy()
-        end)
-    end
-end
-
-local State: SystemState = {
-    Energy = Constants.MAX_ENERGY,
-    IsSandiActive = false,
-    IsKiroshiActive = false,
-    IsOpticalActive = false,
-    IsDodgeReady = false,
-    Cooldowns = {SANDI = 0, DASH = 0, DODGE = 0, KIROSHI = 0, OPTICAL = 0},
-    EditMode = false,
-    LastVelocityY = 0,
-    LastHealth = 100,
-    NoRegenUntil = 0,
-    MusicSound = nil,
-    LastSandiActivation = 0,
-    Psychosis = 0,
-    PsychosisIdleSince = 0
-}
-
--- ========== BARRA DE CYBERPSYCHOSIS (0 a 100%) ==========
--- Sobe enquanto o Sandevistan está ativo e a cada uso/falha; desce sozinha quando você
--- fica um tempo sem usar. Passou de 50% = zona de perigo (vermelho pulsando).
--- Chegou em 100% = dispara a Cyberpsychosis e a barra reseta.
-local PsyBar = {
-    MAX = 100,
-    -- ganhos (bem mais baixos que antes) --
-    GAIN_SANDI = 1.1,     -- % por segundo com o Sandevistan ligado
-    GAIN_ACTIVATE = 4,    -- % ao ativar o Sandevistan
-    GAIN_FAILURE = 6,    -- % quando o Sandevistan falha (overload)
-    GAIN_ZERO = 5,       -- % quando a energia zera com o Sandevistan ligado
-    -- resistencia: quanto mais perto dos 100%, menos cada ganho rende (0.75 = ganho cai ate 25%)
-    RESISTANCE = 0.75,
-    -- queda (mais rapida, e ainda mais rapida acima de 50%)
-    DECAY_DELAY = 4,      -- segundos sem usar NENHUMA habilidade antes de comecar a cair
-    DECAY_STEP = 1,       -- % que cai por tick
-    DECAY_INTERVAL = 3,   -- segundos entre cada tick de queda
-    -- spam: usar habilidades em sequencia (janela abaixo) aumenta ganho e chance de falha
-    SPAM_WINDOW = 8,
-    SPAM_GAIN_STEP = 0.2,   -- +20% de ganho por uso recente (maximo 5 usos)
-    SPAM_FAIL_STEP = 0.02,  -- +2% de chance de falha por uso recente
-    -- chance de Cyberpsychosis direta (sem esperar a barra) agora depende da barra
-    DIRECT_FAIL_BASE = 0.03, DIRECT_FAIL_SCALE = 0.12,   -- quando o Sandevistan falha
-    DIRECT_ZERO_BASE = 0.05, DIRECT_ZERO_SCALE = 0.25,   -- quando a energia zera no Sandi
-    RESET_TO = 0,         -- valor da barra depois da Cyberpsychosis
-    Busy = false,         -- true enquanto a Cyberpsychosis da barra esta rolando
-    Recent = {},          -- timestamps dos usos recentes (anti-spam)
-    -- Quanto mais forte/roubada a habilidade, mais cara em psicose e mais arriscada:
-    --  gain      = % de psicose por uso
-    --  failBase  = chance de falha com a barra "limpa" (a partir de failStart)
-    --  failMax   = chance de falha com a barra em 100%
-    --  failStart = % da barra a partir da qual o risco comeca a subir
-    --  surcharge = energia extra gasta com a barra em 100% (proporcional)
-    --  extraCd   = segundos a mais de cooldown quando a habilidade da glitch
-    ABILITY = {
-        Dash    = {gain = 1,  failBase = 0,    failMax = 0.12, failStart = 40, surcharge = 2,  extraCd = 1.5, label = "DASH MISFIRE"},
-        Kiroshi = {gain = 2,  failBase = 0,    failMax = 0.18, failStart = 30, surcharge = 4,  extraCd = 3,   label = "KIROSHI GLITCH"},
-        Dodge   = {gain = 3,  failBase = 0,    failMax = 0.22, failStart = 30, surcharge = 3,  extraCd = 4,   label = "DODGE LAG"},
-        Optical = {gain = 6,  failBase = 0.05, failMax = 0.40, failStart = 0,  surcharge = 10, extraCd = 6,   label = "PHASE MALFUNCTION"},
-        Sandi   = {gain = 4,  failBase = 0.20, failMax = 0.50, failStart = 0,  surcharge = 0,  extraCd = 0,   label = "SANDEVISTAN OVERLOAD"},
-    },
-    -- cores: vermelho e preto
-    COLOR_LOW = Color3.fromRGB(95, 0, 10),
-    COLOR_MID = Color3.fromRGB(200, 0, 15),
-    COLOR_HIGH = Color3.fromRGB(255, 25, 25),
-}
-
--- adiciona psicose com resistencia (quanto mais cheia a barra, menos o ganho rende)
-function PsyBar.Add(amount: number)
-    if amount <= 0 or PsyBar.Busy then return end
-    local frac = math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)
-    local resist = 1 - PsyBar.RESISTANCE * (frac ^ 1.5)
-    State.Psychosis = math.min(PsyBar.MAX, State.Psychosis + amount * resist)
-    State.PsychosisIdleSince = os.clock()
-end
-
--- quantos usos de habilidade aconteceram na janela anti-spam
-function PsyBar.RecentUses(): number
-    local now = os.clock()
-    local n = 0
-    for i = #PsyBar.Recent, 1, -1 do
-        if now - PsyBar.Recent[i] > PsyBar.SPAM_WINDOW then
-            table.remove(PsyBar.Recent, i)
-        else
-            n += 1
-        end
-    end
-    return n
-end
-
--- chance atual de a habilidade dar glitch (depende da barra + spam)
-function PsyBar.FailChance(key: string): number
-    local cfg = PsyBar.ABILITY[key]
-    if not cfg then return 0 end
-    local span = math.max(1, PsyBar.MAX - cfg.failStart)
-    local t = math.clamp((State.Psychosis - cfg.failStart) / span, 0, 1)
-    local chance = cfg.failBase + (cfg.failMax - cfg.failBase) * t
-    chance += PsyBar.SPAM_FAIL_STEP * math.min(PsyBar.RecentUses(), 5)
-    return math.clamp(chance, 0, 0.85)
-end
-
-
-local UI_Elements = {}
-local ActiveCooldownFrames = {}
-local sandiLoopSound: Sound? = nil
-local lastSandiClone = 0
-local savedPositions = {}
-local activeHighlights = {}
-local originalGravity: number?
-local originalPlayerJumpPower: number?
-local originalWalkSpeeds: {[Humanoid]: number} = {}
-local originalJumpPowers: {[Humanoid]: number} = {}
-local originalAnimationSpeeds: {[AnimationTrack]: number} = {}
-local originalSoundSpeeds: {[Sound]: number} = {}
-local originalVelocityInstances: {[Instance]: Vector3} = {}
-local animationConnections: {RBXScriptConnection} = {}
-local opticalToken = 0
-local energyFill: Frame
-local energyPercentLabel: TextLabel
-local psyFill: Frame
-local psyPercentLabel: TextLabel
-local settingsMenu = nil 
-local DodgeMode = DefaultConfig.Settings.DodgeMode
-local LiteMode = DefaultConfig.Settings.LiteMode
-local Noclip = false
-local noclipConnection
-local lineEnabled = false  
-local lineObject = nil
-local currentSet = DefaultConfig.Settings.CurrentSet
-local cloneColorIndex = DefaultConfig.Settings.CloneColorIndex
-local originalClockTime = nil  
-local SandiLockTime = 0 local LastSandiActivationTime = 0
-
-local function Create(className: string, properties: {[string]: any})
-    local instance = Instance.new(className)
-    ScriptSounds[instance] = true -- (nome antigo: vale p/ qualquer instância criada pelo script)
-    for prop, value in properties do instance[prop] = value end
-    return instance
-end
-
-local function PlaySFX(soundConfig: {id: string, volume: number?, pitch: number?})
-    local sound = Create("Sound", {SoundId = soundConfig.id, Volume = soundConfig.volume or 1, PlaybackSpeed = soundConfig.pitch or 1, Parent = HRP or Camera})
-    sound:Play()
-    Debris:AddItem(sound, 10)
-    return sound
-end
-
-local function CamShake(intensity: number, duration: number)
-    if LiteMode then return end
-    task.spawn(function()
-        local startTime = os.clock()
-        while os.clock() - startTime < duration do
-            if Humanoid then
-                Humanoid.CameraOffset = Vector3.new(math.random(-10,10)/10, math.random(-10,10)/10, math.random(-10,10)/10) * intensity
-            end
-            RunService.RenderStepped:Wait()
-        end
-        if Humanoid then Humanoid.CameraOffset = Vector3.zero end
-    end)
-end
-
-local function ScreenFade(durationIn: number, hold: number, durationOut: number, tint: Color3, sat: number?, cont: number?)
-    if LiteMode then return end
-    local cc = Create("ColorCorrectionEffect", {Name = "CyberFade", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Parent = Lighting})
-    TweenService:Create(cc, TweenInfo.new(durationIn, Enum.EasingStyle.Quad), {TintColor = tint, Saturation = sat or 0.6, Contrast = cont or 0.25}):Play()
-    task.delay(durationIn + hold, function()
-        TweenService:Create(cc, TweenInfo.new(durationOut, Enum.EasingStyle.Quad), {TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0}):Play()
-        task.delay(durationOut + 0.1, function() cc:Destroy() end)
-    end)
-end
-
-
--- ============================================================
--- SISTEMA DE FALAS = LEGENDAS (estilo CyberPsychosis)
--- Cada fala aparece como legenda de tela (nome do falante + texto com
--- camadas ciano/magenta e glitch), no mesmo visual da cena da Cyberpsychosis.
--- ============================================================
-local TextService = game:GetService("TextService")
-
-local FALAS_ATIVAS = true
-local LEGENDA_NOME = nil              -- nil = nome da sua conta | ou fixe, ex.: "DAVID"
-local LEGENDA_POS_Y = 0.72            -- altura da legenda na tela (0 = topo, 1 = base)
-local LEGENDA_COR_NOME = Color3.fromRGB(0, 240, 255)
-local LEGENDA_CIANO = Color3.fromRGB(0, 240, 255)
-local LEGENDA_MAGENTA = Color3.fromRGB(255, 0, 140)
-local LEGENDA_BRANCO = Color3.new(1, 1, 1)
-
--- Nome usado nas falas (troca o "David" pelo nome da sua conta)
-local function NomeNaFala()
-    local n = Player.DisplayName
-    if not n or n == "" then n = Player.Name end
-    return n
-end
-
--- Emocoes: tremor/glitch/sussurro/pulo definem o estilo da legenda (cor e vel nao sao mais usados)
-local EMOCOES = {
-    calmo   = {cor = Color3.fromRGB(190, 255, 210), vel = 0.040, tremor = 0,   pulso = 0.00},
-    focado  = {cor = Color3.fromRGB(110, 255, 160), vel = 0.032, tremor = 0,   pulso = 0.03},
-    raiva   = {cor = Color3.fromRGB(255, 70, 60),   vel = 0.022, tremor = 1.4, pulso = 0.07},
-    euforia = {cor = Color3.fromRGB(255, 225, 70),  vel = 0.018, tremor = 0.5, pulso = 0.10, pulo = true},
-    dor     = {cor = Color3.fromRGB(255, 150, 150), vel = 0.045, tremor = 1.0, pulso = 0.04},
-    medo    = {cor = Color3.fromRGB(190, 205, 255), vel = 0.030, tremor = 1.8, pulso = 0.03},
-    frio    = {cor = Color3.fromRGB(150, 230, 255), vel = 0.050, tremor = 0,   pulso = 0.00, sussurro = true},
-    glitch  = {cor = Color3.fromRGB(255, 60, 255),  vel = 0.020, tremor = 1.2, pulso = 0.05, glitch = true},
-}
-
--- Eventos: prio (maior interrompe menor), chance, recarga (s) e as falas
--- Cada fala: {texto, emocao}  (so a emocao glitch usa intensidade 1-3 como 3o valor).  {nome} vira o seu nome.
-local EVENTOS = {
-    boot = {prio = 2, chance = 1, recarga = 5, falas = {
-        {"Sistema ligado. Bora ver até onde esse corpo aguenta.", "focado"},
-        {"Neuroenlace estável. {nome} na área.", "calmo"},
-        {"Mais um dia, mais uma chance de não morrer.", "calmo"},
-        {"Acordei. O chrome também. Vamos nessa.", "euforia"},
-        {"Se é pra cair, que seja correndo.", "focado"},
-        {"{nome} online. Quem vai ser o azarado de hoje?", "euforia"},
-    }},
-    sandi_on = {prio = 3, chance = 1, recarga = 4, falas = {
-        {"Agora o mundo anda em câmera lenta!", "euforia"},
-        {"Me segura se for capaz!", "euforia"},
-        {"Tudo devagar... menos eu.", "focado"},
-        {"Aceleração total. Sem freio!", "raiva"},
-        {"Sinto meu coração querendo sair pela boca!", "euforia"},
-        {"Vai, {nome}, vai, vai, vai!", "euforia"},
-        {"Só eu estou na velocidade certa aqui.", "frio"},
-    }},
-    sandi_off = {prio = 2, chance = 0.7, recarga = 4, falas = {
-        {"Ufa... o corpo cobrou a conta.", "dor"},
-        {"Voltando ao ritmo dos mortais.", "calmo"},
-        {"Isso foi rápido demais até pra mim.", "euforia"},
-        {"Respira, {nome}. Respira.", "calmo"},
-        {"Sistema esfriando. Deu pra sentir cada osso.", "dor"},
-    }},
-    sandi_falha = {prio = 4, chance = 1, recarga = 3, falas = {
-        {"Não, não, não! Pega, maldito implante!", "raiva"},
-        {"Falhou?! Justo agora?!", "raiva"},
-        {"Meu crânio tá fritando...", "dor"},
-        {"Sobrecarga! Calma, {nome}, calma!", "medo"},
-        {"Esse chip quer me matar, só pode.", "raiva"},
-    }},
-    sandi_zerou = {prio = 4, chance = 1, recarga = 6, falas = {
-        {"Sem energia... eu fui longe demais.", "dor"},
-        {"Tá apagando... tudo apagando...", "medo"},
-        {"Passei do limite. De novo.", "dor"},
-        {"Aguenta, {nome}... só mais um pouco...", "dor"},
-    }},
-    dash = {prio = 1, chance = 0.4, recarga = 4, falas = {
-        {"Pra cima deles!", "euforia"},
-        {"Muito lento!", "euforia"},
-        {"Piscou, perdeu.", "focado"},
-        {"Chega mais!", "raiva"},
-        {"Hup!", "euforia"},
-        {"Nem vi você passar... ah, fui eu.", "euforia"},
-    }},
-    dodge = {prio = 3, chance = 0.8, recarga = 3, falas = {
-        {"Quase! Quase mesmo!", "medo"},
-        {"Errou, otário!", "euforia"},
-        {"Meus reflexos agradecem o upgrade.", "focado"},
-        {"Ei, isso ia doer!", "medo"},
-        {"Devagar demais pra mim.", "frio"},
-        {"Passou raspando!", "medo"},
-    }},
-    kiroshi = {prio = 2, chance = 0.8, recarga = 4, falas = {
-        {"Olhos ligados. Eu te vejo.", "frio"},
-        {"Escaneando... ninguém se esconde de mim.", "focado"},
-        {"Cada detalhe vermelho na minha frente.", "focado"},
-        {"Visão aprimorada. Agora a caça começa.", "raiva"},
-        {"Vejo tudo, {nome} vê tudo.", "frio"},
-    }},
-    optical_on = {prio = 2, chance = 0.8, recarga = 4, falas = {
-        {"Paredes? Que paredes?", "frio"},
-        {"Fase desalinhada. Atravessando.", "focado"},
-        {"Nada me segura.", "euforia"},
-        {"Sem barreiras. Sem limites.", "frio"},
-        {"{nome} vira fantasma.", "frio"},
-    }},
-    optical_off = {prio = 1, chance = 0.5, recarga = 4, falas = {
-        {"Corpo estabilizado.", "calmo"},
-        {"Voltei ao mundo sólido.", "calmo"},
-        {"Phase shift encerrado.", "focado"},
-        {"Tá, voltei.", "calmo"},
-    }},
-    psicose = {prio = 5, chance = 1, recarga = 8, falas = {
-        {"A-a-algo errado... minha cabeça...", "glitch", 3},
-        {"Vozes... tem alguém aqui dentro!", "glitch", 3},
-        {"ERRO. ERRO. ERRO. SOU EU O ERRO?", "glitch", 3},
-        {"Para de rir! Quem tá rindo?!", "glitch", 3},
-        {"Não sou eu... não sou eu...", "glitch", 3},
-        {"Tá tudo quebrando... ajuda...", "glitch", 2},
-        {"{nome}? Quem é {nome}?", "glitch", 3},
-    }},
-    dano = {prio = 2, chance = 0.55, recarga = 3, falas = {
-        {"Ai!", "dor"},
-        {"Isso doeu!", "dor"},
-        {"Tá, me acertaram.", "raiva"},
-        {"Nada mal... pra um iniciante.", "raiva"},
-        {"Sentiu o gosto de sangue? Eu senti.", "dor"},
-        {"Vai pagar por isso!", "raiva"},
-    }},
-    dano_pesado = {prio = 3, chance = 1, recarga = 4, falas = {
-        {"Argh! Isso foi pesado!", "dor"},
-        {"Minhas costelas... aguenta, corpo!", "dor"},
-        {"Cara... eu vi estrelas.", "dor"},
-        {"Esse doeu até no chrome!", "dor"},
-        {"{nome}, levanta! Levanta!", "raiva"},
-    }},
-    vida_baixa = {prio = 3, chance = 1, recarga = 20, falas = {
-        {"Tô quase no chão... preciso sair daqui.", "medo"},
-        {"Não posso cair aqui. Ainda não.", "medo"},
-        {"Cada respiração dói...", "dor"},
-        {"Se eu apagar agora, quem lembra de mim?", "medo"},
-        {"Segura, {nome}... só mais um minuto.", "dor"},
-    }},
-    morte = {prio = 6, chance = 1, recarga = 0, falas = {
-        {"Foi... um bom corre...", "dor"},
-        {"Dizem que no fim a gente vê a lua...", "frio"},
-        {"Droga... eu queria mais um pouco.", "dor"},
-        {"Apaga a luz... quando eu sair...", "frio"},
-        {"Pelo menos fui rápido.", "dor"},
-    }},
-    queda = {prio = 2, chance = 0.7, recarga = 4, falas = {
-        {"Pousei! Mais ou menos.", "euforia"},
-        {"Minhas pernas... ainda estão aqui?", "dor"},
-        {"Cair é fácil. Difícil é o chão.", "dor"},
-        {"Isso devia ter doído mais!", "euforia"},
-    }},
-    energia_baixa = {prio = 2, chance = 1, recarga = 25, falas = {
-        {"Bateria no fim. Preciso respirar.", "dor"},
-        {"Energia acabando... sem loucuras por agora.", "focado"},
-        {"Meu corpo tá pedindo arrego.", "dor"},
-        {"Tanque vazio, {nome}. Segura a onda.", "calmo"},
-    }},
-    ocioso = {prio = 1, chance = 1, recarga = 40, falas = {
-        {"Tá quieto demais...", "frio"},
-        {"Se eu parar, o implante esfria. Se esfriar, eu penso.", "calmo"},
-        {"Algum dia eu chego onde eu quero. Algum dia.", "calmo"},
-        {"Ei, {nome}. Você ainda tá aí?", "calmo"},
-        {"Silêncio bom. Dura pouco.", "frio"},
-        {"Um café agora cairia bem.", "calmo"},
-    }},
-}
-
-local fala = {gui = nil, raiz = nil, nome = nil, ciano = nil, magenta = nil, principal = nil, token = 0, prio = 0, fim = 0, gapAte = 0}
-local falaMisturas = {}
-local falaUltimoUso = {}
-local falaUltimoTexto = nil
-
-local function falaTexto(def, evento)
-    local bag = falaMisturas[evento]
-    if not bag or #bag == 0 then
-        bag = {}
-        for i = 1, #def.falas do bag[i] = i end
-        for i = #bag, 2, -1 do
-            local j = math.random(1, i)
-            bag[i], bag[j] = bag[j], bag[i]
-        end
-        falaMisturas[evento] = bag
-    end
-    local idx = table.remove(bag)
-    if def.falas[idx][1] == falaUltimoTexto and #def.falas > 1 then
-        idx = (idx % #def.falas) + 1
-    end
-    return def.falas[idx]
-end
-
--- ---------- LEGENDA (estilo CyberPsychosis) ----------
--- Tela inteira, canto inferior: nome do falante em cima, texto branco com
--- camadas ciano (esquerda) e magenta (direita) tremendo por cima, estouros de
--- glitch (letras viram simbolos) e fade no fim. A emocao muda a intensidade.
-local SIMBOLOS_GLITCH = {"#", "@", "%", "&", "?", "!", "/", "|", "0", "1", "<", ">", "X"}
-
-local function falaEmbaralhar(texto, quantidade)
-    local out = {}
-    for _, cp in utf8.codes(texto) do
-        if cp ~= 32 and math.random() < quantidade then
-            table.insert(out, SIMBOLOS_GLITCH[math.random(1, #SIMBOLOS_GLITCH)])
-        else
-            table.insert(out, utf8.char(cp))
-        end
-    end
-    return table.concat(out)
-end
-
--- true enquanto a Cyberpsychosis esta rodando (ela tem a propria legenda no mesmo lugar)
-local function falaPsicoseAtiva()
-    local ok, ativa = pcall(function()
-        local m = ((getgenv and getgenv()) or _G).CyberPsychosis
-        return m ~= nil and m.IsActive ~= nil and m.IsActive() == true
-    end)
-    return ok and ativa
-end
-
-local function falaGarantirGui()
-    if fala.gui and fala.gui.Parent then return fala end
-    local gui = Create("ScreenGui", {
-        Name = "CyberFalas",
-        IgnoreGuiInset = true,
-        ResetOnSpawn = false,
-        DisplayOrder = 850,
-        Parent = Player:WaitForChild("PlayerGui"),
-    })
-    pcall(function() gui.ScreenInsets = Enum.ScreenInsets.None end)
-
-    local raiz = Create("Frame", {
-        Name = "Legenda",
-        Size = UDim2.new(0.84, 0, 0, 84),
-        Position = UDim2.new(0.08, 0, LEGENDA_POS_Y, 0),
-        BackgroundTransparency = 1,
-        Visible = false,
-        ZIndex = 17,
-        Parent = gui,
-    })
-    local nome = Create("TextLabel", {
-        Name = "Nome",
-        Size = UDim2.new(1, 0, 0, 18),
-        BackgroundTransparency = 1,
-        Text = "",
-        TextColor3 = LEGENDA_COR_NOME,
-        Font = Enum.Font.Code,
-        TextSize = 15,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 19,
-        Parent = raiz,
-    })
-    local function camada(cor, z)
-        local l = Create("TextLabel", {
-            Size = UDim2.new(1, 0, 1, -20),
-            Position = UDim2.new(0, 0, 0, 20),
-            BackgroundTransparency = 1,
-            Text = "",
-            TextColor3 = cor,
-            Font = Enum.Font.Code,
-            TextScaled = true,
-            TextWrapped = true,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextYAlignment = Enum.TextYAlignment.Top,
-            ZIndex = z,
-            Parent = raiz,
-        })
-        Create("UITextSizeConstraint", {MaxTextSize = 26, MinTextSize = 10, Parent = l})
-        return l
-    end
-    fala.gui, fala.raiz, fala.nome = gui, raiz, nome
-    fala.ciano = camada(LEGENDA_CIANO, 17)
-    fala.magenta = camada(LEGENDA_MAGENTA, 17)
-    fala.principal = camada(LEGENDA_BRANCO, 18)
-    return fala
-end
-
-local function falaMostrar(texto, emo, inten, prio)
-    local ui = falaGarantirGui()
-    if not ui then return end
-    local e = EMOCOES[emo] or EMOCOES.calmo
-    if emo == "glitch" then
-        inten = math.clamp(inten or 2, 1, 3)
-    else
-        inten = 1
-    end
-
-    fala.token += 1
-    local meuToken = fala.token
-    local quem = tostring(LEGENDA_NOME or NomeNaFala()):upper()
-
-    -- tempos: entrada rapida com glitch, leitura proporcional ao tamanho, fade
-    local nChars = utf8.len(texto) or #texto
-    local tEntrada = 0.18
-    local tLer = 1.3 + nChars * 0.05
-    local tFade = 0.4
-    local tFim = tLer + tFade
-    local baseTrans = e.sussurro and 0.25 or 0
-    local jitBase = 1 + math.floor(e.tremor * inten)
-    local chanceKick = e.glitch and (1.2 * inten) or (e.tremor * 0.25)   -- estouros por segundo
-
-    fala.prio = prio
-    fala.fim = os.clock() + tFim
-    fala.gapAte = fala.fim + 0.5
-    falaUltimoTexto = texto
-
-    ui.nome.Text = quem
-    ui.nome.TextColor3 = LEGENDA_COR_NOME
-    ui.principal.Text, ui.ciano.Text, ui.magenta.Text = texto, texto, texto
-    ui.raiz.Visible = true
-
-    task.spawn(function()
-        local t0 = os.clock()
-        local ultimo = t0
-        local kick = 1   -- estouro de glitch na entrada
-        while fala.token == meuToken do
-            local agora = os.clock()
-            local dt = agora - ultimo
-            ultimo = agora
-            local t = agora - t0
-            if t >= tFim or falaPsicoseAtiva() then break end
-
-            kick = math.max(0, kick - dt * 5)
-            if chanceKick > 0 and math.random() < chanceKick * dt then kick = 1 end
-
-            local fadeK = (t > tLer) and math.clamp((t - tLer) / tFade, 0, 1) or 0
-            local entra = math.clamp(t / tEntrada, 0, 1)
-            local trans = baseTrans + (1 - baseTrans) * fadeK
-            trans = 1 - (1 - trans) * entra
-            local transCamada = 1 - (1 - 0.35) * (1 - trans)
-
-            -- camadas ciano/magenta tremem para lados opostos
-            local jit = jitBase + math.floor(kick * 8) + ((t < tEntrada) and 4 or 0)
-            ui.ciano.Position = UDim2.new(0, -math.random(0, jit), 0, 20 + math.random(-1, 1))
-            ui.magenta.Position = UDim2.new(0, math.random(0, jit), 0, 20 + math.random(-1, 1))
-
-            -- letras viram simbolos nos estouros (e levemente o tempo todo na emocao glitch)
-            local scr = (kick > 0.4) and (0.12 * kick) or 0
-            if e.glitch then scr = math.max(scr, 0.04 * inten) end
-            if t < tEntrada then scr = math.max(scr, 0.25) end
-            local novo = (scr > 0) and falaEmbaralhar(texto, scr) or texto
-            if ui.principal.Text ~= novo then ui.principal.Text = novo end
-
-            ui.principal.TextTransparency = trans
-            ui.nome.TextTransparency = trans
-            ui.ciano.TextTransparency = transCamada
-            ui.magenta.TextTransparency = transCamada
-
-            -- extras por emocao: euforia pula, dor balanca devagar
-            local dy = 0
-            if e.pulo then dy = -math.abs(math.sin(t * 9)) * 3 end
-            if emo == "dor" then dy = math.sin(t * 3) * 1.5 end
-            ui.raiz.Position = UDim2.new(0.08, 0, LEGENDA_POS_Y, dy)
-
-            RunService.RenderStepped:Wait()
-        end
-        if fala.token == meuToken then
-            ui.raiz.Visible = false
-            fala.prio = 0
-            fala.fim = 0
-        end
-    end)
-end
-
-local function Falar(evento, forcar)
-    if not FALAS_ATIVAS then return end
-    if falaPsicoseAtiva() then return end   -- a Cyberpsychosis tem a propria legenda
-    local def = EVENTOS[evento]
-    if not def then return end
-    local agora = os.clock()
-    if not forcar and math.random() > (def.chance or 1) then return end
-    if agora - (falaUltimoUso[evento] or -999) < (def.recarga or 0) and def.prio < 5 then return end
-    if agora < fala.fim then
-        if def.prio <= fala.prio then return end        -- so interrompe se for mais importante
-    elseif agora < fala.gapAte and def.prio < 4 then
-        return                                          -- pequeno intervalo entre falas
-    end
-    local f = falaTexto(def, evento)
-    falaUltimoUso[evento] = agora
-    local texto = f[1]:gsub("{nome}", function() return NomeNaFala() end)
-    falaMostrar(texto, f[2], f[3], def.prio)
-end
-
--- Reacao a dano (chamada no loop de vida)
-local function FalasDano(dano)
-    if not Humanoid then return end
-    if Humanoid.Health > 0 and Humanoid.Health / math.max(1, Humanoid.MaxHealth) < 0.25 then
-        Falar("vida_baixa")
-    end
-    if dano >= 30 then Falar("dano_pesado") else Falar("dano") end
-end
-
--- Falas automaticas: energia baixa e ocioso
-task.spawn(function()
-    local ultimaAtividade = os.clock()
-    while true do
-        task.wait(0.5)
-        if FALAS_ATIVAS and Humanoid and Humanoid.Health > 0 then
-            if State.IsSandiActive or (HRP and HRP.Velocity.Magnitude > 2) then
-                ultimaAtividade = os.clock()
-            end
-            if not State.IsSandiActive and State.Energy < 15 then
-                Falar("energia_baixa")
-            end
-            if os.clock() - ultimaAtividade > 45 and os.clock() > fala.gapAte then
-                ultimaAtividade = os.clock() - 20
-                Falar("ocioso")
-            end
-        end
-    end
-end)
-
-local function ShowCooldownText(name: string, duration: number, color: Color3)
-    task.spawn(function()
-        local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-        if not gui then return end
-        
-        local container = Create("Frame", {
-            Size = UDim2.new(0, 220, 0, 42), 
-            Position = UDim2.new(0.5, -110, 0.85, 0),
-            BackgroundColor3 = Color3.fromRGB(8, 8, 12), 
-            BackgroundTransparency = 0.05, 
-            BorderSizePixel = 0, 
-            Parent = gui
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = container})
-        
-        local stroke = Create("UIStroke", {Color = color, Thickness = 2, Transparency = 0.2, Parent = container})
-        
-        local label = Create("TextLabel", {
-            Size = UDim2.new(1, -20, 0.55, 0), 
-            Position = UDim2.new(0, 10, 0, 4), 
-            BackgroundTransparency = 1, 
-            TextColor3 = color, 
-            Font = Enum.Font.SciFi, 
-            TextSize = 16, 
-            TextXAlignment = Enum.TextXAlignment.Left, 
-            Text = name:upper(), 
-            Parent = container
-        })
-        
-        local progressBar = Create("Frame", {
-            Size = UDim2.new(1, -20, 0, 6), 
-            Position = UDim2.new(0, 10, 1, -12), 
-            BackgroundColor3 = Color3.fromRGB(20, 20, 25), 
-            BorderSizePixel = 0, 
-            Parent = container
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = progressBar})
-        
-        local fillBar = Create("Frame", {
-            Size = UDim2.new(1, 0, 1, 0), 
-            BackgroundColor3 = color, 
-            BorderSizePixel = 0, 
-            Parent = progressBar
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = fillBar})
-        
-        local timer = Create("TextLabel", {
-            Size = UDim2.new(0, 50, 1, 0), 
-            Position = UDim2.new(1, -55, 0, 0), 
-            BackgroundTransparency = 1, 
-            TextColor3 = Colors.UI_NEON, 
-            Font = Enum.Font.Code, 
-            TextSize = 16, 
-            TextXAlignment = Enum.TextXAlignment.Right, 
-            Text = string.format("%.1fs", duration), 
-            Parent = container
-        })
-        
-        table.insert(ActiveCooldownFrames, container)
-        
-        local myIndex = 0
-        for i, v in ipairs(ActiveCooldownFrames) do 
-            if v == container then 
-                myIndex = i 
-                break 
-            end 
-        end
-        
-        local targetPos = UDim2.new(0.5, -110, 0.72, -(myIndex - 1) * 50)
-        
-        TweenService:Create(container, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Position = targetPos
-        }):Play()
-        
-        local startTime = os.clock()
-        while os.clock() - startTime < duration do
-            local remaining = math.max(0, duration - (os.clock() - startTime))
-            local progress = remaining / duration
-            timer.Text = string.format("%.1fs", remaining)
-            fillBar.Size = UDim2.new(1 - progress, 0, 1, 0)
-            
-            local currentIndex = 0
-            for i, v in ipairs(ActiveCooldownFrames) do 
-                if v == container then 
-                    currentIndex = i 
-                    break 
-                end 
-            end
-            if currentIndex > 0 then
-                local newTarget = UDim2.new(0.5, -110, 0.72, -(currentIndex - 1) * 50)
-                container.Position = container.Position:Lerp(newTarget, 0.3)
-            end
-            
-            RunService.RenderStepped:Wait()
-        end
-        
-        TweenService:Create(container, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            Position = UDim2.new(0.5, -110, 0.85, 0),
-            BackgroundTransparency = 1
-        }):Play()
-        
-        TweenService:Create(label, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
-        TweenService:Create(timer, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
-        TweenService:Create(progressBar, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(fillBar, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.3), {Transparency = 1}):Play()
-        
-        task.wait(0.4)
-        
-        local index = 0
-        for i, v in ipairs(ActiveCooldownFrames) do 
-            if v == container then 
-                index = i 
-                break 
-            end 
-        end
-        if index > 0 then 
-            table.remove(ActiveCooldownFrames, index) 
-        end
-        
-        container:Destroy()
-    end)
-end
-
-local function CreateHologramClone(delay: number, duration: number, endTransparency: number, offsetX: number, offsetY: number, offsetZ: number, cloneType: string, customCFrame: CFrame?)
-    if LiteMode then return end
-    
-    if not Character or not Character.Parent then return end
-    if not HRP or not HRP.Parent then return end
-    
-    local sourceChar = Character
-    
-    local cloneColor
-    if cloneType == "sandi" then
-        cloneColor = Colors.RAINBOW_SEQUENCE[cloneColorIndex]
-        cloneColorIndex = (cloneColorIndex % #Colors.RAINBOW_SEQUENCE) + 1
-    elseif cloneType == "dash" then
-        cloneColor = Color3.fromRGB(255, 80, 0)
-    elseif cloneType == "dodge" then
-        cloneColor = Colors.DODGE_START
-    else
-        cloneColor = Color3.new(1, 1, 1)
-    end
-    
-    local hologramChar = nil
-    local cloneSuccess = false
-    
-    task.spawn(function()
-        local success, err = pcall(function()
-            sourceChar.Archivable = true
-            hologramChar = sourceChar:Clone()
-            sourceChar.Archivable = false
-        end)
-        
-        if not success or not hologramChar then
-            pcall(function()
-                hologramChar = Instance.new("Model")
-                hologramChar.Name = "HologramClone_Fallback"
-                local part = Instance.new("Part")
-                part.Size = Vector3.new(2, 5.5, 1)
-                part.Anchored = true
-                part.CanCollide = false
-                part.Transparency = 0.4
-                part.Color = cloneColor
-                part.Material = Configurations.HOLOGRAM_MATERIAL
-                part.CastShadow = false
-                part.Parent = hologramChar
-                hologramChar.PrimaryPart = part
-            end)
-        end
-        
-        cloneSuccess = true
-    end)
-    
-    local waitStart = tick()
-    while not cloneSuccess and tick() - waitStart < 2.0 do
-        task.wait(0.05)
-    end
-    
-    if not hologramChar then return end
-    
-    local function safeDestroy(obj)
-        pcall(function()
-            if obj and obj.Parent then obj:Destroy() end
-        end)
-    end
-    
-    for _, obj in pairs(hologramChar:GetDescendants()) do
-        pcall(function()
-            if obj:IsA("LuaSourceContainer") or obj:IsA("Sound") then
-                safeDestroy(obj)
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                safeDestroy(obj)
-            elseif obj:IsA("BasePart") then
-                obj.CanCollide = false
-                obj.Anchored = true
-                obj.CastShadow = false
-                if obj.Name == "HumanoidRootPart" then
-                    obj.Transparency = 1
-                else
-                    obj.Transparency = 0.30
-                    obj.Color = cloneColor
-                    obj.Material = Configurations.HOLOGRAM_MATERIAL
-                    if obj:IsA("MeshPart") then obj.TextureID = "" end
-                end
-            end
-        end)
-    end
-    
-    for _, accessory in pairs(hologramChar:GetChildren()) do
-        pcall(function()
-            if accessory:IsA("Accessory") then
-                local handle = accessory:FindFirstChild("Handle")
-                if handle then
-                    handle.CanCollide = false
-                    handle.Anchored = true
-                    handle.CastShadow = false
-                    handle.Transparency = 0.30
-                    handle.Color = cloneColor
-                    handle.Material = Configurations.HOLOGRAM_MATERIAL
-                    if handle:IsA("MeshPart") then handle.TextureID = "" end
-                end
-                for _, part in pairs(accessory:GetDescendants()) do
-                    if part:IsA("BasePart") and part ~= handle then
-                        part.CanCollide = false
-                        part.Anchored = true
-                        part.CastShadow = false
-                        part.Transparency = 0.30
-                        part.Color = cloneColor
-                        part.Material = Configurations.HOLOGRAM_MATERIAL
-                        if part:IsA("MeshPart") then part.TextureID = "" end
-                    elseif part:IsA("Decal") or part:IsA("Texture") then
-                        safeDestroy(part)
-                    end
-                end
-            end
-        end)
-    end
-    
-    local humanoid = hologramChar:FindFirstChildOfClass("Humanoid")
-    if humanoid then safeDestroy(humanoid) end
-    local animateFolder = hologramChar:FindFirstChild("Animate")
-    if animateFolder then safeDestroy(animateFolder) end
-    for _, obj in ipairs(hologramChar:GetChildren()) do
-        pcall(function()
-            if obj:IsA("Script") or obj:IsA("localScript") or obj:IsA("ModuleScript") or 
-               obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or 
-               obj:IsA("BindableEvent") or obj:IsA("BindableFunction") or 
-               obj:IsA("Animator") then
-                safeDestroy(obj)
-            end
-        end)
-    end
-    
-    local hologramRoot = hologramChar:FindFirstChild("HumanoidRootPart")
-    if not hologramRoot then
-        hologramRoot = hologramChar.PrimaryPart
-        if not hologramRoot then
-            local tempRoot = Instance.new("Part")
-            tempRoot.Name = "FakeRoot"
-            tempRoot.Size = Vector3.new(1, 1, 1)
-            tempRoot.Transparency = 1
-            tempRoot.CanCollide = false
-            tempRoot.Anchored = true
-            tempRoot.Parent = hologramChar
-            hologramRoot = tempRoot
-            hologramChar.PrimaryPart = hologramRoot
-        end
-    end
-    
-    if hologramRoot and HRP then
-        pcall(function()
-            if customCFrame and typeof(customCFrame) == "CFrame" then
-                hologramRoot.CFrame = customCFrame
-            else
-                hologramRoot.CFrame = HRP.CFrame * CFrame.new(offsetX or 0, offsetY or 0, offsetZ or 0)
-            end
-            hologramChar.PrimaryPart = hologramRoot
-        end)
-    end
-    
-    if cloneType == "sandi" then
-        hologramChar.Name = "HologramClone"
-        local tag = Instance.new("BoolValue")
-        tag.Name = "IsSandiClone"
-        tag.Value = true
-        tag.Parent = hologramChar
-    end
-    
-    -- ==========================================
-    -- 🔥 HIGHLIGHT CONFIGURÁVEL VIA CONSTANTS
-    -- ==========================================
-    if cloneType ~= "glitch" and Constants.HIGHLIGHT_CONFIG.ENABLED then
-        pcall(function()
-            local highlight = Instance.new("Highlight")
-            
-            -- Aplica transparências iniciais
-            highlight.FillTransparency = Constants.HIGHLIGHT_CONFIG.INITIAL_FILL_TRANS
-            highlight.OutlineTransparency = Constants.HIGHLIGHT_CONFIG.INITIAL_OUTLINE_TRANS
-            highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-            
-            -- Define cores baseadas no tipo
-            local colorConfig = Constants.HIGHLIGHT_CONFIG.COLORS[cloneType]
-            if colorConfig then
-                if cloneType == "sandi" and colorConfig.outline == "RAINBOW" then
-                    local c = Colors.RAINBOW_SEQUENCE[cloneColorIndex]
-                    highlight.OutlineColor = c
-                    highlight.FillColor = c
-                    cloneColorIndex = (cloneColorIndex % #Colors.RAINBOW_SEQUENCE) + 1
-                else
-                    highlight.OutlineColor = colorConfig.outline
-                    highlight.FillColor = colorConfig.fill
-                end
-            end
-            
-            highlight.Parent = hologramChar
-            highlight.Adornee = hologramChar
-            
-            -- Fade-in
-            TweenService:Create(highlight, TweenInfo.new(Constants.HIGHLIGHT_CONFIG.FADEIN_DURATION), {
-                FillTransparency = Constants.HIGHLIGHT_CONFIG.FADEIN_FILL_TRANS,
-                OutlineTransparency = Constants.HIGHLIGHT_CONFIG.FADEIN_OUTLINE_TRANS
-            }):Play()
-            
-            -- Coleta partes do corpo (exceto HRP)
-            local bodyParts = {}
-            for _, p in pairs(hologramChar:GetDescendants()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    table.insert(bodyParts, p)
-                end
-            end
-            
-            -- Fade-out programado
-            task.spawn(function()
-                local waitTime = duration * Constants.HIGHLIGHT_CONFIG.FADEOUT_START_FACTOR
-                task.wait(waitTime)
-                
-                if not hologramChar or not hologramChar.Parent then return end
-                if not highlight or not highlight.Parent then return end
-                
-                local fadeOutTime = duration * Constants.HIGHLIGHT_CONFIG.FADEOUT_DURATION_FACTOR
-                
-                local hlFadeOut = TweenService:Create(highlight, TweenInfo.new(fadeOutTime), {
-                    FillTransparency = 1,
-                    OutlineTransparency = 1
-                })
-                hlFadeOut:Play()
-                
-                -- Fade das partes
-                for _, part in ipairs(bodyParts) do
-                    pcall(function()
-                        TweenService:Create(part, TweenInfo.new(fadeOutTime), { Transparency = 1 }):Play()
-                    end)
-                end
-                
-                hlFadeOut.Completed:Connect(function()
-                    pcall(function() if hologramChar and hologramChar.Parent then hologramChar:Destroy() end end)
-                end)
-            end)
-            
-            -- Ciclo de cores para dash/dodge (se ativado)
-            if Constants.HIGHLIGHT_CONFIG.ENABLE_COLOR_CYCLE and (cloneType == "dash" or cloneType == "dodge") then
-                task.spawn(function()
-                    local palette
-                    if cloneType == "dash" then
-                        palette = {
-                            Color3.fromRGB(255, 40, 40), 
-                            Color3.fromRGB(255, 130, 30), 
-                            Color3.fromRGB(255, 215, 40)
-                        }
-                    else
-                        palette = {
-                            Color3.fromRGB(0, 255, 90), 
-                            Color3.fromRGB(80, 255, 170), 
-                            Color3.fromRGB(0, 230, 255)
-                        }
-                    end
-                    
-                    local startTime = tick()
-                    local lastUpdate = 0
-                    
-                    while highlight.Parent and tick() - startTime < duration do
-                        local currentTime = tick()
-                        if currentTime - lastUpdate > 0.08 then
-                            local progress = (currentTime - startTime) / duration
-                            local idx = math.floor(progress * (#palette - 1)) + 1
-                            local nextIdx = math.min(idx + 1, #palette)
-                            local frac = (progress * (#palette - 1)) % 1
-                            local current = palette[idx]:Lerp(palette[nextIdx], frac)
-                            pcall(function()
-                                highlight.OutlineColor = current
-                            end)
-                            lastUpdate = currentTime
-                        end
-                        RunService.Heartbeat:Wait()
-                    end
-                end)
-            end
-        end)
-    end
-    
-    -- Colocar no workspace
-    pcall(function()
-        hologramChar.Parent = Workspace
-    end)
-end
-
--- Chamada por Dash/Kiroshi/Optical/Dodge DEPOIS de gastar a energia.
--- Soma psicose (mais com spam), cobra energia extra com a barra alta e rola a chance de glitch.
--- Retorna true se a habilidade deu glitch (quem chamou deve abortar a habilidade).
-function PsyBar.Use(key: string): boolean
-    local cfg = PsyBar.ABILITY[key]
-    if not cfg then return false end
-    local uses = PsyBar.RecentUses()
-    local frac = math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)
-
-    -- surcharge: com a barra alta, a habilidade drena energia extra
-    if cfg.surcharge > 0 then
-        State.Energy = math.max(0, State.Energy - cfg.surcharge * frac)
-    end
-
-    local failed = math.random() < PsyBar.FailChance(key)
-    table.insert(PsyBar.Recent, os.clock())
-
-    local gain = cfg.gain * (1 + PsyBar.SPAM_GAIN_STEP * math.min(uses, 5))
-    if failed then gain *= 1.5 end
-    PsyBar.Add(gain)
-
-    if failed then
-        local upper = string.upper(key)
-        local cd = (Constants.COOLDOWNS[upper] or 3) + cfg.extraCd
-        State.Cooldowns[upper] = os.clock() + cd
-        State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-        PlaySFX({id = Sounds.SANDI_FAILURE.id, volume = 1.5, pitch = 1.35, looped = false})
-        ScreenFade(0.12, 0, 0.4, Color3.fromRGB(255, 20, 20), 0.5, 0.3)
-        ShowCooldownText(cfg.label, cd, Color3.fromRGB(255, 30, 30))
-        return true
-    end
-    return false
-end
-
-local function TriggerSandevistanFailure()
-    PsyBar.Add(PsyBar.GAIN_FAILURE)
-    PlaySFX(Sounds.SANDI_FAILURE)
-    Falar("sandi_falha", true)
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt") or Instance.new("ScreenGui", Player.PlayerGui)
-    gui.Name = "CyberRebuilt"
-    local errorFrame = Create("Frame", {Size = UDim2.new(0, 400, 0, 120), Position = UDim2.new(0.5, -200, 0.28, 0), BackgroundColor3 = Color3.fromRGB(25, 8, 0), BorderSizePixel = 0, Parent = gui})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = errorFrame})
-    local stroke = Create("UIStroke", {Color = Color3.fromRGB(255, 160, 30), Thickness = 4, Parent = errorFrame})
-    local title = Create("TextLabel", {Size = UDim2.new(1,0,0.55,0), BackgroundTransparency = 1, Text = "SANDEVISTAN", TextColor3 = Color3.fromRGB(255, 200, 50), Font = Enum.Font.SciFi, TextSize = 42, TextStrokeTransparency = 0.3, Parent = errorFrame})
-    local subtitle = Create("TextLabel", {Size = UDim2.new(1,0,0.45,0), Position = UDim2.new(0,0,0.55,0), BackgroundTransparency = 1, Text = "OVERLOAD - CALIBRATION REQUIRED", TextColor3 = Color3.fromRGB(255, 180, 60), Font = Enum.Font.Code, TextSize = 18, Parent = errorFrame})
-    task.spawn(function()
-        for i = 1, 8 do
-            title.TextTransparency = i % 2 == 0 and 0.7 or 0
-            task.wait(0.05)
-        end
-    end)
-    task.delay(0.8, function() errorFrame:Destroy() end)
-    if math.random() < (PsyBar.DIRECT_FAIL_BASE + PsyBar.DIRECT_FAIL_SCALE * (State.Psychosis / PsyBar.MAX)) then 
-    task.wait(0.2) 
-    pcall(function() ExecCyberpsychosis() end)
-end
-    State.Cooldowns.SANDI = os.clock() + 9
-    State.NoRegenUntil = os.clock() + 9.5
-    ShowCooldownText("SANDEVISTAN OVERLOAD", 9, Color3.fromRGB(255, 160, 30))
-end
-
-local function ApplyGlitchEffect()
-    if LiteMode then return end
-    task.spawn(function()
-        local start = os.clock()
-        local cc = Instance.new("ColorCorrectionEffect", Lighting)
-        local blur = Instance.new("BlurEffect", Lighting)
-        blur.Size = 0
-        while os.clock() - start < 2.2 do
-            CreateHologramClone(0, 0.08, 0.95, math.random(-3,3), math.random(-1,1), math.random(-3,3), "glitch")
-            CamShake(0.65, 0.1)
-            cc.Saturation = math.random(-2, 0.8)
-            cc.Contrast = math.random(-1.5, 2)
-            cc.TintColor = Color3.fromHSV(math.random(), 0.9, 1)
-            blur.Size = math.random(12, 24)
-            task.wait(0.055)
-        end
-        TweenService:Create(cc, TweenInfo.new(0.6), {Saturation = 0, Contrast = 0}):Play()
-        TweenService:Create(blur, TweenInfo.new(0.6), {Size = 0}):Play()
-        task.delay(0.7, function() cc:Destroy() blur:Destroy() end)
-    end)
-end
-
-local function lineEffect(gui)
-    if lineObject and lineObject.Parent then
-        lineObject:Destroy()
-    end
-    
-    if not lineEnabled then return end
-    
-    lineObject = Create("Frame", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-        Parent = gui
-    })
-    
-    local line = Create("Frame", {
-        Size = UDim2.new(1, -80, 0, 1.5),
-        Position = UDim2.new(0, 40, -0.02, 0),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.45,
-        BorderSizePixel = 0,
-        ZIndex = 10,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = line})
-    
-    local glow = Create("Frame", {
-        Size = UDim2.new(1, -60, 0, 5),
-        Position = UDim2.new(0, 30, -0.02, -1.5),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.85,
-        BorderSizePixel = 0,
-        ZIndex = 9,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = glow})
-    
-    for i = 1, 4 do
-        local decorLine = Create("Frame", {
-            Size = UDim2.new(1, math.random(-20, 20), 0, 0.5),
-            Position = UDim2.new(0, math.random(10, 30), 0, math.random(10, 90) / 100),
-            BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-            BackgroundTransparency = 0.9,
-            BorderSizePixel = 0,
-            ZIndex = 4,
-            Parent = lineObject
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = decorLine})
-        
-        task.spawn(function()
-            while decorLine and decorLine.Parent do
-                task.wait(math.random(4, 10))
-                TweenService:Create(decorLine, TweenInfo.new(0.08), {
-                    BackgroundTransparency = 0.5
-                }):Play()
-                task.wait(0.08)
-                TweenService:Create(decorLine, TweenInfo.new(0.25), {
-                    BackgroundTransparency = 0.9
-                }):Play()
-            end
-        end)
-    end
-    
-    task.spawn(function()
-        while lineObject and lineObject.Parent do
-            if math.random() < 0.25 then
-                local particle = Create("Frame", {
-                    Size = UDim2.new(0, 1.5, 0, 1.5),
-                    Position = UDim2.new(0, math.random(30, 90) / 100 * Camera.ViewportSize.X, 0, math.random(0, 100) / 100 * Camera.ViewportSize.Y),
-                    BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-                    BackgroundTransparency = 0.5,
-                    BorderSizePixel = 0,
-                    ZIndex = 5,
-                    Parent = lineObject
-                })
-                Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = particle})
-                
-                TweenService:Create(particle, TweenInfo.new(0.7), {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, particle.Position.X.Offset + math.random(-15, 15), 0, particle.Position.Y.Offset + 25)
-                }):Play()
-                
-                task.delay(0.8, function() particle:Destroy() end)
-            end
-            task.wait(0.06)
-        end
-    end)
-    
-    task.spawn(function()
-        while line and line.Parent do
-            line.Position = UDim2.new(0, 40, -0.02, 0)
-            glow.Position = UDim2.new(0, 30, -0.02, -1.5)
-            
-            local duration = 5
-            
-            TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 40, 1.02, 0)
-            }):Play()
-            
-            TweenService:Create(glow, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 30, 1.02, -1.5)
-            }):Play()
-            
-            task.spawn(function()
-                for i = 1, 30 do
-                    if not line.Parent then break end
-                    local pulse = math.sin(i * 0.25) * 0.1
-                    line.BackgroundTransparency = 0.4 + pulse
-                    glow.BackgroundTransparency = 0.82 + pulse
-                    task.wait(0.17)
-                end
-            end)
-            
-            task.wait(duration + 0.2)
-        end
-    end)
-end
-
-local function Toggleline()
-    lineEnabled = not lineEnabled
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    if lineEnabled then
-        lineEffect(gui)
-    else
-        if lineObject and lineObject.Parent then
-            lineObject:Destroy()
-            lineObject = nil
-        end
-    end
-end
-
-local function PulseAnimation(object)
-    task.spawn(function()
-        while object.Parent do
-            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.new(1.05, 0, 1.05, 0)
-            }):Play()
-            task.wait(0.8)
-            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.new(1, 0, 1, 0)
-            }):Play()
-            task.wait(0.8)
-        end
-    end)
-end
-
-local function ApplyGlitchEffect()
-    if LiteMode then return end
-    task.spawn(function()
-        local start = os.clock()
-        local cc = Instance.new("ColorCorrectionEffect", Lighting)
-        local blur = Instance.new("BlurEffect", Lighting)
-        blur.Size = 0
-        while os.clock() - start < 2.2 do
-            CreateHologramClone(0, 0.08, 0.95, math.random(-3,3), math.random(-1,1), math.random(-3,3), "glitch")
-            CamShake(0.65, 0.1)
-            cc.Saturation = math.random(-2, 0.8)
-            cc.Contrast = math.random(-1.5, 2)
-            cc.TintColor = Color3.fromHSV(math.random(), 0.9, 1)
-            blur.Size = math.random(12, 24)
-            task.wait(0.055)
-        end
-        TweenService:Create(cc, TweenInfo.new(0.6), {Saturation = 0, Contrast = 0}):Play()
-        TweenService:Create(blur, TweenInfo.new(0.6), {Size = 0}):Play()
-        task.delay(0.7, function() cc:Destroy() blur:Destroy() end)
-    end)
-end
-
-local function lineEffect(gui)
-    if lineObject and lineObject.Parent then
-        lineObject:Destroy()
-    end
-    
-    if not lineEnabled then return end
-    
-    lineObject = Create("Frame", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-        Parent = gui
-    })
-    
-    local line = Create("Frame", {
-        Size = UDim2.new(1, -80, 0, 1.5),
-        Position = UDim2.new(0, 40, -0.02, 0),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.45,
-        BorderSizePixel = 0,
-        ZIndex = 10,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = line})
-    
-    local glow = Create("Frame", {
-        Size = UDim2.new(1, -60, 0, 5),
-        Position = UDim2.new(0, 30, -0.02, -1.5),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.85,
-        BorderSizePixel = 0,
-        ZIndex = 9,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = glow})
-    
-    for i = 1, 4 do
-        local decorLine = Create("Frame", {
-            Size = UDim2.new(1, math.random(-20, 20), 0, 0.5),
-            Position = UDim2.new(0, math.random(10, 30), 0, math.random(10, 90) / 100),
-            BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-            BackgroundTransparency = 0.9,
-            BorderSizePixel = 0,
-            ZIndex = 4,
-            Parent = lineObject
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = decorLine})
-        
-        task.spawn(function()
-            while decorLine and decorLine.Parent do
-                task.wait(math.random(4, 10))
-                TweenService:Create(decorLine, TweenInfo.new(0.08), {
-                    BackgroundTransparency = 0.5
-                }):Play()
-                task.wait(0.08)
-                TweenService:Create(decorLine, TweenInfo.new(0.25), {
-                    BackgroundTransparency = 0.9
-                }):Play()
-            end
-        end)
-    end
-    
-    task.spawn(function()
-        while lineObject and lineObject.Parent do
-            if math.random() < 0.25 then
-                local particle = Create("Frame", {
-                    Size = UDim2.new(0, 1.5, 0, 1.5),
-                    Position = UDim2.new(0, math.random(30, 90) / 100 * Camera.ViewportSize.X, 0, math.random(0, 100) / 100 * Camera.ViewportSize.Y),
-                    BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-                    BackgroundTransparency = 0.5,
-                    BorderSizePixel = 0,
-                    ZIndex = 5,
-                    Parent = lineObject
-                })
-                Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = particle})
-                
-                TweenService:Create(particle, TweenInfo.new(0.7), {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, particle.Position.X.Offset + math.random(-15, 15), 0, particle.Position.Y.Offset + 25)
-                }):Play()
-                
-                task.delay(0.8, function() particle:Destroy() end)
-            end
-            task.wait(0.06)
-        end
-    end)
-    
-    task.spawn(function()
-        while line and line.Parent do
-            line.Position = UDim2.new(0, 40, -0.02, 0)
-            glow.Position = UDim2.new(0, 30, -0.02, -1.5)
-            
-            local duration = 5
-            
-            TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 40, 1.02, 0)
-            }):Play()
-            
-            TweenService:Create(glow, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 30, 1.02, -1.5)
-            }):Play()
-            
-            task.spawn(function()
-                for i = 1, 30 do
-                    if not line.Parent then break end
-                    local pulse = math.sin(i * 0.25) * 0.1
-                    line.BackgroundTransparency = 0.4 + pulse
-                    glow.BackgroundTransparency = 0.82 + pulse
-                    task.wait(0.17)
-                end
-            end)
-            
-            task.wait(duration + 0.2)
-        end
-    end)
-end
-
-local function Toggleline()
-    lineEnabled = not lineEnabled
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    if lineEnabled then
-        lineEffect(gui)
-    else
-        if lineObject and lineObject.Parent then
-            lineObject:Destroy()
-            lineObject = nil
-        end
-    end
-end
-
-local function PulseAnimation(object)
-    task.spawn(function()
-        while object.Parent do
-            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.new(1.05, 0, 1.05, 0)
-            }):Play()
-            task.wait(0.8)
-            TweenService:Create(object, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.new(1, 0, 1, 0)
-            }):Play()
-            task.wait(0.8)
-        end
-    end)
-end
-
-local PsiModule
-local PsiCtx = {
-        Player = Player,
-        Constants = Constants,
-        Sounds = Sounds,
-        State = State,
-        Create = Create,
-        Falar = Falar,
-        PlaySFX = PlaySFX,
-        ScreenFade = ScreenFade,
-        ScriptSounds = ScriptSounds,
-        GetRefs = function() return HRP, Humanoid end,
-}
-ExecCyberpsychosis = function()
-    if PsiModule and PsiModule.Exec then return PsiModule.Exec() end
-end
-task.spawn(function()
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
-local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
-
-local Player = Players.LocalPlayer
-local env = (getgenv and getgenv()) or _G
-
--- Recarregar o script limpa a versão anterior
-if env.CyberPsychosis and env.CyberPsychosis.Destroy then
-    pcall(env.CyberPsychosis.Destroy)
-end
-
-local Module = {
-    Config = {
-        AutoTrigger = true,          -- true = SANDEVISTAN.lua ainda pode disparar sozinho
-        Keybind = Enum.KeyCode.P,    -- atalho do botão (nil = sem atalho)
-        Cooldown = 3,                -- segundos de espera depois do efeito acabar
-
-        -- Rework: ligue/desligue cada parte (desligue Camera se ficar pesado no celular)
-        FX = {
-            Camera = true,           -- inclinação + zoom no batimento do coração
-            TearBars = true,         -- rasgos horizontais de glitch na tela
-            FreezeBody = true,       -- boneco 100% imóvel durante toda a ciberpsicose (ancora + congela animação)
-            BodyAnim = true,
-            BodyAnimIntensity = 1,
-            BodyTimeline = true,     -- animação roteirizada do David sincronizada com a fala (false = poses aleatórias antigas)
-            ViewportGlitch = true,   -- glitch do boneco em ViewportFrame (fatias deslocadas + RGB split). Precisa de FreezeBody
-            ColorSplit = true,       -- camadas ciano (esquerda) e roxa (direita) sobre o boneco
-            SplitPixels = 1,         -- deslocamento base das camadas em PIXELS (nos estouros do glitch aumenta sozinho)
-            GlitchSlices = 4,        -- nº de fatias horizontais deslocadas (menos = mais leve no celular; 0 = sem fatias)
-            GlitchIntensity = 1,     -- 1 = normal | 2 = deslocamentos dobrados
-            PartGlitch = true,       -- glitch POR PEÇA (cabeça, braços, pernas, torso e cada acessório) no método PhaseShift. Precisa de ViewportGlitch
-            PartGlitchRate = 1,      -- frequência dos glitches por peça (2 = o dobro, 0.5 = metade)
-            PartTint = true,         -- a peça pisca em neon (ciano/magenta/vermelho/branco) durante o glitch
-            HideOriginal = true,     -- esconde a peça REAL enquanto a cópia glitchada dela se desloca (LocalTransparencyModifier)
-        },
-
-        -- Janelas de erro que orbitam o boneco
-        Windows = {
-            Style = "DAVID",         -- "DAVID" = HUD estilo Edgerunners | "ORIGINAL" = janela antiga
-            LifeMult = 1.6,          -- multiplica o tempo de vida da janela (1 = igual ao original)
-            MaxAlive = 16,           -- máximo de janelas ao mesmo tempo (baixe no celular)
-            FaceCamera = false,      -- true = janelas sempre viradas pra câmera (segue a câmera) | false = ficam no espaço ao redor do boneco
-            FollowCharacter = true,  -- o anel de janelas acompanha o boneco quando ele anda
-            OrbitSpeed = 0.3,        -- velocidade da órbita em rad/s (0 = janelas paradas no ar)
-            Japanese = true,         -- textos em japonês (se aparecer quadradinho no seu executor, ponha false)
-        },
-
-        -- Opcional: som de batimento cardíaco em loop. Ex.:
-        -- HeartbeatSound = {id = "rbxassetid://SEU_ID", volume = 1.5, pitch = 1}
-        HeartbeatSound = nil,
-
-        -- ====================================================
-        -- FALA SINCRONIZADA (efeitos seguem as falas, tipo a cena do David)
-        -- Enabled = true: a duração do efeito vira a duração da fala, a legenda
-        -- aparece com glitch e cada linha dispara um estouro de glitch + janelas.
-        -- Tempos (t) em segundos desde o início do efeito. Ajuste Offset se o
-        -- áudio atrasar/adiantar em relação aos efeitos.
-        -- ====================================================
-        Speech = {
-            Enabled = true,
-            SoundId = nil,              -- sons em sequência (1→2→3) no Exec; não usa SoundId único
-            Volume = 2,
-            Offset = 0,                 -- soma em todos os tempos (use negativo se os efeitos estão atrasados)
-            Duration = 12,              -- 5s + 4s + 2s + 1s fade = 12s
-            Tail = 1.0,                 -- 1s de desligamento suave no final
-            Subtitles = true,
-            MuteOriginalSounds = true,  -- sons originais substituídos pela sequência com crossfade
-            Lines = {
-                -- Part 1 (0–5s): "I'm gonna rip out his spine! / I'll kill him! / I'll kill him."
-                -- Part 2 (5–9s): "You're dead. / Dead. / Dead."
-                -- Part 3 (9–11s): "Fucking dead!" + 1s fade-out
-                {t = 0.15, hold = 1.8, who = "DAVID", text = "I'm gonna rip out his spine!", power = 1.5, windows = 5},
-                {t = 2.20, hold = 1.0, who = "DAVID", text = "I'll kill him!",               power = 1.6, windows = 4},
-                {t = 3.40, hold = 1.3, who = "DAVID", text = "I'll kill him.",               power = 0.9, windows = 2},
-                {t = 5.15, hold = 1.0, who = "DAVID", text = "You're dead.",                 power = 1.3, windows = 4},
-                {t = 6.40, hold = 0.8, who = "DAVID", text = "Dead.",                        power = 1.7, windows = 6},
-                {t = 7.40, hold = 1.0, who = "DAVID", text = "Dead.",                        power = 1.8, windows = 8, final = true},
-                {t = 9.15, hold = 1.6, who = "DAVID", text = "Fucking dead!",                power = 2,   windows = 16, chance = 0.1},
-            },
-            Hits = {
-                {t = 1.20, power = 1.9, windows = 2},   -- "spine!" gritado
-                {t = 7.70, power = 1.8, windows = 2},   -- segundo "Dead."
-                {t = 9.40, power = 2,   windows = 4, chance = 0.1},   -- "Fucking dead!" (10%)
-            },
-        },
-    },
-}
-
--- ============================================================
--- DEPENDÊNCIAS (as mesmas variáveis que o código original usava)
--- ============================================================
-local Camera = Workspace.CurrentCamera
-local HRP, Humanoid
-local Constants, Sounds, State, Create, PlaySFX, ScreenFade
-
-local Fallback = {
-    Constants = {
-        MAX_ENERGY = 100,
-        CYBERPSYCHOSIS = {
-            Duration = 12,
-            PopupRate = 0.08,
-            Radius = 7,
-            ShakeIntensity = 0.6,
-            WindowLifeTime = 0.5,
-        },
-        ERROR_TEXTS = {
-            "SYSTEM FAILURE", "CRITICAL ERROR", "NEURAL OVERLOAD",
-            "CONNECTION LOST", "0xFF0029A CORRUPT", "PSYCHOSIS DETECTED",
-            "FATAL EXCEPTION", "REBOOTING...", "NO SIGNAL",
-        },
-    },
-    Sounds = {
-        PSYCHOSIS  = {id = "rbxassetid://113922641197855",  volume = 2, pitch = 1, looped = false},
-        PSYCHOSIS2 = {id = "rbxassetid://89548438635345", volume = 2, pitch = 1, looped = false},
-        PSYCHOSIS3 = {id = "rbxassetid://92219907157626", volume = 2.2, pitch = 1, looped = false},
-    },
-    State = {Energy = 100},
-}
-
-local function FallbackCreate(className, properties)
-    local instance = Instance.new(className)
-    for prop, value in properties do instance[prop] = value end
-    return instance
-end
-
-local function FallbackPlaySFX(soundConfig)
-    local sound = FallbackCreate("Sound", {SoundId = soundConfig.id, Volume = soundConfig.volume or 1, PlaybackSpeed = soundConfig.pitch or 1, Parent = HRP or Camera})
-    sound:Play()
-    Debris:AddItem(sound, 10)
-    return sound
-end
-
-local function FallbackScreenFade(durationIn, hold, durationOut, tint, sat, cont)
-    local cc = FallbackCreate("ColorCorrectionEffect", {Name = "CyberFade", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Parent = Lighting})
-    TweenService:Create(cc, TweenInfo.new(durationIn, Enum.EasingStyle.Quad), {TintColor = tint, Saturation = sat or 0.6, Contrast = cont or 0.25}):Play()
-    task.delay(durationIn + hold, function()
-        TweenService:Create(cc, TweenInfo.new(durationOut, Enum.EasingStyle.Quad), {TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0}):Play()
-        task.delay(durationOut + 0.1, function() cc:Destroy() end)
-    end)
-end
-
-local function Sync()
-    local c = PsiCtx
-    Camera = Workspace.CurrentCamera
-    if c then
-        Constants   = c.Constants   or Fallback.Constants
-        Sounds      = c.Sounds      or Fallback.Sounds
-        State       = c.State       or Fallback.State
-        Create      = c.Create      or FallbackCreate
-        PlaySFX     = c.PlaySFX     or FallbackPlaySFX
-        ScreenFade  = c.ScreenFade  or FallbackScreenFade
-        if c.GetRefs then
-            HRP, Humanoid = c.GetRefs()
-            return
-        end
-    else
-        Constants, Sounds, State = Fallback.Constants, Fallback.Sounds, Fallback.State
-        Create, PlaySFX, ScreenFade = FallbackCreate, FallbackPlaySFX, FallbackScreenFade
-    end
-    local char = Player.Character
-    HRP = char and char:FindFirstChild("HumanoidRootPart")
-    Humanoid = char and char:FindFirstChildOfClass("Humanoid")
-end
-
-Sync()
-local syncConn = RunService.Heartbeat:Connect(Sync)
-
-local ExecCyberpsychosis
-
--- ============================================================
--- ======================  CÓDIGO ORIGINAL  ===================
--- ===== (cópia exata: createLightingEffects, spawnPopup, ======
--- =====  shakeCamera, SystemRestorePopup)                 ======
--- ============================================================
-
-local function createLightingEffects()
-	local cc = Instance.new("ColorCorrectionEffect")
-	cc.Name = "PsychoCC"
-	cc.TintColor = Color3.fromRGB(255, 80, 80)
-	cc.Contrast = 0.6
-	cc.Saturation = 1.3
-	cc.Parent = Lighting
-	local blur = Instance.new("BlurEffect")
-	blur.Name = "PsychoBlur"
-	blur.Size = 0
-	blur.Parent = Lighting
-	return cc, blur
-end
-
-local function spawnPopupOriginal()
-    if not HRP then return end
-    
-    local angleHorizontal = math.random() * math.pi * 2
-    local angleVertical = math.random(-0.6, 0.6) * math.pi
-local radius = math.random(5.5, 8)
-local heightOffset = math.random(-1, 3)
-    
-    local orbitX = math.cos(angleHorizontal) * math.cos(angleVertical) * radius
-    local orbitY = math.sin(angleVertical) * radius + heightOffset
-    local orbitZ = math.sin(angleHorizontal) * math.cos(angleVertical) * radius
-    
-    local targetWidth = math.random(3.2, 5.5)
-local targetHeight = math.random(2.0, 4.0)
-    local finalSize = Vector3.new(targetWidth, targetHeight, 0.07)
-    
-    local part = Instance.new("Part")
-    part.Name = "GlitchWindow"
-    part.Size = Vector3.new(0, 0, 0)
-    part.Color = Color3.fromRGB(9, 0, 2)
-    part.Material = Enum.Material.Neon
-    part.Transparency = 0.02
-    part.CanCollide = false
-    part.Anchored = true
-    part.CastShadow = false
-    
-    part.Position = HRP.Position + Vector3.new(orbitX, orbitY, orbitZ)
-    
-    local look = CFrame.lookAt(part.Position, HRP.Position)
-    part.CFrame = look * CFrame.Angles(math.rad(math.random(-15, 15)), math.rad(math.random(-20, 20)), 0)
-    part.Parent = Workspace
-    
-    local sgui = Instance.new("SurfaceGui")
-    sgui.Face = Enum.NormalId.Front
-    sgui.LightInfluence = 0
-    sgui.PixelsPerStud = 50
-    sgui.Parent = part
-    
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1,0,1,0)
-    frame.BackgroundColor3 = Color3.fromRGB(6,0,1)
-    frame.BackgroundTransparency = 1
-    frame.Parent = sgui
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 25, 60)
-    stroke.Thickness = 4
-    stroke.Transparency = 1
-    stroke.Parent = frame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
-    corner.Parent = frame
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1,-16,0.72,0)
-    label.Position = UDim2.new(0,8,0,5)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255, 50, 80)
-    label.TextScaled = true
-    label.Font = Enum.Font.SciFi
-    label.Text = Constants.ERROR_TEXTS[math.random(1, #Constants.ERROR_TEXTS)]
-    label.TextStrokeTransparency = 0.4
-    label.TextStrokeColor3 = Color3.fromRGB(255,0,25)
-    label.TextTransparency = 1
-    label.Parent = frame
-    
-    local sublabel = Instance.new("TextLabel")
-    sublabel.Size = UDim2.new(1,-16,0.28,-8)
-    sublabel.Position = UDim2.new(0,8,0.72,4)
-    sublabel.BackgroundTransparency = 1
-    sublabel.TextColor3 = Color3.fromRGB(255, 125, 140)
-    sublabel.Font = Enum.Font.Code
-    sublabel.TextScaled = true
-    sublabel.Text = "0x"..string.format("%X", math.random(0x8000,0xFFFF)) .. "_NEURAL_CRITICAL"
-    sublabel.TextTransparency = 1
-    sublabel.Parent = frame
-    
-    TweenService:Create(part, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = finalSize
-    }):Play()
-    
-    TweenService:Create(frame, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundTransparency = 0
-    }):Play()
-    
-    TweenService:Create(stroke, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Transparency = 0
-    }):Play()
-    
-    task.spawn(function()
-        for i = 1, 6 do
-            label.TextTransparency = i % 2 == 0 and 0.7 or 0.1
-            task.wait(0.025)
-        end
-        TweenService:Create(label, TweenInfo.new(0.08), {
-            TextTransparency = 0
-        }):Play()
-    end)
-    
-    task.delay(0.08, function()
-        TweenService:Create(sublabel, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            TextTransparency = 0
-        }):Play()
-    end)
-    
-    task.delay(Constants.CYBERPSYCHOSIS.WindowLifeTime - 0.3, function()
-        if not part.Parent then return end
-        
-        TweenService:Create(label, TweenInfo.new(0.15), {TextTransparency = 1}):Play()
-        TweenService:Create(sublabel, TweenInfo.new(0.15), {TextTransparency = 1}):Play()
-        TweenService:Create(frame, TweenInfo.new(0.2), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 1}):Play()
-        
-        local closeTween = TweenService:Create(part, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            Size = Vector3.new(0, 0, 0)
-        })
-        closeTween:Play()
-        closeTween.Completed:Connect(function()
-            part:Destroy()
-        end)
-    end)
-end
-
--- ============================================================
--- REWORK DAS JANELAS: HUD do Sandevistan (David Martinez / Edgerunners)
--- 6 modelos: ALERT (losango de aviso), BIOMONITOR (batimento/EKG), CORE DUMP (hex),
--- SYS STATUS (barras), FATAL EXCEPTION (diálogo) e KANJI (警告 com separação RGB).
--- Todas ligam como tela de CRT (linha -> abre), tremem, rasgam e desligam colapsando.
--- Canvas de tamanho FIXO: o conteúdo estica junto com a peça durante a animação.
--- ============================================================
-local WIN = {
-    RED = Color3.fromRGB(255, 25, 60), DARK = Color3.fromRGB(12, 0, 3), HOT = Color3.fromRGB(255, 110, 125),
-    YELLOW = Color3.fromRGB(255, 214, 0), WHITE = Color3.new(1, 1, 1), BLACK = Color3.new(0, 0, 0),
-    CYAN = Color3.fromRGB(0, 240, 255), MAGENTA = Color3.fromRGB(255, 0, 140),
-}
-local winAlive = 0
-local CUT = 8 -- tamanho (px) do corte das pontas das janelas
-
--- desenha o corpo da janela com as 4 pontas cortadas em 45 graus (preenchimento + borda)
--- devolve setFill(cor) e setBorder(cor)
-local function wshape(shell, Rw, Rh)
-    local c, th = CUT, 2
-    local fills, borders = {}, {}
-    local layer = Instance.new("Frame")
-    layer.Name = "Shape"
-    layer.Size = UDim2.new(1, 0, 1, 0)
-    layer.BackgroundTransparency = 1
-    layer.BorderSizePixel = 0
-    layer.ZIndex = 0
-    layer.Parent = shell
-    local function fill(x, y, w, h)
-        table.insert(fills, Instance.new("Frame"))
-        local f = fills[#fills]
-        f.Position = UDim2.new(0, x, 0, y)
-        f.Size = UDim2.new(0, w, 0, h)
-        f.BackgroundColor3 = WIN.DARK
-        f.BorderSizePixel = 0
-        f.Parent = layer
-    end
-    local function border(x, y, w, h, rot)
-        local f = Instance.new("Frame")
-        f.BackgroundColor3 = WIN.RED
-        f.BorderSizePixel = 0
-        if rot then
-            f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.Position = UDim2.new(0, x, 0, y)
-            f.Rotation = rot
-        else
-            f.Position = UDim2.new(0, x, 0, y)
-        end
-        f.Size = UDim2.new(0, w, 0, h)
-        f.Parent = layer
-        table.insert(borders, f)
-    end
-    fill(0, c, Rw, Rh - 2 * c)
-    for i = 0, c - 1 do
-        fill(c - i, i, Rw - 2 * (c - i), 1)
-        fill(c - i, Rh - 1 - i, Rw - 2 * (c - i), 1)
-    end
-    border(c, 0, Rw - 2 * c, th)
-    border(c, Rh - th, Rw - 2 * c, th)
-    border(0, c, th, Rh - 2 * c)
-    border(Rw - th, c, th, Rh - 2 * c)
-    local L, d = c * 1.4142 + th, th * 0.35
-    border(c / 2 + d, c / 2 + d, L, th, -45)
-    border(Rw - c / 2 - d, c / 2 + d, L, th, 45)
-    border(c / 2 + d, Rh - c / 2 - d, L, th, 45)
-    border(Rw - c / 2 - d, Rh - c / 2 - d, L, th, -45)
-    return function(col) for _, f in ipairs(fills) do f.BackgroundColor3 = col end end,
-           function(col) for _, f in ipairs(borders) do f.BackgroundColor3 = col end end
-end
-
-local function wnew(class, props, parent)
-    local o = Instance.new(class)
-    for k, v in pairs(props) do o[k] = v end
-    o.Parent = parent
-    return o
-end
-
-local function wlabel(parent, props)
-    props.BackgroundTransparency = 1
-    props.Font = props.Font or Enum.Font.Code
-    props.TextSize = props.TextSize or 12
-    props.TextColor3 = props.TextColor3 or WIN.WHITE
-    return wnew("TextLabel", props, parent)
-end
-
-local function hex4() return string.format("%04X", math.random(0, 0xFFFF)) end
-
--- faixa de listras diagonais (aviso de perigo)
-local function whazard(parent, y, h, colorA)
-    local f = wnew("Frame", {Size = UDim2.new(1, -2 * CUT, 0, h), Position = UDim2.new(0, CUT, 0, y), BackgroundColor3 = colorA, BorderSizePixel = 0}, parent)
-    local kps = {}
-    for i = 0, 4 do
-        local a = i * 0.2
-        table.insert(kps, ColorSequenceKeypoint.new(a, colorA))
-        table.insert(kps, ColorSequenceKeypoint.new(a + 0.0999, colorA))
-        table.insert(kps, ColorSequenceKeypoint.new(a + 0.1, WIN.BLACK))
-        table.insert(kps, ColorSequenceKeypoint.new(i == 4 and 1 or a + 0.1999, WIN.BLACK))
-    end
-    wnew("UIGradient", {Color = ColorSequence.new(kps), Rotation = 45}, f)
-    return f
-end
-
-local function wtitle(root, text, withX)
-    local bar = wnew("Frame", {Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, BorderSizePixel = 0}, root)
-    wnew("Frame", {Size = UDim2.new(1, 0, 0, 20 - CUT), Position = UDim2.new(0, 0, 0, CUT), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bar)
-    for i = 0, CUT - 1 do
-        wnew("Frame", {Size = UDim2.new(1, -2 * (CUT - i), 0, 1), Position = UDim2.new(0, CUT - i, 0, i), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bar)
-    end
-    wlabel(bar, {Size = UDim2.new(1, -28, 1, 0), Position = UDim2.new(0, 6, 0, 0), Text = text, TextColor3 = WIN.BLACK, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left})
-    if withX ~= false then
-        wlabel(bar, {Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -22, 0, 0), Text = "X", TextColor3 = WIN.BLACK, Font = Enum.Font.GothamBold, TextSize = 12})
-    end
-    return bar
-end
-
-local WIN_SIZE = {
-    ALERT = {240, 170}, BIO = {240, 150}, HEX = {240, 170},
-    GAUGE = {230, 160}, DIALOG = {220, 130}, KANJI = {250, 120},
-}
-local WIN_KINDS = {{"ALERT", 22}, {"BIO", 18}, {"HEX", 18}, {"GAUGE", 16}, {"DIALOG", 14}, {"KANJI", 12}}
-
-local function pickWinKind()
-    local total = 0
-    for _, e in ipairs(WIN_KINDS) do total += e[2] end
-    local r = math.random() * total
-    for _, e in ipairs(WIN_KINDS) do
-        r -= e[2]
-        if r <= 0 then return e[1] end
-    end
-    return "ALERT"
-end
-
--- cada builder devolve uma função tick(t, life) chamada a ~20x por segundo
-local WIN_BUILD = {}
-
-WIN_BUILD.ALERT = function(root, W, H)
-    wtitle(root, "ALERT_" .. hex4())
-    local dia = wnew("Frame", {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(0, 24, 0, 54), BackgroundTransparency = 1, Rotation = 45}, root)
-    local diaStroke = wnew("UIStroke", {Color = WIN.RED, Thickness = 4}, dia)
-    wlabel(root, {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(0, 24, 0, 54), Text = "!", Font = Enum.Font.SciFi, TextSize = 40, TextColor3 = WIN.RED})
-    local warn = wlabel(root, {Size = UDim2.new(0, 132, 0, 34), Position = UDim2.new(0, 98, 0, 50), Text = "WARNING", Font = Enum.Font.SciFi, TextSize = 26, TextColor3 = WIN.RED, TextXAlignment = Enum.TextXAlignment.Left})
-    wlabel(root, {Size = UDim2.new(0, 132, 0, 30), Position = UDim2.new(0, 98, 0, 88), Text = "NEURAL INTEGRITY\n0x" .. hex4() .. " CRITICAL", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
-    local psy = wlabel(root, {Size = UDim2.new(1, -20, 0, 16), Position = UDim2.new(0, 10, 1, -40), Text = "PSYCHOSIS DETECTED", TextSize = 12})
-    whazard(root, H - 16, 12, WIN.RED)
-    return function(t)
-        local on = math.floor(t * 10) % 2 == 0
-        warn.TextColor3 = on and WIN.RED or WIN.WHITE
-        psy.TextTransparency = on and 0 or 0.6
-        diaStroke.Color = math.random() < 0.2 and WIN.WHITE or WIN.RED
-    end
-end
-
-WIN_BUILD.BIO = function(root, W, H)
-    wtitle(root, "BIOMONITOR_" .. hex4())
-    local N, mid = 28, 62
-    local bars, buf = {}, {}
-    for i = 1, N do
-        buf[i] = 0
-        bars[i] = wnew("Frame", {Size = UDim2.new(0, 6, 0, 2), Position = UDim2.new(0, 8 + (i - 1) * 8, 0, mid), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, root)
-    end
-    wnew("Frame", {Size = UDim2.new(1, -16, 0, 1), Position = UDim2.new(0, 8, 0, mid), BackgroundColor3 = WIN.DARK, BackgroundTransparency = 0.3, BorderSizePixel = 0, ZIndex = 0}, root)
-    local bpm = wlabel(root, {Size = UDim2.new(0, 130, 0, 30), Position = UDim2.new(0, 8, 1, -42), Text = "187 BPM", Font = Enum.Font.SciFi, TextSize = 24, TextColor3 = WIN.RED, TextXAlignment = Enum.TextXAlignment.Left})
-    local arr = wlabel(root, {Size = UDim2.new(0, 90, 0, 14), Position = UDim2.new(1, -98, 1, -30), Text = "ARRHYTHMIA", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Right})
-    local pattern = {0, 0, 0.08, 0.16, 0.08, 0, -0.12, 1, -0.55, 0.05, 0, 0, 0.18, 0.3, 0.18, 0, 0, 0, 0}
-    local pi = 0
-    return function(t)
-        for _ = 1, 2 do
-            table.remove(buf, 1)
-            pi = pi % #pattern + 1
-            local v = pattern[pi]
-            if math.random() < 0.15 then v += (math.random() - 0.5) * 0.7 end
-            table.insert(buf, v)
-        end
-        for i = 1, N do
-            local v = buf[i]
-            local hpx = math.max(2, math.floor(math.abs(v) * 34))
-            local b = bars[i]
-            b.Size = UDim2.new(0, 6, 0, hpx)
-            b.Position = UDim2.new(0, 8 + (i - 1) * 8, 0, v >= 0 and mid - hpx or mid)
-            b.BackgroundColor3 = (i > N - 3) and WIN.WHITE or WIN.RED
-        end
-        bpm.Text = math.random(150, 245) .. " BPM"
-        arr.TextTransparency = (math.floor(t * 8) % 2 == 0) and 0 or 0.7
-    end
-end
-
-WIN_BUILD.HEX = function(root, W, H)
-    wtitle(root, "CORE_DUMP_" .. hex4())
-    local body = wlabel(root, {Size = UDim2.new(1, -16, 0, 96), Position = UDim2.new(0, 8, 0, 26), Text = "", TextSize = 11, TextColor3 = WIN.HOT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
-    local lbl = wlabel(root, {Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 126), Text = "OVERWRITE 0%", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left})
-    local bg = wnew("Frame", {Size = UDim2.new(1, -16, 0, 8), Position = UDim2.new(0, 8, 0, 144), BackgroundColor3 = WIN.DARK, BorderSizePixel = 0}, root)
-    wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, bg)
-    local fill = wnew("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = WIN.RED, BorderSizePixel = 0}, bg)
-    return function(t, life)
-        local lines = {}
-        for i = 1, 7 do
-            lines[i] = string.format("%s  %s %s %s %s", hex4(), hex4(), hex4(), hex4(), hex4())
-        end
-        lines[math.random(1, 7)] = "FFFF  ERR  ERR  ERR  ERR"
-        body.Text = table.concat(lines, "\n")
-        local a = math.clamp(t / life, 0, 1)
-        fill.Size = UDim2.new(a, 0, 1, 0)
-        lbl.Text = "OVERWRITE " .. math.floor(a * 100) .. "%"
-    end
-end
-
-WIN_BUILD.GAUGE = function(root, W, H)
-    wtitle(root, "SYS_STATUS_" .. hex4())
-    local rows = {
-        {"NEURAL LOAD", 88}, {"CHROME REJECTION", 94}, {"SANDEVISTAN OC", 76}, {"HUMANITY", 18},
-    }
-    local fills, pcts = {}, {}
-    for i, r in ipairs(rows) do
-        local y = 28 + (i - 1) * 32
-        wlabel(root, {Size = UDim2.new(1, -16, 0, 12), Position = UDim2.new(0, 8, 0, y), Text = r[1], TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left})
-        local bg = wnew("Frame", {Size = UDim2.new(1, -62, 0, 8), Position = UDim2.new(0, 8, 0, y + 16), BackgroundColor3 = WIN.DARK, BorderSizePixel = 0}, root)
-        wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, bg)
-        fills[i] = wnew("Frame", {Size = UDim2.new(r[2] / 100, 0, 1, 0), BackgroundColor3 = (i == 4) and WIN.WHITE or WIN.RED, BorderSizePixel = 0}, bg)
-        pcts[i] = wlabel(root, {Size = UDim2.new(0, 44, 0, 12), Position = UDim2.new(1, -50, 0, y + 14), Text = r[2] .. "%", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right})
-    end
-    return function(t, life)
-        for i, r in ipairs(rows) do
-            local v = r[2] + (math.random() - 0.5) * 14
-            if i == 4 then v = r[2] * (1 - t / life) + (math.random() - 0.5) * 6 end
-            v = math.clamp(v, 0, 100)
-            fills[i].Size = UDim2.new(v / 100, 0, 1, 0)
-            pcts[i].Text = math.floor(v) .. "%"
-        end
-    end
-end
-
-WIN_BUILD.DIALOG = function(root, W, H)
-    wtitle(root, "FATAL_EXCEPTION")
-    local texts = Constants.ERROR_TEXTS
-    wlabel(root, {Size = UDim2.new(1, -20, 0, 40), Position = UDim2.new(0, 10, 0, 28), Text = texts[math.random(1, #texts)], Font = Enum.Font.SciFi, TextSize = 18, TextColor3 = WIN.RED, TextWrapped = true})
-    wlabel(root, {Size = UDim2.new(1, -20, 0, 14), Position = UDim2.new(0, 10, 0, 72), Text = "0x" .. hex4() .. "_NEURAL_CRITICAL", TextSize = 10, TextColor3 = WIN.HOT})
-    local btns = {}
-    for i, name in ipairs({"RETRY", "ABORT"}) do
-        local b = wnew("Frame", {Size = UDim2.new(0, 80, 0, 22), Position = UDim2.new(0, 22 + (i - 1) * 100, 1, -32), BackgroundColor3 = WIN.RED, BackgroundTransparency = 0.7, BorderSizePixel = 0}, root)
-        wnew("UIStroke", {Color = WIN.RED, Thickness = 1}, b)
-        wlabel(b, {Size = UDim2.new(1, 0, 1, 0), Text = name, TextSize = 12})
-        btns[i] = b
-    end
-    return function(t)
-        local hot = math.random(1, 2)
-        btns[hot].BackgroundTransparency = 0.1
-        btns[3 - hot].BackgroundTransparency = 0.7
-    end
-end
-
-WIN_BUILD.KANJI = function(root, W, H)
-    local jp = Module.Config.Windows.Japanese ~= false
-    whazard(root, 0, 8, WIN.YELLOW)
-    whazard(root, H - 8, 8, WIN.YELLOW)
-    local function big(color, x)
-        return wlabel(root, {Size = UDim2.new(1, 0, 0, 66), Position = UDim2.new(0, x, 0, 12), Text = jp and "警告" or "ERROR", Font = Enum.Font.GothamBlack, TextSize = jp and 58 or 44, TextColor3 = color})
-    end
-    local c, m = big(WIN.CYAN, -3), big(WIN.MAGENTA, 3)
-    local main = big(WIN.RED, 0)
-    wlabel(root, {Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 80), Text = jp and "サイバーサイコシス" or "SYSTEM OVERLOAD", Font = jp and Enum.Font.GothamBold or Enum.Font.Code, TextSize = 14})
-    wlabel(root, {Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 98), Text = "// CYBERPSYCHOSIS //", TextSize = 10, TextColor3 = WIN.RED})
-    return function(t)
-        local j = math.random(2, 7)
-        c.Position = UDim2.new(0, -j, 0, 12 + math.random(-2, 2))
-        m.Position = UDim2.new(0, j, 0, 12 + math.random(-2, 2))
-        main.TextTransparency = (math.random() < 0.15) and 0.6 or 0
-    end
-end
-
-local function spawnPopupDavid()
-    if not HRP then return end
-    local WC = Module.Config.Windows
-    if winAlive >= (WC.MaxAlive or 16) then return end
-
-    -- posição: ao redor do BONECO (não da câmera). Cada janela orbita devagar,
-    -- flutua e nasce "saindo" do boneco. Só gira pra mostrar a frente pra câmera.
-    local cam = Workspace.CurrentCamera
-    local ang0 = math.random() * math.pi * 2
-    local angV = (math.random() - 0.5) * 1.1
-    local radius = 5.5 + math.random() * 2.5
-    local height = -1 + math.random() * 4
-    local orbitSpeed = (math.random() < 0.5 and -1 or 1) * (WC.OrbitSpeed or 0.3) * (0.5 + math.random())
-    local bobPhase = math.random() * math.pi * 2
-    local tilt = CFrame.Angles(math.rad(math.random(-8, 8)), math.rad(math.random(-12, 12)), math.rad(math.random(-6, 6)))
-    local center = HRP.Position
-    local born = os.clock()
-
-    local kind = pickWinKind()
-    local W, H = WIN_SIZE[kind][1], WIN_SIZE[kind][2]
-    local sc = 0.85 + math.random() * 0.4
-    local fw, fh = W / 52 * sc, H / 52 * sc
-
-    local part = Instance.new("Part")
-    part.Name = "GlitchWindow"
-    part.Size = Vector3.new(0.05, 0.04, 0.07)
-    part.Color = Color3.fromRGB(9, 0, 2)
-    part.Material = Enum.Material.Neon
-    part.Transparency = 1 -- invisível: o formato (pontas cortadas) é desenhado pela UI
-    part.CanCollide = false
-    part.CanQuery = false
-    part.CanTouch = false
-    part.Anchored = true
-    part.CastShadow = false
-
-    -- atualiza posição/rotação a cada frame (órbita + flutuação + saída do boneco)
-    local function place(dt, first)
-        local t = os.clock() - born
-        if WC.FollowCharacter ~= false and HRP then
-            center = center:Lerp(HRP.Position, first and 1 or (1 - math.exp(-8 * dt)))
-        end
-        local g = math.min(t / 0.35, 1)
-        local r = radius * (0.3 + 0.7 * (1 - (1 - g) ^ 3)) -- voa do boneco até a órbita
-        local a = ang0 + orbitSpeed * t
-        local bob = math.sin(t * 1.6 + bobPhase) * 0.25
-        local off = Vector3.new(
-            math.cos(a) * math.cos(angV) * r,
-            math.sin(angV) * r + height + bob,
-            math.sin(a) * math.cos(angV) * r)
-        local pos = center + off
-
-        local cf
-        local camPos = cam and cam.CFrame.Position
-        if WC.FaceCamera == true and camPos then
-            cf = CFrame.lookAt(pos, camPos)
-        else
-            -- orientação presa ao boneco: frente da janela aponta pra fora do anel.
-            -- Não depende da câmera (o verso também tem a UI, então vê de qualquer lado).
-            cf = CFrame.lookAt(pos, pos + Vector3.new(off.X, 0, off.Z))
-        end
-        part.CFrame = cf * tilt
-    end
-    place(0, true)
-
-    -- duas faces (frente e verso) pra a janela aparecer de qualquer lado sem precisar virar
-    local faces = {}
-    for _, nf in ipairs({Enum.NormalId.Front, Enum.NormalId.Back}) do
-        local sgui = Instance.new("SurfaceGui")
-        sgui.Face = nf
-        sgui.LightInfluence = 0
-        sgui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-        sgui.CanvasSize = Vector2.new(W, H)
-        sgui.Parent = part
-
-        local root = wnew("Frame", {Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true}, sgui)
-        local setFill, setBorder = wshape(root, W - 4, H - 4)
-        local okB, tickFn = pcall(WIN_BUILD[kind], root, W, H)
-        if not okB then part:Destroy() return end
-        local tear = wnew("Frame", {Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = WIN.WHITE, BackgroundTransparency = 0.55, BorderSizePixel = 0, Visible = false, ZIndex = 50}, root)
-        table.insert(faces, {root = root, setFill = setFill, setBorder = setBorder, tear = tear, tick = tickFn})
-    end
-
-    part.Parent = Workspace
-    winAlive += 1
-
-    local moveConn
-    moveConn = RunService.RenderStepped:Connect(function(dt)
-        if not part.Parent then moveConn:Disconnect() return end
-        cam = Workspace.CurrentCamera
-        place(dt, false)
-    end)
-
-    -- liga como CRT: linha -> abre
-    TweenService:Create(part, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = Vector3.new(fw, 0.04, 0.07)}):Play()
-    task.delay(0.05, function()
-        if part.Parent then
-            TweenService:Create(part, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = Vector3.new(fw, fh, 0.07)}):Play()
-        end
-    end)
-
-    local life = Constants.CYBERPSYCHOSIS.WindowLifeTime * (WC.LifeMult or 1.6) * (0.8 + math.random() * 0.6)
-    task.spawn(function()
-        while part.Parent do
-            local t = os.clock() - born
-            if t >= life then break end
-            local shake = math.random() < 0.2
-            local sx, sy, sc = math.random(-6, 6), math.random(-3, 3), math.random() < 0.5
-            local tearOn = math.random() < 0.25
-            local tearH = math.random(2, 10)
-            local tearY = (CUT + math.random() * math.max(1, H - 4 - 2 * CUT - tearH)) / (H - 4)
-            for _, f in ipairs(faces) do
-                if shake then
-                    f.root.Position = UDim2.new(0, 2 + sx, 0, 2 + sy)
-                    f.setBorder(sc and WIN.WHITE or WIN.RED)
-                else
-                    f.root.Position = UDim2.new(0, 2, 0, 2)
-                    f.setBorder(WIN.RED)
-                end
-                f.tear.Visible = tearOn
-                if tearOn then
-                    f.tear.Position = UDim2.new(0, 0, tearY, 0)
-                    f.tear.Size = UDim2.new(1, 0, 0, tearH)
-                end
-                if f.tick then pcall(f.tick, t, life) end
-            end
-            task.wait(0.05)
-        end
-        if part.Parent then
-            -- glitch final e desliga colapsando (CRT off)
-            for i = 1, 3 do
-                for _, f in ipairs(faces) do
-                    f.setFill((i % 2 == 0) and WIN.DARK or WIN.RED)
-                end
-                task.wait(0.025)
-            end
-            TweenService:Create(part, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = Vector3.new(fw, 0.04, 0.07)}):Play()
-            task.wait(0.1)
-            TweenService:Create(part, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = Vector3.new(0.02, 0.04, 0.07)}):Play()
-            task.wait(0.08)
-        end
-        winAlive = math.max(0, winAlive - 1)
-        moveConn:Disconnect()
-        part:Destroy()
-    end)
-end
-
-local function spawnPopup()
-    if Module.Config.Windows.Style == "ORIGINAL" then
-        return spawnPopupOriginal()
-    end
-    return spawnPopupDavid()
-end
-
-local function shakeCamera()
-	if not Humanoid then return end
-	local intensity = Constants.CYBERPSYCHOSIS.ShakeIntensity
-	Humanoid.CameraOffset = Vector3.new((math.random() - 0.5) * intensity, (math.random() - 0.5) * intensity, (math.random() - 0.5) * intensity)
-end
-
-local function SystemRestorePopup()
-    if not HRP then return end
-    
-    local restoreSound = Instance.new("Sound")
-    restoreSound.SoundId = "rbxassetid://97097078816969"
-    restoreSound.Volume = 2
-    restoreSound.PlaybackSpeed = 1
-    restoreSound.Parent = HRP or Camera
-    restoreSound:Play()
-    Debris:AddItem(restoreSound, 5)
-    
-    local part = Instance.new("Part")
-    part.Name = "SystemRestoreWindow"
-    part.Size = Vector3.new(0, 0, 0.08)
-    part.Color = Color3.fromRGB(0, 40, 0)
-    part.Material = Enum.Material.Neon
-    part.Transparency = 0.03
-    part.CanCollide = false
-    part.Anchored = true
-    part.CastShadow = false
-    
-    local frontOffset = HRP.CFrame.LookVector * 7 + Vector3.new(0, 1.5, 0)
-    part.CFrame = CFrame.lookAt(HRP.Position + frontOffset, HRP.Position)
-    part.Parent = Workspace
-    
-    local sgui = Instance.new("SurfaceGui", part)
-    sgui.Face = Enum.NormalId.Front
-    sgui.LightInfluence = 0
-    sgui.PixelsPerStud = 65
-    
-    local frame = Instance.new("Frame", sgui)
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(0, 12, 0)
-    frame.BackgroundTransparency = 1
-    
-    local frameCorner = Instance.new("UICorner", frame)
-    frameCorner.CornerRadius = UDim.new(0, 8)
-    
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(0, 220, 0)
-    stroke.Thickness = 5
-    stroke.Transparency = 1
-    
-    local titleBar = Instance.new("Frame", frame)
-    titleBar.Size = UDim2.new(1, 0, 0, 35)
-    titleBar.BackgroundColor3 = Color3.fromRGB(0, 50, 0)
-    titleBar.BackgroundTransparency = 1
-    titleBar.BorderSizePixel = 0
-    
-    local titleCorner = Instance.new("UICorner", titleBar)
-    titleCorner.CornerRadius = UDim.new(0, 6)
-    
-    local icon = Instance.new("TextLabel", titleBar)
-    icon.Size = UDim2.new(0, 26, 0, 26)
-    icon.Position = UDim2.new(0, 10, 0, 4)
-    icon.BackgroundTransparency = 1
-    icon.Text = ""
-    icon.TextColor3 = Color3.fromRGB(0, 255, 0)
-    icon.Font = Enum.Font.GothamBold
-    icon.TextSize = 20
-    icon.TextTransparency = 1
-    
-    local titleText = Instance.new("TextLabel", titleBar)
-    titleText.Size = UDim2.new(1, -80, 1, 0)
-    titleText.Position = UDim2.new(0, 40, 0, 0)
-    titleText.BackgroundTransparency = 1
-    titleText.Text = "SYSTEM RESTORE"
-    titleText.TextColor3 = Color3.fromRGB(0, 255, 0)
-    titleText.Font = Enum.Font.SciFi
-    titleText.TextSize = 17
-    titleText.TextXAlignment = Enum.TextXAlignment.Left
-    titleText.TextTransparency = 1
-    
-    local closeBtn = Instance.new("TextButton", titleBar)
-    closeBtn.Size = UDim2.new(0, 26, 0, 26)
-    closeBtn.Position = UDim2.new(1, -32, 0, 4)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(0, 70, 0)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Text = ""
-    closeBtn.TextColor3 = Color3.fromRGB(0, 255, 0)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 14
-    closeBtn.TextTransparency = 1
-    
-    local closeCorner = Instance.new("UICorner", closeBtn)
-    closeCorner.CornerRadius = UDim.new(0, 4)
-    
-    local message = Instance.new("TextLabel", frame)
-    message.Size = UDim2.new(1, -30, 0, 55)
-    message.Position = UDim2.new(0, 15, 0, 55)
-    message.BackgroundTransparency = 1
-    message.Text = "SUCESSO AO\nRESTABELECER\nO SYSTEMA"
-    message.TextColor3 = Color3.fromRGB(0, 255, 0)
-    message.Font = Enum.Font.SciFi
-    message.TextSize = 42
-    message.TextTransparency = 1
-    message.TextStrokeTransparency = 0.4
-    message.TextStrokeColor3 = Color3.fromRGB(0, 100, 0)
-    
-    local details = Instance.new("TextLabel", frame)
-    details.Size = UDim2.new(1, -30, 0, 30)
-    details.Position = UDim2.new(0, 15, 0, 130)
-    details.BackgroundTransparency = 1
-    details.Text = "NEURAL INTERFACE RESTORED\nALL SYSTEMS OPERATIONAL"
-    details.TextColor3 = Color3.fromRGB(100, 255, 100)
-    details.Font = Enum.Font.Code
-    details.TextSize = 18
-    details.TextTransparency = 1
-    
-    local progressBg = Instance.new("Frame", frame)
-    progressBg.Size = UDim2.new(0.85, 0, 0, 10)
-    progressBg.Position = UDim2.new(0.075, 0, 0, 175)
-    progressBg.BackgroundColor3 = Color3.fromRGB(0, 15, 0)
-    progressBg.BackgroundTransparency = 1
-    progressBg.BorderSizePixel = 0
-    
-    local progressCorner = Instance.new("UICorner", progressBg)
-    progressCorner.CornerRadius = UDim.new(0, 5)
-    
-    local progressFill = Instance.new("Frame", progressBg)
-    progressFill.Size = UDim2.new(0, 0, 1, 0)
-    progressFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    progressFill.BackgroundTransparency = 1
-    progressFill.BorderSizePixel = 0
-    
-    local fillCorner = Instance.new("UICorner", progressFill)
-    fillCorner.CornerRadius = UDim.new(0, 5)
-    
-    local percentText = Instance.new("TextLabel", frame)
-    percentText.Size = UDim2.new(1, 0, 0, 22)
-    percentText.Position = UDim2.new(0, 0, 0, 190)
-    percentText.BackgroundTransparency = 1
-    percentText.Text = "0%"
-    percentText.TextColor3 = Color3.fromRGB(0, 255, 0)
-    percentText.Font = Enum.Font.Code
-    percentText.TextSize = 16
-    percentText.TextTransparency = 1
-    
-    local scanline = Instance.new("Frame", frame)
-    scanline.Size = UDim2.new(1, 0, 0, 2)
-    scanline.Position = UDim2.new(0, 0, -1, 0)
-    scanline.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    scanline.BackgroundTransparency = 0.6
-    scanline.BorderSizePixel = 0
-    
-    local function updatePosition()
-        if HRP and part.Parent then
-            local frontOffset = HRP.CFrame.LookVector * 7 + Vector3.new(0, 1.5, 0)
-            part.CFrame = CFrame.lookAt(HRP.Position + frontOffset, HRP.Position)
-        end
-    end
-    updatePosition()
-    
-    TweenService:Create(part, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = Vector3.new(5.5, 3.2, 0.08)
-    }):Play()
-    
-    task.delay(0.15, function()
-        TweenService:Create(frame, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.3), {Transparency = 0}):Play()
-        TweenService:Create(titleBar, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(icon, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-        TweenService:Create(titleText, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-        TweenService:Create(closeBtn, TweenInfo.new(0.3), {BackgroundTransparency = 0, TextTransparency = 0}):Play()
-        TweenService:Create(message, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-        TweenService:Create(details, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-        TweenService:Create(progressBg, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(progressFill, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(percentText, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-    end)
-    
-    local followConn = RunService.Heartbeat:Connect(updatePosition)
-    
-    task.delay(0.6, function()
-        TweenService:Create(progressFill, TweenInfo.new(2, Enum.EasingStyle.Linear), {
-            Size = UDim2.new(1, 0, 1, 0)
-        }):Play()
-        
-        for i = 0, 100, 2 do
-            task.wait(0.04)
-            if percentText and percentText.Parent then
-                percentText.Text = i .. "%"
-            end
-        end
-    end)
-    
-    task.spawn(function()
-        while scanline.Parent do
-            TweenService:Create(scanline, TweenInfo.new(1.5, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 0, 1, 0)
-            }):Play()
-            task.wait(1.5)
-            scanline.Position = UDim2.new(0, 0, -1, 0)
-        end
-    end)
-    
-    task.spawn(function()
-        task.wait(1.5)
-        
-        if Humanoid then
-            TweenService:Create(Humanoid, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Health = Humanoid.MaxHealth
-            }):Play()
-        end
-        
-        local targetEnergy = math.min(Constants.MAX_ENERGY, State.Energy + 50)
-        local startEnergy = State.Energy
-        local duration = 1.5
-        local startTime = tick()
-        
-        task.spawn(function()
-            while tick() - startTime < duration do
-                local alpha = (tick() - startTime) / duration
-                State.Energy = startEnergy + (targetEnergy - startEnergy) * alpha
-                RunService.Heartbeat:Wait()
-            end
-            State.Energy = targetEnergy
-        end)
-        
-        ScreenFade(0.2, 0, 0.5, Color3.fromRGB(0, 255, 0), 0.4, 0.2)
-    end)
-    
-    local function closeWindow()
-        if followConn then followConn:Disconnect() end
-        if part and part.Parent then
-            TweenService:Create(part, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Size = Vector3.new(0.1, 0.1, 0.08)
-            }):Play()
-            TweenService:Create(frame, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-            task.delay(0.5, function()
-                part:Destroy()
-            end)
-        end
-    end
-    
-    task.delay(4, function()
-        if part and part.Parent then
-            closeWindow()
-        end
-    end)
-end
-
-
-
--- ============================================================
--- ==============  REWORK: estilo David Martinez  =============
--- Mantém a mecânica do original (paralisia -> drenagem de vida -> overdrive
--- na fase 3 -> 30% de chance do SYSTEM RESTORE) e a coreografia de janelas
--- sincronizada com o áudio. Por cima adiciona: visão de túnel vermelha
--- pulsando no ritmo do coração, alerta WARNING, título com separação RGB,
--- rasgos de tela, scanlines, terminal de falhas, contador de HUMANITY,
--- câmera inclinando/zoom no batimento, boneco imóvel e GLITCH EM VIEWPORTFRAME
--- (clones 2D do boneco: camadas ciano/roxa + fatias horizontais deslocadas).
--- ============================================================
-local function SpeechActive()
-    local S = Module.Config.Speech
-    return S and S.Enabled and S.Lines and #S.Lines > 0
-end
-
--- duração total do efeito: a da fala (se ligada) ou a original
-local function EffectiveDuration()
-    if SpeechActive() then
-        local S = Module.Config.Speech
-        if S.Duration then return S.Duration end
-        local last = 0
-        for _, l in ipairs(S.Lines) do
-            last = math.max(last, (l.t or 0) + (l.hold or 1.5))
-        end
-        return last + (S.Offset or 0) + (S.Tail or 1.2)
-    end
-    return Constants.CYBERPSYCHOSIS.Duration
-end
-
-local SPEAKER_COLORS = {
-    FARADAY = Color3.fromRGB(255, 200, 60),
-    DAVID = Color3.fromRGB(0, 240, 255),
-    REBECCA = Color3.fromRGB(255, 0, 140),
-    LUCY = Color3.fromRGB(190, 120, 255),
-}
-local SCRAMBLE_CHARS = {"#", "@", "%", "&", "?", "!", "/", "|", "0", "1", "<", ">", "X"}
-
-local function ScrambleText(text, amount)
-    local out = {}
-    for _, cp in utf8.codes(text) do
-        if cp ~= 32 and math.random() < amount then
-            table.insert(out, SCRAMBLE_CHARS[math.random(1, #SCRAMBLE_CHARS)])
-        else
-            table.insert(out, utf8.char(cp))
-        end
-    end
-    return table.concat(out)
-end
-
-function ExecCyberpsychosis()
-    Sync()
-    local FX = Module.Config.FX
-    local CFG = Constants.CYBERPSYCHOSIS
-    local DURATION = EffectiveDuration()
-    local phaseDuration = DURATION / 3
-    local S = Module.Config.Speech
-    local speechOn = SpeechActive() and true or false
-    -- "Fucking dead!" (fala + som 3) só em 10% das vezes
-    local playFuckingDead = math.random() < 0.1
-
-    -- Sons de crashing out do David (parte 1: 5s → parte 2: 4s → parte 3: 2s "Fucking dead!") + 1s fade
-    local speechSound
-    do
-        local vol = (S and S.Volume) or 2
-        local vol3 = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.volume) or 2.2
-        local parent = HRP or Camera
-        local s1 = Instance.new("Sound")
-        s1.SoundId = Sounds.PSYCHOSIS.id
-        s1.Volume = vol
-        s1.PlaybackSpeed = Sounds.PSYCHOSIS.pitch or 1
-        s1.Parent = parent
-        s1:Play()
-        Debris:AddItem(s1, 7)
-
-        local s2 = Instance.new("Sound")
-        s2.SoundId = Sounds.PSYCHOSIS2.id
-        s2.Volume = 0
-        s2.PlaybackSpeed = Sounds.PSYCHOSIS2.pitch or 1
-        s2.Parent = parent
-
-        local playPart3 = playFuckingDead
-        local s3 = nil
-        if playPart3 then
-            s3 = Instance.new("Sound")
-            s3.SoundId = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.id) or "rbxassetid://92219907157626"
-            s3.Volume = 0
-            s3.PlaybackSpeed = (Sounds.PSYCHOSIS3 and Sounds.PSYCHOSIS3.pitch) or 1
-            s3.Parent = parent
-        end
-
-        -- Crossfade 1→2 em ~4.4s
-        task.delay(4.4, function()
-            if s1 and s1.Parent then
-                TweenService:Create(s1, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
-            end
-            if s2 and s2.Parent then
-                s2:Play()
-                TweenService:Create(s2, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Volume = vol}):Play()
-            end
-        end)
-
-        if playPart3 and s3 then
-            -- Crossfade 2→3 em ~8.7s ("Fucking dead!" 2s)
-            task.delay(8.7, function()
-                if s2 and s2.Parent then
-                    TweenService:Create(s2, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
-                end
-                if s3 and s3.Parent then
-                    s3:Play()
-                    TweenService:Create(s3, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Volume = vol3}):Play()
-                end
-            end)
-            -- Fade-out final do s3 no último 1s (não corta seco)
-            task.delay(10.8, function()
-                if s3 and s3.Parent then
-                    TweenService:Create(s3, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
-                end
-            end)
-            Debris:AddItem(s3, 14)
-        else
-            -- sem parte 3: fade-out do s2 no final
-            task.delay(10.8, function()
-                if s2 and s2.Parent then
-                    TweenService:Create(s2, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Volume = 0}):Play()
-                end
-            end)
-        end
-
-        Debris:AddItem(s2, 12)
-        speechSound = s1
-    end
-
-    if speechOn and S.SoundId and S.SoundId ~= "" then
-        local extra = Instance.new("Sound")
-        extra.SoundId = S.SoundId
-        extra.Volume = S.Volume or 2
-        extra.Parent = HRP or Camera
-        extra:Play()
-        Debris:AddItem(extra, DURATION + 3)
-    end
-
-    local hbSound
-    if Module.Config.HeartbeatSound then
-        hbSound = PlaySFX(Module.Config.HeartbeatSound)
-        hbSound.Looped = true
-    end
-
-    -- Tom ambiente (Creator Store) tocando os 9s inteiros, pitch variando
-    local toneSound
-    do
-        local parent = HRP or Camera
-        toneSound = Instance.new("Sound")
-        toneSound.Name = "CyberPsychosisTone"
-        toneSound.SoundId = "rbxassetid://117921005109261"
-        toneSound.Volume = 1.6
-        toneSound.Looped = true
-        toneSound.PlaybackSpeed = 0.85
-        toneSound.Parent = parent
-        toneSound:Play()
-        Debris:AddItem(toneSound, DURATION + 2)
-
-        -- tonalidades diferentes ao longo dos 9s (grave → agudo → distorcido)
-        task.spawn(function()
-            local t0 = os.clock()
-            while toneSound and toneSound.Parent and (os.clock() - t0) < DURATION do
-                local p = math.clamp((os.clock() - t0) / DURATION, 0, 1)
-                -- curva: começa grave, sobe, oscila no meio, sobe no final
-                local base = 0.75 + p * 0.55
-                local wobble = math.sin(os.clock() * (2.2 + p * 4)) * (0.08 + p * 0.18)
-                local glitch = (math.random() < 0.12 + p * 0.2) and (math.random() * 0.35 - 0.1) or 0
-                toneSound.PlaybackSpeed = math.clamp(base + wobble + glitch, 0.55, 1.85)
-                task.wait(0.08)
-            end
-            if toneSound and toneSound.Parent then
-                TweenService:Create(toneSound, TweenInfo.new(0.4), {Volume = 0}):Play()
-            end
-        end)
-    end
-
-    -- coreografia das janelas (ORIGINAL, sincronizada com o áudio)
-    -- com Speech ligado, as janelas vêm das falas (veja "events" mais abaixo)
-    if not speechOn then task.spawn(function()
-        spawnPopup()
-        task.wait(0.30)
-    
-        spawnPopup()
-        task.wait(0.25)
-    
-        spawnPopup()
-        spawnPopup()
-        task.wait(0.25)
-    
-        spawnPopup()
-        task.wait(0.25)
-    
-        spawnPopup()
-        task.wait(0.20)
-    
-        for i = 1, 7 do
-            spawnPopup()
-            task.wait(0.06)
-        end
-        task.wait(0.30)
-    
-        for i = 1, 3 do
-            spawnPopup()
-            task.wait(0.15)
-        end
-        task.wait(0.30)
-    
-        spawnPopup()
-        spawnPopup()
-        task.wait(0.35)
-    
-        spawnPopup()
-        spawnPopup()
-        task.wait(0.40)
-    
-        for i = 1, 5 do
-            spawnPopup()
-            task.wait(0.08)
-        end
-        task.wait(0.35)
-    
-        for i = 1, 14 do
-            spawnPopup()
-            task.wait(0.04)
-        end
-    end) end
-
-    if Humanoid then Humanoid.WalkSpeed = 0 Humanoid.JumpPower = 0 end
-    if Lighting:FindFirstChild("SandiEffect") then Lighting.SandiEffect:Destroy() end
-    if Lighting:FindFirstChild("SandiEffect2") then Lighting.SandiEffect2:Destroy() end
-    local cc, blur = createLightingEffects()
-    local startTime = tick()
-    local connection
-
-    local RED = Color3.fromRGB(255, 25, 60)
-    local DARKRED = Color3.fromRGB(130, 0, 18)
-    local CYAN = Color3.fromRGB(0, 240, 255)
-    local MAGENTA = Color3.fromRGB(255, 0, 140)
-    local WHITE = Color3.new(1, 1, 1)
-    local TEAR_COLORS = {RED, CYAN, MAGENTA, WHITE}
-
-    local sg = Create("ScreenGui", {Name = "CyberPsychosisFX", IgnoreGuiInset = true, ResetOnSpawn = false, DisplayOrder = 900, Parent = Player.PlayerGui})
-    pcall(function() sg.ScreenInsets = Enum.ScreenInsets.None end)   -- tela cheia: ignora notch/bordas do celular
-
-    -- estado dos efeitos (declarado antes das funções que usam)
-    local hitKick, beatKick, rollKick = 0, 0, 0
-    local camRoll, fovDelta, fovApplied = 0, 0, 0
-
-    -- ---------- visão de túnel (bordas vermelhas que pulsam) ----------
-    local edges = {}
-    local function makeEdge(pos, size, rot, anchor)
-        local f = Create("Frame", {Position = pos, Size = size, AnchorPoint = anchor, BackgroundColor3 = DARKRED, BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 1, Parent = sg})
-        Create("UIGradient", {Rotation = rot, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)}), Parent = f})
-        table.insert(edges, f)
-    end
-    makeEdge(UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0.3, 0), 90, Vector2.new(0, 0))
-    makeEdge(UDim2.new(0, 0, 1, 0), UDim2.new(1, 0, 0.3, 0), -90, Vector2.new(0, 1))
-    makeEdge(UDim2.new(0, 0, 0, 0), UDim2.new(0.22, 0, 1, 0), 0, Vector2.new(0, 0))
-    makeEdge(UDim2.new(1, 0, 0, 0), UDim2.new(0.22, 0, 1, 0), 180, Vector2.new(1, 0))
-
-    -- ---------- scanlines ----------
-    for i = 1, 3 do
-        local sl = Create("Frame", {Size = UDim2.new(1, 0, 0, 2 + i), Position = UDim2.new(0, 0, -0.05, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 11, Parent = sg})
-        TweenService:Create(sl, TweenInfo.new(1.1 + i * 0.4, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), {Position = UDim2.new(0, 0, 1.05, 0)}):Play()
-    end
-
-    -- ---------- rasgos horizontais de glitch ----------
-    local bars, barIndex = {}, 0
-    for i = 1, 6 do
-        bars[i] = Create("Frame", {Size = UDim2.new(1, 0, 0, 10), BorderSizePixel = 0, Visible = false, ZIndex = 12, Parent = sg})
-    end
-    local function Tear(count)
-        if not FX.TearBars then return end
-        for _ = 1, count do
-            barIndex = barIndex % #bars + 1
-            local b = bars[barIndex]
-            b.Size = UDim2.new(1, 0, 0, math.random(3, 36))
-            b.Position = UDim2.new(0, math.random(-40, 40), math.random(), 0)
-            b.BackgroundColor3 = TEAR_COLORS[math.random(1, #TEAR_COLORS)]
-            b.BackgroundTransparency = math.random(45, 85) / 100
-            b.Visible = true
-            task.delay(math.random(3, 9) / 100, function() b.Visible = false end)
-        end
-    end
-
-    -- ---------- flash de tela ----------
-    local flash = Create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 20, Parent = sg})
-    local function Flash(color, trans, t)
-        flash.BackgroundColor3 = color
-        flash.BackgroundTransparency = trans
-        TweenService:Create(flash, TweenInfo.new(t or 0.15), {BackgroundTransparency = 1}):Play()
-    end
-
-    -- ---------- título com separação RGB ----------
-    local function mkTitle(color, z)
-        local l = Create("TextLabel", {Size = UDim2.new(1, 0, 0.2, 0), Position = UDim2.new(0, 0, 0.4, 0), BackgroundTransparency = 1, Text = "CYBERPSYCHOSIS", TextColor3 = color, Font = Enum.Font.SciFi, TextScaled = true, TextTransparency = 1, ZIndex = z, Parent = sg})
-        Create("UITextSizeConstraint", {MaxTextSize = 80, Parent = l})
-        return l
-    end
-    local titleC = mkTitle(CYAN, 13)
-    local titleM = mkTitle(MAGENTA, 13)
-    local titleMain = mkTitle(Color3.fromRGB(255, 0, 0), 14)
-
-    -- ---------- faixa de WARNING ----------
-    local banner = Create("Frame", {Size = UDim2.new(1, 0, 0, 34), Position = UDim2.new(0, 0, -0.1, 0), BackgroundColor3 = Color3.fromRGB(20, 0, 4), BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 15, Parent = sg})
-    Create("UIStroke", {Color = RED, Thickness = 2, Parent = banner})
-    local bannerText = Create("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "!! WARNING !!   NEURAL INTEGRITY CRITICAL   !! WARNING !!", TextColor3 = RED, Font = Enum.Font.Code, TextSize = 16, ZIndex = 16, Parent = banner})
-    TweenService:Create(banner, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0.1, 0)}):Play()
-
-    -- ---------- HUMANITY + terminal de falhas ----------
-    local humLabel = Create("TextLabel", {Size = UDim2.new(0.6, 0, 0, 26), Position = UDim2.new(0.02, 0, 0.2, 0), BackgroundTransparency = 1, Text = "HUMANITY 100%", TextColor3 = RED, Font = Enum.Font.SciFi, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 15, Parent = sg})
-    local terminal = Create("TextLabel", {Size = UDim2.new(0.6, 0, 0, 170), Position = UDim2.new(0.02, 0, 0.2, 30), BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(255, 90, 110), Font = Enum.Font.Code, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 15, Parent = sg})
-    local logLines = {}
-    local function Log(txt)
-        table.insert(logLines, txt)
-        if #logLines > 9 then table.remove(logLines, 1) end
-        terminal.Text = table.concat(logLines, "\n")
-    end
-    local logSchedule = {
-        {0.1, "> BIOMONITOR ........ ERROR"},
-        {0.7, "> SANDEVISTAN ....... 187% OVERCLOCK"},
-        {1.4, "> NEURAL LINK ....... UNSTABLE"},
-        {2.2, "> CHROME REJECTION .. 94%"},
-        {3.0, "> MOTOR CONTROL ..... LOST"},
-        {3.8, "> SAFETY LIMITERS ... OFFLINE"},
-        {4.6, "> HUMANITY .......... CRITICAL"},
-        {5.2, "> FLATLINE .......... IMMINENT"},
-    }
-    for _, e in ipairs(logSchedule) do
-        task.delay(e[1] * DURATION / 6, function() if sg.Parent then Log(e[2]) end end)
-    end
-
-    -- ---------- LEGENDA GLITCHADA SINCRONIZADA COM A FALA ----------
-    local subRoot = Create("Frame", {Size = UDim2.new(0.84, 0, 0, 84), Position = UDim2.new(0.08, 0, 0.78, 0), BackgroundTransparency = 1, Visible = false, ZIndex = 17, Parent = sg})
-    local subName = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = Enum.Font.Code, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 19, Parent = subRoot})
-    local function mkSub(color, z)
-        local l = Create("TextLabel", {Size = UDim2.new(1, 0, 1, -20), Position = UDim2.new(0, 0, 0, 20), BackgroundTransparency = 1, Text = "", TextColor3 = color, Font = Enum.Font.Code, TextScaled = true, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = z, Parent = subRoot})
-        Create("UITextSizeConstraint", {MaxTextSize = 26, MinTextSize = 10, Parent = l})
-        return l
-    end
-    local subC = mkSub(CYAN, 17)
-    local subM = mkSub(MAGENTA, 17)
-    local subMain = mkSub(WHITE, 18)
-    subC.TextTransparency = 0.35
-    subM.TextTransparency = 0.35
-    local subText, subHideAt = "", 0
-    local function ShowLine(line)
-        if S.Subtitles == false or not line.text then return end
-        local who = line.who and tostring(line.who):upper() or ""
-        subText = tostring(line.text)
-        subName.Text = who
-        subName.TextColor3 = SPEAKER_COLORS[who] or WHITE
-        subMain.Text, subC.Text, subM.Text = subText, subText, subText
-        subHideAt = tick() + (line.hold or 1.5)
-        subRoot.Visible = true
-    end
-
-    -- ---------- ícone da psicose (ORIGINAL) ----------
-    local psychoImage = Instance.new("ImageLabel")
-    psychoImage.Name = "PsychoImage"
-    psychoImage.Size = UDim2.new(0, 200, 0, 200)
-    psychoImage.BackgroundTransparency = 1
-    psychoImage.Image = "rbxassetid://138778899925146"
-    psychoImage.ImageTransparency = 1
-    psychoImage.ZIndex = 10
-    psychoImage.Position = UDim2.new(1.2, 0, 0, 10)
-    psychoImage.Parent = sg
-    TweenService:Create(psychoImage, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Position = UDim2.new(1, -220, 0, 10),
-        ImageTransparency = 0
-    }):Play()
-    task.spawn(function()
-        task.wait(0.5)
-        local piscaStart = tick()
-        while psychoImage.Parent and tick() - piscaStart < DURATION - 0.7 do
-            TweenService:Create(psychoImage, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                ImageTransparency = math.random(20, 55) / 100
-            }):Play()
-            task.wait(0.35)
-        end
-    end)
-    task.delay(DURATION - 0.6, function()
-        if psychoImage and psychoImage.Parent then
-            TweenService:Create(psychoImage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Position = UDim2.new(1.2, 0, 0, 10),
-                ImageTransparency = 1
-            }):Play()
-        end
-    end)
-
-    -- ---------- boneco completamente imóvel ----------
-    local frozenHRP
-    local frozenTracks = {}
-    local function FreezeBody()
-        if not FX.FreezeBody then return end
-        if HRP and HRP ~= frozenHRP then
-            if frozenHRP then frozenHRP.Anchored = false end
-            frozenHRP = HRP
-            HRP.AssemblyLinearVelocity = Vector3.zero
-            HRP.AssemblyAngularVelocity = Vector3.zero
-            HRP.Anchored = true
-        end
-        if Humanoid then
-            Humanoid.WalkSpeed = 0
-            Humanoid.JumpPower = 0
-            local animator = Humanoid:FindFirstChildOfClass("Animator")
-            if animator then
-                for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
-                    if FX.BodyAnim ~= false then
-                        frozenTracks[tr] = true
-                        tr:Stop(0)
-                    elseif tr.Speed ~= 0 then
-                        frozenTracks[tr] = true
-                        tr:AdjustSpeed(0)
-                    end
-                end
-            end
-        end
-    end
-    local function UnfreezeBody()
-        if frozenHRP then
-            pcall(function()
-                frozenHRP.Anchored = false
-                frozenHRP.AssemblyLinearVelocity = Vector3.zero
-                frozenHRP.AssemblyAngularVelocity = Vector3.zero
-            end)
-            frozenHRP = nil
-        end
-        for tr in pairs(frozenTracks) do
-            pcall(function()
-                if tr and tr.Parent then
-                    tr:AdjustSpeed(1)
-                    if FX.BodyAnim ~= false and tr.Looped and not tr.IsPlaying then
-                        tr:Play(0.15)
-                    end
-                end
-            end)
-        end
-        frozenTracks = {}
-        if Humanoid and Humanoid.Parent then
-            pcall(function()
-                Humanoid.PlatformStand = false
-                Humanoid.Sit = false
-                Humanoid.AutoRotate = true
-                local st = Humanoid:GetState()
-                if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.PlatformStanding then
-                    Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end)
-        end
-    end
-
-    local BA = {char = nil, J = {}, cur = {}, spasm = {}, out = {}, conns = {}, animate = nil, animateWas = nil, nextSpasm = 0, poseIdx = 1, nextPose = 0, seed = math.random() * 100}
-    local V3 = Vector3.new
-    local BA_MAP = {
-        waist = {"UpperTorso", "Torso"},
-        neck = {"Head"},
-        rs = {"RightUpperArm", "Right Arm"},
-        ls = {"LeftUpperArm", "Left Arm"},
-        re = {"RightLowerArm"},
-        le = {"LeftLowerArm"},
-        rw = {"RightHand"},
-        lw = {"LeftHand"},
-        rh = {"RightUpperLeg", "Right Leg"},
-        lh = {"LeftUpperLeg", "Left Leg"},
-        rk = {"RightLowerLeg"},
-        lk = {"LeftLowerLeg"},
-    }
-    local BA_KEYS = {"waist", "neck", "rs", "ls", "re", "le", "rw", "lw", "rh", "lh", "rk", "lk"}
-    local BA_SHAKE = {waist = 2, neck = 4, rs = 3, ls = 3, re = 4, le = 4, rw = 9, lw = 9, rh = 2, lh = 2, rk = 3, lk = 3}
-    local BA_SPASM = {waist = 12, neck = 30, rs = 26, ls = 26, re = 22, le = 22, rw = 32, lw = 32, rh = 11, lh = 11, rk = 13, lk = 13}
-    local BA_POSES = {
-        {waist = V3(-24, 0, 0), neck = V3(-16, 0, 0), rs = V3(125, 0, 14), ls = V3(125, 0, -14), re = V3(115, 0, 0), le = V3(115, 0, 0),
-         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(14, 0, 5), lh = V3(14, 0, -5), rk = V3(-28, 0, 0), lk = V3(-28, 0, 0)},
-        {waist = V3(14, 0, 0), neck = V3(38, 0, 0), rs = V3(25, 0, 100), ls = V3(25, 0, -100), re = V3(30, 0, 0), le = V3(30, 0, 0),
-         rw = V3(0, 0, 25), lw = V3(0, 0, -25), rh = V3(6, 0, 10), lh = V3(6, 0, -10), rk = V3(-12, 0, 0), lk = V3(-12, 0, 0)},
-        {waist = V3(-10, 25, 0), neck = V3(-5, -30, 8), rs = V3(135, 0, 10), ls = V3(10, 0, -70), re = V3(120, 0, 0), le = V3(40, 0, 0),
-         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(10, 0, 4), lh = V3(-8, 0, -4), rk = V3(-20, 0, 0), lk = V3(-10, 0, 0)},
-        {waist = V3(-34, -18, 6), neck = V3(10, 28, -12), rs = V3(60, 0, 40), ls = V3(150, 0, -8), re = V3(90, 0, 0), le = V3(100, 0, 0),
-         rw = V3(0, 0, 0), lw = V3(0, 0, 0), rh = V3(20, 0, 6), lh = V3(4, 0, -6), rk = V3(-34, 0, 0), lk = V3(-16, 0, 0)},
-    }
-    for _, pose in ipairs(BA_POSES) do
-        for _, key in ipairs(BA_KEYS) do pose[key] = pose[key] or V3(0, 0, 0) end
-    end
-
-
-    -- ============================================================
-    -- ANIMAÇÃO DO DAVID: timeline de poses sincronizada com a fala (ângulos em graus)
-    -- t = segundos desde o início da fala | fast = entra com snap (ease-out)
-    -- ============================================================
-    local function TP(t) for _, k in ipairs(BA_KEYS) do t[k] = t[k] or V3(0, 0, 0) end return t end
-    local BA_TL = {
-        -- agachado, cabeça baixa, respirando fundo
-        {t = 0.00, p = TP{waist = V3(22,0,0), neck = V3(28,0,0), rs = V3(8,0,12), ls = V3(8,0,-12), re = V3(25,0,0), le = V3(25,0,0), rh = V3(-6,0,6), lh = V3(-6,0,-6), rk = V3(-18,0,0), lk = V3(-18,0,0)}},
-        -- "I'm gonna rip out his spine!" -> prepara o braço
-        {t = 0.55, p = TP{waist = V3(-14,28,0), neck = V3(-10,-20,0), rs = V3(-35,0,25), ls = V3(70,0,-30), re = V3(100,0,0), le = V3(60,0,0), rh = V3(12,0,4), lh = V3(-10,0,-4), rk = V3(-30,0,0), lk = V3(-10,0,0)}},
-        -- "spine!" -> bote com a mão em garra
-        {t = 1.20, fast = true, p = TP{waist = V3(32,-30,0), neck = V3(12,15,0), rs = V3(105,0,8), ls = V3(-25,0,-20), re = V3(8,0,0), le = V3(70,0,0), rw = V3(0,0,-35), rh = V3(-24,0,4), lh = V3(22,0,-4), rk = V3(-8,0,0), lk = V3(-40,0,0)}},
-        -- "I'll kill him!" -> grito, cabeça pra trás, braços abertos
-        {t = 2.20, fast = true, p = TP{waist = V3(-26,0,0), neck = V3(-32,0,0), rs = V3(25,0,85), ls = V3(25,0,-85), re = V3(35,0,0), le = V3(35,0,0), rw = V3(0,0,30), lw = V3(0,0,-30), rh = V3(8,0,10), lh = V3(8,0,-10), rk = V3(-18,0,0), lk = V3(-18,0,0)}},
-        -- cambaleia pra frente
-        {t = 3.00, p = TP{waist = V3(30,-12,6), neck = V3(34,10,-10), rs = V3(40,0,30), ls = V3(40,0,-30), re = V3(60,0,0), le = V3(60,0,0), rh = V3(10,0,5), lh = V3(-8,0,-5), rk = V3(-20,0,0), lk = V3(-10,0,0)}},
-        -- "I'll kill him." -> baixo, tremendo, punhos no peito
-        {t = 3.70, p = TP{waist = V3(24,0,0), neck = V3(36,0,0), rs = V3(18,0,8), ls = V3(18,0,-8), re = V3(105,0,0), le = V3(105,0,0), rh = V3(6,0,5), lh = V3(6,0,-5), rk = V3(-22,0,0), lk = V3(-22,0,0)}},
-        -- "You're dead." -> cabeça levanta e aponta
-        {t = 5.15, p = TP{waist = V3(-8,10,0), neck = V3(-18,-14,10), rs = V3(92,0,6), ls = V3(8,0,-14), le = V3(30,0,0), rh = V3(8,0,4), lh = V3(-6,0,-4), rk = V3(-14,0,0), lk = V3(-6,0,0)}},
-        -- "Dead." -> dedo cravado
-        {t = 6.40, fast = true, p = TP{waist = V3(18,12,0), neck = V3(8,10,0), rs = V3(110,0,4), ls = V3(-30,0,-20), le = V3(60,0,0), rh = V3(-20,0,4), lh = V3(16,0,-4), rk = V3(-6,0,0), lk = V3(-30,0,0)}},
-        -- "Dead." final -> braços pro alto, convulsão
-        {t = 7.40, fast = true, p = TP{waist = V3(-30,0,0), neck = V3(-38,0,0), rs = V3(150,0,35), ls = V3(150,0,-35), re = V3(20,0,0), le = V3(20,0,0), rw = V3(0,0,30), lw = V3(0,0,-30), rh = V3(10,0,12), lh = V3(10,0,-12), rk = V3(-30,0,0), lk = V3(-30,0,0)}},
-        -- desaba no fim
-        {t = 8.60, p = TP{waist = V3(32,0,0), neck = V3(40,0,0), rs = V3(6,0,10), ls = V3(6,0,-10), re = V3(20,0,0), le = V3(20,0,0), rh = V3(-4,0,5), lh = V3(-4,0,-5), rk = V3(-24,0,0), lk = V3(-24,0,0)}},
-    }
-    local function BA_TLPose(t)
-        local n = #BA_TL
-        if t <= BA_TL[1].t then return BA_TL[1].p end
-        if t >= BA_TL[n].t then return BA_TL[n].p end
-        for i = 1, n - 1 do
-            local a, b = BA_TL[i], BA_TL[i + 1]
-            if t >= a.t and t < b.t then
-                local x = (t - a.t) / (b.t - a.t)
-                x = b.fast and (1 - (1 - x) ^ 3) or x * x * (3 - 2 * x)
-                local out = {}
-                for _, k in ipairs(BA_KEYS) do out[k] = a.p[k]:Lerp(b.p[k], x) end
-                return out
-            end
-        end
-        return BA_TL[n].p
-    end
-
-    local function BodyAnimApply()
-        for key, T in pairs(BA.out) do
-            local m = BA.J[key]
-            if m and m.Parent then m.Transform = T end
-        end
-    end
-
-    local function BA_Find(char)
-        BA.char = char
-        BA.J = {}
-        BA.cur = {}
-        BA.spasm = {}
-        BA.out = {}
-        local an = char:FindFirstChild("Animate")
-        if an and an:IsA("LocalScript") then
-            BA.animate = an
-            if BA.animateWas == nil then BA.animateWas = an.Enabled end
-            an.Enabled = false
-        end
-        if #BA.conns == 0 then
-            table.insert(BA.conns, RunService.Stepped:Connect(BodyAnimApply))
-            table.insert(BA.conns, RunService.Heartbeat:Connect(BodyAnimApply))
-            table.insert(BA.conns, RunService.PreSimulation:Connect(BodyAnimApply))
-        end
-        for _, d in ipairs(char:GetDescendants()) do
-            if (d:IsA("Motor6D") or d:IsA("AnimationConstraint")) and d.Part0 and d.Part1 then
-                for key, names in pairs(BA_MAP) do
-                    if not BA.J[key] then
-                        for _, n in ipairs(names) do
-                            if d.Part1.Name == n then BA.J[key] = d end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    local function BodyAnimKick(power)
-        for _, key in ipairs(BA_KEYS) do
-            if math.random() < 0.75 then
-                BA.spasm[key] = V3(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * BA_SPASM[key] * (power or 1)
-            end
-        end
-        BA.nextPose = 0
-    end
-
-    local function BodyAnimRelease()
-        for _, c in ipairs(BA.conns) do pcall(function() c:Disconnect() end) end
-        BA.conns = {}
-        BA.out = {}
-        for _, m in pairs(BA.J) do
-            pcall(function()
-                if m and m.Parent then m.Transform = CFrame.new() end
-            end)
-        end
-        local animateScript = BA.animate
-        local wasEnabled = BA.animateWas
-        BA.animate, BA.animateWas = nil, nil
-        BA.J, BA.cur, BA.spasm, BA.char = {}, {}, {}, nil
-        if animateScript and animateScript.Parent then
-            pcall(function()
-                animateScript.Enabled = false
-                task.defer(function()
-                    if animateScript and animateScript.Parent then
-                        animateScript.Enabled = (wasEnabled ~= false)
-                    end
-                end)
-            end)
-        else
-            local char = Player.Character
-            if char then
-                local an = char:FindFirstChild("Animate")
-                if an and an:IsA("LocalScript") then
-                    pcall(function()
-                        an.Enabled = false
-                        task.defer(function()
-                            if an and an.Parent then an.Enabled = true end
-                        end)
-                    end)
-                end
-            end
-        end
-    end
-
-    local function BodyAnimStep(dt, elapsed, k, phase)
-        if FX.BodyAnim == false then return end
-        local char = Player.Character
-        if not char then return end
-        if BA.char ~= char or not BA.J.waist or not BA.J.waist.Parent then BA_Find(char) end
-        local tl = FX.BodyTimeline ~= false and speechOn
-        local I = (FX.BodyAnimIntensity or 1) * (0.7 + 0.45 * phase) * (tl and 0.6 or 1)
-        local t = elapsed
-
-        if not tl and t >= BA.nextPose then
-            local n
-            repeat n = math.random(1, #BA_POSES) until n ~= BA.poseIdx
-            BA.poseIdx = n
-            BA.nextPose = t + (0.45 + math.random() * 0.9) / (0.6 + 0.4 * phase)
-        end
-        if t >= BA.nextSpasm then
-            local count = math.random(1, 3 + phase)
-            for _ = 1, count do
-                local key = BA_KEYS[math.random(1, #BA_KEYS)]
-                BA.spasm[key] = V3(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1) * BA_SPASM[key] * I * (0.5 + math.random() * 0.8)
-            end
-            BA.nextSpasm = t + (0.05 + math.random() * 0.22) / (0.7 + 0.4 * phase)
-        end
-
-        local pose = BA_POSES[BA.poseIdx]
-        local blend = math.min(1, dt * (7 + 4 * phase))
-        if tl then pose = BA_TLPose(t - (S.Offset or 0)); blend = math.min(1, dt * 28) end
-        local decay = math.exp(-dt * 14)
-        local w = math.min(1, t * 3) * k
-        local freq = 9 + 6 * phase
-
-        for i, key in ipairs(BA_KEYS) do
-            local m = BA.J[key]
-            if m and m.Parent and m.Part0 and m.Part1 then
-                BA.cur[key] = (BA.cur[key] or pose[key]):Lerp(pose[key], blend)
-                local sp = BA.spasm[key]
-                if sp then
-                    sp = sp * decay
-                    BA.spasm[key] = sp
-                end
-                local sa = BA_SHAKE[key] * I
-                local nx = math.noise(t * freq + BA.seed + i * 7.3, i * 1.7, 0) * 2
-                local ny = math.noise(t * freq + BA.seed + i * 3.1, i * 2.9, 5.5) * 2
-                local nz = math.noise(t * freq + BA.seed + i * 5.7, i * 4.3, 9.1) * 2
-                local a = BA.cur[key] * w * I ^ 0.35 + V3(nx, ny, nz) * sa * w + (sp or V3(0, 0, 0)) * w
-                local c0 = m.C0 - m.C0.Position
-                local T = c0:Inverse() * CFrame.Angles(math.rad(a.X), math.rad(a.Y), math.rad(a.Z)) * c0
-                BA.out[key] = T
-                m.Transform = T
-            end
-        end
-    end
-
-    -- ============================================================
-    -- GLITCH EM VIEWPORTFRAME  (+ PHASESHIFT POR PEÇA: corpo e acessórios)
-    -- O boneco (parado) é clonado para dentro de ViewportFrames que usam a MESMA
-    -- câmera do jogo => alinhados 1:1 com o corpo real. Em cima dele:
-    --   * 2 camadas de tela cheia (ciano/roxa) com deslocamento em PIXELS (RGB split)
-    --   * fatias horizontais do corpo que saltam de lado (o "datamosh" do glitch)
-    -- ============================================================
-    local GLITCH = FX.ViewportGlitch and FX.FreezeBody
-    local SPLIT_CYAN = Color3.fromRGB(0, 240, 255)
-    local SPLIT_PURPLE = Color3.fromRGB(160, 50, 255)
-    local SLICE_TINTS = {WHITE, WHITE, CYAN, MAGENTA, RED}
-    local VP_JUNK = {"Script", "LocalScript", "ModuleScript", "Sound", "ParticleEmitter", "Trail", "Beam", "Highlight", "BillboardGui", "ForceField", "Fire", "Smoke", "Sparkles", "PointLight", "SpotLight", "SurfaceLight", "BodyMover", "VectorForce", "Animator", "JointInstance", "Constraint"}
-    local PART_TINTS = {CYAN, MAGENTA, RED, WHITE}
-    local PART_KINDS = {"jump", "jump", "rot", "blink", "tint"}
-
-    local vpRoot = Create("Frame", {Name = "GlitchLayer", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 5, Parent = sg})
-    local layers, slices, glitchQueue = {}, {}, {}
-
-    -- ---------- PHASESHIFT POR PEÇA ----------
-    -- Cada peça do boneco (e cada acessório inteiro) vira um "grupo". O clone no
-    -- ViewportFrame é pareado com o boneco real pelo caminho (igual ao PhaseGhost do
-    -- SANDEVISTAN) e segue ele todo frame. Quando um grupo glitcha, só a cópia dele
-    -- sai do lugar / gira / pisca / vira neon, e a peça real some por um instante.
-    local groupList, groupOf, srcMap, srcGroup, prevLTM = {}, {}, nil, {}, {}
-
-    local function KeyedParts(root)
-        local map, used = {}, {}
-        for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("BasePart") then
-                local names, o = {}, d
-                while o and o ~= root do
-                    table.insert(names, 1, o.Name)
-                    o = o.Parent
-                end
-                local key = table.concat(names, "/")
-                used[key] = (used[key] or 0) + 1
-                if used[key] > 1 then key = key .. "#" .. used[key] end
-                map[key] = d
-            end
-        end
-        return map
-    end
-
-    local function EnsureSource()
-        if srcMap then return srcMap end
-        local char = Player.Character
-        if not char then return nil end
-        srcMap = KeyedParts(char)
-        for _, op in pairs(srcMap) do
-            if op.Name ~= "HumanoidRootPart" and op.Transparency < 0.99 then
-                local acc = op:FindFirstAncestorOfClass("Accessory")
-                local keyObj = (acc and acc:IsDescendantOf(char)) and acc or op
-                local g = groupOf[keyObj]
-                if not g then
-                    g = {parts = {}, active = false, life = 0, jit = 0, power = 1, kind = "jump",
-                         off = Vector3.zero, world = Vector3.zero, rot = CFrame.new(),
-                         show = false, hidden = false, hideOrig = false, tint = nil}
-                    groupOf[keyObj] = g
-                    table.insert(groupList, g)
-                end
-                table.insert(g.parts, op)
-                srcGroup[op] = g
-            end
-        end
-        return srcMap
-    end
-
-    local function RandSign() return math.random() < 0.5 and -1 or 1 end
-
-    -- esconde/mostra a peça REAL (só no seu cliente)
-    local function SetHidden(g, on)
-        if g.hidden == on then return end
-        g.hidden = on
-        for _, op in ipairs(g.parts) do
-            if op.Parent then
-                if on then
-                    if prevLTM[op] == nil then prevLTM[op] = op.LocalTransparencyModifier end
-                    op.LocalTransparencyModifier = 1
-                else
-                    op.LocalTransparencyModifier = prevLTM[op] or 0
-                end
-            end
-        end
-    end
-
-    -- sorteia o deslocamento da peça (em espaço da câmera: x = direita, y = cima)
-    local function RollGroup(g)
-        local s = (FX.GlitchIntensity or 1) * g.power
-        local kind = g.kind
-        g.off = Vector3.zero
-        g.rot = CFrame.new()
-        if kind == "jump" then
-            g.off = Vector3.new(RandSign() * (0.4 + math.random() * 1.4), (math.random() - 0.5) * 0.9, 0) * s
-            g.show = true
-        elseif kind == "rot" then
-            g.off = Vector3.new((math.random() - 0.5) * 1.2, (math.random() - 0.5) * 0.6, 0) * s
-            g.rot = CFrame.Angles(
-                math.rad((math.random() - 0.5) * 50 * s),
-                math.rad((math.random() - 0.5) * 80 * s),
-                math.rad((math.random() - 0.5) * 90 * s))
-            g.show = true
-        elseif kind == "blink" then
-            g.show = not g.show                      -- a cópia pisca ligando/desligando
-            g.off = Vector3.new(RandSign() * math.random() * 0.3 * s, 0, 0)
-        else
-            g.show = true                            -- "tint": overlay neon sem deslocar
-        end
-        g.tint = nil
-        if FX.PartTint ~= false and (kind == "tint" or math.random() < 0.3) then
-            g.tint = PART_TINTS[math.random(1, #PART_TINTS)]
-        end
-    end
-
-    local function StartGroup(g, power)
-        local kind = PART_KINDS[math.random(1, #PART_KINDS)]
-        if kind == "tint" and FX.PartTint == false then kind = "jump" end
-        g.kind = kind
-        g.power = power
-        g.life = (0.05 + math.random() * 0.12) * (power > 1 and 1.3 or 1)
-        g.jit = 0.03
-        g.show = true
-        g.active = true
-        g.hideOrig = kind ~= "tint" and FX.HideOriginal ~= false and math.random() > 0.3
-        SetHidden(g, g.hideOrig)
-        RollGroup(g)
-    end
-
-    local function EndGroup(g)
-        g.active = false
-        g.show = false
-        g.tint = nil
-        g.off = Vector3.zero
-        g.world = Vector3.zero
-        g.rot = CFrame.new()
-        SetHidden(g, false)
-    end
-
-    local function GlitchCF(cf, g)
-        return CFrame.new(cf.Position + g.world) * g.rot * cf.Rotation
-    end
-
-    -- lista {ghostPart, originalPart} -> pares com o estado de cada peça do clone
-    local function MakePairs(list, main)
-        local out = {}
-        for _, e in ipairs(list) do
-            local gp = e.gp
-            table.insert(out, {gp = gp, op = e.op, g = srcGroup[e.op], t = gp.Transparency, color = gp.Color, mat = gp.Material, vis = not main, tinted = false, cf = nil})
-            if main then gp.Transparency = 1 end   -- a camada principal só mostra peças em glitch
-        end
-        return out
-    end
-
-    -- copia a pose do boneco real pro clone (+ deslocamento do glitch)
-    local function SyncLayer(L)
-        local main = L.main
-        for _, pr in ipairs(L.pairs) do
-            local gp, op, g = pr.gp, pr.op, pr.g
-            if gp.Parent and op.Parent then
-                local active = g ~= nil and g.active
-                local cf = op.CFrame
-                if active then cf = GlitchCF(cf, g) end
-                if main then
-                    local show = active and g.show
-                    local want = (show and g.tint) or false
-                    if want ~= pr.tinted then
-                        if want then
-                            gp.Color = want
-                            gp.Material = Enum.Material.Neon
-                        else
-                            gp.Color = pr.color
-                            gp.Material = pr.mat
-                        end
-                        pr.tinted = want
-                    end
-                    if show then
-                        if pr.cf ~= cf then gp.CFrame = cf pr.cf = cf end
-                        if not pr.vis then gp.Transparency = pr.t pr.vis = true end
-                    elseif pr.vis then
-                        gp.Transparency = 1
-                        pr.vis = false
-                    end
-                elseif pr.cf ~= cf then
-                    gp.CFrame = cf
-                    pr.cf = cf
-                end
-            end
-        end
-    end
-
-    -- clone EXATO do boneco (cores, roupas, acessórios) para dentro de um ViewportFrame
-    local function CloneForViewport()
-        local char = Player.Character
-        if not char or not char.Parent then return nil end
-        local ghost
-        local prevArch = char.Archivable
-        pcall(function()
-            char.Archivable = true
-            ghost = char:Clone()
-        end)
-        pcall(function() char.Archivable = prevArch end)
-        if not ghost then return nil end
-
-        for _, obj in ipairs(ghost:GetDescendants()) do
-            local junk = false
-            for _, cls in ipairs(VP_JUNK) do
-                if obj:IsA(cls) then junk = true break end
-            end
-            if junk then
-                pcall(function() obj:Destroy() end)
-            elseif obj:IsA("BasePart") then
-                obj.Anchored = true
-                obj.CanCollide = false
-                obj.CanQuery = false
-                obj.CanTouch = false
-                obj.CastShadow = false
-            end
-        end
-        local hum = ghost:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function()
-                hum.PlatformStand = true
-                hum.AutoRotate = false
-                hum.RequiresNeck = false
-                hum.BreakJointsOnDeath = false
-                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-                hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-            end)
-        end
-        ghost.Name = "PsychoGlitchBody"
-
-        -- pareia cada peça do clone com a peça real (mesmo caminho/nome)
-        local list = {}
-        local map = EnsureSource()
-        if map then
-            for key, gp in pairs(KeyedParts(ghost)) do
-                local op = map[key]
-                if op then table.insert(list, {gp = gp, op = op}) end
-            end
-        end
-        return ghost, list
-    end
-
-    local function MakeViewport(parent, tint, imgTransparency)
-        return Create("ViewportFrame", {
-            Size = UDim2.new(1, 0, 1, 0),
-            BackgroundTransparency = 1,
-            Ambient = Color3.fromRGB(200, 200, 200),   -- padrão do ViewportFrame (cores fiéis)
-            LightColor = Color3.fromRGB(140, 140, 140),
-            ImageColor3 = tint,
-            ImageTransparency = imgTransparency,
-            CurrentCamera = Workspace.CurrentCamera,
-            Parent = parent,
-        })
-    end
-
-    if GLITCH then
-        -- fila: 1 clone por frame (clonar tudo de uma vez trava o celular)
-        pcall(EnsureSource)
-        -- camada principal: cores reais, só mostra as peças que estão em glitch
-        if FX.PartGlitch ~= false then
-            table.insert(glitchQueue, function()
-                local body, list = CloneForViewport()
-                if not body then return end
-                local vpf = MakeViewport(vpRoot, WHITE, 0)
-                vpf.ZIndex = 2
-                body.Parent = vpf
-                table.insert(layers, {vpf = vpf, main = true, pairs = MakePairs(list, true)})
-            end)
-        end
-        if FX.ColorSplit then
-            for _, def in ipairs({{SPLIT_CYAN, -1}, {SPLIT_PURPLE, 1}}) do
-                table.insert(glitchQueue, function()
-                    local body, list = CloneForViewport()
-                    if not body then return end
-                    local vpf = MakeViewport(vpRoot, def[1], 0.45)
-                    vpf.ZIndex = 1
-                    body.Parent = vpf
-                    table.insert(layers, {vpf = vpf, main = false, side = def[2], base = 0.45, pairs = MakePairs(list, false)})
-                end)
-            end
-        end
-        for _ = 1, (FX.GlitchSlices or 0) do
-            table.insert(glitchQueue, function()
-                local body = CloneForViewport()
-                if not body then return end
-                -- moldura que recorta a fatia + viewport de tela cheia lá dentro (deslocado p/ cima)
-                local clip = Create("Frame", {BackgroundTransparency = 1, ClipsDescendants = true, Size = UDim2.new(1, 0, 0, 20), Visible = false, ZIndex = 3, Parent = vpRoot})
-                local vpf = MakeViewport(clip, WHITE, 0)
-                vpf.Size = UDim2.new(1, 0, 0, math.max(1, sg.AbsoluteSize.Y))
-                body.Parent = vpf
-                table.insert(slices, {clip = clip, vpf = vpf, life = 0, jit = 0, y = 0, dx = 0})
-            end)
-        end
-    end
-
-    -- faixa vertical (em pixels) que o boneco ocupa na tela
-    local function BodyScreenRange()
-        local cam = Workspace.CurrentCamera
-        local root = frozenHRP or HRP
-        if not cam or not root then return nil end
-        local a = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 3.2, 0))
-        local b = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3.2, 0))
-        return math.min(a.Y, b.Y), math.max(a.Y, b.Y)
-    end
-
-    -- dispara uma fatia: um pedaço horizontal do corpo salta de lado por alguns frames
-    local function ActivateSlice(sl, power)
-        local top, bot = BodyScreenRange()
-        if not top then return end
-        local bodyH = math.max(40, bot - top)
-        local h = math.max(4, math.floor(bodyH * (0.04 + math.random() * 0.16)))
-        local y = math.floor(top + math.random() * math.max(1, bodyH - h))
-        local maxDx = (30 + bodyH * 0.35) * (FX.GlitchIntensity or 1) * power
-        sl.y = y
-        sl.dx = (math.random() < 0.5 and -1 or 1) * (0.25 + math.random() * 0.75) * maxDx
-        sl.life = 0.05 + math.random() * 0.08
-        sl.jit = 0
-        sl.clip.Size = UDim2.new(1, 0, 0, h)
-        sl.clip.Position = UDim2.new(0, sl.dx, 0, y)
-        sl.vpf.Position = UDim2.new(0, 0, 0, -y)
-        sl.vpf.ImageColor3 = SLICE_TINTS[math.random(1, #SLICE_TINTS)]
-        sl.clip.Visible = true
-    end
-
-    local function UpdateGlitch(dt, phase, fadeProgress)
-        if not GLITCH then return end
-        local k = 1 - fadeProgress
-        do
-            local __o = (getgenv and getgenv()) or _G
-            vpRoot.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(frozenHRP or HRP)))
-        end
-
-        local make = table.remove(glitchQueue, 1)
-        if make then pcall(make) end
-
-        -- glitch por peça: sorteia/atualiza cada grupo e copia a pose do boneco pros clones
-        if FX.PartGlitch ~= false then
-            local cam = Workspace.CurrentCamera
-            local camCF = cam and cam.CFrame or CFrame.new()
-            local chance = ({0.003, 0.009, 0.022})[phase] * k * (FX.PartGlitchRate or 1)
-            for _, g in ipairs(groupList) do
-                if g.active then
-                    g.life -= dt
-                    g.jit -= dt
-                    if g.jit <= 0 then
-                        g.jit = 0.03
-                        RollGroup(g)
-                    end
-                    if g.life <= 0 or fadeProgress >= 1 then EndGroup(g) end
-                elseif math.random() < chance then
-                    StartGroup(g, 1)
-                end
-                if g.active then
-                    g.world = camCF:VectorToWorldSpace(g.off * k)
-                    if g.hidden then   -- reafirma (o script de câmera do jogo pode mexer no LTM)
-                        for _, op in ipairs(g.parts) do
-                            if op.Parent then op.LocalTransparencyModifier = 1 end
-                        end
-                    end
-                end
-            end
-            for _, L in ipairs(layers) do SyncLayer(L) end
-        end
-
-        -- RGB split: base em pixels + estouro nas batidas + micro-estouros aleatórios
-        local px = FX.SplitPixels + hitKick * 14 * (FX.GlitchIntensity or 1)
-        if math.random() < ({0.03, 0.08, 0.16})[phase] then px += math.random(3, 10) end
-        px = math.floor(px * k + 0.5)
-        for _, L in ipairs(layers) do
-            if not L.main then
-                L.vpf.Position = UDim2.new(0, px * L.side, 0, 0)
-                L.vpf.ImageTransparency = 1 - (1 - L.base) * k
-            end
-        end
-
-        -- fatias deslocadas (gaguejam o deslocamento enquanto vivas)
-        local chance = ({0.01, 0.025, 0.05})[phase] * k
-        for _, sl in ipairs(slices) do
-            if sl.clip.Visible then
-                sl.life -= dt
-                sl.jit -= dt
-                if sl.jit <= 0 then
-                    sl.jit = 0.03
-                    sl.dx = sl.dx * (0.6 + math.random() * 0.8)
-                    sl.clip.Position = UDim2.new(0, sl.dx, 0, sl.y)
-                end
-                if sl.life <= 0 or fadeProgress >= 1 then sl.clip.Visible = false end
-            elseif math.random() < chance then
-                ActivateSlice(sl, 1)
-            end
-        end
-    end
-
-    -- ---------- câmera: inclinação + zoom (somados, sem brigar com os outros FOV do script) ----------
-    local CAM_NAME = "CyberPsychosisCam"
-    if FX.Camera then
-        RunService:BindToRenderStep(CAM_NAME, Enum.RenderPriority.Camera.Value + 1, function()
-            local cam = Workspace.CurrentCamera
-            if not cam then return end
-            if camRoll ~= 0 then cam.CFrame = cam.CFrame * CFrame.Angles(0, 0, math.rad(camRoll)) end
-            cam.FieldOfView = cam.FieldOfView + (fovDelta - fovApplied)
-            fovApplied = fovDelta
-        end)
-    end
-
-    local function Cleanup()
-        if connection then connection:Disconnect() connection = nil end
-        if FX.Camera then
-            pcall(function() RunService:UnbindFromRenderStep(CAM_NAME) end)
-            local cam = Workspace.CurrentCamera
-            if cam then cam.FieldOfView = cam.FieldOfView - fovApplied end
-            fovApplied = 0
-        end
-        if hbSound then hbSound:Destroy() end
-        if speechSound then speechSound:Destroy() end
-        if toneSound then
-            pcall(function()
-                toneSound:Stop()
-                toneSound:Destroy()
-            end)
-            toneSound = nil
-        end
-        for _, g in ipairs(groupList) do pcall(SetHidden, g, false) end   -- devolve as peças reais
-        if Module.ActiveCleanup == Cleanup then Module.ActiveCleanup = nil end
-        BodyAnimRelease()
-        UnfreezeBody()
-        if sg then sg:Destroy() end
-    end
-
-    -- ---------- batidas sincronizadas com o áudio (ORIGINAL: syncTimesDistortion) ----------
-    Module.ActiveCleanup = Cleanup
-    local syncHits = speechOn and {} or {0.3, 1.4, 2.7, 3.55, 4.05, 4.55, 5.1}
-    local hitIndex = 1
-    local function Hit(power)
-        power = math.clamp(power or 1, 0.4, 2)
-        hitKick = power
-        BodyAnimKick(power)
-        rollKick = (math.random() < 0.5 and -1 or 1) * (3 + math.random() * 3) * power
-        Flash(RED, math.clamp(0.5 - (power - 1) * 0.3, 0.1, 0.85), 0.18)
-        Tear(math.random(3, 5) + math.floor(math.max(0, power - 1) * 4))
-        for _, sl in ipairs(slices) do ActivateSlice(sl, 1.4 * power) end
-        if GLITCH and FX.PartGlitch ~= false then
-            for _, g in ipairs(groupList) do
-                if math.random() < math.min(0.95, 0.65 * power) then StartGroup(g, 1.6 * power) end
-            end
-        end
-    end
-
-    -- eventos da fala: cada linha (e cada Hit extra) vira um estouro no tempo certo
-    local events = {}
-    if speechOn then
-        local off = S.Offset or 0
-        for _, l in ipairs(S.Lines) do
-            -- chance: se a linha tem .chance, usa o mesmo roll de playFuckingDead (10%)
-            local ok = true
-            if l.chance ~= nil then
-                ok = playFuckingDead
-            end
-            if ok then
-                table.insert(events, {t = (l.t or 0) + off, line = l, hit = l.hit ~= false, power = l.power or 1, windows = l.windows or 3, final = l.final})
-            end
-        end
-        for _, h in ipairs(S.Hits or {}) do
-            local ok = true
-            if h.chance ~= nil then
-                ok = playFuckingDead
-            end
-            if ok then
-                table.insert(events, {t = (h.t or 0) + off, hit = true, power = h.power or 1, windows = h.windows or 0, final = h.final})
-            end
-        end
-        table.sort(events, function(a, b) return a.t < b.t end)
-    end
-    local eventIndex = 1
-
-    local BPM = {90, 125, 170}
-    local nextBeat, nextDub = 0, nil
-
-    FreezeBody()
-
-    connection = RunService.RenderStepped:Connect(function(dt)
-        FreezeBody()   -- mantém tudo parado (pega animação nova que o jogo tentar tocar)
-        local elapsed = tick() - startTime
-        local fadeStart = DURATION - 1.0  -- 1s de desligamento suave (não corta seco)
-        local fadeProgress = elapsed > fadeStart and math.clamp((elapsed - fadeStart) / 1.0, 0, 1) or 0
-        local k = 1 - fadeProgress
-        local phase = elapsed < phaseDuration and 1 or (elapsed < phaseDuration * 2 and 2 or 3)
-        local okBA, errBA = pcall(BodyAnimStep, dt, elapsed, k, phase)
-        if not okBA then warn(errBA) end
-
-        -- fade-out final (ORIGINAL)
-        if fadeProgress > 0 and cc then
-            cc.TintColor = Color3.fromRGB(255, 80, 80):Lerp(WHITE, fadeProgress)
-            cc.Saturation = 1.3 * k
-            cc.Contrast = 0.6 * k
-        end
-
-        -- fim (ORIGINAL)
-        if elapsed > DURATION then
-            if Humanoid and Humanoid.Parent then
-                pcall(function()
-                    Humanoid.WalkSpeed = Constants.BASE_WALKSPEED or 16
-                    Humanoid.JumpPower = 50
-                    if Humanoid.UseJumpPower == false then
-                        Humanoid.JumpHeight = 7.2
-                    end
-                    Humanoid.PlatformStand = false
-                    Humanoid.Sit = false
-                    Humanoid.AutoRotate = true
-                    Humanoid.CameraOffset = Vector3.zero
-                    local st = Humanoid:GetState()
-                    if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.PlatformStanding or st == Enum.HumanoidStateType.Seated then
-                        Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                    end
-                end)
-            end
-            TweenService:Create(cc, TweenInfo.new(0.5), {TintColor = WHITE, Saturation = 0}):Play()
-            TweenService:Create(blur, TweenInfo.new(0.5), {Size = 0}):Play()
-            Debris:AddItem(cc, 0.5)
-            Debris:AddItem(blur, 0.5)
-            Cleanup()
-            if math.random(1, 100) <= 30 then
-                task.delay(0.5, function() SystemRestorePopup() end)
-            end
-            return
-        end
-
-        -- mecânica por fase (ORIGINAL)
-        if Humanoid and Humanoid.Health > 0 then
-            local drainRate = 0
-            if phase == 1 then
-                drainRate = Humanoid.MaxHealth * 0.05 * dt
-                CFG.ShakeIntensity = 0.2
-                CFG.PopupRate = 0.05
-            elseif phase == 2 then
-                drainRate = Humanoid.MaxHealth * 0.08 * dt
-                CFG.ShakeIntensity = 0.6
-                CFG.PopupRate = 0.1
-            else
-                drainRate = Humanoid.MaxHealth * 0.12 * dt
-                CFG.ShakeIntensity = 1.0
-                CFG.PopupRate = 0.15
-                if not FX.FreezeBody then Humanoid.WalkSpeed = 50 end
-            end
-            Humanoid.Health = math.max(1, Humanoid.Health - drainRate)
-        end
-
-        CFG.ShakeIntensity = CFG.ShakeIntensity * k
-        blur.Size = math.random(4, 12) * k
-        shakeCamera()
-        if math.random() < CFG.PopupRate then spawnPopup() end
-
-        if math.random() < 0.10 then
-            cc.TintColor = Color3.fromRGB(math.random(200, 255), math.random(0, 60), math.random(0, 60))
-            task.delay(0.08, function() if cc and cc.Parent then cc.TintColor = Color3.fromRGB(255, 80, 80) end end)
-        elseif phase >= 2 and math.random() < 0.05 then
-            cc.TintColor = Color3.fromRGB(90, 200, 255)   -- aberração cromática (ciano)
-            task.delay(0.06, function() if cc and cc.Parent then cc.TintColor = Color3.fromRGB(255, 80, 80) end end)
-        end
-
-        -- ================= REWORK =================
-        -- batimento cardíaco (lub-dub), cada fase mais rápido
-        if elapsed >= nextBeat then
-            nextBeat = elapsed + 60 / BPM[phase]
-            nextDub = elapsed + (60 / BPM[phase]) * 0.28
-            beatKick = 1
-        end
-        if nextDub and elapsed >= nextDub then
-            nextDub = nil
-            beatKick = math.max(beatKick, 0.6)
-        end
-        beatKick = math.max(0, beatKick - dt * 6)
-        hitKick = math.max(0, hitKick - dt * 5)
-        rollKick = rollKick * math.max(0, 1 - dt * 8)
-
-        while hitIndex <= #syncHits and elapsed >= syncHits[hitIndex] do
-            hitIndex += 1
-            Hit()
-        end
-
-        -- fala: legenda + estouro de glitch + janelas no tempo de cada linha
-        while eventIndex <= #events and elapsed >= events[eventIndex].t do
-            local ev = events[eventIndex]
-            eventIndex += 1
-            if ev.line then ShowLine(ev.line) end
-            if ev.hit then Hit(ev.power) end
-            if ev.final then
-                Flash(WHITE, 0.05, 0.5)
-                Tear(8)
-            end
-            for i = 1, (ev.windows or 0) do
-                task.delay((i - 1) * 0.05, spawnPopup)
-            end
-        end
-        if subRoot.Visible then
-            if tick() > subHideAt then
-                subRoot.Visible = false
-            else
-                local jit = 1 + math.floor(hitKick * 8)
-                subC.Position = UDim2.new(0, -math.random(0, jit), 0, 20 + math.random(-1, 1))
-                subM.Position = UDim2.new(0, math.random(0, jit), 0, 20 + math.random(-1, 1))
-                subMain.Text = hitKick > 0.4 and ScrambleText(subText, 0.12 * hitKick) or subText
-                local fade = fadeProgress
-                subMain.TextTransparency, subName.TextTransparency = fade, fade
-            end
-        end
-
-        -- visão de túnel
-        local edgeT = math.clamp(0.78 - 0.14 * (phase - 1) - 0.5 * beatKick - 0.2 * hitKick, 0.04, 1)
-        local edgeFinal = 1 - (1 - edgeT) * k
-        for _, e in ipairs(edges) do e.BackgroundTransparency = edgeFinal end
-
-        -- título RGB
-        local titleT = ((elapsed % 0.4) < 0.2) and 0.1 or 0.85
-        if hitKick > 0.4 then titleT = 0 end
-        titleT = 1 - (1 - titleT) * k
-        local j = math.floor(2 + phase * 3 + hitKick * 8)
-        local jy = math.max(1, math.floor(j / 2))
-        titleMain.TextTransparency = titleT
-        titleM.TextTransparency = math.clamp(titleT + 0.25, 0, 1)
-        titleC.TextTransparency = math.clamp(titleT + 0.25, 0, 1)
-        titleM.Position = UDim2.new(0, math.random(0, j), 0.4, math.random(-jy, jy))
-        titleC.Position = UDim2.new(0, -math.random(0, j), 0.4, math.random(-jy, jy))
-
-        -- banner piscando
-        bannerText.TextTransparency = 1 - (1 - (((elapsed % 0.3) < 0.15) and 0 or 0.6)) * k
-        banner.BackgroundTransparency = 1 - (1 - 0.25) * k
-
-        -- HUMANITY caindo
-        local shown = math.floor(math.max(0, 100 * (1 - elapsed / (DURATION * 0.92))))
-        if phase == 3 and math.random() < 0.3 then shown = math.random(0, 99) end
-        humLabel.Text = "HUMANITY " .. shown .. "%"
-        humLabel.TextTransparency = fadeProgress
-        terminal.TextTransparency = fadeProgress
-
-        -- rasgos de tela
-        if math.random() < ({0.05, 0.14, 0.3})[phase] * k then Tear(1) end
-
-        -- glitch em ViewportFrame
-        UpdateGlitch(dt, phase, fadeProgress)
-
-        -- câmera
-        local rollAmp = ({0.6, 1.4, 2.6})[phase]
-        camRoll = (math.sin(elapsed * 6.3) * rollAmp + rollKick) * k
-        fovDelta = (({0, 4, 12})[phase] - 5 * beatKick + 10 * hitKick) * k
-    end)
-end
-
--- ============================================================
--- API + BOTÃO
--- ============================================================
-local Active = false
-local CooldownUntil = 0
-local endsAt = 0
-
-local function Run()
-    if Active or os.clock() < CooldownUntil then return false end
-    Sync()
-    Active = true
-    local dur = EffectiveDuration()
-    endsAt = os.clock() + dur
-    task.delay(dur + 0.15, function()
-        Active = false
-        CooldownUntil = os.clock() + Module.Config.Cooldown
-    end)
-    ExecCyberpsychosis()
-    return true
-end
-
-function Module.Activate()   -- botão / atalho
-    return Run()
-end
-
-function Module.Exec()       -- chamado pelo SANDEVISTAN.lua (automático)
-    if not Module.Config.AutoTrigger then return false end
-    return Run()
-end
-
-function Module.IsActive()
-    return Active
-end
-
-function Module.Destroy()
-    if Module.ActiveCleanup then pcall(Module.ActiveCleanup) end
-    if syncConn then syncConn:Disconnect() end
-    if env.CyberPsychosis == Module then env.CyberPsychosis = nil end
-end
-
-env.CyberPsychosis = Module
-PsiModule = Module
-
-end)
-
-
-local function ToggleNoclip()
-    Noclip = not Noclip
-    if Noclip then
-        noclipConnection = RunService.Stepped:Connect(function()
-            if Character then
-                for _, v in ipairs(Character:GetDescendants()) do
-                    if v:IsA("BasePart") then
-                        v.CanCollide = false
-                    end
-                end
-            end
-        end)
-    else
-        if noclipConnection then
-            noclipConnection:Disconnect()
-            noclipConnection = nil
-        end
-        if Character then
-            for _, v in ipairs(Character:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = true
-                end
-            end
-        end
-    end
-end
-
-local function CleanupSandiSounds()
-    if sandiLoopSound then sandiLoopSound:Stop() sandiLoopSound:Destroy() sandiLoopSound = nil end
-end
-
-local function ExecDodge(enemyPart: BasePart?)
-    State.IsDodgeReady = false
-    IsDodging = true
-    Falar("dodge")
-    
-    -- ========== VIEWPORTFRAME DO DODGE ==========
-    if _G.DodgeViewport then
-        if _G.DodgeViewport.syncConn then _G.DodgeViewport.syncConn:Disconnect() end
-        if _G.DodgeViewport.gui then _G.DodgeViewport.gui:Destroy() end
-    end
-    
-    Character.Archivable = true
-    local charClone = Character:Clone()
-    
-    for _, v in pairs(charClone:GetDescendants()) do
-        if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-    end
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "DodgeBypassGui"
-    screenGui.IgnoreGuiInset = true
-    screenGui.Parent = Player:WaitForChild("PlayerGui")
-    
-    local vpf = Instance.new("ViewportFrame")
-    vpf.Size = UDim2.new(1, 0, 1, 0)
-    vpf.BackgroundTransparency = 1
-    vpf.CurrentCamera = workspace.CurrentCamera
-    vpf.Parent = screenGui
-    charClone.Parent = vpf
-    
-    local cloneParts = {}
-    local function indexCloneParts(instance, path)
-        for _, child in pairs(instance:GetChildren()) do
-            local newPath = path .. "." .. child.Name
-            if child:IsA("BasePart") then
-                cloneParts[newPath] = child
-            end
-            indexCloneParts(child, newPath)
-        end
-    end
-    indexCloneParts(charClone, "")
-    
-    local syncConn = RunService.RenderStepped:Connect(function()
-        if not Character or not Character.Parent then return end
-        local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
-        
-        local realParts = {}
-        local function indexRealParts(instance, path)
-            for _, child in pairs(instance:GetChildren()) do
-                local newPath = path .. "." .. child.Name
-                if child:IsA("BasePart") then
-                    realParts[newPath] = child
-                end
-                indexRealParts(child, newPath)
-            end
-        end
-        indexRealParts(Character, "")
-        
-        for path, clonePart in pairs(cloneParts) do
-            local realPart = realParts[path]
-            if realPart then
-                clonePart.CFrame = realPart.CFrame
-            end
-        end
-    end)
-    
-    _G.DodgeViewport = {
-        gui = screenGui,
-        syncConn = syncConn,
-        charClone = charClone
-    }
-    -- ========== FIM DO VIEWPORTFRAME ==========
-    
-    -- Função de limpeza
-    local function cleanupDodgeViewport()
-        if _G.DodgeViewport then
-            if _G.DodgeViewport.syncConn then _G.DodgeViewport.syncConn:Disconnect() end
-            if _G.DodgeViewport.gui then _G.DodgeViewport.gui:Destroy() end
-            if _G.DodgeViewport.charClone then _G.DodgeViewport.charClone:Destroy() end
-            _G.DodgeViewport = nil
-        end
-    end
-    
-    -- Efeitos visuais comuns
-    ScreenFade(0.08, 0, 0.25, Colors.LIGHT_GREEN, 0.8, 0.4)
-    local dodgeCC = Create("ColorCorrectionEffect", {Name = "DodgeEffect", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Parent = Lighting})
-    TweenService:Create(dodgeCC, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TintColor = Colors.LIGHT_GREEN, Saturation = 0.45, Contrast = 0.25}):Play()
-    
-    local startCFrame = HRP.CFrame
-    local distance = enemyPart and (HRP.Position - enemyPart.Position).Magnitude or 0
-    
-    -- VARIANTE COM INIMIGO PRÓXIMO
-    if enemyPart and distance <= Constants.DODGE_CONFIG.VARIANT_THRESHOLD then
-        PlaySFX(Sounds.DODGE_VARIANT)
-        task.spawn(function()
-            local duration = Constants.DODGE_CONFIG.VARIANT_DURATION
-            local startTime = tick()
-            local relative = HRP.Position - enemyPart.Position
-            local lastCloneTime = 0
-            local direction = math.random(1,2) == 1 and 1 or -1
-            
-            while tick() - startTime < duration do
-                local alpha = (tick() - startTime) / duration
-                local angle = alpha * math.pi * direction
-                local rotated = CFrame.Angles(0, angle, 0) * relative
-                local newPos = enemyPart.Position + rotated
-                HRP.CFrame = CFrame.lookAt(newPos, enemyPart.Position)
-                
-                if tick() - lastCloneTime >= Constants.DODGE_CONFIG.VARIANT_CLONE_INTERVAL then
-                    CreateHologramClone(0, Constants.HOLOGRAM_CLONE.DODGE.DURATION, Constants.HOLOGRAM_CLONE.DODGE.END_TRANSPARENCY, 0, 0, 0, "dodge", HRP.CFrame)
-                    lastCloneTime = tick()
-                end
-                RunService.Heartbeat:Wait()
-            end
-            
-            local finalAngle = math.pi * direction
-            local finalRelative = CFrame.Angles(0, finalAngle, 0) * relative
-            local finalPos = enemyPart.Position + finalRelative
-            HRP.CFrame = CFrame.lookAt(finalPos, enemyPart.Position)
-            
-            State.Cooldowns.DODGE = os.clock() + Constants.COOLDOWNS.DODGE
-            ShowCooldownText("Neural Dodge", Constants.COOLDOWNS.DODGE, Colors.DODGE_END)
-            IsDodging = false
-            
-            -- Limpeza do viewport
-            cleanupDodgeViewport()
-            
-            local fadeOut = TweenService:Create(dodgeCC, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0})
-            fadeOut:Play()
-            fadeOut.Completed:Connect(function() dodgeCC:Destroy() end)
-        end)
-    
-    -- VARIANTE NORMAL
-    else
-        PlaySFX(Sounds.DODGE_NORMAL)
-        local endCFrame
-        if enemyPart then
-            endCFrame = CFrame.lookAt((enemyPart.CFrame * CFrame.new(0, 0, Constants.DODGE_CONFIG.NORMAL_DISTANCE_ENEMY)).Position, enemyPart.Position)
-        else
-            endCFrame = HRP.CFrame * CFrame.new(0, 0, -Constants.DODGE_CONFIG.NORMAL_DISTANCE_NO_ENEMY)
-        end
-        
-        CreateHologramClone(0, 1, 1, 0, 0, 0, "dodge", startCFrame)
-        HRP.CFrame = endCFrame
-        
-        task.delay(0.22, function()
-            State.Cooldowns.DODGE = os.clock() + Constants.COOLDOWNS.DODGE
-            ShowCooldownText("Neural Dodge", Constants.COOLDOWNS.DODGE, Colors.DODGE_END)
-            IsDodging = false
-            
-            -- Limpeza do viewport
-            cleanupDodgeViewport()
-        end)
-        
-        CamShake(0.5, 0.2)
-        task.delay(0.22, function()
-            local fadeOut = TweenService:Create(dodgeCC, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0})
-            fadeOut:Play()
-            fadeOut.Completed:Connect(function() dodgeCC:Destroy() end)
-            ScreenFade(0.1, 0, 0.3, Colors.LIGHT_GREEN, 0.3, 0.15)
-        end)
-    end
-    
-    local dodgeSignal = Instance.new("StringValue")
-    dodgeSignal.Name = "CYBER_DODGE"
-    dodgeSignal.Value = tostring(HRP.CFrame)
-    dodgeSignal.Parent = Character
-    Debris:AddItem(dodgeSignal, 0.6)
-end
-
-local function ActivateDodgeReady()
-    if not EnabledAbilities.Dodge then return end
-    if IsDodging then return end
-    if os.clock() < State.Cooldowns.DODGE then return end
-    if State.IsDodgeReady then return end
-    
-    if DodgeMode == "Counter" then
-        if State.Energy < Constants.ENERGY_COSTS.DODGE then return end
-        State.Energy -= Constants.ENERGY_COSTS.DODGE
-        State.Energy = math.max(0, State.Energy)
-        State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-        if PsyBar.Use("Dodge") then return end
-        
-        State.IsDodgeReady = true
-        
-        task.spawn(function()
-            local myDodgeReady = true
-            task.wait(2)
-            
-            if State.IsDodgeReady and myDodgeReady then
-                State.IsDodgeReady = false
-                State.Cooldowns.DODGE = os.clock() + Constants.COOLDOWNS.DODGE
-                ShowCooldownText("Neural Dodge", Constants.COOLDOWNS.DODGE, Colors.DODGE_END)
-            end
-        end)
-    else
-        State.Cooldowns.DODGE = os.clock() + Constants.COOLDOWNS.DODGE
-        if PsyBar.Use("Dodge") then return end
-        State.IsDodgeReady = true
-    end
-end
-
-local function UpdateDashButton()
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    local dashBtn = gui:FindFirstChild("DashBtn")
-    if not dashBtn then return end
-    dashBtn.TextColor3 = State.IsSandiActive and Color3.new(0.5, 0.5, 0.5) or Colors.DASH_GREEN
-end
-
-local function UpdateKiroshiButton()
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    local kiroshiBtn = gui:FindFirstChild("KiroshiBtn")
-    if not kiroshiBtn then return end
-    kiroshiBtn.TextColor3 = State.IsSandiActive and Color3.new(0.5, 0.5, 0.5) or Colors.KIROSHI
-end
-
-local function UpdateOpticalButton()
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    local opticalBtn = gui:FindFirstChild("OpticalBtn")
-    if not opticalBtn then return end
-    local col = State.IsSandiActive and Color3.new(0.5, 0.5, 0.5) or Colors.OPTICAL
-    opticalBtn.TextColor3 = col
-    for _, s in ipairs(opticalBtn:GetChildren()) do
-        if s:IsA("UIStroke") and s.ApplyStrokeMode ~= Enum.ApplyStrokeMode.Border then
-            s.Color = col
-        end
-    end
-    local grad = opticalBtn:FindFirstChildOfClass("UIGradient")
-    if grad then
-        grad.Color = ColorSequence.new(Colors.UI_DARK, col:Lerp(Colors.UI_NEON, 0.45))
-    end
-end
-
--- ============================================================
--- CONGELAR O TEMPO (Sandevistan)
--- Ao ativar: tudo no mundo para (peças soltas, outros jogadores/NPCs, animações,
--- partículas e sons do jogo). Sons e efeitos DESTE script continuam normais.
--- Ao desativar: o mundo volta aos poucos (em lotes por frame) pra não dar pico de FPS.
--- Obs.: é tudo local (só na sua tela); o servidor continua rodando normalmente.
--- ============================================================
-local TimeFreeze = {
-    Active = false,
-    Radius = math.huge,      -- raio (studs) do congelamento; math.huge = mundo inteiro
-    FreezeNew = true,        -- congela também o que NASCE depois de ativar (projéteis, jogadores que entram, efeitos do jogo)
-    PriorityRadii = {60, 150, 320}, -- congela PRIMEIRO o que está perto de você (no mesmo frame da ativação)
-    PriorityBudget = 0.012,  -- seg gastos (no máx.) nessa passada instantânea
-    PriorityMaxParts = 4000,
-    FastScanFrames = 12,     -- nos primeiros frames a varredura do mundo usa um orçamento maior
-    FastScanBudget = 0.008,
-    ScanBudget = 0.003,      -- seg/frame gastos varrendo o resto do mundo ao ATIVAR
-    ReleaseBudget = 0.0015,  -- seg/frame gastos soltando as coisas ao DESATIVAR
-    Parts = {},              -- [BasePart] = true (as que EU ancorei)
-    Anims = {},              -- [AnimationTrack] = velocidade original
-    Emitters = {},           -- [ParticleEmitter/Fire/Smoke/Sparkles] = TimeScale original
-    Trails = {},             -- [Trail] = Lifetime original (Lifetime enorme = rastro não some enquanto congelado)
-    Beams = {},              -- [Beam] = TextureSpeed original
-    Kinds = {ParticleEmitter = "emitter", Fire = "emitter", Smoke = "emitter", Sparkles = "emitter", Trail = "trail", Beam = "beam", Animator = "animator", Sound = "sound"},
-    TrailFrozenLifetime = 3600,
-    Videos = {},             -- [VideoFrame] = estava tocando?
-    Props = {},              -- [inst] = {orig = {prop=valor}, want = {prop=último valor que o jogo tentou pôr}}
-    PropEnforce = {},        -- lista (ronda circular) de quem tem propriedades travadas
-    PropIndex = 1,
-    PropConn = nil,
-    PropBudget = 0.002,      -- seg/frame gastos desfazendo mudanças de VFX/imagens/decals/luzes
-    PropPartMax = 6000,      -- máx. de peças (VFX feito de parte: tween de tamanho/cor/transparência) com propriedades travadas
-    PropPartCount = 0,
-    PropList = {},           -- [ClassName] = {propriedades} (preenchido em InitProps)
-    PartProps = {"Transparency", "Color", "Size"},
-    IgnoreNames = {PhaseGhost = true, GlitchWindow = true, SystemRestoreWindow = true, RebootSystemWindow = true},
-    Sounds = {},             -- [Sound] = true (os que EU pausei)
-    AnimatorConns = {},
-    Conns = {},
-    ScanConn = nil,
-    ReleaseConn = nil,
-    EnforceConn = nil,
-    AddedConn = nil,
-    Locks = {},              -- [BasePart] = conexão que trava o CFrame (movimento vindo do servidor)
-    LockCount = 0,
-    LockMax = 4000,          -- máx. de peças com CFrame travado
-    LockRadii = {80, 200, 400}, -- as mais próximas de você ganham o travamento primeiro
-    Debug = true,            -- imprime no output quanto foi congelado ao ativar
-    EnforceBudget = 0.0015,  -- seg/frame gastos garantindo que o que congelou continue congelado
-    Enforce = {},            -- {{tipo, instância}, ...} (ronda circular)
-    EnforceIndex = 1,
-    Queue = nil,
-    QueueIndex = 1,
-}
-
-local function tfIsMine(inst: Instance): boolean
-    return Character ~= nil and inst:IsDescendantOf(Character)
-end
-
--- coisas criadas pelo próprio script (clones holográficos, fantasma de fase, janelas, GUIs do Kiroshi) nunca congelam
-function TimeFreeze.IsIgnored(inst: Instance): boolean
-    if ScriptSounds[inst] or tfIsMine(inst) then return true end
-    local p = inst.Parent
-    while p and p ~= Workspace do
-        if ScriptSounds[p] or TimeFreeze.IgnoreNames[p.Name] or string.sub(p.Name, 1, 13) == "HologramClone" then return true end
-        p = p.Parent
-    end
-    if TimeFreeze.IgnoreNames[inst.Name] then return true end
-    return false
-end
-
--- Trava o CFrame: peças ancoradas movidas pelo servidor (portas, plataformas, tweens,
--- NPCs por script) voltam na hora pra posição de quando o tempo congelou.
-local function tfLock(part: BasePart)
-    if TimeFreeze.Locks[part] or TimeFreeze.LockCount >= TimeFreeze.LockMax then return end
-    local saved = part.CFrame
-    TimeFreeze.LockCount += 1
-    TimeFreeze.Locks[part] = part:GetPropertyChangedSignal("CFrame"):Connect(function()
-        if TimeFreeze.Active and part.CFrame ~= saved then
-            part.CFrame = saved
-        end
-    end)
-end
-
-local function tfFreezePart(part: BasePart)
-    if part.Anchored or part:IsA("Terrain") then return end
-    if tfIsMine(part) then return end
-    -- não congela o que está preso a mim (veículo, assento, ferramentas)
-    local myRoot = HRP and HRP.AssemblyRootPart
-    if myRoot and part.AssemblyRootPart == myRoot then return end
-    if TimeFreeze.Radius < math.huge and HRP and (part.Position - HRP.Position).Magnitude > TimeFreeze.Radius then return end
-    TimeFreeze.Parts[part] = true
-    part.Anchored = true
-    table.insert(TimeFreeze.Enforce, {"part", part})
-    tfLock(part)
-end
-
-local function tfFreezeTrack(track: AnimationTrack)
-    if TimeFreeze.Anims[track] == nil then
-        TimeFreeze.Anims[track] = track.Speed
-        table.insert(TimeFreeze.Enforce, {"anim", track})
-    end
-    track:AdjustSpeed(0)
-end
-
-local function tfFreezeAnimator(animator: Animator)
-    if tfIsMine(animator) then return end
-    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-        pcall(tfFreezeTrack, track)
-    end
-    if not TimeFreeze.AnimatorConns[animator] then
-        TimeFreeze.AnimatorConns[animator] = animator.AnimationPlayed:Connect(function(track)
-            if TimeFreeze.Active then pcall(tfFreezeTrack, track) end
-        end)
-    end
-end
-
-local function tfFreezeEmitter(emitter: Instance)
-    if TimeFreeze.Emitters[emitter] == nil then
-        TimeFreeze.Emitters[emitter] = emitter.TimeScale
-        emitter.TimeScale = 0
-        table.insert(TimeFreeze.Enforce, {"emitter", emitter})
-    end
-end
-
--- Trail: sem peça se mexendo não nasce segmento novo; Lifetime enorme impede os existentes de sumir
-function TimeFreeze.FreezeTrail(trail: Trail)
-    if TimeFreeze.Trails[trail] == nil then
-        TimeFreeze.Trails[trail] = trail.Lifetime
-        trail.Lifetime = TimeFreeze.TrailFrozenLifetime
-        table.insert(TimeFreeze.Enforce, {"trail", trail})
-    end
-end
-
--- Beam: a textura que rola (TextureSpeed) para; as pontas já param junto com as peças
-function TimeFreeze.FreezeBeam(beam: Beam)
-    if TimeFreeze.Beams[beam] == nil then
-        TimeFreeze.Beams[beam] = beam.TextureSpeed
-        beam.TextureSpeed = 0
-        table.insert(TimeFreeze.Enforce, {"beam", beam})
-    end
-end
-
--- VÍDEO (VideoFrame em SurfaceGui): pausa
-function TimeFreeze.FreezeVideo(video: VideoFrame)
-    if TimeFreeze.Videos[video] == nil then
-        TimeFreeze.Videos[video] = video.Playing
-        video:Pause()
-        table.insert(TimeFreeze.Enforce, {"video", video})
-    end
-end
-
--- PROPRIEDADES TRAVADAS: imagens, decals, texturas, luzes, highlights, GUIs no mundo e VFX feito de peça.
--- Não dá pra pausar script/tween do jogo, então guardo o valor de agora e desfaço qualquer mudança
--- a cada frame (RenderStepped). O último valor que o jogo tentou pôr é aplicado ao descongelar.
-function TimeFreeze.FreezeProps(inst: Instance, list)
-    if TimeFreeze.Props[inst] or not list then return end
-    local orig = {}
-    for _, prop in ipairs(list) do
-        local o: any = inst
-        local ok, v = pcall(function() return o[prop] end)
-        if ok then orig[prop] = v end
-    end
-    TimeFreeze.Props[inst] = {orig = orig, want = {}}
-    table.insert(TimeFreeze.PropEnforce, inst)
-end
-
-function TimeFreeze.FreezePartProps(part: BasePart)
-    if TimeFreeze.Props[part] or TimeFreeze.PropPartCount >= TimeFreeze.PropPartMax then return end
-    if part.CanCollide or part.Transparency >= 1 or part:IsA("Terrain") then return end
-    if TimeFreeze.IsIgnored(part) then return end
-    TimeFreeze.PropPartCount += 1
-    TimeFreeze.FreezeProps(part, TimeFreeze.PartProps)
-end
-
-function TimeFreeze.EnforceProps(inst: Instance, rec)
-    local o: any = inst
-    for prop, v in pairs(rec.orig) do
-        local cur = o[prop]
-        if cur ~= v then
-            rec.want[prop] = cur
-            o[prop] = v
-        end
-    end
-end
-
-function TimeFreeze.InitProps()
-    local L = TimeFreeze.PropList
-    local gui = {"Visible", "Position", "Size", "Rotation", "BackgroundTransparency", "BackgroundColor3"}
-    local function with(extra)
-        local t = table.clone(gui)
-        for _, p in ipairs(extra) do table.insert(t, p) end
-        return t
-    end
-    L.Frame, L.ScrollingFrame, L.CanvasGroup = gui, gui, gui
-    L.ImageLabel = with({"Image", "ImageTransparency", "ImageColor3", "ImageRectOffset", "ImageRectSize"})
-    L.ImageButton = L.ImageLabel
-    L.TextLabel = with({"Text", "TextTransparency", "TextColor3", "TextStrokeTransparency"})
-    L.TextButton = L.TextLabel
-    L.UIGradient = {"Enabled", "Offset", "Rotation", "Transparency", "Color"}
-    L.UIStroke = {"Transparency", "Color", "Thickness"}
-    L.Decal = {"Texture", "Transparency", "Color3"}
-    L.Texture = {"Texture", "Transparency", "Color3", "OffsetStudsU", "OffsetStudsV", "StudsPerTileU", "StudsPerTileV"}
-    L.PointLight = {"Enabled", "Brightness", "Range", "Color"}
-    L.SpotLight = {"Enabled", "Brightness", "Range", "Angle", "Color"}
-    L.SurfaceLight = L.SpotLight
-    L.Highlight = {"Enabled", "FillTransparency", "OutlineTransparency", "FillColor", "OutlineColor"}
-    L.SurfaceGui = {"Enabled"}
-    L.BillboardGui = {"Enabled", "Size", "StudsOffset"}
-    for cn in pairs(L) do TimeFreeze.Kinds[cn] = "props" end
-    TimeFreeze.Kinds.VideoFrame = "video"
-end
-TimeFreeze.InitProps()
-
--- watch = true: se o som ainda não está tocando (acabou de nascer), pausa assim que começar
-local function tfFreezeSound(snd: Sound, watch: boolean?)
-    if ScriptSounds[snd] or tfIsMine(snd) then return end
-    if snd.IsPlaying then
-        if not TimeFreeze.Sounds[snd] then
-            TimeFreeze.Sounds[snd] = true
-            snd:Pause()
-            table.insert(TimeFreeze.Enforce, {"sound", snd})
-        end
-    elseif watch then
-        table.insert(TimeFreeze.Conns, snd.Played:Connect(function()
-            if TimeFreeze.Active and not ScriptSounds[snd] then
-                pcall(tfFreezeSound, snd)
-            end
-        end))
-    end
-end
-
-local function tfProcess(inst: Instance)
-    if inst:IsA("BasePart") then
-        tfFreezePart(inst)
-        TimeFreeze.FreezePartProps(inst)
-        return
-    end
-    local k = TimeFreeze.Kinds[inst.ClassName]
-    if k == "props" then
-        if not TimeFreeze.IsIgnored(inst) then
-            TimeFreeze.FreezeProps(inst, TimeFreeze.PropList[inst.ClassName])
-        end
-    elseif k == "video" then
-        TimeFreeze.FreezeVideo(inst)
-    elseif k == "emitter" then
-        tfFreezeEmitter(inst)
-    elseif k == "trail" then
-        TimeFreeze.FreezeTrail(inst)
-    elseif k == "beam" then
-        TimeFreeze.FreezeBeam(inst)
-    elseif k == "animator" then
-        tfFreezeAnimator(inst)
-    elseif k == "sound" then
-        tfFreezeSound(inst)
-    end
-end
-
--- aplica a restauração de 1 item da fila
-local function tfRestoreEntry(e)
-    local kind, inst, value = e[1], e[2], e[3]
-    if kind == "sound" then
-        if inst.Parent then inst:Resume() end
-    elseif kind == "anim" then
-        if inst.IsPlaying then inst:AdjustSpeed(value) end
-    elseif kind == "emitter" then
-        if inst.Parent then inst.TimeScale = value end
-    elseif kind == "trail" then
-        if inst.Parent then inst.Lifetime = value end
-    elseif kind == "beam" then
-        if inst.Parent then inst.TextureSpeed = value end
-    elseif kind == "video" then
-        if inst.Parent and value then inst:Play() end
-    elseif kind == "props" then
-        if inst.Parent then
-            local o: any = inst
-            for prop, v in pairs(value) do pcall(function() o[prop] = v end) end
-        end
-    elseif kind == "part" then
-        if inst.Parent then inst.Anchored = false end
-    end
-end
-
--- termina na hora o que ainda estiver sendo solto (usado se o Sandevistan reativar)
-local function tfFlushRelease()
-    if TimeFreeze.ReleaseConn then
-        TimeFreeze.ReleaseConn:Disconnect()
-        TimeFreeze.ReleaseConn = nil
-    end
-    local q = TimeFreeze.Queue
-    if q then
-        for i = TimeFreeze.QueueIndex, #q do
-            if q[i] then pcall(tfRestoreEntry, q[i]) end
-        end
-    end
-    TimeFreeze.Queue = nil
-    TimeFreeze.QueueIndex = 1
-end
-
--- partículas/sons pendurados numa peça (direto nela ou dentro de um Attachment)
-function TimeFreeze.FreezeChildren(part: BasePart)
-    for _, c in ipairs(part:GetChildren()) do
-        if c:IsA("Attachment") then
-            for _, cc in ipairs(c:GetChildren()) do
-                pcall(tfProcess, cc)
-            end
-        elseif c:IsA("LayerCollector") then
-            pcall(tfProcess, c)
-            for _, d in ipairs(c:GetDescendants()) do
-                pcall(tfProcess, d)
-            end
-        else
-            pcall(tfProcess, c)
-        end
-    end
-end
-
--- PASSADA INSTANTÂNEA: congela primeiro tudo que está perto de você (o que aparece na tela),
--- em anéis de raio crescente, no mesmo frame da ativação. O resto vem pela varredura.
-function TimeFreeze.PriorityPass()
-    local origin = HRP and HRP.Position or Camera.CFrame.Position
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {Character}
-    params.MaxParts = TimeFreeze.PriorityMaxParts
-    local seenModels = {}
-    local t0 = os.clock()
-    for _, radius in ipairs(TimeFreeze.PriorityRadii) do
-        for _, part in ipairs(Workspace:GetPartBoundsInRadius(origin, radius, params)) do
-            pcall(tfFreezePart, part)
-            pcall(TimeFreeze.FreezePartProps, part)
-            pcall(TimeFreeze.FreezeChildren, part)
-            local model = part:FindFirstAncestorOfClass("Model")
-            if model and not seenModels[model] then
-                seenModels[model] = true
-                if model:FindFirstChildWhichIsA("Humanoid") or model:FindFirstChildWhichIsA("AnimationController") then
-                    local animator = model:FindFirstChildWhichIsA("Animator", true)
-                    if animator then pcall(tfFreezeAnimator, animator) end
-                end
-            end
-            if os.clock() - t0 > TimeFreeze.PriorityBudget then return end
-        end
-    end
-end
-
-local function tfLockNearbyAnchored()
-    if not HRP then return end
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {Character}
-    params.MaxParts = TimeFreeze.LockMax
-    local myRoot = HRP.AssemblyRootPart
-    for _, radius in ipairs(TimeFreeze.LockRadii) do
-        if TimeFreeze.LockCount >= TimeFreeze.LockMax then break end
-        for _, part in ipairs(Workspace:GetPartBoundsInRadius(HRP.Position, radius, params)) do
-            if part.Anchored and not part:IsA("Terrain") and part.AssemblyRootPart ~= myRoot then
-                tfLock(part)
-            end
-        end
-    end
-end
-
-function TimeFreeze.Start()
-    if TimeFreeze.Active then return end
-    tfFlushRelease()
-    TimeFreeze.Active = true
-
-    -- 1) outros jogadores primeiro (o que mais aparece na tela)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= Player and plr.Character then
-            for _, d in ipairs(plr.Character:GetDescendants()) do
-                pcall(tfProcess, d)
-            end
-        end
-    end
-
-    -- 1.5) tudo que está perto de você, instantâneo (anéis de raio crescente)
-    pcall(TimeFreeze.PriorityPass)
-
-    -- 2) sons do jogo (SoundService)
-    for _, d in ipairs(SoundService:GetDescendants()) do
-        if d:IsA("Sound") then pcall(tfFreezeSound, d) end
-    end
-
-    -- 2.5) peças ANCORADAS próximas: trava o CFrame (movimentos feitos pelo servidor)
-    pcall(tfLockNearbyAnchored)
-
-    -- 3) resto do mundo, em fatias de tempo (sem travar a ativação).
-    --    Nos primeiros frames o orçamento é maior, então o mundo inteiro para quase de imediato.
-    local list = Workspace:GetDescendants()
-    local idx, n, frame = 1, #list, 0
-    TimeFreeze.ScanConn = RunService.Heartbeat:Connect(function()
-        frame += 1
-        local budget = (frame <= TimeFreeze.FastScanFrames) and TimeFreeze.FastScanBudget or TimeFreeze.ScanBudget
-        local t0 = os.clock()
-        while idx <= n do
-            local inst = list[idx]
-            idx += 1
-            if inst.Parent then pcall(tfProcess, inst) end
-            if idx % 64 == 0 and os.clock() - t0 > budget then return end
-        end
-        if TimeFreeze.ScanConn then
-            TimeFreeze.ScanConn:Disconnect()
-            TimeFreeze.ScanConn = nil
-        end
-        if TimeFreeze.Debug then
-            local function count(t) local c = 0 for _ in pairs(t) do c += 1 end return c end
-            print(string.format("[TimeFreeze] varridas %d instâncias em %d frames | peças soltas ancoradas: %d | CFrame travado: %d | animações: %d | partículas: %d | rastros: %d | beams: %d | props travadas: %d | sons pausados: %d",
-                n, frame, count(TimeFreeze.Parts), TimeFreeze.LockCount, count(TimeFreeze.Anims), count(TimeFreeze.Emitters), count(TimeFreeze.Trails), count(TimeFreeze.Beams), count(TimeFreeze.Props), count(TimeFreeze.Sounds)))
-        end
-    end)
-
-    -- 3.5) o que NASCE depois de ativar também congela (projéteis, jogadores que entram,
-    --      sons novos, efeitos do jogo). Clones/efeitos deste script são ignorados.
-    if TimeFreeze.FreezeNew then
-        TimeFreeze.AddedConn = Workspace.DescendantAdded:Connect(function(inst)
-            task.defer(function()
-                if not TimeFreeze.Active or not inst.Parent then return end
-                if TimeFreeze.IsIgnored(inst) then return end
-                if inst:IsA("Sound") then
-                    pcall(tfFreezeSound, inst, true)
-                else
-                    pcall(tfProcess, inst)
-                end
-            end)
-        end)
-    end
-
-    -- 3.8) VFX/imagens/decals/luzes/GUIs: desfaz qualquer mudança vinda de script/tween do jogo
-    TimeFreeze.PropIndex = 1
-    TimeFreeze.PropConn = RunService.RenderStepped:Connect(function()
-        local list = TimeFreeze.PropEnforce
-        local n = #list
-        if n == 0 then return end
-        local t0 = os.clock()
-        local checked = 0
-        local i = TimeFreeze.PropIndex
-        while checked < n do
-            if i > n then i = 1 end
-            local inst = list[i]
-            local rec = TimeFreeze.Props[inst]
-            if rec and inst.Parent then pcall(TimeFreeze.EnforceProps, inst, rec) end
-            i += 1
-            checked += 1
-            if checked % 32 == 0 and os.clock() - t0 > TimeFreeze.PropBudget then break end
-        end
-        TimeFreeze.PropIndex = i
-    end)
-
-    -- 4) o que entrou NÃO sai: uma ronda circular religa o congelamento de qualquer
-    --    peça/animação/partícula/som que o jogo tente soltar.
-    TimeFreeze.EnforceIndex = 1
-    TimeFreeze.EnforceConn = RunService.Heartbeat:Connect(function()
-        local list = TimeFreeze.Enforce
-        local n = #list
-        if n == 0 then return end
-        local t0 = os.clock()
-        local checked = 0
-        local i = TimeFreeze.EnforceIndex
-        while checked < n do
-            if i > n then i = 1 end
-            local e = list[i]
-            local kind, inst = e[1], e[2]
-            if kind == "part" then
-                if inst.Parent and not inst.Anchored then inst.Anchored = true end
-            elseif kind == "emitter" then
-                if inst.Parent and inst.TimeScale ~= 0 then inst.TimeScale = 0 end
-            elseif kind == "sound" then
-                if inst.Parent and inst.IsPlaying then inst:Pause() end
-            elseif kind == "trail" then
-                if inst.Parent and inst.Lifetime < TimeFreeze.TrailFrozenLifetime then inst.Lifetime = TimeFreeze.TrailFrozenLifetime end
-            elseif kind == "beam" then
-                if inst.Parent and inst.TextureSpeed ~= 0 then inst.TextureSpeed = 0 end
-            elseif kind == "video" then
-                if inst.Parent and inst.Playing then inst:Pause() end
-            elseif kind == "anim" then
-                if inst.IsPlaying and inst.Speed ~= 0 then inst:AdjustSpeed(0) end
-            end
-            i += 1
-            checked += 1
-            if checked % 32 == 0 and os.clock() - t0 > TimeFreeze.EnforceBudget then break end
-        end
-        TimeFreeze.EnforceIndex = i
-    end)
-end
-
-function TimeFreeze.Stop()
-    if not TimeFreeze.Active then return end
-    TimeFreeze.Active = false
-
-    if TimeFreeze.ScanConn then TimeFreeze.ScanConn:Disconnect() TimeFreeze.ScanConn = nil end
-    if TimeFreeze.EnforceConn then TimeFreeze.EnforceConn:Disconnect() TimeFreeze.EnforceConn = nil end
-    if TimeFreeze.AddedConn then TimeFreeze.AddedConn:Disconnect() TimeFreeze.AddedConn = nil end
-    if TimeFreeze.PropConn then TimeFreeze.PropConn:Disconnect() TimeFreeze.PropConn = nil end
-    TimeFreeze.Enforce = {}
-    TimeFreeze.EnforceIndex = 1
-    for _, c in pairs(TimeFreeze.Locks) do c:Disconnect() end
-    TimeFreeze.Locks = {}
-    TimeFreeze.LockCount = 0
-    for _, c in ipairs(TimeFreeze.Conns) do c:Disconnect() end
-    TimeFreeze.Conns = {}
-    for _, c in pairs(TimeFreeze.AnimatorConns) do c:Disconnect() end
-    TimeFreeze.AnimatorConns = {}
-
-    -- monta a fila de restauração: sons -> animações -> partículas -> peças (perto de mim primeiro)
-    local queue = {}
-    for snd in pairs(TimeFreeze.Sounds) do table.insert(queue, {"sound", snd}) end
-    for track, speed in pairs(TimeFreeze.Anims) do table.insert(queue, {"anim", track, speed}) end
-    for em, ts in pairs(TimeFreeze.Emitters) do table.insert(queue, {"emitter", em, ts}) end
-    for tr, lt in pairs(TimeFreeze.Trails) do table.insert(queue, {"trail", tr, lt}) end
-    for bm, sp in pairs(TimeFreeze.Beams) do table.insert(queue, {"beam", bm, sp}) end
-    for vd, was in pairs(TimeFreeze.Videos) do table.insert(queue, {"video", vd, was}) end
-    for inst, rec in pairs(TimeFreeze.Props) do
-        if next(rec.want) ~= nil then table.insert(queue, {"props", inst, rec.want}) end
-    end
-
-    local origin = HRP and HRP.Position or Vector3.zero
-    local partList = {}
-    for part in pairs(TimeFreeze.Parts) do
-        if part.Parent then
-            table.insert(partList, {"part", part, (part.Position - origin).Magnitude})
-        end
-    end
-    table.sort(partList, function(a, b) return a[3] < b[3] end)
-    for _, e in ipairs(partList) do table.insert(queue, e) end
-
-    TimeFreeze.Sounds, TimeFreeze.Anims, TimeFreeze.Emitters, TimeFreeze.Parts = {}, {}, {}, {}
-    TimeFreeze.Trails, TimeFreeze.Beams, TimeFreeze.Videos = {}, {}, {}
-    TimeFreeze.Props, TimeFreeze.PropEnforce, TimeFreeze.PropIndex, TimeFreeze.PropPartCount = {}, {}, 1, 0
-    TimeFreeze.Queue = queue
-    TimeFreeze.QueueIndex = 1
-
-    -- solta em lotes: nunca gasta mais que ReleaseBudget por frame
-    TimeFreeze.ReleaseConn = RunService.Heartbeat:Connect(function()
-        local q = TimeFreeze.Queue
-        if not q then return end
-        local t0 = os.clock()
-        local total = #q
-        local i = TimeFreeze.QueueIndex
-        while i <= total do
-            pcall(tfRestoreEntry, q[i])
-            q[i] = false
-            i += 1
-            if i % 16 == 0 and os.clock() - t0 > TimeFreeze.ReleaseBudget then break end
-        end
-        TimeFreeze.QueueIndex = i
-        if i > total then
-            TimeFreeze.ReleaseConn:Disconnect()
-            TimeFreeze.ReleaseConn = nil
-            TimeFreeze.Queue = nil
-            TimeFreeze.QueueIndex = 1
-        end
-    end)
-end
-
-local function ResetSandi()
-    if os.clock() < SandiLockTime then return end
-    if not State.IsSandiActive then return end
-
-    -- Remove marcador
-    if Character then
-        local marker = Character:FindFirstChild("CYBER_SANDI_ACTIVE")
-        if marker then marker:Destroy() end
-    end
-
-    -- Destroi clones holográficos
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj.Name == "HologramClone" and obj:FindFirstChild("IsSandiClone") then
-            obj:Destroy()
-        end
-    end
-
-    State.IsSandiActive = false
-    PlaySFX(Sounds.SANDI_OFF)
-    TimeFreeze.Stop()
-    Falar("sandi_off")
-    State.Cooldowns.SANDI = os.clock() + Constants.COOLDOWNS.SANDI
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    ShowCooldownText("Sandevistan", Constants.COOLDOWNS.SANDI, Colors.RAINBOW_SEQUENCE[1])
-
-    -- Remove o efeito de cor (verde)
-    local sandiEffect = Lighting:FindFirstChild("SandiEffect")
-    if sandiEffect then
-        TweenService:Create(sandiEffect, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            TintColor = Color3.new(1,1,1),
-            Contrast = 0,
-            Saturation = 0
-        }):Play()
-        task.delay(0.5, function() sandiEffect:Destroy() end)
-    end
-
-    -- Remove a segunda camada do filtro
-    local sandiEffect2 = Lighting:FindFirstChild("SandiEffect2")
-    if sandiEffect2 then
-        TweenService:Create(sandiEffect2, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            TintColor = Color3.new(1,1,1),
-            Contrast = 0,
-            Saturation = 0,
-            Brightness = 0
-        }):Play()
-        task.delay(0.5, function() sandiEffect2:Destroy() end)
-    end
-
-    -- Restaura walk speed e pulo
-    if Humanoid then
-        Humanoid.WalkSpeed = 16
-        if originalPlayerJumpPower then
-            Humanoid.UseJumpPower = true
-            Humanoid.JumpPower = originalPlayerJumpPower
-            originalPlayerJumpPower = nil
-        end
-    end
-
-    -- Restaura FOV da câmera
-    TweenService:Create(Camera, TweenInfo.new(0.6), {FieldOfView = 70}):Play()
-
-    -- Para o som de loop
-    CleanupSandiSounds()
-
-    -- Restaura gravidade
-    if originalGravity then
-        Workspace.Gravity = originalGravity
-        originalGravity = nil
-    end
-
-    -- Restaura velocidades de outros humanos
-    for hum, speed in pairs(originalWalkSpeeds) do
-        if hum and hum.Parent then hum.WalkSpeed = speed end
-    end
-    for hum, power in pairs(originalJumpPowers) do
-        if hum and hum.Parent then hum.JumpPower = power end
-    end
-
-    -- Restaura animações e sons
-    for track, speed in pairs(originalAnimationSpeeds) do
-        if track then track:AdjustSpeed(speed) end
-    end
-    for sound, speed in pairs(originalSoundSpeeds) do
-        if sound and sound.Parent then sound.PlaybackSpeed = speed end
-    end
-
-    -- Restaura BodyVelocity/LinearVelocity
-    for velInst, vel in pairs(originalVelocityInstances) do
-        if velInst and velInst.Parent then
-            if velInst:IsA("BodyVelocity") then
-                velInst.Velocity = vel
-            elseif velInst:IsA("LinearVelocity") then
-                velInst.VectorVelocity = vel
-            end
-        end
-    end
-
-    -- Desconecta eventos temporários
-    for _, conn in ipairs(animationConnections) do
-        conn:Disconnect()
-    end
-    originalWalkSpeeds = {}
-    originalJumpPowers = {}
-    originalAnimationSpeeds = {}
-    originalSoundSpeeds = {}
-    originalVelocityInstances = {}
-    animationConnections = {}
-
-    UpdateDashButton()
-    UpdateKiroshiButton()
-    UpdateOpticalButton()
-
-    -- Para e destrói a música ambiente
-    if State.MusicSound then
-        State.MusicSound:Stop()
-        State.MusicSound:Destroy()
-        State.MusicSound = nil
-    end
-
--- Limpeza do ViewportFrame (CORRIGIDO)
-if _G.SandiViewport then
-    if _G.SandiViewport.syncConn then
-        _G.SandiViewport.syncConn:Disconnect()
-    end
-    if _G.SandiViewport.gui then
-        _G.SandiViewport.gui:Destroy()
-    end
-    if _G.SandiViewport.charClone then
-        _G.SandiViewport.charClone:Destroy()
-    end
-    _G.SandiViewport = nil
-end
-end
-
-local function PlayActivationSequence()
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    
-    local overlay = Create("ImageLabel", {
-        Name = "SandiTextureOverlay", 
-        Size = UDim2.new(1, 0, 1, 0), 
-        Position = UDim2.new(0, 0, 0, 0), 
-        BackgroundTransparency = 1, 
-        ImageTransparency = 0.10, 
-        ZIndex = 100, 
-        Parent = gui
-    })
-    
-    local totalFrames = #SANDI_TEXTURES
-    local frameDuration = 0.08
-    local totalDuration = totalFrames * frameDuration
-    
-    local tempoInicial = os.clock()
-    local frameAtual = 1
-    overlay.Image = SANDI_TEXTURES[1]
-    
-    local conexaoIntro
-    conexaoIntro = RunService.RenderStepped:Connect(function()
-        if not overlay or not overlay.Parent then
-            conexaoIntro:Disconnect()
-            return
-        end
-        
-        local tempoDecorrido = os.clock() - tempoInicial
-        local progresso = math.clamp(tempoDecorrido / totalDuration, 0, 1)
-        local proximoFrame = math.floor(progresso * (totalFrames - 1)) + 1
-        
-        if proximoFrame ~= frameAtual then
-            frameAtual = proximoFrame
-            overlay.Image = SANDI_TEXTURES[frameAtual]
-        end
-        
-        if progresso >= 1 then
-            conexaoIntro:Disconnect()
-            
-            local fade = TweenService:Create(overlay, TweenInfo.new(0.2), {ImageTransparency = 1})
-            fade:Play()
-            fade.Completed:Connect(function()
-                overlay:Destroy()
-            end)
-        end
-    end)
-end
-
-local function ExecSandi()
-    if os.clock() < State.Cooldowns.SANDI and not State.IsSandiActive then return end
-    if State.IsSandiActive then ResetSandi() return end
-    if State.Energy < Constants.ENERGY_COSTS.SANDI_ACTIVATE then return end
-    if math.random() < PsyBar.FailChance("Sandi") then TriggerSandevistanFailure() return end
-    
-    SandiLockTime = os.clock() + 3
-    LastSandiActivationTime = os.clock()
-    
-    State.Energy -= Constants.ENERGY_COSTS.SANDI_ACTIVATE
-    State.Energy = math.max(0, State.Energy)
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    State.IsSandiActive = true
-    PsyBar.Add(PsyBar.GAIN_ACTIVATE * (1 + PsyBar.SPAM_GAIN_STEP * math.min(PsyBar.RecentUses(), 5)))
-    table.insert(PsyBar.Recent, os.clock())
-    Falar("sandi_on")
-    TimeFreeze.Start()
-    
-    -- Áudio
-    task.spawn(function() pcall(PlaySFX, Sounds.SANDI_ON) end)
-    
-    -- MICRO-PAUSA DRAMÁTICA: o mundo já congelou; a câmera "aperta" (FOV fecha) e um flash
-    -- branco curto marca o instante. Só depois a câmera estoura pro FOV 115, o shake bate
-    -- e o filtro verde entra. Não mexe em nenhum relógio/velocidade do jogo.
-    local MICRO_PAUSE = 0.12
-    local baseFov = Camera.FieldOfView
-    TweenService:Create(Camera, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        FieldOfView = baseFov - 10
-    }):Play()
-    
-    local sandiEffect = Create("ColorCorrectionEffect", {
-        Name = "SandiEffect",
-        TintColor = Color3.new(1,1,1),
-        Contrast = 0,
-        Saturation = -0.4,
-        Brightness = 0.3,
-        Parent = Lighting
-    })
-    TweenService:Create(sandiEffect, TweenInfo.new(MICRO_PAUSE), {Brightness = 0}):Play()
-
-    -- SEGUNDA CAMADA do filtro: empilha sobre o verde principal, escurece levemente
-    -- e puxa pro ciano/verde-água, dando profundidade (vinheta de cor + contraste extra).
-    local old2 = Lighting:FindFirstChild("SandiEffect2")
-    if old2 then old2:Destroy() end
-    local sandiEffect2 = Create("ColorCorrectionEffect", {
-        Name = "SandiEffect2",
-        TintColor = Color3.new(1,1,1),
-        Contrast = 0,
-        Saturation = 0,
-        Brightness = 0,
-        Parent = Lighting
-    })
-
-    task.delay(MICRO_PAUSE, function()
-        if not State.IsSandiActive then return end
-        task.spawn(function() pcall(CamShake, 1.5, 0.4) end)
-        TweenService:Create(Camera, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            FieldOfView = 115
-        }):Play()
-        if sandiEffect.Parent then
-            TweenService:Create(sandiEffect, TweenInfo.new(0.4), {
-                TintColor = Color3.fromRGB(85, 255, 127),
-                Contrast = 0.5,
-                Saturation = 0.25
-            }):Play()
-        end
-        if sandiEffect2.Parent then
-            TweenService:Create(sandiEffect2, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                TintColor = Color3.fromRGB(170, 255, 235),
-                Contrast = 0.2,
-                Saturation = 0.15,
-                Brightness = -0.06
-            }):Play()
-        end
-    end)
-    
-    -- ========== ANIMAÇÃO DE ATIVAÇÃO (TEXTURAS) ==========
-    -- Primeiro toca a animação
-    PlayActivationSequence()
-    -- (ScreenFade verde removido: o filtro agora é igual ao do script mobile)
-    
-    -- ========== VIEWPORTFRAME SÓ DEPOIS DA ANIMAÇÃO ==========
-    -- Aguarda a animação terminar (PlayActivationSequence dura cerca de 0.6~0.8 segundos)
-    task.delay(0.65, function()
-        -- Verifica se o Sandevistan ainda está ativo (pode ter sido desativado durante a espera)
-        if not State.IsSandiActive then return end
-        
-        -- Destroi clone anterior se existir
-        if _G.SandiViewport then
-            if _G.SandiViewport.syncConn then _G.SandiViewport.syncConn:Disconnect() end
-            if _G.SandiViewport.gui then _G.SandiViewport.gui:Destroy() end
-        end
-        
-        -- Cria o clone do personagem
-        Character.Archivable = true
-        local charClone = Character:Clone()
-        
-        -- Remove scripts da cópia
-        for _, v in pairs(charClone:GetDescendants()) do
-            if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-        end
-        
-        -- Cria a GUI
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "SandiBypassGui"
-        screenGui.IgnoreGuiInset = true
-        screenGui.Parent = Player:WaitForChild("PlayerGui")
-        
-        -- Cria o ViewportFrame
-        local vpf = Instance.new("ViewportFrame")
-        vpf.Size = UDim2.new(1, 0, 1, 0)
-        vpf.BackgroundTransparency = 1
-        vpf.CurrentCamera = workspace.CurrentCamera
-        vpf.Parent = screenGui
-        charClone.Parent = vpf
-        
-        -- Mapeia TODAS as partes do clone
-        local cloneParts = {}
-        local function indexCloneParts(instance, path)
-            for _, child in pairs(instance:GetChildren()) do
-                local newPath = path .. "." .. child.Name
-                if child:IsA("BasePart") then
-                    cloneParts[newPath] = child
-                end
-                indexCloneParts(child, newPath)
-            end
-        end
-        indexCloneParts(charClone, "")
-        
-        -- Sincroniza a cada frame
-        local syncConn = RunService.RenderStepped:Connect(function()
-            if not Character or not Character.Parent or not State.IsSandiActive then
-                return
-            end
-            local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
-            
-            -- Mapeia as partes reais
-            local realParts = {}
-            local function indexRealParts(instance, path)
-                for _, child in pairs(instance:GetChildren()) do
-                    local newPath = path .. "." .. child.Name
-                    if child:IsA("BasePart") then
-                        realParts[newPath] = child
-                    end
-                    indexRealParts(child, newPath)
-                end
-            end
-            indexRealParts(Character, "")
-            
-            -- Atualiza cada parte do clone
-            for path, clonePart in pairs(cloneParts) do
-                local realPart = realParts[path]
-                if realPart then
-                    clonePart.CFrame = realPart.CFrame
-                end
-            end
-        end)
-        
-        _G.SandiViewport = {
-            gui = screenGui,
-            syncConn = syncConn,
-            charClone = charClone
-        }
-    end)
-    -- ========== FIM DO VIEWPORTFRAME COM ATRASO ==========
-    
-    -- Marcador
-    local sandiMarker = Instance.new("BoolValue")
-    sandiMarker.Name = "CYBER_SANDI_ACTIVE"
-    sandiMarker.Parent = Character
-    
-    -- Gravidade reduzida
-    originalGravity = Workspace.Gravity
-    Workspace.Gravity = originalGravity * Configurations.SLOW_GRAVITY_MULTIPLIER
-    
-    -- Loop de drenagem de energia e clones holográficos
-    lastSandiClone = 0
-    sandiLoopSound = Create("Sound", {
-        SoundId = Sounds.SANDI_LOOP.id,
-        Volume = Sounds.SANDI_LOOP.volume,
-        PlaybackSpeed = Sounds.SANDI_LOOP.pitch,
-        Looped = true,
-        Parent = HRP
-    })
-    sandiLoopSound:Play()
-    
-    -- Ajustes de walk speed e outros efeitos lentos
-    for _, hum in pairs(workspace:GetDescendants()) do
-        if hum:IsA("Humanoid") and hum ~= Humanoid and not (hum.Parent and hum.Parent.Name == "PhaseGhost") then
-            originalWalkSpeeds[hum] = hum.WalkSpeed
-            hum.WalkSpeed = hum.WalkSpeed * Constants.SLOW_FACTOR
-        end
-    end
-    
-    UpdateDashButton()
-    UpdateKiroshiButton()
-    UpdateOpticalButton()
-    State.MusicSound = tocarMusica()
-    -- (mudança de ClockTime removida: o script mobile não altera o horário)
-end
-
--- ========== ANIMAÇÕES DO DASH (estilo Battlegrounds) ==========
--- Procedural: mexe nos Motor6D (C0), então funciona em R6 e R15 sem precisar de asset de animação.
--- Poses: Front (dash pra frente), Back (dash pra trás), Air (dash no ar).
--- Valores em graus {X, Y, Z} no espaço da Part0 do joint. X+ = balança pra frente, X- = pra trás.
-local DASH_ANIM = {
-    IN_TIME = 0.06,    -- tempo pra entrar na pose
-    HOLD_TIME = 0.14,  -- tempo segurando a pose
-    OUT_TIME = 0.16,   -- tempo voltando ao normal
-}
-
-local DASH_POSES = {
-    Front = {
-        Root = {-18, 0, 0}, Waist = {-6, 4, 0}, Neck = {10, 0, 0},
-        LArm = {70, 0, -6},  RArm = {25, 0, 10},
-        LElbow = {55, 0, 0}, RElbow = {75, 0, 0},
-        LLeg = {38, 0, 0},   RLeg = {-34, 0, 0},
-        LKnee = {-12, 0, 0}, RKnee = {-65, 0, 0},
-    },
-    Back = {
-        Root = {24, 0, 0}, Waist = {6, 0, 0}, Neck = {-16, 0, 0},
-        LArm = {55, 0, -22}, RArm = {55, 0, 22},
-        LLeg = {26, 0, 0},   RLeg = {-12, 0, 0},
-        LKnee = {-4, 0, 0},  RKnee = {-40, 0, 0},
-    },
-    Air = {
-        Root = {-80, 0, 0}, Waist = {-6, 0, 0}, Neck = {55, 0, 0},
-        LArm = {150, 0, -10}, RArm = {150, 0, 10},
-        LLeg = {-10, 0, -4},  RLeg = {-18, 0, 4},
-        LKnee = {-30, 0, 0},  RKnee = {-45, 0, 0},
-    },
-}
-
-local function dashGetJoints()
-    local j = {}
-    if not Character or not Humanoid then return j end
-    local function J(partName, jointName)
-        local p = Character:FindFirstChild(partName)
-        return p and p:FindFirstChild(jointName)
-    end
-    if Humanoid.RigType == Enum.HumanoidRigType.R15 then
-        j.Root  = J("LowerTorso", "Root")
-        j.Waist = J("UpperTorso", "Waist")
-        j.Neck  = J("Head", "Neck")
-        j.LArm  = J("LeftUpperArm", "LeftShoulder")
-        j.RArm  = J("RightUpperArm", "RightShoulder")
-        j.LLeg  = J("LeftUpperLeg", "LeftHip")
-        j.RLeg  = J("RightUpperLeg", "RightHip")
-        j.LElbow = J("LeftLowerArm", "LeftElbow")
-        j.RElbow = J("RightLowerArm", "RightElbow")
-        j.LKnee = J("LeftLowerLeg", "LeftKnee")
-        j.RKnee = J("RightLowerLeg", "RightKnee")
-    else
-        j.Root = HRP and HRP:FindFirstChild("RootJoint")
-        j.Neck = J("Torso", "Neck")
-        j.LArm = J("Torso", "Left Shoulder")
-        j.RArm = J("Torso", "Right Shoulder")
-        j.LLeg = J("Torso", "Left Hip")
-        j.RLeg = J("Torso", "Right Hip")
-    end
-    for name, joint in pairs(j) do
-        if not (joint and joint:IsA("Motor6D")) then j[name] = nil end
-    end
-    return j
-end
-
-local function dashApplyPose(joints, base, pose, alpha)
-    for name, joint in pairs(joints) do
-        local c0 = base[name]
-        local r = pose and pose[name]
-        if r then
-            local rot = CFrame.Angles(math.rad(r[1] * alpha), math.rad(r[2] * alpha), math.rad(r[3] * alpha))
-            -- gira em volta do pivô do joint (mantém a posição, só rotaciona)
-            joint.C0 = CFrame.new(c0.Position) * rot * (c0 - c0.Position)
-        else
-            joint.C0 = c0
-        end
-    end
-end
-
-local DashAnimState = {Token = 0, Joints = nil, Base = nil, AutoRotate = nil}
-
-local function dashRestore()
-    if DashAnimState.Joints and DashAnimState.Base then
-        for name, joint in pairs(DashAnimState.Joints) do
-            if joint and joint.Parent and DashAnimState.Base[name] then
-                joint.C0 = DashAnimState.Base[name]
-            end
-        end
-    end
-    if DashAnimState.AutoRotate ~= nil and Humanoid and Humanoid.Parent then
-        Humanoid.AutoRotate = DashAnimState.AutoRotate
-    end
-    DashAnimState.Joints, DashAnimState.Base, DashAnimState.AutoRotate = nil, nil, nil
-end
-
--- kind: "Front" | "Back" | "Air"; direction: Vector3 unitário do dash
-local function PlayDashAnim(kind, direction)
-    if not Character or not Humanoid or not HRP then return end
-    dashRestore() -- cancela animação anterior, se tiver
-
-    local joints = dashGetJoints()
-    if not joints.Root then return end
-
-    DashAnimState.Token += 1
-    local token = DashAnimState.Token
-
-    local base = {}
-    for name, joint in pairs(joints) do base[name] = joint.C0 end
-    DashAnimState.Joints, DashAnimState.Base = joints, base
-
-    -- copia a pose pra poder ajustar a inclinação conforme a direção (dash no ar)
-    local pose = {}
-    for k, v in pairs(DASH_POSES[kind]) do pose[k] = {v[1], v[2], v[3]} end
-
-    DashAnimState.AutoRotate = Humanoid.AutoRotate
-    Humanoid.AutoRotate = false -- evita o boneco girar sozinho durante o dash
-
-    if kind == "Air" then
-        local flat = Vector3.new(direction.X, 0, direction.Z)
-        if flat.Magnitude > 0.05 then
-            HRP.CFrame = CFrame.lookAt(HRP.Position, HRP.Position + flat)
-        end
-        -- cabeça aponta na direção do dash (subindo ou descendo)
-        local elev = math.deg(math.asin(math.clamp(direction.Y, -1, 1)))
-        pose.Root[1] = -math.clamp(80 - elev, 25, 110)
-    end
-
-    -- reduz o peso das animações normais (andar/cair) pra não brigar com a pose
-    local dimmed = {}
-    local animator = Humanoid:FindFirstChildOfClass("Animator")
-    if animator then
-        for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
-            pcall(function() tr:AdjustWeight(0.05, 0.05) end)
-            table.insert(dimmed, tr)
-        end
-    end
-
-    task.spawn(function()
-        local t0 = os.clock()
-        local total = DASH_ANIM.IN_TIME + DASH_ANIM.HOLD_TIME + DASH_ANIM.OUT_TIME
-        while true do
-            if DashAnimState.Token ~= token then return end -- outro dash assumiu
-            local t = os.clock() - t0
-            if t >= total or not Character or not Character.Parent then break end
-
-            local alpha
-            if t < DASH_ANIM.IN_TIME then
-                local x = t / DASH_ANIM.IN_TIME
-                alpha = 1 - (1 - x) ^ 3                              -- ease-out
-            elseif t < DASH_ANIM.IN_TIME + DASH_ANIM.HOLD_TIME then
-                alpha = 1
-            else
-                local x = (t - DASH_ANIM.IN_TIME - DASH_ANIM.HOLD_TIME) / DASH_ANIM.OUT_TIME
-                alpha = 1 - x * x                                     -- ease-in
-            end
-            dashApplyPose(joints, base, pose, alpha)
-            RunService.RenderStepped:Wait()
-        end
-
-        if DashAnimState.Token == token then
-            dashRestore()
-            for _, tr in ipairs(dimmed) do
-                pcall(function() if tr.IsPlaying then tr:AdjustWeight(1, 0.1) end end)
-            end
-        end
-    end)
-end
--- ========== FIM DAS ANIMAÇÕES DO DASH ==========
-
--- ========== ANIMAÇÕES DO DASH POR KEYFRAMES (Swavi Dash System) + DASH ESQUERDA/DIREITA ==========
--- Os keyframes (Dash1 / Dash2 / BackDash / DashLeft / DashRight) estão EMBUTIDOS aqui:
--- não precisa publicar animação nem ter arquivo extra. Roda 100% no cliente, movendo os
--- Motor6D (Transform) do seu personagem R6 a cada frame. Em R15 (ou se algo falhar) cai
--- automaticamente na animação procedural antiga.
-local GetGroundDashKind
-
+local TweenService = game:GetService("TweenService")
 do
-local DashClips = {
-    Enabled = true,
-    Speed = 1.4,      -- 1 = velocidade original da animação (0.5s); maior = mais rápida
-    FadeIn = 0.04,
-    FadeOut = 0.1,
-    NextFront = 1,    -- alterna Dash1 / Dash2 no dash pra frente
-    Built = nil,
-    Playing = {},
-    Motors = {},
-    MotorChar = nil,
-    AutoRotateSaved = nil,
-    Conn = nil,
-    Warned = false,
-    -- As animações são baixadas do GitHub (1x) e salvas na pasta "workspace" do executor.
-    -- Se o download falhar, usa os keyframes embutidos abaixo como reserva.
-    UseGithub = true,
-    GithubUrl = "https://github.com/hatsunemiku51111-cloud/SCRIPT/raw/refs/heads/main/dash_system_probably_working__1_.rbxm",
-    FileName = "dash_system_probably_working__1_.rbxm",
+	local okR, isClient = pcall(function() return RunService:IsClient() end)
+	if okR and not isClient then
+		return
+	end
+end
+if not game:IsLoaded() then game.Loaded:Wait() end
+local player = Players.LocalPlayer
+while not player do task.wait(); player = Players.LocalPlayer end
+local camera = workspace.CurrentCamera or workspace:WaitForChild("Camera", 10)
+local Config = {
+	ShellStyle = 1,
+	HeadlightsOnStart = false,
+	WedgeFlip = "auto",
+	BodyColor = Color3.fromRGB(17, 17, 21),
+	Scale = 1.25,
+	TopSpeed = 230,
+	Thrust = 28,
+	GearTop = { 0.2, 0.4, 0.6, 0.8, 1.0 },
+	GearAccel = { 2.2, 1.7, 1.35, 1.12, 1.0 },
+	RunPitchBase = { 0.62, 0.68, 0.74, 0.78, 0.8 },
+	RunPitchSpan = { 0.28, 0.4, 0.55, 0.68, 0.8 },
+	RunFadeIn = 0.7,
+	RunFadeOut = 1.1,
+	StartGear = 5,
+	CamKey = Enum.KeyCode.V,
+	CamMaxZoom = 60,
+	CamShowBody = false,
+	ShiftHoldTime = 0.45,
+	RestHandOnShifter = false,
+	ReverseTop = 45,
+	EngineBrake = 18,
+	BrakePedal = 65,
+	BrakeNotch = { 40, 75, 110 },
+	DriftGrip = { 2.4, 1.1, 0.45 },
+	DriftTurn = { 1.15, 1.4, 1.8 },
+	Grip = 9,
+	MaxLatAccel = 100,
+	RampJump = { Enabled = true, Tol = 0.8, MinVy = 10, GravMul = 1.15, MaxVy = 300, Gain = 1.0, LandLoss = 0.15, LandSus = 40, NoseBias = 0.08, AirK = 6, AirDamp = 0.85, AlignDist = 14 },
+	HeadlightRange = 60,
+	HeadlightBrightness = 3,
+	RollK = 0.6,
+	StepUp = 2.2,
+	SeatHeight = 1.35,
+	SpawnDistance = 22,
+	SpawnFx = {
+		Enabled = true,
+		InTime = 2.4,
+		InDist = 120,
+		InSlip0 = 60,
+		InSlipPeak = 76,
+		InSlipEnd = 50,
+		InArc = 100,
+		InWag = 6,
+		InSide = 0,
+		OutEnabled = true,
+		OutRevTime = 1.0,
+		OutRunTime = 2.4,
+		OutSpeed = 235,
+		OutDist = 420,
+		SoundFlash = "rbxasset://sounds/impact_explosion_03.mp3",
+		SoundFlashVol = 1.3,
+	},
+	BoardRadius = 16,
+	BoardAnim = true,
+	Board = {
+		OpenAngle = 64,
+		OpenTime = 1.0,
+		InTime = 2.1,
+		SettleTime = 0.15,
+		CloseTime = 0.9,
+		StandX = -4.6,
+		StandZ = 1.6,
+	},
+	SoundDoorOpen = "rbxassetid://139882610901041",
+	SoundDoorClose = "rbxassetid://121381393291287",
+	LimbAnim = true,
+	DriveAnim = {
+		Enabled = true,
+		RevLook = true,
+		RevLookYaw = 75,
+		LampTime = 1.2,
+		LampSwitch = Vector3.new(-2.9, 3.3, -0.95),
+	},
+	ExitAnim = true,
+	Exit = {
+		OpenTime = 0.9,
+		OutTime = 2.0,
+		CloseDelay = 0.25,
+		CloseTime = 0.8,
+		MaxSpeed = 3,
+	},
+	UseHiddenGui = true,
+	SoundDial = "rbxassetid://6042053626",
+	SoundInvalid = "rbxassetid://132281440773764",
+	SoundLand = "rbxassetid://7340406550",
+	SoundStart = "rbxassetid://118763914673708",
+	SoundStartFail = "rbxassetid://111925060225158",
+	SoundIdle = "rbxassetid://6399923126",
+	SoundDrive = "rbxassetid://81909109039491",
+	SoundRun = "rbxassetid://82036216654849",
+	SoundSkid = "rbxassetid://8763693960",
+	SoundEquip = "rbxassetid://129589685201945",
+	KeyToolName = "Chave do Charger",
+	KeyAccessoryId = 71337506344769,
+	KeyLength = 1.6,
+	KeyGrip = Vector3.new(0, 0, 0),
+	KeyRotation = Vector3.new(0, 0, 0),
+	KeyCooldown = 0.9,
+	KeyIcon = "\u{1F511}",
+	SoundKeyEquip = "rbxassetid://9113849492",
+	EnginePerf = { Enabled = true, Hz = 20, LodDist = 120, Shake = true, Spin = false, Chain = false },
+	Ignition = {
+		Pos = Vector3.new(-1.33, 2.88, -0.85),
+		ReachTime = 0.45,
+		TurnTime = 0.3,
+		CrankTime = 1.2,
+		FailChance = 0.3,
+		OffAngle = 0,
+		OnAngle = 22,
+		StartAngle = 58,
+		KickRpm = 3400,
+		KickShake = 2.2,
+		SmokeMul = 1,
+		Exhaust = { Vector3.new(-1.7, 1.12, 10.5), Vector3.new(1.7, 1.12, 10.5) },
+	},
+	EngineSoundId = nil,
+	VolIdle = 0.22,
+	VolRun = 0.15,
+	Cabin = { Enabled = true, Vol = 0.55, HighGain = -26, MidGain = -7, LowGain = 3, Window = 0.8, Door = 1.0, CamNear = 6, CamFar = 18 },
+	CacheDisk = true,
+	CrankDir = -1,
+	CheapGlass = true,
+	Lite = nil,
+	LiteMode = "off",
 }
-
-local DASH_CLIP_DATA = {
-	Dash1 = {len = 0.5, parts = {
-		Head = {0,0,0,0,0,0,0,1,0.017,0,0,0,-0.02589,0.00078,0.00536,0.99965,0.033,0,0,0,-0.09562,0.00244,0.02011,0.99521,0.05,0,0,0,-0.19632,0.00385,0.04204,0.97963,0.067,0,0,0,-0.31131,0.00383,0.06816,0.94785,0.083,0,0,0,-0.42177,0.00124,0.09495,0.90172,0.1,0,0,0,-0.51221,-0.00483,0.11948,0.8505,0.117,0,0,0,-0.5758,-0.01487,0.14068,0.80526,0.133,0,0,0,-0.61684,-0.02811,0.15972,0.7702,0.15,0,0,0,-0.64022,-0.04366,0.17799,0.74601,0.167,0,0,0,-0.64906,-0.06079,0.19657,0.73239,0.183,0,0,0,-0.64501,-0.07872,0.21632,0.72868,0.2,0,0,0,-0.62874,-0.09659,0.23788,0.73401,0.217,0,0,0,-0.60029,-0.11324,0.26163,0.74725,0.233,0,0,0,-0.5595,-0.12724,0.28761,0.76684,0.25,0,0,0,-0.50914,-0.13733,0.31419,0.78943,0.267,0,0,0,-0.46396,-0.14433,0.33455,0.80746,0.283,0,0,0,-0.44337,-0.15017,0.34178,0.8149,0.3,0,0,0,-0.44189,-0.15689,0.3387,0.81572,0.317,0,0,0,-0.44112,-0.16482,0.33282,0.81699,0.333,0,0,0,-0.44093,-0.17351,0.32484,0.81851,0.35,0,0,0,-0.44123,-0.18249,0.31544,0.82007,0.367,0,0,0,-0.44195,-0.19132,0.30535,0.82149,0.383,0,0,0,-0.44301,-0.19952,0.29529,0.82264,0.4,0,0,0,-0.44439,-0.20664,0.28602,0.82341,0.417,0,0,0,-0.44606,-0.21222,0.27833,0.82373,0.433,0,0,0,-0.44799,-0.21578,0.273,0.82353,0.45,0,0,0,-0.45018,-0.21688,0.27082,0.82277,0.467,0,0,0,-0.45299,-0.21587,0.2706,0.82157,0.483,0,0,0,-0.45671,-0.21355,0.27061,0.82011,0.5,0,0,0,-0.46116,-0.21011,0.27082,0.81844},
-		["Left Arm"] = {0,0,0,0,0,0,0,1,0.017,-0.0387,0.009,-0.0015,-0.00025,0.00442,-0.06604,0.99781,0.033,-0.1397,0.0581,-0.003,-0.00308,0.01605,-0.24459,0.96949,0.05,-0.2528,0.1842,-0.0005,-0.01172,0.03102,-0.48546,0.87363,0.067,-0.3071,0.3622,0.0036,-0.02804,0.04308,-0.70005,0.71224,0.083,-0.302,0.5188,0.0038,-0.05284,0.04847,-0.83434,0.54657,0.1,-0.2877,0.6282,0.0005,-0.08862,0.04767,-0.90156,0.42078,0.117,-0.2871,0.7093,-0.0022,-0.13608,0.04255,-0.93366,0.32856,0.133,-0.3032,0.7757,-0.0002,-0.19551,0.03383,-0.94579,0.25712,0.15,-0.3332,0.8338,0.0108,-0.26594,0.02167,-0.9431,0.1984,0.167,-0.3704,0.8873,0.0325,-0.34263,0.00652,-0.92767,0.1483,0.183,-0.4049,0.9381,0.0605,-0.41491,-0.01007,-0.90359,0.10616,0.2,-0.4285,0.986,0.0834,-0.46971,-0.02549,-0.87936,0.07385,0.217,-0.4426,1.027,0.0959,-0.50474,-0.03829,-0.86078,0.05324,0.233,-0.4508,1.0578,0.0988,-0.52324,-0.04804,-0.84969,0.04394,0.25,-0.456,1.0766,0.0949,-0.5295,-0.05487,-0.84538,0.04418,0.267,-0.4597,1.0821,0.0879,-0.52753,-0.05913,-0.84589,0.05191,0.283,-0.4632,1.0739,0.0809,-0.52075,-0.06125,-0.84901,0.06526,0.3,-0.4672,1.054,0.0761,-0.512,-0.06169,-0.85281,0.08225,0.317,-0.4722,1.0248,0.0754,-0.50402,-0.06089,-0.85561,0.10089,0.333,-0.4793,0.9888,0.0806,-0.49963,-0.05926,-0.85594,0.11925,0.35,-0.4894,0.9481,0.0939,-0.50172,-0.05719,-0.85246,0.13532,0.367,-0.5024,0.905,0.1162,-0.51198,-0.05504,-0.84444,0.14755,0.383,-0.5164,0.8611,0.1445,-0.52747,-0.05302,-0.83339,0.15626,0.4,-0.5292,0.8183,0.1743,-0.54429,-0.05128,-0.82145,0.16229,0.417,-0.5393,0.7782,0.2008,-0.55876,-0.04998,-0.81091,0.16651,0.433,-0.5459,0.7425,0.2194,-0.5675,-0.04931,-0.80416,0.16983,0.45,-0.5487,0.7125,0.2266,-0.56812,-0.04937,-0.80304,0.17298,0.467,-0.548,0.6881,0.2236,-0.56163,-0.05011,-0.80691,0.17595,0.483,-0.5443,0.6689,0.2128,-0.54971,-0.05139,-0.81443,0.17853,0.5,-0.5379,0.6545,0.1965,-0.53401,-0.05309,-0.82428,0.18049},
-		["Left Leg"] = {0,0.0179,-0.0121,-0.0005,0.01382,0.01668,0.09776,0.99497,0.017,0.0225,-0.0347,0.0037,0.01332,0.02032,0.09717,0.99497,0.033,0.0347,-0.0941,0.0149,0.01194,0.03021,0.09561,0.99489,0.05,0.0521,-0.1781,0.0309,0.00989,0.0448,0.09339,0.99457,0.067,0.0723,-0.2744,0.0494,0.00736,0.06254,0.09081,0.99388,0.083,0.093,-0.3705,0.0685,0.00456,0.08187,0.08819,0.99272,0.1,0.1117,-0.4541,0.0863,0.00169,0.10123,0.08584,0.99115,0.117,0.1266,-0.5152,0.1014,-0.00108,0.11934,0.08403,0.98929,0.133,0.1375,-0.5532,0.114,-0.00372,0.13601,0.0828,0.98724,0.15,0.1449,-0.5702,0.1241,-0.00623,0.15128,0.08207,0.98506,0.167,0.1491,-0.5682,0.1321,-0.0086,0.16523,0.08181,0.98282,0.183,0.1504,-0.5489,0.1381,-0.01084,0.17791,0.08197,0.98057,0.2,0.1493,-0.5146,0.1423,-0.01294,0.18938,0.08249,0.97835,0.217,0.1461,-0.467,0.145,-0.0149,0.19972,0.08333,0.97619,0.233,0.1413,-0.4083,0.1463,-0.01673,0.20897,0.08443,0.97413,0.25,0.1351,-0.3403,0.1463,-0.01842,0.21719,0.08575,0.97218,0.267,0.128,-0.2651,0.1452,-0.01998,0.22444,0.08723,0.97037,0.283,0.1204,-0.1847,0.1431,-0.02139,0.23077,0.08882,0.96871,0.3,0.1125,-0.101,0.1402,-0.02266,0.23623,0.09047,0.96721,0.317,0.1048,-0.0161,0.1366,-0.02379,0.24087,0.09212,0.96588,0.333,0.0977,0.0681,0.1324,-0.02478,0.24474,0.09373,0.96473,0.35,0.0914,0.1495,0.1277,-0.02562,0.24789,0.09525,0.96375,0.367,0.0864,0.2262,0.1226,-0.02632,0.25036,0.0966,0.96296,0.383,0.0829,0.2962,0.1173,-0.02686,0.25221,0.09775,0.96235,0.4,0.0815,0.3574,0.1119,-0.02725,0.25347,0.09864,0.96191,0.417,0.0823,0.4079,0.1063,-0.02749,0.25419,0.09922,0.96166,0.433,0.0858,0.4456,0.1009,-0.02757,0.25443,0.09942,0.96157,0.45,0.0923,0.4694,0.0954,-0.02757,0.25443,0.09942,0.96157,0.467,0.1018,0.4804,0.09,-0.02757,0.25443,0.09942,0.96157,0.483,0.1137,0.48,0.0845,-0.02757,0.25443,0.09942,0.96157,0.5,0.1276,0.4699,0.0791,-0.02757,0.25443,0.09942,0.96157},
-		["Right Arm"] = {0,0,0,0,0,0,0,1,0.017,-0.0041,-0.0255,0.0061,-0.00582,-0.02751,-0.01267,0.99952,0.033,-0.0155,-0.0943,0.0278,-0.02086,-0.10023,-0.04526,0.99372,0.05,-0.0367,-0.1948,0.0717,-0.04111,-0.20173,-0.08889,0.97453,0.067,-0.0726,-0.3113,0.1375,-0.06178,-0.31187,-0.13304,0.93873,0.083,-0.1219,-0.4239,0.213,-0.07828,-0.41082,-0.16756,0.89276,0.1,-0.1726,-0.5163,0.2826,-0.08799,-0.48734,-0.1867,0.84847,0.117,-0.2164,-0.5873,0.3416,-0.0919,-0.54446,-0.19288,0.81112,0.133,-0.2493,-0.6393,0.3901,-0.09148,-0.58699,-0.18954,0.78176,0.15,-0.2699,-0.675,0.4291,-0.08781,-0.61839,-0.17933,0.76008,0.167,-0.2787,-0.6965,0.4593,-0.08177,-0.64099,-0.16442,0.74526,0.183,-0.2767,-0.7062,0.4812,-0.07411,-0.65635,-0.14676,0.73632,0.2,-0.266,-0.7063,0.4954,-0.0656,-0.66561,-0.12835,0.73225,0.217,-0.2488,-0.6998,0.5022,-0.05705,-0.66967,-0.11134,0.73205,0.233,-0.2277,-0.6895,0.5021,-0.04937,-0.66942,-0.09809,0.73472,0.25,-0.205,-0.6784,0.4958,-0.04337,-0.66569,-0.09063,0.73943,0.267,-0.1818,-0.6675,0.4841,-0.03917,-0.65887,-0.08883,0.74597,0.283,-0.1588,-0.6571,0.4675,-0.03669,-0.64914,-0.09192,0.75421,0.3,-0.1371,-0.6473,0.447,-0.03579,-0.63667,-0.09904,0.76392,0.317,-0.1176,-0.638,0.4233,-0.03632,-0.6216,-0.10929,0.77482,0.333,-0.1015,-0.6293,0.3973,-0.03813,-0.60411,-0.12174,0.78663,0.35,-0.0896,-0.6212,0.3701,-0.04104,-0.58436,-0.13544,0.79906,0.367,-0.0827,-0.6137,0.3423,-0.04487,-0.56255,-0.14947,0.8119,0.383,-0.0815,-0.6073,0.315,-0.04945,-0.53892,-0.16292,0.82497,0.4,-0.0869,-0.6023,0.289,-0.05463,-0.51369,-0.17494,0.83817,0.417,-0.0992,-0.5994,0.2648,-0.06024,-0.48708,-0.18472,0.85147,0.433,-0.1191,-0.5992,0.243,-0.06615,-0.45929,-0.19147,0.86488,0.45,-0.1427,-0.6002,0.2238,-0.07221,-0.43063,-0.19466,0.87832,0.467,-0.1653,-0.6005,0.2071,-0.07818,-0.40204,-0.1947,0.89126,0.483,-0.1861,-0.6002,0.1932,-0.0838,-0.37474,-0.19224,0.9031,0.5,-0.2042,-0.5998,0.1823,-0.08882,-0.34998,-0.18793,0.9134},
-		["Right Leg"] = {0,0,0,0,0,0,0,1,0.017,0.014,0.0505,-0.0142,-0.00912,-0.00448,0.00896,0.99991,0.033,0.0511,0.1855,-0.0533,-0.03338,-0.01645,0.03311,0.99876,0.05,0.1033,0.3793,-0.1123,-0.068,-0.0337,0.06828,0.99478,0.067,0.1635,0.606,-0.1857,-0.10788,-0.05381,0.10993,0.9866,0.083,0.2261,0.84,-0.2661,-0.14762,-0.07426,0.15326,0.97427,0.1,0.2865,1.0571,-0.3444,-0.18207,-0.09259,0.19362,0.95958,0.117,0.3416,1.2396,-0.4118,-0.20751,-0.10705,0.22768,0.94533,0.133,0.3914,1.3872,-0.466,-0.22421,-0.11772,0.25548,0.93306,0.15,0.4363,1.5038,-0.5072,-0.23328,-0.12506,0.27782,0.92345,0.167,0.4768,1.5924,-0.536,-0.23573,-0.1295,0.2954,0.91674,0.183,0.513,1.656,-0.5535,-0.23236,-0.13138,0.30879,0.9129,0.2,0.5451,1.6969,-0.5608,-0.2239,-0.13097,0.31847,0.91175,0.217,0.5736,1.7173,-0.5591,-0.21096,-0.12852,0.32478,0.91296,0.233,0.5986,1.7193,-0.5497,-0.19409,-0.12423,0.32802,0.91613,0.25,0.6204,1.705,-0.5339,-0.17384,-0.11829,0.32843,0.92083,0.267,0.6391,1.6762,-0.5131,-0.15078,-0.11088,0.32622,0.92658,0.283,0.6551,1.6351,-0.4885,-0.1255,-0.10222,0.32161,0.93293,0.3,0.6683,1.5839,-0.4614,-0.09867,-0.09252,0.31485,0.93945,0.317,0.6788,1.5247,-0.433,-0.071,-0.08203,0.30623,0.94576,0.333,0.6866,1.46,-0.4041,-0.04325,-0.07103,0.29607,0.95154,0.35,0.6918,1.3921,-0.3755,-0.01622,-0.0598,0.28475,0.9566,0.367,0.6944,1.3236,-0.3477,0.00928,-0.04866,0.27271,0.96082,0.383,0.6946,1.2572,-0.3212,0.03244,-0.03792,0.2604,0.96421,0.4,0.6926,1.1952,-0.2962,0.05249,-0.02789,0.24828,0.96686,0.417,0.6888,1.1404,-0.2729,0.0687,-0.01885,0.23686,0.96893,0.433,0.6835,1.0952,-0.2513,0.08034,-0.01111,0.22658,0.97061,0.45,0.6772,1.0616,-0.2315,0.08697,-0.00485,0.21783,0.97209,0.467,0.6703,1.0389,-0.2134,0.08895,-0.00001,0.21058,0.97352,0.483,0.6629,1.0261,-0.1968,0.0869,0.00356,0.20471,0.97495,0.5,0.6553,1.0219,-0.1817,0.08139,0.00601,0.20009,0.97637},
-		Torso = {0,-0.0032,-0.6038,-0.2029,0.31846,-0.00416,0.00732,0.9479,0.017,-0.0049,-0.6693,-0.2336,0.341,-0.00348,0.00234,0.94005,0.033,-0.0111,-0.8334,-0.3221,0.39893,-0.00129,-0.0112,0.91691,0.05,-0.0245,-1.0426,-0.4623,0.47658,0.00264,-0.03107,0.87858,0.067,-0.046,-1.2459,-0.6347,0.55722,0.00844,-0.05451,0.82853,0.083,-0.0724,-1.4094,-0.8044,0.62603,0.01614,-0.07867,0.77565,0.1,-0.0981,-1.5252,-0.9394,0.67484,0.02574,-0.10161,0.73048,0.117,-0.1207,-1.6073,-1.0356,0.70642,0.03699,-0.12321,0.69601,0.133,-0.1394,-1.6677,-1.0982,0.72481,0.04965,-0.14373,0.67196,0.15,-0.1533,-1.7128,-1.1327,0.73295,0.06351,-0.16333,0.65732,0.167,-0.1619,-1.7462,-1.1441,0.73293,0.07836,-0.18206,0.65079,0.183,-0.1647,-1.769,-1.1367,0.72629,0.09397,-0.19984,0.65095,0.2,-0.1613,-1.7816,-1.1143,0.7143,0.11004,-0.21645,0.65636,0.217,-0.1518,-1.7838,-1.0807,0.69818,0.12618,-0.23158,0.66558,0.233,-0.1367,-1.7756,-1.0399,0.67924,0.14197,-0.24483,0.67715,0.25,-0.1172,-1.7573,-0.9958,0.65902,0.15691,-0.2558,0.68967,0.267,-0.0951,-1.7299,-0.9525,0.63929,0.1705,-0.26411,0.70177,0.283,-0.0724,-1.6951,-0.9134,0.62171,0.18232,-0.2695,0.71247,0.3,-0.0503,-1.6548,-0.8788,0.60666,0.19232,-0.27223,0.72171,0.317,-0.0295,-1.6104,-0.8484,0.5941,0.20058,-0.27269,0.7297,0.333,-0.0105,-1.5634,-0.8218,0.58391,0.20718,-0.27124,0.73658,0.35,0.0065,-1.5153,-0.7986,0.57593,0.2122,-0.26827,0.7425,0.367,0.021,-1.4671,-0.7786,0.56995,0.21572,-0.26412,0.74757,0.383,0.0331,-1.4202,-0.7613,0.56574,0.21785,-0.25917,0.75187,0.4,0.0426,-1.3757,-0.7465,0.56305,0.21865,-0.25376,0.75549,0.417,0.0495,-1.3346,-0.734,0.56162,0.21822,-0.24822,0.75852,0.433,0.0537,-1.2981,-0.7237,0.56119,0.21664,-0.2429,0.76101,0.45,0.0552,-1.267,-0.7154,0.56153,0.21399,-0.23806,0.76303,0.467,0.0544,-1.2411,-0.709,0.56251,0.21041,-0.23373,0.76464,0.483,0.0514,-1.2199,-0.7042,0.56405,0.20607,-0.22988,0.76586,0.5,0.0467,-1.2031,-0.701,0.56603,0.20109,-0.22648,0.76673},
-	}},
-	Dash2 = {len = 0.5, parts = {
-		Head = {0,0,0,0,0,0,0,1,0.017,0,0,0,-0.02589,-0.00078,-0.00536,0.99965,0.033,0,0,0,-0.09562,-0.00244,-0.02011,0.99521,0.05,0,0,0,-0.19632,-0.00385,-0.04204,0.97963,0.067,0,0,0,-0.31131,-0.00383,-0.06816,0.94785,0.083,0,0,0,-0.42177,-0.00124,-0.09495,0.90172,0.1,0,0,0,-0.51221,0.00483,-0.11948,0.8505,0.117,0,0,0,-0.5758,0.01487,-0.14068,0.80526,0.133,0,0,0,-0.61684,0.02811,-0.15972,0.7702,0.15,0,0,0,-0.64022,0.04366,-0.17799,0.74601,0.167,0,0,0,-0.64906,0.06079,-0.19657,0.73239,0.183,0,0,0,-0.64501,0.07872,-0.21632,0.72868,0.2,0,0,0,-0.62874,0.09659,-0.23788,0.73401,0.217,0,0,0,-0.60029,0.11324,-0.26163,0.74725,0.233,0,0,0,-0.5595,0.12724,-0.28761,0.76684,0.25,0,0,0,-0.50914,0.13733,-0.31419,0.78943,0.267,0,0,0,-0.46396,0.14433,-0.33455,0.80746,0.283,0,0,0,-0.44337,0.15017,-0.34178,0.8149,0.3,0,0,0,-0.44189,0.15689,-0.3387,0.81572,0.317,0,0,0,-0.44112,0.16482,-0.33282,0.81699,0.333,0,0,0,-0.44093,0.17351,-0.32484,0.81851,0.35,0,0,0,-0.44123,0.18249,-0.31544,0.82007,0.367,0,0,0,-0.44195,0.19132,-0.30535,0.82149,0.383,0,0,0,-0.44301,0.19952,-0.29529,0.82264,0.4,0,0,0,-0.44439,0.20664,-0.28602,0.82341,0.417,0,0,0,-0.44606,0.21222,-0.27833,0.82373,0.433,0,0,0,-0.44799,0.21578,-0.273,0.82353,0.45,0,0,0,-0.45018,0.21688,-0.27082,0.82277,0.467,0,0,0,-0.45299,0.21587,-0.2706,0.82157,0.483,0,0,0,-0.45671,0.21355,-0.27061,0.82011,0.5,0,0,0,-0.46116,0.21011,-0.27082,0.81844},
-		["Left Arm"] = {0,0,0,0,0,0,0,1,0.017,0.0041,-0.0255,0.0061,-0.00582,0.02751,0.01267,0.99952,0.033,0.0155,-0.0943,0.0278,-0.02086,0.10023,0.04526,0.99372,0.05,0.0367,-0.1948,0.0717,-0.04111,0.20173,0.08889,0.97453,0.067,0.0726,-0.3113,0.1375,-0.06178,0.31187,0.13304,0.93873,0.083,0.1219,-0.4239,0.213,-0.07828,0.41082,0.16756,0.89276,0.1,0.1726,-0.5163,0.2826,-0.08799,0.48734,0.1867,0.84847,0.117,0.2164,-0.5873,0.3416,-0.0919,0.54446,0.19288,0.81112,0.133,0.2493,-0.6393,0.3901,-0.09148,0.58699,0.18954,0.78176,0.15,0.2699,-0.675,0.4291,-0.08781,0.61839,0.17933,0.76008,0.167,0.2787,-0.6965,0.4593,-0.08177,0.64099,0.16442,0.74526,0.183,0.2767,-0.7062,0.4812,-0.07411,0.65635,0.14676,0.73632,0.2,0.266,-0.7063,0.4954,-0.0656,0.66561,0.12835,0.73225,0.217,0.2488,-0.6998,0.5022,-0.05705,0.66967,0.11134,0.73205,0.233,0.2277,-0.6895,0.5021,-0.04937,0.66942,0.09809,0.73472,0.25,0.205,-0.6784,0.4958,-0.04337,0.66569,0.09063,0.73943,0.267,0.1818,-0.6675,0.4841,-0.03917,0.65887,0.08883,0.74597,0.283,0.1588,-0.6571,0.4675,-0.03669,0.64914,0.09192,0.75421,0.3,0.1371,-0.6473,0.447,-0.03579,0.63667,0.09904,0.76392,0.317,0.1176,-0.638,0.4233,-0.03632,0.6216,0.10929,0.77482,0.333,0.1015,-0.6293,0.3973,-0.03813,0.60411,0.12174,0.78663,0.35,0.0896,-0.6212,0.3701,-0.04104,0.58436,0.13544,0.79906,0.367,0.0827,-0.6137,0.3423,-0.04487,0.56255,0.14947,0.8119,0.383,0.0815,-0.6073,0.315,-0.04945,0.53892,0.16292,0.82497,0.4,0.0869,-0.6023,0.289,-0.05463,0.51369,0.17494,0.83817,0.417,0.0992,-0.5994,0.2648,-0.06024,0.48708,0.18472,0.85147,0.433,0.1191,-0.5992,0.243,-0.06615,0.45929,0.19147,0.86488,0.45,0.1427,-0.6002,0.2238,-0.07221,0.43063,0.19466,0.87832,0.467,0.1653,-0.6005,0.2071,-0.07818,0.40204,0.1947,0.89126,0.483,0.1861,-0.6002,0.1932,-0.0838,0.37474,0.19224,0.9031,0.5,0.2042,-0.5998,0.1823,-0.08882,0.34998,0.18793,0.9134},
-		["Left Leg"] = {0,0,0,0,0,0,0,1,0.017,-0.014,0.0505,-0.0142,-0.00912,0.00448,-0.00896,0.99991,0.033,-0.0511,0.1855,-0.0533,-0.03338,0.01645,-0.03311,0.99876,0.05,-0.1033,0.3793,-0.1123,-0.068,0.0337,-0.06828,0.99478,0.067,-0.1635,0.606,-0.1857,-0.10788,0.05381,-0.10993,0.9866,0.083,-0.2261,0.84,-0.2661,-0.14762,0.07426,-0.15326,0.97427,0.1,-0.2865,1.0571,-0.3444,-0.18207,0.09259,-0.19362,0.95958,0.117,-0.3416,1.2396,-0.4118,-0.20751,0.10705,-0.22768,0.94533,0.133,-0.3914,1.3872,-0.466,-0.22421,0.11772,-0.25548,0.93306,0.15,-0.4363,1.5038,-0.5072,-0.23328,0.12506,-0.27782,0.92345,0.167,-0.4768,1.5924,-0.536,-0.23573,0.1295,-0.2954,0.91674,0.183,-0.513,1.656,-0.5535,-0.23236,0.13138,-0.30879,0.9129,0.2,-0.5452,1.6969,-0.5608,-0.2239,0.13097,-0.31847,0.91175,0.217,-0.5736,1.7173,-0.5591,-0.21096,0.12852,-0.32478,0.91296,0.233,-0.5986,1.7193,-0.5497,-0.19409,0.12423,-0.32802,0.91613,0.25,-0.6204,1.7049,-0.5339,-0.17384,0.11829,-0.32843,0.92083,0.267,-0.6392,1.6762,-0.5131,-0.15078,0.11088,-0.32622,0.92658,0.283,-0.6551,1.6351,-0.4885,-0.1255,0.10222,-0.32161,0.93293,0.3,-0.6683,1.5839,-0.4614,-0.09867,0.09252,-0.31485,0.93945,0.317,-0.6788,1.5247,-0.433,-0.071,0.08203,-0.30623,0.94576,0.333,-0.6866,1.4599,-0.4041,-0.04325,0.07103,-0.29607,0.95154,0.35,-0.6918,1.3921,-0.3755,-0.01622,0.0598,-0.28475,0.9566,0.367,-0.6944,1.3236,-0.3477,0.00928,0.04866,-0.27271,0.96082,0.383,-0.6946,1.2571,-0.3212,0.03244,0.03792,-0.2604,0.96421,0.4,-0.6926,1.1952,-0.2963,0.05249,0.02789,-0.24828,0.96686,0.417,-0.6888,1.1404,-0.2729,0.0687,0.01885,-0.23686,0.96893,0.433,-0.6835,1.0952,-0.2513,0.08034,0.01111,-0.22658,0.97061,0.45,-0.6772,1.0616,-0.2315,0.08697,0.00485,-0.21783,0.97209,0.467,-0.6703,1.0389,-0.2134,0.08895,0.00001,-0.21058,0.97352,0.483,-0.6629,1.0261,-0.1968,0.0869,-0.00356,-0.20471,0.97495,0.5,-0.6553,1.0219,-0.1817,0.08139,-0.00601,-0.20009,0.97637},
-		["Right Arm"] = {0,0,0,0,0,0,0,1,0.017,0.0387,0.009,-0.0015,-0.00025,-0.00442,0.06604,0.99781,0.033,0.1397,0.0581,-0.003,-0.00308,-0.01605,0.24459,0.96949,0.05,0.2528,0.1842,-0.0005,-0.01172,-0.03102,0.48546,0.87363,0.067,0.3071,0.3622,0.0036,-0.02804,-0.04308,0.70005,0.71224,0.083,0.302,0.5188,0.0038,-0.05284,-0.04847,0.83434,0.54657,0.1,0.2877,0.6282,0.0005,-0.08862,-0.04767,0.90156,0.42078,0.117,0.2871,0.7093,-0.0022,-0.13608,-0.04255,0.93366,0.32856,0.133,0.3032,0.7757,-0.0002,-0.19551,-0.03383,0.94579,0.25712,0.15,0.3332,0.8338,0.0108,-0.26594,-0.02167,0.9431,0.1984,0.167,0.3704,0.8873,0.0325,-0.34263,-0.00652,0.92767,0.1483,0.183,0.4049,0.9381,0.0605,-0.41491,0.01007,0.90359,0.10616,0.2,0.4285,0.986,0.0834,-0.46971,0.02549,0.87936,0.07385,0.217,0.4426,1.027,0.0959,-0.50474,0.03829,0.86078,0.05324,0.233,0.4508,1.0578,0.0988,-0.52324,0.04804,0.84969,0.04394,0.25,0.456,1.0766,0.0949,-0.5295,0.05487,0.84538,0.04418,0.267,0.4597,1.0821,0.0879,-0.52753,0.05913,0.84589,0.05191,0.283,0.4632,1.0739,0.0809,-0.52075,0.06125,0.84901,0.06526,0.3,0.4672,1.054,0.0761,-0.512,0.06169,0.85281,0.08225,0.317,0.4722,1.0248,0.0754,-0.50402,0.06089,0.85561,0.10089,0.333,0.4793,0.9888,0.0806,-0.49963,0.05926,0.85594,0.11925,0.35,0.4894,0.9481,0.0939,-0.50172,0.05719,0.85246,0.13532,0.367,0.5024,0.905,0.1162,-0.51198,0.05504,0.84444,0.14755,0.383,0.5164,0.8611,0.1445,-0.52747,0.05302,0.83339,0.15626,0.4,0.5292,0.8183,0.1743,-0.54429,0.05128,0.82145,0.16229,0.417,0.5393,0.7782,0.2008,-0.55876,0.04998,0.81091,0.16651,0.433,0.5459,0.7425,0.2194,-0.5675,0.04931,0.80416,0.16983,0.45,0.5487,0.7125,0.2266,-0.56812,0.04937,0.80304,0.17298,0.467,0.548,0.6881,0.2236,-0.56163,0.05011,0.80691,0.17595,0.483,0.5443,0.6689,0.2128,-0.54971,0.05139,0.81443,0.17853,0.5,0.5379,0.6545,0.1965,-0.53401,0.05309,0.82428,0.18049},
-		["Right Leg"] = {0,-0.0179,-0.0121,-0.0005,0.01382,-0.01668,-0.09776,0.99497,0.017,-0.0225,-0.0347,0.0037,0.01332,-0.02032,-0.09717,0.99497,0.033,-0.0347,-0.0941,0.0149,0.01194,-0.03021,-0.09561,0.99489,0.05,-0.0521,-0.1781,0.0309,0.00989,-0.0448,-0.09339,0.99457,0.067,-0.0723,-0.2744,0.0494,0.00736,-0.06254,-0.09081,0.99388,0.083,-0.093,-0.3705,0.0685,0.00456,-0.08187,-0.08819,0.99272,0.1,-0.1117,-0.4541,0.0863,0.00169,-0.10123,-0.08584,0.99115,0.117,-0.1266,-0.5152,0.1014,-0.00108,-0.11934,-0.08403,0.98929,0.133,-0.1376,-0.5532,0.114,-0.00372,-0.13601,-0.0828,0.98724,0.15,-0.1449,-0.5702,0.1241,-0.00623,-0.15128,-0.08207,0.98506,0.167,-0.1491,-0.5682,0.1321,-0.0086,-0.16523,-0.08181,0.98282,0.183,-0.1504,-0.5489,0.1381,-0.01084,-0.17791,-0.08197,0.98057,0.2,-0.1493,-0.5146,0.1423,-0.01294,-0.18938,-0.08249,0.97835,0.217,-0.1461,-0.467,0.145,-0.0149,-0.19972,-0.08333,0.97619,0.233,-0.1413,-0.4083,0.1463,-0.01673,-0.20897,-0.08443,0.97413,0.25,-0.1351,-0.3403,0.1463,-0.01842,-0.21719,-0.08575,0.97218,0.267,-0.128,-0.2651,0.1452,-0.01998,-0.22444,-0.08723,0.97037,0.283,-0.1204,-0.1847,0.1431,-0.02139,-0.23077,-0.08882,0.96871,0.3,-0.1125,-0.101,0.1402,-0.02266,-0.23623,-0.09047,0.96721,0.317,-0.1048,-0.0161,0.1366,-0.02379,-0.24087,-0.09212,0.96588,0.333,-0.0977,0.0681,0.1324,-0.02478,-0.24474,-0.09373,0.96473,0.35,-0.0914,0.1495,0.1277,-0.02562,-0.24789,-0.09525,0.96375,0.367,-0.0864,0.2262,0.1226,-0.02632,-0.25036,-0.0966,0.96296,0.383,-0.0829,0.2962,0.1173,-0.02686,-0.25221,-0.09775,0.96235,0.4,-0.0815,0.3574,0.1119,-0.02725,-0.25347,-0.09864,0.96191,0.417,-0.0823,0.4079,0.1064,-0.02749,-0.25419,-0.09922,0.96166,0.433,-0.0858,0.4456,0.1009,-0.02757,-0.25443,-0.09942,0.96157,0.45,-0.0923,0.4694,0.0954,-0.02757,-0.25443,-0.09942,0.96157,0.467,-0.1018,0.4804,0.09,-0.02757,-0.25443,-0.09942,0.96157,0.483,-0.1137,0.48,0.0845,-0.02757,-0.25443,-0.09942,0.96157,0.5,-0.1276,0.4699,0.0791,-0.02757,-0.25443,-0.09942,0.96157},
-		Torso = {0,0.0032,-0.6038,-0.2029,0.31846,0.00416,-0.00732,0.9479,0.017,0.0049,-0.6693,-0.2336,0.341,0.00348,-0.00234,0.94005,0.033,0.0111,-0.8334,-0.3221,0.39893,0.00129,0.0112,0.91691,0.05,0.0245,-1.0426,-0.4623,0.47658,-0.00264,0.03107,0.87858,0.067,0.046,-1.2459,-0.6347,0.55722,-0.00844,0.05451,0.82853,0.083,0.0724,-1.4094,-0.8044,0.62603,-0.01614,0.07867,0.77565,0.1,0.0981,-1.5252,-0.9394,0.67484,-0.02574,0.10161,0.73048,0.117,0.1207,-1.6073,-1.0356,0.70642,-0.03699,0.12321,0.69601,0.133,0.1394,-1.6677,-1.0982,0.72481,-0.04965,0.14373,0.67196,0.15,0.1533,-1.7128,-1.1327,0.73295,-0.06351,0.16333,0.65732,0.167,0.1619,-1.7462,-1.1441,0.73293,-0.07836,0.18206,0.65079,0.183,0.1647,-1.769,-1.1367,0.72629,-0.09397,0.19984,0.65095,0.2,0.1613,-1.7816,-1.1143,0.7143,-0.11004,0.21645,0.65636,0.217,0.1518,-1.7838,-1.0807,0.69818,-0.12618,0.23158,0.66558,0.233,0.1367,-1.7756,-1.0399,0.67924,-0.14197,0.24483,0.67715,0.25,0.1172,-1.7573,-0.9958,0.65902,-0.15691,0.2558,0.68967,0.267,0.0951,-1.7299,-0.9525,0.63929,-0.1705,0.26411,0.70177,0.283,0.0724,-1.6951,-0.9134,0.62171,-0.18232,0.2695,0.71247,0.3,0.0503,-1.6548,-0.8788,0.60666,-0.19232,0.27223,0.72171,0.317,0.0295,-1.6104,-0.8484,0.5941,-0.20058,0.27269,0.7297,0.333,0.0105,-1.5634,-0.8218,0.58391,-0.20718,0.27124,0.73658,0.35,-0.0065,-1.5153,-0.7986,0.57593,-0.2122,0.26827,0.7425,0.367,-0.021,-1.4671,-0.7786,0.56995,-0.21572,0.26412,0.74757,0.383,-0.0331,-1.4202,-0.7613,0.56574,-0.21785,0.25917,0.75187,0.4,-0.0426,-1.3757,-0.7465,0.56305,-0.21865,0.25376,0.75549,0.417,-0.0495,-1.3346,-0.734,0.56162,-0.21822,0.24822,0.75852,0.433,-0.0537,-1.2981,-0.7237,0.56119,-0.21664,0.2429,0.76101,0.45,-0.0552,-1.267,-0.7154,0.56153,-0.21399,0.23806,0.76303,0.467,-0.0544,-1.2411,-0.709,0.56251,-0.21041,0.23373,0.76464,0.483,-0.0514,-1.2199,-0.7042,0.56405,-0.20607,0.22988,0.76586,0.5,-0.0467,-1.2031,-0.701,0.56603,-0.20109,0.22648,0.76673},
-	}},
-	BackDash = {len = 0.7, parts = {
-		Head = {0,0,0,0,0.62585,-0.00756,-0.00944,0.77985,0.017,0,0,0,0.61834,-0.00739,-0.00933,0.78582,0.033,0,0,0,0.5979,-0.00694,-0.00903,0.80149,0.05,0,0,0,0.56756,-0.00628,-0.00858,0.82327,0.067,0,0,0,0.53056,-0.00549,-0.00803,0.84759,0.083,0,0,0,0.49067,-0.00464,-0.00743,0.8713,0.1,0,0,0,0.45209,-0.00384,-0.00686,0.89194,0.117,0,0,0,0.41929,-0.00316,-0.00637,0.90782,0.133,0,0,0,0.39675,-0.0027,-0.00603,0.9179,0.15,0,0,0,0.38154,-0.00239,-0.00581,0.92433,0.167,0,0,0,0.36774,-0.00211,-0.0056,0.92991,0.183,0,0,0,0.35531,-0.00186,-0.00542,0.93473,0.2,0,0,0,0.34421,-0.00164,-0.00525,0.93888,0.217,0,0,0,0.33437,-0.00144,-0.0051,0.94243,0.233,0,0,0,0.32573,-0.00127,-0.00498,0.94545,0.25,0,0,0,0.31821,-0.00112,-0.00486,0.94801,0.267,0,0,0,0.31176,-0.00099,-0.00477,0.95015,0.283,0,0,0,0.30629,-0.00088,-0.00469,0.95193,0.3,0,0,0,0.30172,-0.00079,-0.00462,0.95338,0.317,0,0,0,0.29798,-0.00072,-0.00456,0.95456,0.333,0,0,0,0.29498,-0.00066,-0.00452,0.95549,0.35,0,0,0,0.29264,-0.00061,-0.00448,0.95621,0.367,0,0,0,0.29088,-0.00058,-0.00446,0.95675,0.383,0,0,0,0.28962,-0.00055,-0.00444,0.95713,0.4,0,0,0,0.28878,-0.00053,-0.00442,0.95739,0.417,0,0,0,0.28827,-0.00052,-0.00442,0.95754,0.433,0,0,0,0.288,-0.00052,-0.00441,0.95762,0.45,0,0,0,0.28791,-0.00052,-0.00441,0.95765,0.467,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.483,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.5,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.517,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.533,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.55,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.567,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.583,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.6,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.617,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.633,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.65,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.667,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.683,0,0,0,0.28789,-0.00052,-0.00441,0.95765,0.7,0,0,0,0.28789,-0.00052,-0.00441,0.95765},
-		["Left Arm"] = {0,0.3076,-0.0035,-0.2366,-0.12168,-0.45334,-0.32127,0.82247,0.017,0.1705,-0.1838,-0.2138,-0.09248,-0.46849,-0.34067,0.80988,0.033,-0.1009,-0.5171,-0.172,-0.04598,-0.4906,-0.38345,0.78113,0.05,-0.3358,-0.7502,-0.1522,-0.03231,-0.49553,-0.43057,0.75367,0.067,-0.5029,-0.8549,-0.1544,-0.05094,-0.48848,-0.47058,0.73303,0.083,-0.6034,-0.8622,-0.1624,-0.08919,-0.48042,-0.49347,0.71953,0.1,-0.6565,-0.8088,-0.1609,-0.14571,-0.47694,-0.50316,0.70578,0.117,-0.6859,-0.7243,-0.1404,-0.21788,-0.47668,-0.50661,0.68458,0.133,-0.698,-0.6364,-0.0956,-0.29304,-0.48107,-0.49971,0.65802,0.15,-0.6987,-0.5709,-0.0299,-0.3597,-0.48977,-0.48241,0.63089,0.167,-0.6873,-0.5274,0.0249,-0.40142,-0.49144,-0.46714,0.61573,0.183,-0.6751,-0.5022,0.0472,-0.4189,-0.46751,-0.46551,0.6239,0.2,-0.6527,-0.4992,0.066,-0.4246,-0.44482,-0.46324,0.63816,0.217,-0.61,-0.5188,0.1012,-0.42839,-0.44416,-0.44943,0.64592,0.233,-0.5586,-0.5493,0.1471,-0.43841,-0.44741,-0.42735,0.65191,0.25,-0.4947,-0.5831,0.1974,-0.45253,-0.45347,-0.39768,0.65684,0.267,-0.4145,-0.6122,0.2455,-0.46856,-0.46122,-0.36107,0.66132,0.283,-0.3174,-0.6301,0.2845,-0.48444,-0.46921,-0.32008,0.66537,0.3,-0.2146,-0.6356,0.308,-0.49869,-0.47482,-0.28505,0.66678,0.317,-0.1218,-0.6317,0.3106,-0.51058,-0.47578,-0.26897,0.66377,0.333,-0.04,-0.6206,0.2976,-0.52292,-0.47017,-0.26787,0.65859,0.35,0.0392,-0.6029,0.2784,-0.53803,-0.45819,-0.26883,0.65445,0.367,0.1148,-0.5795,0.2545,-0.55464,-0.44091,-0.27136,0.65141,0.383,0.1858,-0.5514,0.2273,-0.57147,-0.41937,-0.275,0.64956,0.4,0.2511,-0.5197,0.1981,-0.58726,-0.39468,-0.27934,0.64909,0.417,0.3093,-0.486,0.168,-0.6008,-0.36806,-0.284,0.65031,0.433,0.3591,-0.4518,0.1381,-0.61095,-0.34084,-0.28865,0.65365,0.45,0.399,-0.419,0.1089,-0.6166,-0.31443,-0.29296,0.65962,0.467,0.4274,-0.3894,0.0812,-0.61674,-0.29031,-0.29667,0.66883,0.483,0.4428,-0.3647,0.0553,-0.61032,-0.26999,-0.29948,0.68185,0.5,0.4442,-0.3458,0.0313,-0.59666,-0.25453,-0.30113,0.69895,0.517,0.4332,-0.3312,0.009,-0.57662,-0.2434,-0.30148,0.71929,0.533,0.4122,-0.3194,-0.0115,-0.55147,-0.23562,-0.30042,0.74169,0.55,0.3832,-0.3087,-0.0301,-0.5225,-0.23023,-0.29788,0.76502,0.567,0.3484,-0.2978,-0.0465,-0.49109,-0.22626,-0.29379,0.78824,0.583,0.3096,-0.2861,-0.0602,-0.4587,-0.22282,-0.28819,0.81049,0.6,0.2688,-0.2734,-0.0709,-0.42686,-0.21905,-0.28114,0.83113,0.617,0.231,-0.2607,-0.0783,-0.39622,-0.21834,-0.27207,0.8493,0.633,0.2007,-0.2488,-0.0827,-0.36745,-0.22303,-0.26128,0.86427,0.65,0.1777,-0.238,-0.0844,-0.34214,-0.23073,-0.25024,0.87583,0.667,0.1618,-0.229,-0.0843,-0.32196,-0.23909,-0.24044,0.88395,0.683,0.1525,-0.2228,-0.0834,-0.30862,-0.24579,-0.23344,0.88873,0.7,0.1495,-0.2206,-0.0828,-0.3038,-0.24854,-0.23077,0.89032},
-		["Left Leg"] = {0,-0.0759,0.3549,-0.0579,0.00158,0.00171,0.08601,0.99629,0.017,-0.0886,0.3371,-0.0587,0.00157,0.00769,0.07206,0.99737,0.033,-0.1213,0.289,-0.0608,0.00151,0.02376,0.03414,0.99913,0.05,-0.1662,0.2185,-0.0646,0.0014,0.04704,-0.02182,0.99865,0.067,-0.216,0.1333,-0.0699,0.0012,0.07434,-0.08911,0.99324,0.083,-0.2639,0.0429,-0.076,0.0009,0.10218,-0.16014,0.98179,0.1,-0.3028,-0.042,-0.0817,0.00049,0.12713,-0.22725,0.9655,0.117,-0.3245,-0.1089,-0.0851,-0.00004,0.14627,-0.28368,0.9477,0.133,-0.3218,-0.148,-0.0846,-0.0007,0.15785,-0.32538,0.93231,0.15,-0.2976,-0.1614,-0.0803,-0.00144,0.16269,-0.35404,0.92097,0.167,-0.2576,-0.1551,-0.0729,-0.00223,0.16196,-0.3722,0.91391,0.183,-0.208,-0.1349,-0.0635,-0.00304,0.15662,-0.38197,0.9108,0.2,-0.1554,-0.1072,-0.0529,-0.00382,0.14746,-0.38509,0.91102,0.217,-0.1064,-0.0783,-0.0421,-0.00452,0.13525,-0.38313,0.91373,0.233,-0.0677,-0.0544,-0.0322,-0.0051,0.12076,-0.37763,0.91803,0.25,-0.0443,-0.0407,-0.0239,-0.00551,0.10479,-0.36993,0.92312,0.267,-0.0351,-0.0365,-0.0174,-0.00577,0.08789,-0.36044,0.92862,0.283,-0.0375,-0.0399,-0.0126,-0.00588,0.07056,-0.3494,0.9343,0.3,-0.0489,-0.049,-0.0094,-0.00588,0.05329,-0.33704,0.93996,0.317,-0.0664,-0.0618,-0.0076,-0.00578,0.03658,-0.32362,0.94546,0.333,-0.0874,-0.0763,-0.0069,-0.00561,0.0209,-0.30941,0.95068,0.35,-0.1093,-0.0902,-0.0071,-0.00538,0.00671,-0.29466,0.95556,0.367,-0.1293,-0.1015,-0.0076,-0.00513,-0.00556,-0.27964,0.96007,0.383,-0.1452,-0.1084,-0.0083,-0.00487,-0.0156,-0.26457,0.96423,0.4,-0.1569,-0.1108,-0.009,-0.00461,-0.0235,-0.24955,0.96807,0.417,-0.1648,-0.1091,-0.0095,-0.00435,-0.02944,-0.23466,0.97162,0.433,-0.1692,-0.1037,-0.0098,-0.00409,-0.03361,-0.21996,0.97492,0.45,-0.1705,-0.095,-0.0099,-0.00383,-0.0362,-0.20553,0.97797,0.467,-0.169,-0.0834,-0.0099,-0.00357,-0.03737,-0.19144,0.98079,0.483,-0.1652,-0.0694,-0.0096,-0.00332,-0.0373,-0.17776,0.98336,0.5,-0.1592,-0.0533,-0.0093,-0.00308,-0.03616,-0.16457,0.9857,0.517,-0.1516,-0.0356,-0.0088,-0.00284,-0.03412,-0.15193,0.9878,0.533,-0.1427,-0.0168,-0.0082,-0.00262,-0.03135,-0.13994,0.98966,0.55,-0.1328,0.0026,-0.0076,-0.00241,-0.02802,-0.12868,0.99129,0.567,-0.1224,0.0221,-0.007,-0.00221,-0.02431,-0.11822,0.99269,0.583,-0.1118,0.0413,-0.0064,-0.00203,-0.02039,-0.10866,0.99387,0.6,-0.1013,0.0596,-0.0058,-0.00186,-0.01642,-0.10008,0.99484,0.617,-0.0915,0.0765,-0.0053,-0.00172,-0.01258,-0.09257,0.99562,0.633,-0.0825,0.0916,-0.0049,-0.0016,-0.00905,-0.08623,0.99623,0.65,-0.0749,0.1042,-0.0045,-0.0015,-0.006,-0.08114,0.99668,0.667,-0.069,0.1138,-0.0043,-0.00142,-0.0036,-0.0774,0.99699,0.683,-0.0652,0.12,-0.0041,-0.00138,-0.00204,-0.07509,0.99717,0.7,-0.0639,0.1222,-0.0041,-0.00136,-0.00148,-0.07429,0.99723},
-		["Right Arm"] = {0,-0.3076,-0.0035,-0.2366,-0.12168,0.45334,0.32127,0.82247,0.017,-0.1704,-0.1838,-0.2139,-0.09248,0.46846,0.34083,0.80983,0.033,0.1009,-0.5171,-0.172,-0.04598,0.4906,0.38345,0.78113,0.05,0.3353,-0.7503,-0.1517,-0.03242,0.49571,0.42963,0.75408,0.067,0.5021,-0.8553,-0.1537,-0.05118,0.48877,0.46921,0.73371,0.083,0.6034,-0.8622,-0.1624,-0.08919,0.48042,0.49347,0.71953,0.1,0.6569,-0.8083,-0.1616,-0.14513,0.47698,0.50442,0.70497,0.117,0.6857,-0.724,-0.1409,-0.21723,0.47715,0.50732,0.68393,0.133,0.698,-0.6364,-0.0956,-0.29304,0.48107,0.49971,0.65802,0.15,0.7,-0.5706,-0.0302,-0.36051,0.48813,0.48266,0.63151,0.167,0.6873,-0.5274,0.0249,-0.40142,0.49144,0.46714,0.61573,0.183,0.6739,-0.5026,0.0475,-0.41836,0.4687,0.46501,0.62375,0.2,0.6527,-0.4992,0.066,-0.4246,0.44482,0.46324,0.63816,0.217,0.6104,-0.5187,0.1012,-0.42847,0.44452,0.44993,0.64527,0.233,0.5591,-0.5492,0.1472,-0.43847,0.44778,0.4279,0.65126,0.25,0.4949,-0.583,0.1975,-0.45255,0.45366,0.39799,0.65651,0.267,0.4145,-0.6122,0.2455,-0.46856,0.46122,0.36107,0.66132,0.283,0.3173,-0.6301,0.2845,-0.48443,0.46915,0.31998,0.66546,0.3,0.2146,-0.6356,0.308,-0.49869,0.47479,0.28499,0.66683,0.317,0.1218,-0.6317,0.3106,-0.51058,0.47578,0.26897,0.66377,0.333,0.04,-0.6206,0.2976,-0.52292,0.47011,0.26785,0.65864,0.35,-0.0392,-0.603,0.2783,-0.53803,0.45797,0.26875,0.65465,0.367,-0.1149,-0.5796,0.2543,-0.55459,0.4405,0.27119,0.6518,0.383,-0.1861,-0.5515,0.2269,-0.57134,0.4188,0.27474,0.65015,0.4,-0.2515,-0.5199,0.1976,-0.58703,0.39402,0.27899,0.64986,0.417,-0.3098,-0.4863,0.1675,-0.60046,0.36741,0.28357,0.65119,0.433,-0.3597,-0.4521,0.1375,-0.61053,0.34028,0.28818,0.65453,0.45,-0.3996,-0.4193,0.1084,-0.61621,0.31404,0.29254,0.66037,0.467,-0.4278,-0.3897,0.0809,-0.61648,0.29012,0.29639,0.66928,0.483,-0.4428,-0.3647,0.0553,-0.61032,0.26999,0.29948,0.68185,0.5,-0.4436,-0.3455,0.0317,-0.59703,0.25468,0.30156,0.6984,0.517,-0.432,-0.3307,0.0098,-0.57736,0.24364,0.30241,0.71823,0.533,-0.4105,-0.3188,-0.0105,-0.55244,0.2359,0.3018,0.74032,0.55,-0.3813,-0.3081,-0.0292,-0.52349,0.23051,0.29951,0.76362,0.567,-0.3467,-0.2974,-0.0458,-0.49188,0.2265,0.29536,0.78709,0.583,-0.3086,-0.2859,-0.0598,-0.45912,0.22297,0.28924,0.80984,0.6,-0.2688,-0.2734,-0.0709,-0.42686,0.21905,0.28114,0.83113,0.617,-0.232,-0.2608,-0.0786,-0.39585,0.21826,0.27108,0.84981,0.633,-0.202,-0.2488,-0.0831,-0.36686,0.22298,0.25995,0.86494,0.65,-0.1789,-0.2379,-0.0849,-0.34156,0.23073,0.24906,0.87639,0.667,-0.1625,-0.2289,-0.0846,-0.32159,0.23911,0.23972,0.88427,0.683,-0.1527,-0.2228,-0.0835,-0.3085,0.2458,0.23321,0.88883,0.7,-0.1495,-0.2206,-0.0828,-0.3038,0.24854,0.23077,0.89032},
-		["Right Leg"] = {0,0.0759,0.3549,-0.0579,0.00158,-0.00171,-0.08601,0.99629,0.017,0.0887,0.3371,-0.0587,0.00157,-0.0076,-0.07229,0.99735,0.033,0.1216,0.289,-0.0608,0.00152,-0.02346,-0.0349,0.99911,0.05,0.1667,0.2185,-0.0645,0.00141,-0.04655,0.02054,0.9987,0.067,0.2165,0.1335,-0.0698,0.00121,-0.07379,0.08761,0.99342,0.083,0.2643,0.043,-0.0759,0.00091,-0.10173,0.15887,0.98204,0.1,0.303,-0.0418,-0.0817,0.0005,-0.1269,0.22656,0.96569,0.117,0.3245,-0.1089,-0.0851,-0.00004,-0.14627,0.28368,0.9477,0.133,0.3217,-0.1481,-0.0846,-0.0007,-0.15798,0.32591,0.93211,0.15,0.2975,-0.1616,-0.0803,-0.00146,-0.16285,0.35482,0.92064,0.167,0.2575,-0.1552,-0.073,-0.00225,-0.16208,0.37301,0.91356,0.183,0.208,-0.135,-0.0635,-0.00306,-0.15666,0.38263,0.91052,0.2,0.1554,-0.1073,-0.0529,-0.00383,-0.14744,0.38551,0.91084,0.217,0.1064,-0.0783,-0.0421,-0.00453,-0.13521,0.38332,0.91365,0.233,0.0677,-0.0544,-0.0322,-0.0051,-0.12076,0.37763,0.91803,0.25,0.0442,-0.0407,-0.0239,-0.00551,-0.10487,0.36982,0.92315,0.267,0.035,-0.0365,-0.0174,-0.00576,-0.08805,0.36031,0.92865,0.283,0.0373,-0.04,-0.0126,-0.00587,-0.0708,0.34929,0.93432,0.3,0.0486,-0.0491,-0.0094,-0.00587,-0.05357,0.33697,0.93997,0.317,0.0661,-0.0619,-0.0076,-0.00577,-0.03685,0.3236,0.94546,0.333,0.0872,-0.0763,-0.007,-0.0056,-0.02111,0.30942,0.95067,0.35,0.1092,-0.0903,-0.0071,-0.00538,-0.00683,0.29468,0.95556,0.367,0.1293,-0.1015,-0.0076,-0.00513,0.00556,0.27964,0.96007,0.383,0.1453,-0.1084,-0.0083,-0.00488,0.01571,0.26453,0.96424,0.4,0.1571,-0.1108,-0.009,-0.00462,0.02371,0.24945,0.96809,0.417,0.1651,-0.1091,-0.0095,-0.00435,0.02973,0.23448,0.97166,0.433,0.1696,-0.1037,-0.0098,-0.00409,0.03396,0.21972,0.97496,0.45,0.1709,-0.095,-0.0099,-0.00383,0.03658,0.20522,0.97802,0.467,0.1694,-0.0834,-0.0099,-0.00357,0.03776,0.19108,0.98084,0.483,0.1655,-0.0693,-0.0097,-0.00332,0.03769,0.17736,0.98342,0.5,0.1596,-0.0532,-0.0093,-0.00308,0.03653,0.16413,0.98576,0.517,0.152,-0.0356,-0.0088,-0.00284,0.03446,0.15149,0.98785,0.533,0.143,-0.0168,-0.0082,-0.00262,0.03166,0.13951,0.98971,0.55,0.1331,0.0026,-0.0076,-0.00241,0.02829,0.12827,0.99133,0.567,0.1226,0.0221,-0.007,-0.00221,0.02453,0.11785,0.99273,0.583,0.112,0.0413,-0.0064,-0.00202,0.02056,0.10833,0.9939,0.6,0.1015,0.0596,-0.0058,-0.00186,0.01655,0.09981,0.99487,0.617,0.0916,0.0765,-0.0053,-0.00172,0.01268,0.09237,0.99564,0.633,0.0826,0.0916,-0.0049,-0.00159,0.00911,0.08609,0.99624,0.65,0.075,0.1042,-0.0045,-0.0015,0.00604,0.08106,0.99669,0.667,0.069,0.1138,-0.0043,-0.00142,0.00362,0.07736,0.997,0.683,0.0652,0.12,-0.0041,-0.00138,0.00204,0.07507,0.99717,0.7,0.0639,0.1222,-0.0041,-0.00136,0.00148,0.07429,0.99723},
-		Torso = {0,-0.0544,1.4373,-0.6727,-0.42812,-0.00506,0.01255,0.90362,0.017,-0.0525,1.4531,-0.6678,-0.42338,-0.00512,0.01252,0.90585,0.033,-0.0474,1.496,-0.6552,-0.41037,-0.0053,0.01245,0.91182,0.05,-0.0396,1.559,-0.6375,-0.39082,-0.00556,0.01233,0.92037,0.067,-0.0299,1.6349,-0.6179,-0.36649,-0.00589,0.01218,0.93032,0.083,-0.019,1.7172,-0.5992,-0.33924,-0.00624,0.012,0.9406,0.1,-0.0074,1.8001,-0.5836,-0.31102,-0.00659,0.01181,0.95031,0.117,0.0042,1.8783,-0.5728,-0.28387,-0.00693,0.01162,0.95877,0.133,0.015,1.947,-0.5673,-0.25985,-0.00722,0.01144,0.96555,0.15,0.0245,2.0025,-0.5668,-0.24054,-0.00744,0.0113,0.97054,0.167,0.0327,2.0444,-0.5699,-0.22562,-0.00761,0.01118,0.97412,0.183,0.0397,2.073,-0.5749,-0.2143,-0.00774,0.01109,0.97667,0.2,0.0455,2.0883,-0.5807,-0.20575,-0.00784,0.01102,0.97851,0.217,0.0501,2.0907,-0.5864,-0.1993,-0.00791,0.01097,0.97985,0.233,0.0537,2.0811,-0.5916,-0.19471,-0.00796,0.01093,0.98077,0.25,0.0563,2.0608,-0.5961,-0.19185,-0.008,0.01091,0.98133,0.267,0.0579,2.0311,-0.5997,-0.19062,-0.00801,0.0109,0.98157,0.283,0.0587,1.993,-0.6022,-0.19087,-0.00801,0.0109,0.98152,0.3,0.0586,1.9479,-0.6034,-0.19249,-0.00799,0.01092,0.98121,0.317,0.0578,1.8969,-0.6034,-0.19534,-0.00796,0.01094,0.98064,0.333,0.0564,1.8411,-0.6019,-0.19929,-0.00791,0.01097,0.97985,0.35,0.0543,1.7818,-0.5989,-0.20421,-0.00786,0.01101,0.97883,0.367,0.0516,1.7201,-0.5943,-0.20998,-0.00779,0.01106,0.97761,0.383,0.0485,1.6572,-0.588,-0.21645,-0.00772,0.01111,0.9762,0.4,0.0449,1.5943,-0.5799,-0.22351,-0.00764,0.01116,0.97461,0.417,0.0409,1.5324,-0.5706,-0.23101,-0.00755,0.01122,0.97286,0.433,0.0367,1.4729,-0.5606,-0.23884,-0.00746,0.01128,0.97097,0.45,0.0322,1.4169,-0.5504,-0.24686,-0.00737,0.01134,0.96896,0.467,0.0276,1.3656,-0.5404,-0.25494,-0.00727,0.0114,0.96686,0.483,0.0228,1.3202,-0.5313,-0.26296,-0.00718,0.01147,0.96471,0.5,0.018,1.2816,-0.5233,-0.27081,-0.00708,0.01152,0.96254,0.517,0.0132,1.2495,-0.5166,-0.27841,-0.00699,0.01158,0.96037,0.533,0.0085,1.2233,-0.5109,-0.2857,-0.00691,0.01163,0.95822,0.55,0.004,1.2024,-0.5063,-0.2926,-0.00682,0.01168,0.95614,0.567,-0.0004,1.1862,-0.5026,-0.29905,-0.00674,0.01173,0.95414,0.583,-0.0045,1.1741,-0.4997,-0.30499,-0.00667,0.01177,0.95226,0.6,-0.0082,1.1656,-0.4975,-0.31035,-0.0066,0.01181,0.95053,0.617,-0.0116,1.1599,-0.4959,-0.31506,-0.00654,0.01184,0.94897,0.633,-0.0144,1.1567,-0.4949,-0.31907,-0.00649,0.01187,0.94763,0.65,-0.0168,1.1551,-0.4942,-0.3223,-0.00645,0.01189,0.94654,0.667,-0.0185,1.1548,-0.4939,-0.32469,-0.00642,0.0119,0.94572,0.683,-0.0196,1.155,-0.4937,-0.32617,-0.0064,0.01191,0.94521,0.7,-0.02,1.1552,-0.4937,-0.32668,-0.0064,0.01192,0.94504},
-	}},
-	DashLeft = {len = 0.517, parts = {
-		Head = {0,0,0,0,0,0,0,1,0.017,0,0,0,0.01925,-0.03594,0.05625,0.99758,0.033,0,0,0,0.04195,-0.08179,0.12338,0.98809,0.05,0,0,0,0.06502,-0.13237,0.19238,0.97018,0.067,0,0,0,0.08522,-0.18197,0.25356,0.94622,0.083,0,0,0,0.09967,-0.22548,0.29841,0.92205,0.1,0,0,0,0.10684,-0.25998,0.32222,0.90398,0.117,0,0,0,0.10826,-0.28684,0.32887,0.89322,0.133,0,0,0,0.10594,-0.30802,0.32355,0.88838,0.15,0,0,0,0.10171,-0.32512,0.31091,0.88729,0.167,0,0,0,0.09732,-0.33958,0.29538,0.88767,0.183,0,0,0,0.0942,-0.35255,0.28063,0.88774,0.2,0,0,0,0.09249,-0.36434,0.26735,0.88726,0.217,0,0,0,0.09201,-0.37498,0.25551,0.88636,0.233,0,0,0,0.09261,-0.38454,0.24504,0.88516,0.25,0,0,0,0.0941,-0.39305,0.23591,0.88374,0.267,0,0,0,0.09633,-0.40054,0.22808,0.8822,0.283,0,0,0,0.09913,-0.40702,0.22149,0.8806,0.3,0,0,0,0.10234,-0.41252,0.21611,0.87901,0.317,0,0,0,0.10579,-0.41703,0.21191,0.87749,0.333,0,0,0,0.10931,-0.42057,0.20885,0.8761,0.35,0,0,0,0.11274,-0.42313,0.20688,0.8749,0.367,0,0,0,0.11591,-0.4247,0.20599,0.87394,0.383,0,0,0,0.11864,-0.42528,0.20614,0.87325,0.4,0,0,0,0.12076,-0.42486,0.20728,0.8729,0.417,0,0,0,0.12212,-0.42344,0.20938,0.87289,0.433,0,0,0,0.12277,-0.42111,0.21234,0.87322,0.45,0,0,0,0.12277,-0.41798,0.21604,0.87381,0.467,0,0,0,0.12219,-0.41415,0.22036,0.87464,0.483,0,0,0,0.12111,-0.40972,0.22521,0.87564,0.5,0,0,0,0.11959,-0.40482,0.23045,0.87676,0.517,0,0,0,0.1177,-0.39954,0.23598,0.87797},
-		["Left Arm"] = {0,0,0,0,0,0,0,1,0.017,-0.0045,-0.0025,0.0595,-0.05898,0.00434,-0.03631,0.99759,0.033,-0.0046,-0.0029,0.139,-0.14393,-0.00049,-0.07961,0.98638,0.05,0.0002,0.0054,0.2314,-0.25243,-0.018,-0.12422,0.95944,0.067,0.0104,0.027,0.3255,-0.37746,-0.04973,-0.16293,0.91022,0.083,0.0263,0.06,0.408,-0.50652,-0.09322,-0.18835,0.83623,0.1,0.0476,0.0952,0.4695,-0.62488,-0.14139,-0.19583,0.74242,0.117,0.0734,0.1221,0.5094,-0.72189,-0.18473,-0.18559,0.64056,0.133,0.1028,0.1349,0.5336,-0.79492,-0.21466,-0.16205,0.54383,0.15,0.1345,0.1345,0.5482,-0.84773,-0.22594,-0.13124,0.46161,0.167,0.1668,0.1246,0.5559,-0.88557,-0.21811,-0.0989,0.39802,0.183,0.1983,0.1085,0.5569,-0.91287,-0.19283,-0.06816,0.35332,0.2,0.2287,0.0884,0.5514,-0.9327,-0.15318,-0.03983,0.32407,0.217,0.258,0.0648,0.5393,-0.94618,-0.10213,-0.01382,0.30681,0.233,0.2859,0.0375,0.5209,-0.95328,-0.04244,0.01026,0.29892,0.25,0.3117,0.0062,0.4965,-0.95357,0.0231,0.03281,0.2985,0.267,0.3343,-0.0293,0.4667,-0.94668,0.09155,0.05411,0.30414,0.283,0.3526,-0.0684,0.4326,-0.93264,0.15987,0.07424,0.31481,0.3,0.3657,-0.1099,0.3952,-0.91211,0.22503,0.09304,0.3298,0.317,0.373,-0.152,0.3563,-0.88637,0.28413,0.11001,0.34859,0.333,0.3745,-0.1927,0.3177,-0.85737,0.33455,0.12432,0.37085,0.35,0.3709,-0.2299,0.2819,-0.82757,0.37404,0.13474,0.39632,0.367,0.3632,-0.2619,0.2514,-0.79948,0.40109,0.13989,0.42473,0.383,0.3529,-0.288,0.2279,-0.77467,0.41608,0.139,0.45546,0.4,0.3416,-0.308,0.2129,-0.75423,0.41957,0.13153,0.48765,0.417,0.33,-0.3216,0.2076,-0.73898,0.41177,0.11704,0.52024,0.433,0.3184,-0.3288,0.2123,-0.72918,0.39288,0.0954,0.55212,0.45,0.3062,-0.3305,0.2254,-0.72347,0.36423,0.06741,0.58257,0.467,0.2931,-0.3279,0.2443,-0.72002,0.32743,0.03433,0.61088,0.483,0.2789,-0.3222,0.2664,-0.71714,0.28415,-0.00222,0.63637,0.5,0.2643,-0.3143,0.2894,-0.7134,0.23629,-0.04025,0.65849,0.517,0.2505,-0.3054,0.3115,-0.7079,0.18602,-0.07744,0.67696},
-		["Left Leg"] = {0,0.0179,-0.0121,-0.0005,0.01382,0.01668,0.09776,0.99497,0.017,-0.0559,-0.1161,-0.0373,0.12039,-0.00319,-0.00225,0.99272,0.033,-0.1704,-0.2071,-0.1037,0.23459,-0.02786,-0.11643,0.96469,0.05,-0.3117,-0.2554,-0.1869,0.33169,-0.05408,-0.22162,0.91539,0.067,-0.4537,-0.2546,-0.2615,0.39401,-0.07923,-0.29903,0.86548,0.083,-0.5783,-0.2195,-0.3094,0.41732,-0.10279,-0.34246,0.83546,0.1,-0.6842,-0.1673,-0.3321,0.41152,-0.12521,-0.35966,0.82802,0.117,-0.7743,-0.1059,-0.3358,0.38518,-0.14638,-0.35761,0.83805,0.133,-0.8506,-0.0385,-0.3264,0.34471,-0.16544,-0.34105,0.85877,0.15,-0.9144,0.0311,-0.3096,0.2968,-0.18108,-0.31455,0.88328,0.167,-0.9664,0.0974,-0.2894,0.24954,-0.19201,-0.28368,0.90575,0.183,-1.0067,0.1535,-0.2676,0.2105,-0.19763,-0.25405,0.92309,0.2,-1.0357,0.1985,-0.2434,0.18079,-0.19868,-0.2273,0.93604,0.217,-1.0541,0.2335,-0.2165,0.15946,-0.19618,-0.20367,0.94584,0.233,-1.0629,0.2597,-0.1871,0.1453,-0.19104,-0.18314,0.95334,0.25,-1.0629,0.2789,-0.1558,0.137,-0.18409,-0.16552,0.95914,0.267,-1.0552,0.2926,-0.1235,0.13326,-0.17607,-0.15059,0.96362,0.283,-1.041,0.3024,-0.0911,0.13281,-0.16764,-0.13805,0.96706,0.3,-1.0215,0.3099,-0.0599,0.13447,-0.15941,-0.12762,0.96965,0.317,-0.9979,0.3166,-0.0307,0.13707,-0.15196,-0.11903,0.97157,0.333,-0.9717,0.324,-0.0047,0.13955,-0.14585,-0.11203,0.97299,0.35,-0.9441,0.3334,0.0171,0.14081,-0.14162,-0.10636,0.97407,0.367,-0.9162,0.346,0.034,0.14008,-0.13965,-0.10184,0.97494,0.383,-0.8883,0.3615,0.0462,0.13752,-0.13965,-0.09849,0.97565,0.4,-0.8604,0.3792,0.0541,0.13354,-0.14117,-0.0964,0.97619,0.417,-0.8323,0.3987,0.058,0.12854,-0.14376,-0.09566,0.97655,0.433,-0.804,0.4194,0.0585,0.12293,-0.14699,-0.0964,0.97672,0.45,-0.7756,0.4407,0.0558,0.11709,-0.15042,-0.09875,0.97668,0.467,-0.7469,0.4621,0.0505,0.11146,-0.1536,-0.10286,0.97642,0.483,-0.7179,0.4829,0.0431,0.10646,-0.15605,-0.10887,0.97594,0.5,-0.6884,0.5026,0.034,0.10256,-0.1573,-0.11696,0.97522,0.517,-0.6584,0.5204,0.0237,0.10025,-0.15682,-0.12729,0.97425},
-		["Right Arm"] = {0,0,0,0,0,0,0,1,0.017,-0.0095,-0.004,0.0696,-0.06731,0.0507,0.02292,0.99618,0.033,-0.0171,-0.0086,0.1434,-0.14093,0.11595,0.05119,0.98187,0.05,-0.0234,-0.013,0.2161,-0.21522,0.19373,0.07966,0.95384,0.067,-0.0295,-0.018,0.2834,-0.28447,0.27907,0.10311,0.91135,0.083,-0.0373,-0.0253,0.3433,-0.34457,0.36481,0.11734,0.85698,0.1,-0.0478,-0.0361,0.3962,-0.39432,0.44335,0.12007,0.79595,0.117,-0.061,-0.05,0.4436,-0.43564,0.5083,0.11102,0.73452,0.133,-0.076,-0.0652,0.4867,-0.47269,0.55512,0.09133,0.67828,0.15,-0.0913,-0.079,0.5256,-0.50996,0.58117,0.06304,0.63104,0.167,-0.1059,-0.0894,0.5583,-0.54964,0.5863,0.0296,0.59436,0.183,-0.1197,-0.0955,0.5823,-0.59213,0.57122,-0.00644,0.56837,0.2,-0.1342,-0.0976,0.5968,-0.63618,0.53797,-0.04379,0.55131,0.217,-0.1512,-0.0973,0.601,-0.67944,0.48869,-0.08162,0.54118,0.233,-0.1717,-0.0965,0.5947,-0.71907,0.42555,-0.11925,0.5363,0.25,-0.1959,-0.0979,0.5778,-0.75218,0.35122,-0.15597,0.5353,0.267,-0.2228,-0.1037,0.5505,-0.77624,0.26902,-0.19099,0.53721,0.283,-0.2505,-0.1158,0.5143,-0.78959,0.1829,-0.22346,0.54144,0.3,-0.2765,-0.1345,0.471,-0.79163,0.09718,-0.25247,0.54784,0.317,-0.2984,-0.1594,0.4235,-0.78299,0.01618,-0.27716,0.55664,0.333,-0.3147,-0.1887,0.375,-0.76534,-0.05609,-0.29663,0.56843,0.35,-0.3247,-0.2205,0.329,-0.74113,-0.11622,-0.30996,0.58408,0.367,-0.3288,-0.2527,0.2889,-0.71296,-0.16191,-0.31637,0.60447,0.383,-0.3285,-0.2839,0.2564,-0.68262,-0.1929,-0.3162,0.62995,0.4,-0.3252,-0.3133,0.2329,-0.65095,-0.20933,-0.30993,0.6606,0.417,-0.3202,-0.3407,0.2191,-0.61784,-0.21095,-0.29787,0.69645,0.433,-0.3138,-0.3665,0.2146,-0.58243,-0.1976,-0.28009,0.73708,0.45,-0.306,-0.3915,0.2169,-0.54381,-0.17108,-0.25627,0.78059,0.467,-0.2963,-0.4156,0.2228,-0.50148,-0.13358,-0.22627,0.8243,0.483,-0.2851,-0.4382,0.2296,-0.45573,-0.08726,-0.19052,0.8651,0.5,-0.2729,-0.4577,0.235,-0.40799,-0.0344,-0.15011,0.8999,0.517,-0.2612,-0.4722,0.2386,-0.361,0.02256,-0.10685,0.92615},
-		["Right Leg"] = {0,0,0,0,0,0,0,1,0.017,-0.0077,0.2227,-0.0641,-0.01458,-0.0067,0.01731,0.99972,0.033,-0.0009,0.4807,-0.134,-0.03067,-0.01419,0.03639,0.99877,0.05,0.0217,0.7524,-0.204,-0.04768,-0.02207,0.05605,0.99704,0.067,0.0616,1.0162,-0.2683,-0.06501,-0.02994,0.07509,0.9946,0.083,0.1204,1.2505,-0.321,-0.08208,-0.0374,0.09231,0.99164,0.1,0.1997,1.434,-0.3562,-0.0983,-0.04407,0.10655,0.98845,0.117,0.3012,1.5453,-0.3677,-0.11312,-0.04955,0.11668,0.98546,0.133,0.4238,1.5711,-0.352,-0.12612,-0.0536,0.12191,0.98304,0.15,0.5547,1.5301,-0.3156,-0.13727,-0.05628,0.12266,0.9813,0.167,0.678,1.4486,-0.2677,-0.14662,-0.05777,0.11963,0.98023,0.183,0.778,1.3531,-0.2174,-0.1542,-0.05825,0.11353,0.97977,0.2,0.8423,1.2653,-0.1724,-0.16007,-0.05788,0.10503,0.97979,0.217,0.8736,1.188,-0.134,-0.16424,-0.05682,0.09483,0.98021,0.233,0.8781,1.1194,-0.1019,-0.16675,-0.05523,0.08359,0.9809,0.25,0.862,1.0578,-0.0759,-0.16764,-0.05328,0.07199,0.98177,0.267,0.8317,1.0014,-0.0556,-0.16693,-0.05113,0.06071,0.98277,0.283,0.7933,0.9484,-0.041,-0.16466,-0.04894,0.05043,0.98384,0.3,0.7531,0.8971,-0.0317,-0.16087,-0.04688,0.04182,0.98497,0.317,0.7162,0.8461,-0.0275,-0.15564,-0.04508,0.0354,0.98615,0.333,0.6837,0.7957,-0.0277,-0.14918,-0.04354,0.03107,0.98736,0.35,0.6553,0.7463,-0.0318,-0.14175,-0.04226,0.02857,0.98859,0.367,0.6311,0.6985,-0.0389,-0.13358,-0.04119,0.02765,0.98979,0.383,0.6109,0.6529,-0.0483,-0.12495,-0.04033,0.02803,0.99095,0.4,0.5947,0.61,-0.0593,-0.1161,-0.03965,0.02948,0.99201,0.417,0.5822,0.5704,-0.0711,-0.10729,-0.03912,0.03173,0.99295,0.433,0.5735,0.5346,-0.083,-0.09878,-0.03873,0.03453,0.99375,0.45,0.5683,0.5032,-0.0942,-0.09085,-0.03846,0.03761,0.99441,0.467,0.5665,0.4768,-0.1039,-0.08375,-0.03828,0.04072,0.99492,0.483,0.5679,0.4559,-0.1112,-0.07776,-0.03818,0.04359,0.99529,0.5,0.5724,0.4412,-0.1153,-0.07315,-0.03813,0.04597,0.99553,0.517,0.5798,0.4331,-0.1155,-0.07019,-0.03812,0.04758,0.99567},
-		Torso = {0,0.2184,-0.1253,-0.0322,0.06146,0.11105,-0.01525,0.9918,0.017,0.7133,-0.1617,-0.0016,0.04562,0.13477,-0.07653,0.98686,0.033,1.2754,-0.208,0.0288,0.02679,0.16399,-0.14631,0.97518,0.05,1.8367,-0.2611,0.0527,0.00693,0.19511,-0.21488,0.95693,0.067,2.3294,-0.3135,0.0656,-0.01192,0.22499,-0.27298,0.93526,0.083,2.7009,-0.3565,0.0652,-0.02824,0.25176,-0.31458,0.9148,0.1,2.9555,-0.3874,0.0532,-0.04206,0.27575,-0.34125,0.89763,0.117,3.1112,-0.4064,0.0317,-0.05374,0.29757,-0.35596,0.88423,0.133,3.1857,-0.4143,0.0031,-0.06359,0.31763,-0.36123,0.8744,0.15,3.1964,-0.4126,-0.0305,-0.07188,0.33615,-0.35927,0.86762,0.167,3.1605,-0.4034,-0.0669,-0.07879,0.3532,-0.35211,0.86317,0.183,3.0948,-0.3891,-0.1037,-0.08449,0.36875,-0.34173,0.8603,0.2,3.0161,-0.3725,-0.1386,-0.0891,0.38272,-0.33015,0.85825,0.217,2.9384,-0.3564,-0.1695,-0.09274,0.39503,-0.31915,0.85644,0.233,2.8647,-0.3413,-0.1962,-0.09546,0.40573,-0.30909,0.85483,0.25,2.795,-0.3275,-0.2185,-0.09732,0.41488,-0.29999,0.85347,0.267,2.7292,-0.3149,-0.2366,-0.09836,0.42258,-0.29184,0.8524,0.283,2.6674,-0.3037,-0.2506,-0.09864,0.42892,-0.28462,0.85164,0.3,2.6095,-0.2938,-0.2608,-0.0982,0.43396,-0.27832,0.85122,0.317,2.5555,-0.2853,-0.2672,-0.09712,0.43781,-0.27289,0.85113,0.333,2.5053,-0.278,-0.2701,-0.09544,0.44055,-0.2683,0.85136,0.35,2.4589,-0.2721,-0.2699,-0.09322,0.44226,-0.2645,0.85191,0.367,2.416,-0.2674,-0.2667,-0.09052,0.44302,-0.26145,0.85275,0.383,2.3765,-0.2639,-0.2609,-0.08738,0.44291,-0.25909,0.85385,0.4,2.3403,-0.2615,-0.2528,-0.08388,0.44202,-0.25737,0.85519,0.417,2.3072,-0.26,-0.2425,-0.08006,0.44043,-0.25624,0.85671,0.433,2.2771,-0.2595,-0.2305,-0.07598,0.4382,-0.25564,0.8584,0.45,2.2498,-0.2598,-0.2171,-0.07169,0.43544,-0.25552,0.86021,0.467,2.2251,-0.2609,-0.2025,-0.06725,0.43221,-0.25581,0.86211,0.483,2.2029,-0.2625,-0.187,-0.06272,0.42859,-0.25646,0.86406,0.5,2.183,-0.2647,-0.1709,-0.05815,0.42467,-0.25742,0.86603,0.517,2.1654,-0.2673,-0.1544,-0.05359,0.42053,-0.25862,0.86799},
-	}},
-	DashRight = {len = 0.5, parts = {
-		Head = {0,0,0,0,0,0,0,1,0.017,0,0,0,0.01925,0.03594,-0.05625,0.99758,0.033,0,0,0,0.04195,0.08179,-0.12338,0.98809,0.05,0,0,0,0.06502,0.13237,-0.19238,0.97018,0.067,0,0,0,0.08522,0.18197,-0.25356,0.94622,0.083,0,0,0,0.09967,0.22548,-0.29841,0.92205,0.1,0,0,0,0.10684,0.25998,-0.32222,0.90398,0.117,0,0,0,0.10826,0.28684,-0.32887,0.89322,0.133,0,0,0,0.10594,0.30802,-0.32355,0.88838,0.15,0,0,0,0.10171,0.32512,-0.31091,0.88729,0.167,0,0,0,0.09732,0.33958,-0.29538,0.88767,0.183,0,0,0,0.0942,0.35255,-0.28063,0.88774,0.2,0,0,0,0.09249,0.36434,-0.26735,0.88726,0.217,0,0,0,0.09201,0.37498,-0.25551,0.88636,0.233,0,0,0,0.09261,0.38454,-0.24504,0.88516,0.25,0,0,0,0.0941,0.39305,-0.23591,0.88374,0.267,0,0,0,0.09633,0.40054,-0.22808,0.8822,0.283,0,0,0,0.09913,0.40702,-0.22149,0.8806,0.3,0,0,0,0.10234,0.41252,-0.21611,0.87901,0.317,0,0,0,0.10579,0.41703,-0.21191,0.87749,0.333,0,0,0,0.10931,0.42057,-0.20885,0.8761,0.35,0,0,0,0.11274,0.42313,-0.20688,0.8749,0.367,0,0,0,0.11591,0.4247,-0.20599,0.87394,0.383,0,0,0,0.11864,0.42528,-0.20614,0.87325,0.4,0,0,0,0.12076,0.42486,-0.20728,0.8729,0.417,0,0,0,0.12212,0.42344,-0.20938,0.87289,0.433,0,0,0,0.12277,0.42111,-0.21234,0.87322,0.45,0,0,0,0.12277,0.41798,-0.21604,0.87381,0.467,0,0,0,0.12219,0.41415,-0.22036,0.87464,0.483,0,0,0,0.12111,0.40972,-0.22521,0.87564,0.5,0,0,0,0.11959,0.40482,-0.23045,0.87676},
-		["Left Arm"] = {0,0,0,0,0,0,0,1,0.017,0.0095,-0.004,0.0696,-0.06731,-0.0507,-0.02292,0.99618,0.033,0.0171,-0.0086,0.1434,-0.14093,-0.11595,-0.05119,0.98187,0.05,0.0234,-0.013,0.2161,-0.21522,-0.19373,-0.07966,0.95384,0.067,0.0295,-0.018,0.2834,-0.28447,-0.27907,-0.10311,0.91135,0.083,0.0373,-0.0253,0.3433,-0.34457,-0.36481,-0.11734,0.85698,0.1,0.0478,-0.0361,0.3962,-0.39432,-0.44335,-0.12007,0.79595,0.117,0.061,-0.05,0.4436,-0.43564,-0.5083,-0.11102,0.73452,0.133,0.076,-0.0652,0.4867,-0.47269,-0.55512,-0.09133,0.67828,0.15,0.0913,-0.079,0.5256,-0.50996,-0.58117,-0.06304,0.63104,0.167,0.1059,-0.0894,0.5583,-0.54964,-0.5863,-0.0296,0.59436,0.183,0.1197,-0.0955,0.5823,-0.59213,-0.57122,0.00644,0.56837,0.2,0.1342,-0.0976,0.5968,-0.63618,-0.53797,0.04379,0.55131,0.217,0.1512,-0.0973,0.601,-0.67944,-0.48869,0.08162,0.54118,0.233,0.1717,-0.0965,0.5947,-0.71907,-0.42555,0.11925,0.5363,0.25,0.1959,-0.0979,0.5778,-0.75218,-0.35122,0.15597,0.5353,0.267,0.2228,-0.1037,0.5505,-0.77624,-0.26902,0.19099,0.53721,0.283,0.2505,-0.1158,0.5143,-0.78959,-0.1829,0.22346,0.54144,0.3,0.2765,-0.1345,0.471,-0.79163,-0.09718,0.25247,0.54784,0.317,0.2984,-0.1594,0.4235,-0.78299,-0.01618,0.27716,0.55664,0.333,0.3147,-0.1887,0.375,-0.76534,0.05609,0.29663,0.56843,0.35,0.3247,-0.2205,0.329,-0.74113,0.11622,0.30996,0.58408,0.367,0.3288,-0.2527,0.2889,-0.71296,0.16191,0.31637,0.60447,0.383,0.3285,-0.2839,0.2564,-0.68262,0.1929,0.3162,0.62995,0.4,0.3252,-0.3133,0.2329,-0.65095,0.20933,0.30993,0.6606,0.417,0.3202,-0.3407,0.2191,-0.61784,0.21095,0.29787,0.69645,0.433,0.3138,-0.3665,0.2146,-0.58243,0.1976,0.28009,0.73708,0.45,0.306,-0.3915,0.2169,-0.54381,0.17108,0.25627,0.78059,0.467,0.2963,-0.4156,0.2228,-0.50148,0.13358,0.22627,0.8243,0.483,0.2851,-0.4382,0.2296,-0.45573,0.08726,0.19052,0.8651,0.5,0.2729,-0.4577,0.235,-0.40799,0.0344,0.15011,0.8999},
-		["Left Leg"] = {0,0,0,0,0,0,0,1,0.017,0.0077,0.2227,-0.0641,-0.01458,0.0067,-0.01731,0.99972,0.033,0.0009,0.4807,-0.134,-0.03067,0.01419,-0.03639,0.99877,0.05,-0.0217,0.7524,-0.204,-0.04768,0.02207,-0.05605,0.99704,0.067,-0.0616,1.0162,-0.2683,-0.06501,0.02994,-0.07509,0.9946,0.083,-0.1204,1.2505,-0.321,-0.08208,0.0374,-0.09231,0.99164,0.1,-0.1997,1.434,-0.3562,-0.0983,0.04407,-0.10655,0.98845,0.117,-0.3012,1.5453,-0.3677,-0.11312,0.04955,-0.11668,0.98546,0.133,-0.4238,1.5711,-0.352,-0.12612,0.0536,-0.12191,0.98304,0.15,-0.5547,1.5301,-0.3156,-0.13727,0.05628,-0.12266,0.9813,0.167,-0.678,1.4486,-0.2677,-0.14662,0.05777,-0.11963,0.98023,0.183,-0.778,1.3531,-0.2174,-0.1542,0.05825,-0.11353,0.97977,0.2,-0.8423,1.2653,-0.1724,-0.16007,0.05788,-0.10503,0.97979,0.217,-0.8736,1.188,-0.134,-0.16424,0.05682,-0.09483,0.98021,0.233,-0.8781,1.1194,-0.1019,-0.16675,0.05523,-0.08359,0.9809,0.25,-0.862,1.0578,-0.0759,-0.16764,0.05328,-0.07199,0.98177,0.267,-0.8317,1.0014,-0.0556,-0.16693,0.05113,-0.06071,0.98277,0.283,-0.7933,0.9484,-0.041,-0.16466,0.04894,-0.05043,0.98384,0.3,-0.7531,0.8971,-0.0317,-0.16087,0.04688,-0.04182,0.98497,0.317,-0.7162,0.8461,-0.0275,-0.15564,0.04508,-0.0354,0.98615,0.333,-0.6837,0.7957,-0.0277,-0.14918,0.04354,-0.03107,0.98736,0.35,-0.6553,0.7463,-0.0318,-0.14175,0.04226,-0.02857,0.98859,0.367,-0.6311,0.6985,-0.0389,-0.13358,0.04119,-0.02765,0.98979,0.383,-0.6109,0.6529,-0.0483,-0.12495,0.04033,-0.02803,0.99095,0.4,-0.5947,0.61,-0.0593,-0.1161,0.03965,-0.02948,0.99201,0.417,-0.5822,0.5704,-0.0711,-0.10729,0.03912,-0.03173,0.99295,0.433,-0.5735,0.5346,-0.083,-0.09878,0.03873,-0.03453,0.99375,0.45,-0.5683,0.5032,-0.0942,-0.09085,0.03846,-0.03761,0.99441,0.467,-0.5665,0.4768,-0.1039,-0.08375,0.03828,-0.04072,0.99492,0.483,-0.5679,0.4559,-0.1112,-0.07776,0.03818,-0.04359,0.99529,0.5,-0.5724,0.4412,-0.1153,-0.07315,0.03813,-0.04597,0.99553},
-		["Right Arm"] = {0,0,0,0,0,0,0,1,0.017,0.0045,-0.0025,0.0595,-0.05898,-0.00434,0.03631,0.99759,0.033,0.0046,-0.0029,0.139,-0.14393,0.00049,0.07961,0.98638,0.05,-0.0002,0.0054,0.2314,-0.25243,0.018,0.12422,0.95944,0.067,-0.0104,0.027,0.3255,-0.37746,0.04973,0.16293,0.91022,0.083,-0.0263,0.06,0.408,-0.50652,0.09322,0.18835,0.83623,0.1,-0.0476,0.0952,0.4695,-0.62488,0.14139,0.19583,0.74242,0.117,-0.0734,0.1221,0.5094,-0.72189,0.18473,0.18559,0.64056,0.133,-0.1028,0.1349,0.5336,-0.79492,0.21466,0.16205,0.54383,0.15,-0.1345,0.1345,0.5482,-0.84773,0.22594,0.13124,0.46161,0.167,-0.1668,0.1246,0.5559,-0.88557,0.21811,0.0989,0.39802,0.183,-0.1983,0.1085,0.5569,-0.91287,0.19283,0.06816,0.35332,0.2,-0.2287,0.0884,0.5514,-0.9327,0.15318,0.03983,0.32407,0.217,-0.258,0.0648,0.5393,-0.94618,0.10213,0.01382,0.30681,0.233,-0.2859,0.0375,0.5209,-0.95328,0.04244,-0.01026,0.29892,0.25,-0.3117,0.0062,0.4965,-0.95357,-0.0231,-0.03281,0.2985,0.267,-0.3343,-0.0293,0.4667,-0.94668,-0.09155,-0.05411,0.30414,0.283,-0.3526,-0.0684,0.4326,-0.93264,-0.15987,-0.07424,0.31481,0.3,-0.3657,-0.1099,0.3952,-0.91211,-0.22503,-0.09304,0.3298,0.317,-0.373,-0.152,0.3563,-0.88637,-0.28413,-0.11001,0.34859,0.333,-0.3745,-0.1927,0.3177,-0.85737,-0.33455,-0.12432,0.37085,0.35,-0.3709,-0.2299,0.2819,-0.82757,-0.37404,-0.13474,0.39632,0.367,-0.3632,-0.2619,0.2514,-0.79948,-0.40109,-0.13989,0.42473,0.383,-0.3529,-0.288,0.2279,-0.77467,-0.41608,-0.139,0.45546,0.4,-0.3416,-0.308,0.2129,-0.75423,-0.41957,-0.13153,0.48765,0.417,-0.33,-0.3216,0.2076,-0.73898,-0.41177,-0.11704,0.52024,0.433,-0.3184,-0.3288,0.2123,-0.72918,-0.39288,-0.0954,0.55212,0.45,-0.3062,-0.3305,0.2254,-0.72347,-0.36423,-0.06741,0.58257,0.467,-0.2931,-0.3279,0.2443,-0.72002,-0.32743,-0.03433,0.61088,0.483,-0.2789,-0.3222,0.2664,-0.71714,-0.28415,0.00222,0.63637,0.5,-0.2643,-0.3143,0.2894,-0.7134,-0.23629,0.04025,0.65849},
-		["Right Leg"] = {0,-0.0179,-0.0121,-0.0005,0.01382,-0.01668,-0.09776,0.99497,0.017,0.0559,-0.1161,-0.0373,0.12039,0.00319,0.00225,0.99272,0.033,0.1704,-0.2071,-0.1037,0.23459,0.02786,0.11643,0.96469,0.05,0.3117,-0.2554,-0.1869,0.33169,0.05408,0.22162,0.91539,0.067,0.4537,-0.2546,-0.2615,0.39401,0.07923,0.29903,0.86548,0.083,0.5783,-0.2195,-0.3094,0.41732,0.10279,0.34246,0.83546,0.1,0.6843,-0.1673,-0.3321,0.41152,0.12521,0.35966,0.82802,0.117,0.7744,-0.1059,-0.3358,0.38518,0.14638,0.35761,0.83805,0.133,0.8506,-0.0385,-0.3264,0.34471,0.16544,0.34105,0.85877,0.15,0.9144,0.0311,-0.3096,0.2968,0.18108,0.31455,0.88328,0.167,0.9665,0.0974,-0.2894,0.24954,0.19201,0.28368,0.90575,0.183,1.0067,0.1535,-0.2675,0.2105,0.19763,0.25405,0.92309,0.2,1.0357,0.1985,-0.2434,0.18079,0.19868,0.2273,0.93604,0.217,1.0541,0.2334,-0.2165,0.15946,0.19618,0.20367,0.94584,0.233,1.0629,0.2597,-0.1871,0.1453,0.19104,0.18314,0.95334,0.25,1.0629,0.2789,-0.1558,0.137,0.18409,0.16552,0.95914,0.267,1.0552,0.2926,-0.1235,0.13326,0.17607,0.15059,0.96362,0.283,1.041,0.3024,-0.0911,0.13281,0.16764,0.13805,0.96706,0.3,1.0215,0.3099,-0.0599,0.13447,0.15941,0.12762,0.96965,0.317,0.9979,0.3166,-0.0307,0.13707,0.15196,0.11903,0.97157,0.333,0.9717,0.3239,-0.0047,0.13955,0.14585,0.11203,0.97299,0.35,0.9441,0.3334,0.0171,0.14081,0.14162,0.10636,0.97407,0.367,0.9162,0.346,0.034,0.14008,0.13965,0.10184,0.97494,0.383,0.8883,0.3615,0.0462,0.13752,0.13965,0.09849,0.97565,0.4,0.8604,0.3792,0.0541,0.13354,0.14117,0.0964,0.97619,0.417,0.8323,0.3987,0.058,0.12854,0.14376,0.09566,0.97655,0.433,0.8041,0.4194,0.0585,0.12293,0.14699,0.0964,0.97672,0.45,0.7756,0.4407,0.0558,0.11709,0.15042,0.09875,0.97668,0.467,0.7469,0.4621,0.0505,0.11146,0.1536,0.10286,0.97642,0.483,0.7179,0.4829,0.0431,0.10646,0.15605,0.10887,0.97594,0.5,0.6884,0.5026,0.034,0.10256,0.1573,0.11696,0.97522},
-		Torso = {0,-0.2184,-0.1253,-0.0322,0.06146,-0.11105,0.01525,0.9918,0.017,-0.7133,-0.1617,-0.0016,0.04562,-0.13477,0.07653,0.98686,0.033,-1.2754,-0.208,0.0288,0.02679,-0.16399,0.14631,0.97518,0.05,-1.8367,-0.2611,0.0527,0.00693,-0.19511,0.21488,0.95693,0.067,-2.3294,-0.3135,0.0656,-0.01192,-0.22499,0.27298,0.93526,0.083,-2.7009,-0.3565,0.0652,-0.02824,-0.25176,0.31458,0.9148,0.1,-2.9555,-0.3874,0.0532,-0.04206,-0.27575,0.34125,0.89763,0.117,-3.1112,-0.4064,0.0317,-0.05374,-0.29757,0.35596,0.88423,0.133,-3.1857,-0.4143,0.0031,-0.06359,-0.31763,0.36123,0.8744,0.15,-3.1964,-0.4126,-0.0305,-0.07188,-0.33615,0.35927,0.86762,0.167,-3.1605,-0.4034,-0.0669,-0.07879,-0.3532,0.35211,0.86317,0.183,-3.0948,-0.3891,-0.1037,-0.08449,-0.36875,0.34173,0.8603,0.2,-3.0161,-0.3725,-0.1386,-0.0891,-0.38272,0.33015,0.85825,0.217,-2.9384,-0.3564,-0.1695,-0.09274,-0.39503,0.31915,0.85644,0.233,-2.8647,-0.3413,-0.1962,-0.09546,-0.40573,0.30909,0.85483,0.25,-2.795,-0.3275,-0.2185,-0.09732,-0.41488,0.29999,0.85347,0.267,-2.7292,-0.3149,-0.2366,-0.09836,-0.42258,0.29184,0.8524,0.283,-2.6674,-0.3037,-0.2506,-0.09864,-0.42892,0.28462,0.85164,0.3,-2.6095,-0.2938,-0.2608,-0.0982,-0.43396,0.27832,0.85122,0.317,-2.5555,-0.2853,-0.2672,-0.09712,-0.43781,0.27289,0.85113,0.333,-2.5053,-0.278,-0.2701,-0.09544,-0.44055,0.2683,0.85136,0.35,-2.4589,-0.2721,-0.2699,-0.09322,-0.44226,0.2645,0.85191,0.367,-2.416,-0.2674,-0.2667,-0.09052,-0.44302,0.26145,0.85275,0.383,-2.3765,-0.2639,-0.2609,-0.08738,-0.44291,0.25909,0.85385,0.4,-2.3403,-0.2615,-0.2528,-0.08388,-0.44202,0.25737,0.85519,0.417,-2.3072,-0.26,-0.2425,-0.08006,-0.44043,0.25624,0.85671,0.433,-2.2771,-0.2595,-0.2305,-0.07598,-0.4382,0.25564,0.8584,0.45,-2.2498,-0.2598,-0.2171,-0.07169,-0.43544,0.25552,0.86021,0.467,-2.2251,-0.2609,-0.2025,-0.06725,-0.43221,0.25581,0.86211,0.483,-2.2029,-0.2625,-0.187,-0.06272,-0.42859,0.25646,0.86406,0.5,-2.183,-0.2647,-0.1709,-0.05815,-0.42467,0.25742,0.86603},
-	}},
-	-- Idle (locomoção embutida, extraída do mesmo .rbxm do dash)
-	idle = {len = 1.8833, parts = {
-		Head = {0,0,0,0.01666,0.01413,-0.00045,0.00474,0.99989,0.0167,0,0,0.01666,0.01455,-0.00045,0.00474,0.99988,0.0333,0,0,0.01666,0.01498,-0.00045,0.00474,0.99988,0.05,0,0,0.01666,0.01542,-0.00045,0.00474,0.99987,0.0667,0,0,0.01666,0.01587,-0.00046,0.00474,0.99986,0.0833,0,0,0.01666,0.01633,-0.00046,0.00474,0.99986,0.1,0,0,0.01666,0.01679,-0.00046,0.00474,0.99985,0.1167,0,0,0.01666,0.01726,-0.00046,0.00474,0.99984,0.1333,0,0,0.01666,0.01774,-0.00046,0.00474,0.99983,0.15,0,0,0.01666,0.01821,-0.00047,0.00474,0.99982,0.1667,0,0,0.01666,0.01869,-0.00047,0.00474,0.99981,0.1833,0,0,0.01666,0.01916,-0.00047,0.00474,0.99981,0.2,0,0,0.01666,0.01964,-0.00047,0.00474,0.9998,0.2167,0,0,0.01666,0.02011,-0.00048,0.00474,0.99979,0.2333,0,0,0.01666,0.02058,-0.00048,0.00474,0.99978,0.25,0,0,0.01666,0.02104,-0.00048,0.00474,0.99977,0.2667,0,0,0.01666,0.02149,-0.00048,0.00474,0.99976,0.2833,0,0,0.01666,0.02194,-0.00048,0.00474,0.99975,0.3,0,0,0.01666,0.02237,-0.00049,0.00474,0.99974,0.3167,0,0,0.01666,0.0228,-0.00049,0.00474,0.99973,0.3333,0,0,0.01666,0.02321,-0.00049,0.00474,0.99972,0.35,0,0,0.01666,0.02361,-0.00049,0.00474,0.99971,0.3667,0,0,0.01666,0.02399,-0.00049,0.00474,0.9997,0.3833,0,0,0.01666,0.02436,-0.0005,0.00474,0.99969,0.4,0,0,0.01666,0.02471,-0.0005,0.00474,0.99968,0.4167,0,0,0.01666,0.02503,-0.0005,0.00474,0.99968,0.4333,0,0,0.01666,0.02534,-0.0005,0.00474,0.99967,0.45,0,0,0.01666,0.02563,-0.0005,0.00474,0.99966,0.4667,0,0,0.01666,0.02589,-0.0005,0.00474,0.99965,0.4833,0,0,0.01666,0.02613,-0.0005,0.00474,0.99965,0.5,0,0,0.01666,0.02635,-0.0005,0.00474,0.99964,0.5167,0,0,0.01666,0.02653,-0.00051,0.00474,0.99964,0.5333,0,0,0.01666,0.02669,-0.00051,0.00474,0.99963,0.55,0,0,0.01666,0.02682,-0.00051,0.00474,0.99963,0.5667,0,0,0.01666,0.02692,-0.00051,0.00474,0.99963,0.5833,0,0,0.01666,0.02698,-0.00051,0.00474,0.99962,0.6,0,0,0.01666,0.02701,-0.00051,0.00474,0.99962,0.6167,0,0,0.01666,0.02701,-0.00051,0.00474,0.99962,0.6333,0,0,0.01666,0.02696,-0.00051,0.00474,0.99963,0.65,0,0,0.01666,0.02688,-0.00051,0.00474,0.99963,0.6667,0,0,0.01666,0.02677,-0.00051,0.00474,0.99963,0.6833,0,0,0.01666,0.02661,-0.00051,0.00474,0.99963,0.7,0,0,0.01666,0.02641,-0.00051,0.00474,0.99964,0.7167,0,0,0.01666,0.02618,-0.0005,0.00474,0.99965,0.7333,0,0,0.01666,0.02591,-0.0005,0.00474,0.99965,0.75,0,0,0.01666,0.02561,-0.0005,0.00474,0.99966,0.7667,0,0,0.01666,0.02527,-0.0005,0.00474,0.99967,0.7833,0,0,0.01666,0.02491,-0.0005,0.00474,0.99968,0.8,0,0,0.01666,0.02453,-0.0005,0.00474,0.99969,0.8167,0,0,0.01666,0.02412,-0.00049,0.00474,0.9997,0.8333,0,0,0.01666,0.02368,-0.00049,0.00474,0.99971,0.85,0,0,0.01666,0.02323,-0.00049,0.00474,0.99972,0.8667,0,0,0.01666,0.02275,-0.00049,0.00474,0.99973,0.8833,0,0,0.01666,0.02226,-0.00049,0.00474,0.99974,0.9,0,0,0.01666,0.02176,-0.00048,0.00474,0.99975,0.9167,0,0,0.01666,0.02124,-0.00048,0.00474,0.99976,0.9333,0,0,0.01666,0.02072,-0.00048,0.00474,0.99977,0.95,0,0,0.01666,0.02018,-0.00048,0.00474,0.99979,0.9667,0,0,0.01666,0.01964,-0.00047,0.00474,0.9998,0.9833,0,0,0.01666,0.01909,-0.00047,0.00474,0.99981,1,0,0,0.01666,0.01854,-0.00047,0.00474,0.99982,1.0167,0,0,0.01666,0.01799,-0.00047,0.00474,0.99983,1.0333,0,0,0.01666,0.01744,-0.00046,0.00474,0.99984,1.05,0,0,0.01666,0.0169,-0.00046,0.00474,0.99985,1.0667,0,0,0.01666,0.01636,-0.00046,0.00474,0.99985,1.0833,0,0,0.01666,0.01583,-0.00045,0.00474,0.99986,1.1,0,0,0.01666,0.01531,-0.00045,0.00474,0.99987,1.1167,0,0,0.01666,0.0148,-0.00045,0.00474,0.99988,1.1333,0,0,0.01666,0.0143,-0.00045,0.00474,0.99989,1.15,0,0,0.01666,0.01382,-0.00045,0.00474,0.99989,1.1667,0,0,0.01666,0.01336,-0.00044,0.00474,0.9999,1.1833,0,0,0.01666,0.01291,-0.00044,0.00474,0.99991,1.2,0,0,0.01666,0.01249,-0.00044,0.00474,0.99991,1.2167,0,0,0.01666,0.01209,-0.00044,0.00474,0.99992,1.2333,0,0,0.01666,0.01172,-0.00044,0.00474,0.99992,1.25,0,0,0.01666,0.01137,-0.00043,0.00474,0.99992,1.2667,0,0,0.01666,0.01104,-0.00043,0.00474,0.99993,1.2833,0,0,0.01666,0.01075,-0.00043,0.00474,0.99993,1.3,0,0,0.01666,0.01047,-0.00043,0.00474,0.99993,1.3167,0,0,0.01666,0.01022,-0.00043,0.00474,0.99994,1.3333,0,0,0.01666,0.01,-0.00043,0.00474,0.99994,1.35,0,0,0.01666,0.00979,-0.00043,0.00474,0.99994,1.3667,0,0,0.01666,0.00962,-0.00043,0.00474,0.99994,1.3833,0,0,0.01666,0.00946,-0.00042,0.00474,0.99994,1.4,0,0,0.01666,0.00933,-0.00042,0.00474,0.99995,1.4167,0,0,0.01666,0.00922,-0.00042,0.00474,0.99995,1.4333,0,0,0.01666,0.00913,-0.00042,0.00474,0.99995,1.45,0,0,0.01666,0.00906,-0.00042,0.00474,0.99995,1.4667,0,0,0.01666,0.00902,-0.00042,0.00474,0.99995,1.4833,0,0,0.01666,0.00899,-0.00042,0.00474,0.99995,1.5,0,0,0.01666,0.00899,-0.00042,0.00474,0.99995,1.5167,0,0,0.01666,0.00901,-0.00042,0.00474,0.99995,1.5333,0,0,0.01666,0.00905,-0.00042,0.00474,0.99995,1.55,0,0,0.01666,0.00911,-0.00042,0.00474,0.99995,1.5667,0,0,0.01666,0.00919,-0.00042,0.00474,0.99995,1.5833,0,0,0.01666,0.00929,-0.00042,0.00474,0.99995,1.6,0,0,0.01666,0.00941,-0.00042,0.00474,0.99994,1.6167,0,0,0.01666,0.00955,-0.00043,0.00474,0.99994,1.6333,0,0,0.01666,0.0097,-0.00043,0.00474,0.99994,1.65,0,0,0.01666,0.00988,-0.00043,0.00474,0.99994,1.6667,0,0,0.01666,0.01007,-0.00043,0.00474,0.99994,1.6833,0,0,0.01666,0.01028,-0.00043,0.00474,0.99994,1.7,0,0,0.01666,0.01051,-0.00043,0.00474,0.99993,1.7167,0,0,0.01666,0.01076,-0.00043,0.00474,0.99993,1.7333,0,0,0.01666,0.01102,-0.00043,0.00474,0.99993,1.75,0,0,0.01666,0.01131,-0.00043,0.00474,0.99992,1.7667,0,0,0.01666,0.0116,-0.00043,0.00474,0.99992,1.7833,0,0,0.01666,0.01192,-0.00044,0.00474,0.99992,1.8,0,0,0.01666,0.01225,-0.00044,0.00474,0.99991,1.8167,0,0,0.01666,0.01259,-0.00044,0.00474,0.99991,1.8333,0,0,0.01666,0.01295,-0.00044,0.00474,0.9999,1.85,0,0,0.01666,0.01333,-0.00044,0.00474,0.9999,1.8667,0,0,0.01666,0.01372,-0.00044,0.00474,0.99989,1.8833,0,0,0.01666,0.01413,-0.00045,0.00474,0.99989},
-		["Left Arm"] = {0,0.08223,-0.0731,-0.03837,-0.02045,0.06007,0.00043,0.99798,0.0167,0.08222,-0.07411,-0.03873,-0.02044,0.05996,0.00029,0.99799,0.0333,0.08222,-0.07515,-0.03909,-0.02044,0.05976,0.00016,0.998,0.05,0.08221,-0.07621,-0.03944,-0.02044,0.05947,0.00003,0.99802,0.0667,0.0822,-0.07731,-0.03979,-0.02044,0.05908,-0.0001,0.99804,0.0833,0.0822,-0.07842,-0.04014,-0.02044,0.05861,-0.00022,0.99807,0.1,0.08219,-0.07955,-0.04048,-0.02044,0.05807,-0.00033,0.9981,0.1167,0.08219,-0.0807,-0.04081,-0.02045,0.05744,-0.00044,0.99814,0.1333,0.08218,-0.08186,-0.04113,-0.02045,0.05674,-0.00055,0.99818,0.15,0.08218,-0.08303,-0.04145,-0.02046,0.05598,-0.00065,0.99822,0.1667,0.08217,-0.08421,-0.04175,-0.02047,0.05515,-0.00074,0.99827,0.1833,0.08217,-0.08538,-0.04205,-0.02048,0.05426,-0.00083,0.99832,0.2,0.08217,-0.08656,-0.04234,-0.02049,0.05331,-0.00091,0.99837,0.2167,0.08217,-0.08773,-0.04261,-0.02051,0.05231,-0.00099,0.99842,0.2333,0.08216,-0.08889,-0.04288,-0.02052,0.05126,-0.00106,0.99847,0.25,0.08216,-0.09004,-0.04313,-0.02054,0.05017,-0.00112,0.99853,0.2667,0.08216,-0.09118,-0.04337,-0.02055,0.04904,-0.00118,0.99858,0.2833,0.08216,-0.0923,-0.0436,-0.02057,0.04787,-0.00123,0.99864,0.3,0.08216,-0.09339,-0.04381,-0.02059,0.04667,-0.00128,0.9987,0.3167,0.08216,-0.09446,-0.04401,-0.02061,0.04544,-0.00132,0.99875,0.3333,0.08217,-0.09551,-0.04419,-0.02063,0.04418,-0.00135,0.99881,0.35,0.08217,-0.09652,-0.04436,-0.02065,0.04291,-0.00137,0.99886,0.3667,0.08217,-0.09749,-0.04451,-0.02067,0.04161,-0.00139,0.99892,0.3833,0.08217,-0.09843,-0.04465,-0.02069,0.04031,-0.0014,0.99897,0.4,0.08218,-0.09932,-0.04477,-0.02071,0.039,-0.00141,0.99902,0.4167,0.08218,-0.10017,-0.04487,-0.02073,0.03768,-0.00141,0.99907,0.4333,0.08218,-0.10097,-0.04495,-0.02076,0.03636,-0.0014,0.99912,0.45,0.08219,-0.10172,-0.04501,-0.02078,0.03505,-0.00138,0.99917,0.4667,0.08219,-0.10241,-0.04505,-0.0208,0.03374,-0.00135,0.99921,0.4833,0.0822,-0.10304,-0.04507,-0.02083,0.03245,-0.00132,0.99926,0.5,0.08221,-0.10361,-0.04507,-0.02085,0.03117,-0.00128,0.9993,0.5167,0.08221,-0.10412,-0.04505,-0.02087,0.02991,-0.00123,0.99933,0.5333,0.08222,-0.10455,-0.04501,-0.0209,0.02867,-0.00118,0.99937,0.55,0.08223,-0.10492,-0.04494,-0.02092,0.02747,-0.00111,0.9994,0.5667,0.08224,-0.1052,-0.04485,-0.02094,0.02629,-0.00104,0.99943,0.5833,0.08224,-0.10541,-0.04474,-0.02097,0.02515,-0.00096,0.99946,0.6,0.08225,-0.10554,-0.0446,-0.02099,0.02405,-0.00087,0.99949,0.6167,0.08226,-0.10558,-0.04444,-0.02101,0.02299,-0.00077,0.99951,0.6333,0.08227,-0.10553,-0.04425,-0.02104,0.02198,-0.00066,0.99954,0.65,0.08228,-0.10538,-0.04403,-0.02106,0.02102,-0.00055,0.99956,0.6667,0.08229,-0.10514,-0.04379,-0.02108,0.02012,-0.00042,0.99958,0.6833,0.0823,-0.1048,-0.04352,-0.0211,0.01928,-0.00029,0.99959,0.7,0.08231,-0.10437,-0.04322,-0.02112,0.01849,-0.00015,0.99961,0.7167,0.08233,-0.10385,-0.0429,-0.02114,0.01777,0,0.99962,0.7333,0.08234,-0.10324,-0.04256,-0.02116,0.0171,0.00016,0.99963,0.75,0.08235,-0.10255,-0.04219,-0.02118,0.01649,0.00032,0.99964,0.7667,0.08236,-0.10179,-0.04181,-0.0212,0.01594,0.00049,0.99965,0.7833,0.08237,-0.10095,-0.04141,-0.02121,0.01545,0.00066,0.99966,0.8,0.08239,-0.10005,-0.041,-0.02123,0.01502,0.00084,0.99966,0.8167,0.0824,-0.09909,-0.04057,-0.02125,0.01464,0.00102,0.99967,0.8333,0.08241,-0.09807,-0.04013,-0.02126,0.01433,0.0012,0.99967,0.85,0.08242,-0.097,-0.03968,-0.02127,0.01406,0.00139,0.99967,0.8667,0.08243,-0.09588,-0.03922,-0.02129,0.01386,0.00158,0.99968,0.8833,0.08245,-0.09472,-0.03875,-0.0213,0.01371,0.00176,0.99968,0.9,0.08246,-0.09353,-0.03828,-0.02131,0.01362,0.00195,0.99968,0.9167,0.08247,-0.0923,-0.03781,-0.02132,0.01358,0.00214,0.99968,0.9333,0.08248,-0.09104,-0.03734,-0.02133,0.0136,0.00232,0.99968,0.95,0.08249,-0.08976,-0.03687,-0.02134,0.01367,0.00251,0.99968,0.9667,0.0825,-0.08846,-0.03639,-0.02135,0.0138,0.00269,0.99967,0.9833,0.08252,-0.08715,-0.03593,-0.02135,0.01399,0.00287,0.99967,1,0.08253,-0.08583,-0.03547,-0.02136,0.01422,0.00304,0.99967,1.0167,0.08254,-0.08451,-0.03502,-0.02136,0.01452,0.00321,0.99966,1.0333,0.08254,-0.08319,-0.03457,-0.02137,0.01486,0.00337,0.99966,1.05,0.08255,-0.08187,-0.03414,-0.02137,0.01526,0.00353,0.99965,1.0667,0.08256,-0.08056,-0.03372,-0.02137,0.01571,0.00368,0.99964,1.0833,0.08257,-0.07927,-0.03332,-0.02137,0.01622,0.00382,0.99963,1.1,0.08258,-0.078,-0.03293,-0.02136,0.01678,0.00396,0.99962,1.1167,0.08258,-0.07676,-0.03256,-0.02136,0.01739,0.00408,0.99961,1.1333,0.08259,-0.07554,-0.03221,-0.02136,0.01805,0.0042,0.9996,1.15,0.08259,-0.07436,-0.03188,-0.02135,0.01877,0.00431,0.99959,1.1667,0.0826,-0.07322,-0.03158,-0.02134,0.01954,0.0044,0.99957,1.1833,0.0826,-0.07212,-0.0313,-0.02133,0.02036,0.00449,0.99956,1.2,0.0826,-0.07107,-0.03105,-0.02132,0.02123,0.00456,0.99954,1.2167,0.0826,-0.07008,-0.03083,-0.02131,0.02215,0.00462,0.99952,1.2333,0.0826,-0.06914,-0.03064,-0.0213,0.02312,0.00466,0.9995,1.25,0.0826,-0.06826,-0.03048,-0.02128,0.02413,0.00469,0.99947,1.2667,0.0826,-0.06744,-0.03034,-0.02127,0.0252,0.00471,0.99945,1.2833,0.0826,-0.06668,-0.03024,-0.02125,0.02629,0.00472,0.99942,1.3,0.08259,-0.06597,-0.03016,-0.02123,0.02743,0.00471,0.99939,1.3167,0.08259,-0.06532,-0.03011,-0.02121,0.0286,0.00469,0.99936,1.3333,0.08258,-0.06472,-0.03009,-0.02119,0.02979,0.00466,0.99932,1.35,0.08258,-0.06418,-0.03009,-0.02116,0.03101,0.00463,0.99928,1.3667,0.08257,-0.0637,-0.03011,-0.02114,0.03225,0.00458,0.99925,1.3833,0.08256,-0.06327,-0.03016,-0.02112,0.0335,0.00452,0.99921,1.4,0.08255,-0.06289,-0.03023,-0.02109,0.03477,0.00445,0.99916,1.4167,0.08255,-0.06256,-0.03032,-0.02107,0.03605,0.00437,0.99912,1.4333,0.08254,-0.06229,-0.03043,-0.02104,0.03733,0.00429,0.99907,1.45,0.08253,-0.06207,-0.03056,-0.02101,0.03861,0.00419,0.99902,1.4667,0.08252,-0.0619,-0.03072,-0.02099,0.0399,0.00409,0.99898,1.4833,0.08251,-0.06179,-0.03089,-0.02096,0.04117,0.00398,0.99892,1.5,0.0825,-0.06172,-0.03107,-0.02093,0.04244,0.00387,0.99887,1.5167,0.08249,-0.06171,-0.03128,-0.0209,0.04369,0.00375,0.99882,1.5333,0.08247,-0.06174,-0.0315,-0.02088,0.04492,0.00362,0.99877,1.55,0.08246,-0.06182,-0.03174,-0.02085,0.04613,0.00349,0.99871,1.5667,0.08245,-0.06196,-0.03199,-0.02082,0.04732,0.00335,0.99866,1.5833,0.08244,-0.06214,-0.03225,-0.02079,0.04848,0.00321,0.9986,1.6,0.08243,-0.06237,-0.03253,-0.02077,0.0496,0.00307,0.99855,1.6167,0.08241,-0.06264,-0.03281,-0.02074,0.05069,0.00292,0.99849,1.6333,0.0824,-0.06296,-0.03311,-0.02071,0.05174,0.00277,0.99844,1.65,0.08239,-0.06333,-0.03342,-0.02069,0.05274,0.00261,0.99839,1.6667,0.08238,-0.06375,-0.03374,-0.02066,0.0537,0.00246,0.99834,1.6833,0.08236,-0.06421,-0.03407,-0.02064,0.0546,0.0023,0.99829,1.7,0.08235,-0.06471,-0.0344,-0.02062,0.05545,0.00214,0.99825,1.7167,0.08234,-0.06527,-0.03474,-0.02059,0.05624,0.00198,0.9982,1.7333,0.08233,-0.06586,-0.03509,-0.02057,0.05697,0.00182,0.99816,1.75,0.08232,-0.0665,-0.03545,-0.02055,0.05763,0.00166,0.99812,1.7667,0.08231,-0.06718,-0.0358,-0.02053,0.05822,0.0015,0.99809,1.7833,0.08229,-0.0679,-0.03617,-0.02052,0.05874,0.00134,0.99806,1.8,0.08228,-0.06867,-0.03653,-0.0205,0.05918,0.00118,0.99804,1.8167,0.08227,-0.06947,-0.0369,-0.02049,0.05954,0.00103,0.99802,1.8333,0.08226,-0.07032,-0.03726,-0.02047,0.05981,0.00088,0.998,1.85,0.08225,-0.07121,-0.03763,-0.02046,0.05999,0.00072,0.99799,1.8667,0.08224,-0.07214,-0.038,-0.02045,0.06008,0.00058,0.99798,1.8833,0.08223,-0.0731,-0.03837,-0.02045,0.06007,0.00043,0.99798},
-		["Left Leg"] = {0,-0.23928,0.04477,0.00948,-0.02781,0.03643,0.06385,0.99691,0.0167,-0.24199,0.04503,0.00965,-0.0278,0.03645,0.06467,0.99685,0.0333,-0.24483,0.04532,0.00982,-0.02779,0.03647,0.06549,0.9968,0.05,-0.24777,0.04564,0.01001,-0.02777,0.03649,0.06633,0.99674,0.0667,-0.2508,0.04597,0.01019,-0.02776,0.03651,0.06717,0.99669,0.0833,-0.25391,0.04633,0.01039,-0.02774,0.03654,0.06801,0.99663,0.1,-0.25709,0.04671,0.01058,-0.02772,0.03656,0.06885,0.99657,0.1167,-0.26031,0.0471,0.01078,-0.02771,0.03659,0.06969,0.99651,0.1333,-0.26372,0.04753,0.01099,-0.02769,0.03661,0.07056,0.99645,0.15,-0.26702,0.04796,0.0112,-0.02767,0.03664,0.07138,0.99639,0.1667,-0.27033,0.0484,0.0114,-0.02765,0.03666,0.0722,0.99633,0.1833,-0.27363,0.04886,0.0116,-0.02763,0.03669,0.07299,0.99627,0.2,-0.27692,0.04933,0.01181,-0.02761,0.03672,0.07377,0.99622,0.2167,-0.2802,0.04981,0.01201,-0.02759,0.03674,0.07453,0.99616,0.2333,-0.28345,0.0503,0.01221,-0.02757,0.03677,0.07527,0.9961,0.25,-0.28666,0.0508,0.0124,-0.02754,0.03679,0.07599,0.99605,0.2667,-0.28984,0.0513,0.01259,-0.02752,0.03682,0.07669,0.99599,0.2833,-0.2931,0.05183,0.01279,-0.0275,0.03685,0.0774,0.99594,0.3,-0.29617,0.05234,0.01298,-0.02748,0.03687,0.07805,0.99589,0.3167,-0.29917,0.05286,0.01316,-0.02746,0.0369,0.07867,0.99584,0.3333,-0.3021,0.05338,0.01334,-0.02744,0.03692,0.07926,0.99579,0.35,-0.30493,0.0539,0.01351,-0.02742,0.03694,0.07982,0.99575,0.3667,-0.30766,0.05441,0.01367,-0.0274,0.03697,0.08034,0.99571,0.3833,-0.31029,0.05492,0.01383,-0.02738,0.03699,0.08083,0.99567,0.4,-0.31282,0.05542,0.01398,-0.02736,0.03701,0.08128,0.99563,0.4167,-0.31524,0.05592,0.01412,-0.02734,0.03703,0.0817,0.99559,0.4333,-0.31754,0.0564,0.01426,-0.02732,0.03705,0.08208,0.99556,0.45,-0.31972,0.05688,0.01439,-0.0273,0.03707,0.08242,0.99553,0.4667,-0.32177,0.05734,0.01451,-0.02728,0.03709,0.08272,0.99551,0.4833,-0.32382,0.05781,0.01463,-0.02726,0.03711,0.08302,0.99548,0.5,-0.3256,0.05825,0.01474,-0.02724,0.03713,0.08324,0.99546,0.5167,-0.32722,0.05866,0.01484,-0.02723,0.03714,0.08342,0.99545,0.5333,-0.32869,0.05906,0.01492,-0.02721,0.03715,0.08356,0.99544,0.55,-0.33,0.05943,0.015,-0.0272,0.03717,0.08365,0.99543,0.5667,-0.33114,0.05978,0.01507,-0.02718,0.03718,0.08369,0.99543,0.5833,-0.3321,0.0601,0.01512,-0.02717,0.03719,0.08369,0.99543,0.6,-0.33288,0.06039,0.01517,-0.02715,0.0372,0.08364,0.99543,0.6167,-0.33346,0.06065,0.0152,-0.02714,0.0372,0.08353,0.99544,0.6333,-0.33385,0.06088,0.01522,-0.02713,0.03721,0.08338,0.99545,0.65,-0.33403,0.06108,0.01523,-0.02712,0.03721,0.08317,0.99547,0.6667,-0.334,0.06124,0.01523,-0.02711,0.03722,0.08291,0.99549,0.6833,-0.33375,0.06136,0.01521,-0.0271,0.03722,0.08259,0.99552,0.7,-0.33328,0.06144,0.01518,-0.02709,0.03721,0.08221,0.99555,0.7167,-0.33262,0.06148,0.01514,-0.02709,0.03721,0.08179,0.99559,0.7333,-0.33175,0.06149,0.01509,-0.02708,0.03721,0.08132,0.99563,0.75,-0.3307,0.06146,0.01503,-0.02708,0.0372,0.0808,0.99567,0.7667,-0.32947,0.0614,0.01495,-0.02708,0.03719,0.08024,0.99571,0.7833,-0.32806,0.06131,0.01487,-0.02707,0.03719,0.07964,0.99576,0.8,-0.32649,0.06118,0.01477,-0.02707,0.03718,0.079,0.99581,0.8167,-0.32476,0.06102,0.01467,-0.02707,0.03716,0.07833,0.99587,0.8333,-0.32275,0.06081,0.01455,-0.02707,0.03715,0.07759,0.99593,0.85,-0.32074,0.0606,0.01443,-0.02708,0.03714,0.07685,0.99598,0.8667,-0.31859,0.06036,0.0143,-0.02708,0.03712,0.07609,0.99604,0.8833,-0.31632,0.06009,0.01416,-0.02708,0.03711,0.07531,0.9961,0.9,-0.31392,0.0598,0.01402,-0.02709,0.03709,0.0745,0.99616,0.9167,-0.31142,0.05948,0.01386,-0.02709,0.03707,0.07367,0.99622,0.9333,-0.30881,0.05914,0.01371,-0.0271,0.03705,0.07283,0.99629,0.95,-0.3061,0.05878,0.01354,-0.02711,0.03703,0.07197,0.99635,0.9667,-0.3033,0.0584,0.01337,-0.02712,0.03701,0.07109,0.99641,0.9833,-0.30041,0.058,0.0132,-0.02713,0.03699,0.07021,0.99648,1,-0.29744,0.05759,0.01302,-0.02714,0.03697,0.06932,0.99654,1.0167,-0.2944,0.05716,0.01283,-0.02715,0.03695,0.06842,0.9966,1.0333,-0.29131,0.05671,0.01265,-0.02716,0.03693,0.06752,0.99666,1.05,-0.28803,0.05623,0.01245,-0.02717,0.0369,0.06659,0.99673,1.0667,-0.28487,0.05577,0.01225,-0.02719,0.03688,0.0657,0.99679,1.0833,-0.28167,0.0553,0.01206,-0.0272,0.03685,0.06482,0.99685,1.1,-0.27846,0.05482,0.01186,-0.02722,0.03683,0.06395,0.9969,1.1167,-0.27524,0.05433,0.01167,-0.02724,0.03681,0.06309,0.99696,1.1333,-0.27203,0.05384,0.01147,-0.02725,0.03678,0.06225,0.99701,1.15,-0.26883,0.05335,0.01127,-0.02727,0.03676,0.06144,0.99706,1.1667,-0.26564,0.05286,0.01108,-0.02729,0.03673,0.06065,0.99711,1.1833,-0.26249,0.05237,0.01089,-0.02731,0.03671,0.05988,0.99716,1.2,-0.25926,0.05186,0.01069,-0.02733,0.03668,0.05911,0.9972,1.2167,-0.25624,0.05139,0.0105,-0.02735,0.03666,0.05842,0.99724,1.2333,-0.2533,0.05091,0.01032,-0.02737,0.03663,0.05777,0.99728,1.25,-0.25044,0.05045,0.01014,-0.02739,0.03661,0.05716,0.99732,1.2667,-0.24768,0.05,0.00997,-0.02742,0.03659,0.05659,0.99735,1.2833,-0.24501,0.04955,0.00981,-0.02744,0.03657,0.05607,0.99738,1.3,-0.24243,0.04912,0.00965,-0.02746,0.03655,0.05558,0.99741,1.3167,-0.23996,0.0487,0.00949,-0.02748,0.03652,0.05514,0.99743,1.3333,-0.23759,0.04829,0.00935,-0.0275,0.0365,0.05474,0.99745,1.35,-0.23532,0.04789,0.00921,-0.02753,0.03649,0.05438,0.99747,1.3667,-0.23303,0.04749,0.00906,-0.02755,0.03647,0.05403,0.99749,1.3833,-0.23099,0.04712,0.00894,-0.02757,0.03645,0.05375,0.99751,1.4,-0.22907,0.04677,0.00882,-0.02759,0.03643,0.05352,0.99752,1.4167,-0.22728,0.04643,0.00871,-0.02761,0.03641,0.05333,0.99753,1.4333,-0.22562,0.04611,0.0086,-0.02763,0.0364,0.05318,0.99754,1.45,-0.2241,0.04581,0.00851,-0.02765,0.03638,0.05307,0.99754,1.4667,-0.22271,0.04552,0.00842,-0.02767,0.03637,0.053,0.99755,1.4833,-0.22146,0.04525,0.00835,-0.02769,0.03636,0.05298,0.99755,1.5,-0.22036,0.045,0.00828,-0.02771,0.03635,0.053,0.99755,1.5167,-0.2194,0.04477,0.00822,-0.02773,0.03634,0.05306,0.99754,1.5333,-0.2186,0.04455,0.00817,-0.02774,0.03633,0.05316,0.99754,1.55,-0.21795,0.04435,0.00813,-0.02776,0.03632,0.05331,0.99753,1.5667,-0.21745,0.04418,0.0081,-0.02777,0.03631,0.05349,0.99752,1.5833,-0.21712,0.04402,0.00808,-0.02779,0.0363,0.05372,0.99751,1.6,-0.21694,0.04388,0.00807,-0.0278,0.0363,0.05399,0.99749,1.6167,-0.21693,0.04376,0.00807,-0.02781,0.0363,0.05429,0.99748,1.6333,-0.21708,0.04366,0.00808,-0.02782,0.03629,0.05464,0.99746,1.65,-0.2174,0.04358,0.0081,-0.02783,0.03629,0.05502,0.99744,1.6667,-0.21789,0.04352,0.00813,-0.02784,0.03629,0.05544,0.99741,1.6833,-0.21854,0.04348,0.00817,-0.02784,0.0363,0.0559,0.99739,1.7,-0.21936,0.04346,0.00822,-0.02785,0.0363,0.05639,0.99736,1.7167,-0.22034,0.04347,0.00828,-0.02785,0.0363,0.05692,0.99733,1.7333,-0.2215,0.04349,0.00836,-0.02785,0.03631,0.05748,0.9973,1.75,-0.22282,0.04354,0.00844,-0.02786,0.03632,0.05808,0.99726,1.7667,-0.2243,0.04361,0.00854,-0.02786,0.03633,0.0587,0.99723,1.7833,-0.22594,0.0437,0.00864,-0.02785,0.03634,0.05936,0.99719,1.8,-0.22775,0.04381,0.00875,-0.02785,0.03635,0.06004,0.99715,1.8167,-0.22972,0.04395,0.00888,-0.02785,0.03636,0.06075,0.9971,1.8333,-0.23185,0.04411,0.00901,-0.02784,0.03638,0.06148,0.99706,1.85,-0.23413,0.0443,0.00915,-0.02783,0.03639,0.06224,0.99701,1.8667,-0.2367,0.04453,0.00932,-0.02782,0.03641,0.06306,0.99696,1.8833,-0.23928,0.04477,0.00948,-0.02781,0.03643,0.06385,0.99691},
-		["Right Arm"] = {0,-0.08223,-0.0731,-0.03837,-0.02045,-0.06007,-0.00043,0.99798,0.0167,-0.08222,-0.07354,-0.03858,-0.02047,-0.0596,-0.00062,0.99801,0.0333,-0.0822,-0.07398,-0.0388,-0.02049,-0.0591,-0.00083,0.99804,0.05,-0.08218,-0.07442,-0.03903,-0.02052,-0.05855,-0.00107,0.99807,0.0667,-0.08217,-0.07487,-0.03925,-0.02054,-0.05796,-0.00133,0.99811,0.0833,-0.08215,-0.07532,-0.03948,-0.02057,-0.05735,-0.00162,0.99814,0.1,-0.08213,-0.07577,-0.03971,-0.0206,-0.0567,-0.00193,0.99818,0.1167,-0.0821,-0.07623,-0.03994,-0.02064,-0.05602,-0.00226,0.99821,0.1333,-0.08208,-0.07668,-0.04016,-0.02067,-0.05532,-0.00261,0.99825,0.15,-0.08206,-0.07713,-0.04039,-0.02071,-0.0546,-0.00297,0.99829,0.1667,-0.08204,-0.07757,-0.04061,-0.02074,-0.05385,-0.00336,0.99833,0.1833,-0.08201,-0.07802,-0.04084,-0.02078,-0.05308,-0.00375,0.99837,0.2,-0.08199,-0.07845,-0.04106,-0.02082,-0.0523,-0.00416,0.99841,0.2167,-0.08196,-0.07888,-0.04128,-0.02086,-0.05151,-0.00458,0.99844,0.2333,-0.08194,-0.07931,-0.04149,-0.0209,-0.05071,-0.00501,0.99848,0.25,-0.08191,-0.07972,-0.0417,-0.02094,-0.0499,-0.00545,0.99852,0.2667,-0.08189,-0.08012,-0.0419,-0.02098,-0.04908,-0.00589,0.99856,0.2833,-0.08186,-0.08052,-0.0421,-0.02102,-0.04826,-0.00635,0.99859,0.3,-0.08183,-0.0809,-0.04229,-0.02107,-0.04745,-0.0068,0.99863,0.3167,-0.08181,-0.08126,-0.04248,-0.02111,-0.04663,-0.00726,0.99866,0.3333,-0.08178,-0.08162,-0.04266,-0.02115,-0.04582,-0.00772,0.9987,0.35,-0.08176,-0.08195,-0.04283,-0.02119,-0.04502,-0.00818,0.99873,0.3667,-0.08173,-0.08227,-0.04299,-0.02123,-0.04423,-0.00863,0.99876,0.3833,-0.08171,-0.08257,-0.04314,-0.02127,-0.04345,-0.00909,0.99879,0.4,-0.08168,-0.08286,-0.04328,-0.02131,-0.04269,-0.00954,0.99882,0.4167,-0.08166,-0.08312,-0.04342,-0.02135,-0.04195,-0.00998,0.99884,0.4333,-0.08164,-0.08336,-0.04354,-0.02139,-0.04123,-0.01041,0.99887,0.45,-0.08161,-0.08358,-0.04365,-0.02142,-0.04053,-0.01084,0.99889,0.4667,-0.08159,-0.08377,-0.04375,-0.02146,-0.03986,-0.01125,0.99891,0.4833,-0.08157,-0.08394,-0.04383,-0.02149,-0.03921,-0.01166,0.99893,0.5,-0.08155,-0.08408,-0.04391,-0.02153,-0.0386,-0.01205,0.99895,0.5167,-0.08154,-0.0842,-0.04397,-0.02156,-0.03802,-0.01242,0.99897,0.5333,-0.08152,-0.08428,-0.04401,-0.02159,-0.03748,-0.01278,0.99898,0.55,-0.0815,-0.08434,-0.04404,-0.02161,-0.03698,-0.01312,0.999,0.5667,-0.08149,-0.08437,-0.04406,-0.02164,-0.03652,-0.01344,0.99901,0.5833,-0.08147,-0.08436,-0.04405,-0.02166,-0.03611,-0.01374,0.99902,0.6,-0.08146,-0.08433,-0.04404,-0.02168,-0.03574,-0.01401,0.99903,0.6167,-0.08145,-0.08425,-0.044,-0.0217,-0.03542,-0.01427,0.99903,0.6333,-0.08144,-0.08415,-0.04395,-0.02172,-0.03516,-0.01449,0.99904,0.65,-0.08144,-0.084,-0.04388,-0.02173,-0.03495,-0.01469,0.99904,0.6667,-0.08143,-0.08382,-0.04379,-0.02174,-0.0348,-0.01487,0.99905,0.6833,-0.08143,-0.0836,-0.04368,-0.02175,-0.0347,-0.01501,0.99905,0.7,-0.08143,-0.08334,-0.04355,-0.02176,-0.03467,-0.01512,0.99905,0.7167,-0.08143,-0.08305,-0.0434,-0.02176,-0.03469,-0.01521,0.99905,0.7333,-0.08143,-0.08273,-0.04324,-0.02176,-0.03476,-0.01527,0.99904,0.75,-0.08144,-0.08237,-0.04306,-0.02176,-0.03489,-0.0153,0.99904,0.7667,-0.08144,-0.08199,-0.04287,-0.02175,-0.03507,-0.0153,0.99903,0.7833,-0.08145,-0.08158,-0.04266,-0.02174,-0.03529,-0.01529,0.99902,0.8,-0.08146,-0.08115,-0.04245,-0.02173,-0.03556,-0.01524,0.99901,0.8167,-0.08147,-0.08069,-0.04222,-0.02172,-0.03587,-0.01518,0.99901,0.8333,-0.08148,-0.08022,-0.04198,-0.02171,-0.03622,-0.01509,0.99899,0.85,-0.08149,-0.07972,-0.04173,-0.02169,-0.03661,-0.01498,0.99898,0.8667,-0.0815,-0.07921,-0.04147,-0.02168,-0.03704,-0.01485,0.99897,0.8833,-0.08152,-0.07869,-0.04121,-0.02166,-0.0375,-0.0147,0.99895,0.9,-0.08153,-0.07815,-0.04094,-0.02163,-0.038,-0.01453,0.99894,0.9167,-0.08155,-0.07761,-0.04067,-0.02161,-0.03852,-0.01434,0.99892,0.9333,-0.08157,-0.07706,-0.04039,-0.02159,-0.03907,-0.01414,0.9989,0.95,-0.08158,-0.0765,-0.04011,-0.02156,-0.03965,-0.01391,0.99888,0.9667,-0.0816,-0.07594,-0.03983,-0.02154,-0.04025,-0.01368,0.99886,0.9833,-0.08162,-0.07538,-0.03954,-0.02151,-0.04088,-0.01342,0.99884,1,-0.08164,-0.07482,-0.03926,-0.02148,-0.04152,-0.01316,0.99882,1.0167,-0.08166,-0.07426,-0.03898,-0.02145,-0.04218,-0.01288,0.9988,1.0333,-0.08168,-0.07371,-0.0387,-0.02142,-0.04285,-0.01259,0.99877,1.05,-0.08171,-0.07316,-0.03843,-0.02138,-0.04353,-0.01228,0.99875,1.0667,-0.08173,-0.07262,-0.03816,-0.02135,-0.04423,-0.01197,0.99872,1.0833,-0.08175,-0.0721,-0.03789,-0.02132,-0.04494,-0.01165,0.99869,1.1,-0.08177,-0.07159,-0.03763,-0.02128,-0.04565,-0.01131,0.99867,1.1167,-0.08179,-0.07109,-0.03738,-0.02125,-0.04636,-0.01097,0.99864,1.1333,-0.08182,-0.07061,-0.03714,-0.02122,-0.04708,-0.01062,0.99861,1.15,-0.08184,-0.07015,-0.03691,-0.02118,-0.0478,-0.01027,0.99858,1.1667,-0.08186,-0.06971,-0.03669,-0.02115,-0.04851,-0.00991,0.99855,1.1833,-0.08189,-0.0693,-0.03648,-0.02111,-0.04922,-0.00954,0.99852,1.2,-0.08191,-0.06891,-0.03628,-0.02108,-0.04992,-0.00917,0.99849,1.2167,-0.08193,-0.06855,-0.0361,-0.02104,-0.05062,-0.0088,0.99846,1.2333,-0.08195,-0.06822,-0.03594,-0.02101,-0.0513,-0.00842,0.99843,1.25,-0.08197,-0.06792,-0.03578,-0.02097,-0.05197,-0.00804,0.9984,1.2667,-0.08199,-0.06765,-0.03565,-0.02094,-0.05263,-0.00766,0.99837,1.2833,-0.08201,-0.06741,-0.03552,-0.02091,-0.05327,-0.00729,0.99833,1.3,-0.08203,-0.06719,-0.03541,-0.02087,-0.0539,-0.00691,0.9983,1.3167,-0.08205,-0.067,-0.03532,-0.02084,-0.05452,-0.00653,0.99827,1.3333,-0.08207,-0.06684,-0.03524,-0.02081,-0.05511,-0.00616,0.99824,1.35,-0.08209,-0.06671,-0.03517,-0.02078,-0.05569,-0.00579,0.99821,1.3667,-0.08211,-0.0666,-0.03511,-0.02075,-0.05626,-0.00542,0.99819,1.3833,-0.08213,-0.06651,-0.03507,-0.02072,-0.0568,-0.00506,0.99816,1.4,-0.08214,-0.06646,-0.03504,-0.02069,-0.05732,-0.0047,0.99813,1.4167,-0.08216,-0.06642,-0.03502,-0.02066,-0.05783,-0.00435,0.9981,1.4333,-0.08217,-0.06641,-0.03502,-0.02063,-0.05831,-0.00401,0.99808,1.45,-0.08219,-0.06642,-0.03502,-0.0206,-0.05877,-0.00368,0.99805,1.4667,-0.0822,-0.06646,-0.03504,-0.02058,-0.05921,-0.00335,0.99803,1.4833,-0.08222,-0.06651,-0.03507,-0.02055,-0.05962,-0.00304,0.998,1.5,-0.08223,-0.06659,-0.0351,-0.02053,-0.06001,-0.00273,0.99798,1.5167,-0.08224,-0.06669,-0.03515,-0.02051,-0.06037,-0.00244,0.99796,1.5333,-0.08225,-0.06681,-0.03521,-0.02049,-0.0607,-0.00215,0.99794,1.55,-0.08226,-0.06695,-0.03528,-0.02047,-0.06101,-0.00189,0.99793,1.5667,-0.08227,-0.06711,-0.03536,-0.02045,-0.06129,-0.00163,0.99791,1.5833,-0.08228,-0.06729,-0.03545,-0.02044,-0.06154,-0.00139,0.99789,1.6,-0.08228,-0.06749,-0.03555,-0.02042,-0.06176,-0.00116,0.99788,1.6167,-0.08229,-0.0677,-0.03565,-0.02041,-0.06195,-0.00095,0.99787,1.6333,-0.0823,-0.06793,-0.03577,-0.0204,-0.06211,-0.00076,0.99786,1.65,-0.0823,-0.06818,-0.03589,-0.02038,-0.06223,-0.00058,0.99785,1.6667,-0.0823,-0.06844,-0.03603,-0.02038,-0.06232,-0.00043,0.99785,1.6833,-0.0823,-0.06872,-0.03617,-0.02037,-0.06238,-0.00029,0.99784,1.7,-0.08231,-0.06902,-0.03631,-0.02036,-0.0624,-0.00017,0.99784,1.7167,-0.08231,-0.06933,-0.03647,-0.02036,-0.06239,-0.00008,0.99784,1.7333,-0.0823,-0.06965,-0.03663,-0.02036,-0.06234,0,0.99785,1.75,-0.0823,-0.06999,-0.0368,-0.02036,-0.06225,0.00005,0.99785,1.7667,-0.0823,-0.07034,-0.03698,-0.02036,-0.06212,0.00008,0.99786,1.7833,-0.08229,-0.0707,-0.03716,-0.02037,-0.06195,0.00009,0.99787,1.8,-0.08229,-0.07107,-0.03735,-0.02038,-0.06174,0.00007,0.99788,1.8167,-0.08228,-0.07146,-0.03754,-0.02039,-0.0615,0.00002,0.9979,1.8333,-0.08227,-0.07186,-0.03774,-0.0204,-0.0612,-0.00005,0.99792,1.85,-0.08226,-0.07226,-0.03794,-0.02041,-0.06087,-0.00015,0.99794,1.8667,-0.08225,-0.07268,-0.03815,-0.02043,-0.06049,-0.00028,0.99796,1.8833,-0.08223,-0.0731,-0.03837,-0.02045,-0.06007,-0.00043,0.99798},
-		["Right Leg"] = {0,0.24132,0.04728,0.00709,-0.03101,-0.0319,-0.06318,0.99701,0.0167,0.24407,0.04754,0.00724,-0.03101,-0.03192,-0.064,0.99696,0.0333,0.24693,0.04783,0.00739,-0.031,-0.03194,-0.06483,0.9969,0.05,0.2499,0.04815,0.00754,-0.03099,-0.03197,-0.06567,0.99685,0.0667,0.25297,0.04848,0.0077,-0.03098,-0.03199,-0.06652,0.99679,0.0833,0.25611,0.04884,0.00787,-0.03096,-0.03202,-0.06737,0.99673,0.1,0.25931,0.04922,0.00803,-0.03095,-0.03205,-0.06822,0.99668,0.1167,0.26257,0.04961,0.0082,-0.03094,-0.03207,-0.06906,0.99662,0.1333,0.26586,0.05003,0.00837,-0.03092,-0.0321,-0.0699,0.99656,0.15,0.26933,0.05047,0.00855,-0.03091,-0.03213,-0.07077,0.9965,0.1667,0.27268,0.05092,0.00872,-0.0309,-0.03216,-0.07159,0.99644,0.1833,0.27601,0.05138,0.00889,-0.03088,-0.03219,-0.0724,0.99638,0.2,0.27933,0.05185,0.00906,-0.03087,-0.03222,-0.07318,0.99632,0.2167,0.28263,0.05233,0.00923,-0.03085,-0.03225,-0.07395,0.99626,0.2333,0.28591,0.05282,0.0094,-0.03084,-0.03228,-0.0747,0.99621,0.25,0.28915,0.05331,0.00956,-0.03082,-0.03231,-0.07543,0.99615,0.2667,0.29235,0.05382,0.00973,-0.0308,-0.03234,-0.07613,0.9961,0.2833,0.29563,0.05435,0.00989,-0.03079,-0.03237,-0.07684,0.99604,0.3,0.29872,0.05486,0.01005,-0.03077,-0.0324,-0.0775,0.99599,0.3167,0.30174,0.05538,0.0102,-0.03076,-0.03243,-0.07812,0.99594,0.3333,0.30469,0.0559,0.01035,-0.03074,-0.03245,-0.07872,0.99589,0.35,0.30755,0.05642,0.01049,-0.03073,-0.03248,-0.07928,0.99585,0.3667,0.3103,0.05694,0.01062,-0.03071,-0.03251,-0.07981,0.99581,0.3833,0.31295,0.05745,0.01076,-0.0307,-0.03253,-0.0803,0.99577,0.4,0.3155,0.05795,0.01088,-0.03068,-0.03256,-0.08076,0.99573,0.4167,0.31793,0.05845,0.011,-0.03067,-0.03258,-0.08118,0.99569,0.4333,0.32025,0.05894,0.01112,-0.03065,-0.0326,-0.08156,0.99566,0.45,0.32244,0.05942,0.01122,-0.03064,-0.03263,-0.08191,0.99563,0.4667,0.32451,0.05988,0.01132,-0.03063,-0.03265,-0.08222,0.99561,0.4833,0.32643,0.06033,0.01142,-0.03061,-0.03267,-0.08248,0.99559,0.5,0.32821,0.06077,0.0115,-0.0306,-0.03269,-0.08271,0.99557,0.5167,0.32998,0.0612,0.01159,-0.03058,-0.0327,-0.08292,0.99555,0.5333,0.33146,0.0616,0.01166,-0.03057,-0.03272,-0.08306,0.99554,0.55,0.33277,0.06197,0.01172,-0.03056,-0.03273,-0.08315,0.99553,0.5667,0.33392,0.06232,0.01178,-0.03055,-0.03275,-0.0832,0.99553,0.5833,0.33488,0.06265,0.01182,-0.03054,-0.03276,-0.0832,0.99553,0.6,0.33567,0.06294,0.01186,-0.03053,-0.03277,-0.08315,0.99553,0.6167,0.33625,0.06321,0.01189,-0.03052,-0.03278,-0.08304,0.99554,0.6333,0.33664,0.06344,0.01191,-0.03051,-0.03278,-0.08289,0.99555,0.65,0.33683,0.06363,0.01191,-0.0305,-0.03279,-0.08268,0.99557,0.6667,0.33679,0.06379,0.01191,-0.03049,-0.03279,-0.08242,0.99559,0.6833,0.33654,0.06391,0.01189,-0.03048,-0.03279,-0.0821,0.99562,0.7,0.33607,0.064,0.01187,-0.03048,-0.03279,-0.08172,0.99565,0.7167,0.3354,0.06404,0.01184,-0.03047,-0.03279,-0.0813,0.99568,0.7333,0.33453,0.06405,0.01179,-0.03046,-0.03278,-0.08082,0.99572,0.75,0.33347,0.06403,0.01174,-0.03046,-0.03277,-0.08031,0.99577,0.7667,0.33223,0.06397,0.01167,-0.03046,-0.03277,-0.07974,0.99581,0.7833,0.33081,0.06387,0.0116,-0.03045,-0.03276,-0.07914,0.99586,0.8,0.32923,0.06375,0.01152,-0.03045,-0.03274,-0.0785,0.99591,0.8167,0.32736,0.06357,0.01143,-0.03045,-0.03273,-0.07779,0.99597,0.8333,0.32548,0.06338,0.01134,-0.03045,-0.03272,-0.07708,0.99602,0.85,0.32345,0.06317,0.01123,-0.03045,-0.0327,-0.07635,0.99608,0.8667,0.32129,0.06293,0.01113,-0.03045,-0.03268,-0.07558,0.99614,0.8833,0.319,0.06266,0.01101,-0.03045,-0.03267,-0.07479,0.9962,0.9,0.31659,0.06237,0.01089,-0.03045,-0.03265,-0.07398,0.99626,0.9167,0.31407,0.06205,0.01076,-0.03045,-0.03263,-0.07315,0.99632,0.9333,0.31144,0.06171,0.01063,-0.03045,-0.03261,-0.0723,0.99638,0.95,0.30871,0.06135,0.01049,-0.03046,-0.03258,-0.07144,0.99645,0.9667,0.30589,0.06097,0.01035,-0.03046,-0.03256,-0.07056,0.99651,0.9833,0.30297,0.06057,0.0102,-0.03047,-0.03254,-0.06966,0.99657,1,0.29997,0.06015,0.01005,-0.03048,-0.03251,-0.06877,0.99664,1.0167,0.29691,0.05972,0.0099,-0.03048,-0.03249,-0.06786,0.9967,1.0333,0.29366,0.05926,0.00974,-0.03049,-0.03246,-0.06692,0.99676,1.05,0.29051,0.0588,0.00958,-0.0305,-0.03243,-0.06602,0.99682,1.0667,0.28732,0.05834,0.00941,-0.03051,-0.03241,-0.06513,0.99688,1.0833,0.2841,0.05786,0.00925,-0.03052,-0.03238,-0.06424,0.99694,1.1,0.28086,0.05738,0.00909,-0.03053,-0.03235,-0.06336,0.997,1.1167,0.27761,0.05689,0.00892,-0.03054,-0.03232,-0.0625,0.99705,1.1333,0.27437,0.05641,0.00875,-0.03055,-0.0323,-0.06166,0.99711,1.15,0.27113,0.05591,0.00859,-0.03057,-0.03227,-0.06083,0.99716,1.1667,0.26791,0.05542,0.00842,-0.03058,-0.03224,-0.06003,0.99721,1.1833,0.2646,0.05491,0.00826,-0.0306,-0.03221,-0.05922,0.99726,1.2,0.26148,0.05442,0.0081,-0.03061,-0.03218,-0.05849,0.9973,1.2167,0.25843,0.05394,0.00794,-0.03063,-0.03216,-0.05779,0.99734,1.2333,0.25547,0.05347,0.00779,-0.03064,-0.03213,-0.05713,0.99738,1.25,0.25258,0.053,0.00764,-0.03066,-0.0321,-0.05651,0.99741,1.2667,0.24979,0.05255,0.00749,-0.03068,-0.03208,-0.05594,0.99745,1.2833,0.24709,0.0521,0.00735,-0.03069,-0.03205,-0.05541,0.99748,1.3,0.24449,0.05167,0.00722,-0.03071,-0.03203,-0.05492,0.9975,1.3167,0.24199,0.05124,0.00709,-0.03073,-0.03201,-0.05447,0.99753,1.3333,0.23959,0.05083,0.00697,-0.03074,-0.03198,-0.05406,0.99755,1.35,0.23716,0.05042,0.00684,-0.03076,-0.03196,-0.05366,0.99757,1.3667,0.23498,0.05003,0.00673,-0.03078,-0.03194,-0.05333,0.99759,1.3833,0.23292,0.04966,0.00662,-0.0308,-0.03192,-0.05305,0.99761,1.4,0.23098,0.04931,0.00652,-0.03081,-0.0319,-0.05281,0.99762,1.4167,0.22918,0.04897,0.00643,-0.03083,-0.03188,-0.05262,0.99763,1.4333,0.2275,0.04865,0.00634,-0.03085,-0.03186,-0.05246,0.99764,1.45,0.22595,0.04834,0.00626,-0.03086,-0.03185,-0.05235,0.99764,1.4667,0.22455,0.04806,0.00619,-0.03088,-0.03183,-0.05228,0.99765,1.4833,0.22329,0.04778,0.00612,-0.03089,-0.03182,-0.05225,0.99765,1.5,0.22217,0.04753,0.00606,-0.03091,-0.0318,-0.05227,0.99765,1.5167,0.22121,0.0473,0.00601,-0.03092,-0.03179,-0.05233,0.99764,1.5333,0.22039,0.04708,0.00597,-0.03094,-0.03178,-0.05243,0.99764,1.55,0.21973,0.04688,0.00594,-0.03095,-0.03177,-0.05257,0.99763,1.5667,0.21923,0.0467,0.00591,-0.03096,-0.03176,-0.05275,0.99762,1.5833,0.2189,0.04654,0.0059,-0.03097,-0.03176,-0.05298,0.99761,1.6,0.21872,0.0464,0.00589,-0.03098,-0.03175,-0.05325,0.9976,1.6167,0.21871,0.04628,0.00589,-0.03099,-0.03175,-0.05355,0.99758,1.6333,0.21886,0.04618,0.0059,-0.031,-0.03175,-0.0539,0.99756,1.65,0.21919,0.0461,0.00592,-0.03101,-0.03174,-0.05428,0.99754,1.6667,0.21968,0.04604,0.00594,-0.03102,-0.03175,-0.0547,0.99752,1.6833,0.22034,0.046,0.00598,-0.03103,-0.03175,-0.05516,0.99749,1.7,0.22117,0.04598,0.00602,-0.03103,-0.03175,-0.05566,0.99746,1.7167,0.22217,0.04598,0.00608,-0.03103,-0.03176,-0.05619,0.99743,1.7333,0.22333,0.04601,0.00614,-0.03104,-0.03176,-0.05675,0.9974,1.75,0.22467,0.04605,0.00621,-0.03104,-0.03177,-0.05735,0.99737,1.7667,0.22617,0.04612,0.00629,-0.03104,-0.03178,-0.05798,0.99733,1.7833,0.22784,0.04621,0.00638,-0.03104,-0.03179,-0.05864,0.99729,1.8,0.22967,0.04632,0.00648,-0.03104,-0.03181,-0.05933,0.99725,1.8167,0.23166,0.04646,0.00658,-0.03104,-0.03182,-0.06004,0.99721,1.8333,0.23381,0.04662,0.0067,-0.03103,-0.03184,-0.06078,0.99716,1.85,0.23611,0.04681,0.00682,-0.03103,-0.03186,-0.06155,0.99711,1.8667,0.23857,0.04702,0.00695,-0.03102,-0.03187,-0.06233,0.99706,1.8833,0.24132,0.04728,0.00709,-0.03101,-0.0319,-0.06318,0.99701},
-		Torso = {0,-0.03448,-0.00578,-0.03692,0.00351,0,0,0.99999,0.0167,-0.03448,-0.00575,-0.03761,0.00344,0,0,0.99999,0.0333,-0.03448,-0.00574,-0.03833,0.00339,0,0,0.99999,0.05,-0.03448,-0.00573,-0.03909,0.00335,0,0,0.99999,0.0667,-0.03448,-0.00572,-0.03988,0.00333,0,0,0.99999,0.0833,-0.03448,-0.00572,-0.0407,0.00332,0,0,0.99999,0.1,-0.03448,-0.00572,-0.04154,0.00332,0,0,0.99999,0.1167,-0.03448,-0.00573,-0.04241,0.00333,0,0,0.99999,0.1333,-0.03448,-0.00575,-0.04329,0.00336,0,0,0.99999,0.15,-0.03448,-0.00576,-0.04419,0.0034,0,0,0.99999,0.1667,-0.03448,-0.00579,-0.04511,0.00344,0,0,0.99999,0.1833,-0.03448,-0.00581,-0.04604,0.0035,0,0,0.99999,0.2,-0.03448,-0.00584,-0.04697,0.00357,0,0,0.99999,0.2167,-0.03448,-0.00588,-0.04791,0.00365,0,0,0.99999,0.2333,-0.03448,-0.00591,-0.04885,0.00374,0,0,0.99999,0.25,-0.03448,-0.00595,-0.0498,0.00383,0,0,0.99999,0.2667,-0.03448,-0.006,-0.05073,0.00394,0,0,0.99999,0.2833,-0.03448,-0.00604,-0.05166,0.00405,0,0,0.99999,0.3,-0.03448,-0.00609,-0.05259,0.00417,0,0,0.99999,0.3167,-0.03448,-0.00614,-0.0535,0.0043,0,0,0.99999,0.3333,-0.03448,-0.0062,-0.05439,0.00444,0,0,0.99999,0.35,-0.03448,-0.00625,-0.05527,0.00458,0,0,0.99999,0.3667,-0.03448,-0.00631,-0.05613,0.00473,0,0,0.99999,0.3833,-0.03448,-0.00637,-0.05696,0.00488,0,0,0.99999,0.4,-0.03448,-0.00643,-0.05776,0.00504,0,0,0.99999,0.4167,-0.03448,-0.00649,-0.05854,0.0052,0,0,0.99999,0.4333,-0.03448,-0.00655,-0.05929,0.00537,0,0,0.99999,0.45,-0.03448,-0.00662,-0.05999,0.00554,0,0,0.99998,0.4667,-0.03448,-0.00668,-0.06066,0.00571,0,0,0.99998,0.4833,-0.03448,-0.00675,-0.06129,0.00589,0,0,0.99998,0.5,-0.03448,-0.00682,-0.06188,0.00607,0,0,0.99998,0.5167,-0.03448,-0.00688,-0.06242,0.00625,0,0,0.99998,0.5333,-0.03448,-0.00695,-0.06291,0.00644,0,0,0.99998,0.55,-0.03448,-0.00702,-0.06334,0.00662,0,0,0.99998,0.5667,-0.03448,-0.00708,-0.06373,0.00681,0,0,0.99998,0.5833,-0.03448,-0.00715,-0.06405,0.00699,0,0,0.99998,0.6,-0.03448,-0.00722,-0.06431,0.00718,0,0,0.99997,0.6167,-0.03448,-0.00728,-0.06451,0.00736,0,0,0.99997,0.6333,-0.03448,-0.00734,-0.06463,0.00755,0,0,0.99997,0.65,-0.03448,-0.00741,-0.06469,0.00773,0,0,0.99997,0.6667,-0.03448,-0.00747,-0.06468,0.00791,0,0,0.99997,0.6833,-0.03448,-0.00753,-0.06459,0.00809,0,0,0.99997,0.7,-0.03448,-0.00759,-0.06443,0.00827,0,0,0.99997,0.7167,-0.03448,-0.00764,-0.0642,0.00845,0,0,0.99996,0.7333,-0.03448,-0.0077,-0.06391,0.00862,0,0,0.99996,0.75,-0.03448,-0.00775,-0.06355,0.00878,0,0,0.99996,0.7667,-0.03448,-0.0078,-0.06313,0.00895,0,0,0.99996,0.7833,-0.03448,-0.00785,-0.06265,0.00911,0,0,0.99996,0.8,-0.03448,-0.00789,-0.06212,0.00926,0,0,0.99996,0.8167,-0.03448,-0.00794,-0.06154,0.00941,0,0,0.99996,0.8333,-0.03448,-0.00798,-0.06092,0.00955,0,0,0.99995,0.85,-0.03448,-0.00802,-0.06025,0.00969,0,0,0.99995,0.8667,-0.03448,-0.00805,-0.05954,0.00982,0,0,0.99995,0.8833,-0.03448,-0.00809,-0.05879,0.00995,0,0,0.99995,0.9,-0.03448,-0.00812,-0.05801,0.01007,0,0,0.99995,0.9167,-0.03448,-0.00815,-0.0572,0.01018,0,0,0.99995,0.9333,-0.03448,-0.00818,-0.05636,0.01029,0,0,0.99995,0.95,-0.03448,-0.0082,-0.0555,0.01038,0,0,0.99995,0.9667,-0.03448,-0.00822,-0.05461,0.01047,0,0,0.99995,0.9833,-0.03448,-0.00824,-0.05371,0.01055,0,0,0.99994,1,-0.03448,-0.00825,-0.0528,0.01062,0,0,0.99994,1.0167,-0.03448,-0.00826,-0.05187,0.01068,0,0,0.99994,1.0333,-0.03448,-0.00827,-0.05093,0.01073,0,0,0.99994,1.05,-0.03448,-0.00828,-0.04999,0.01077,0,0,0.99994,1.0667,-0.03448,-0.00828,-0.04905,0.0108,0,0,0.99994,1.0833,-0.03448,-0.00828,-0.04811,0.01082,0,0,0.99994,1.1,-0.03448,-0.00827,-0.04717,0.01083,0,0,0.99994,1.1167,-0.03448,-0.00826,-0.04625,0.01083,0,0,0.99994,1.1333,-0.03448,-0.00825,-0.04533,0.01081,0,0,0.99994,1.15,-0.03448,-0.00823,-0.04443,0.01079,0,0,0.99994,1.1667,-0.03448,-0.00821,-0.04354,0.01075,0,0,0.99994,1.1833,-0.03448,-0.00819,-0.04268,0.0107,0,0,0.99994,1.2,-0.03448,-0.00816,-0.04184,0.01063,0,0,0.99994,1.2167,-0.03448,-0.00813,-0.04103,0.01055,0,0,0.99994,1.2333,-0.03448,-0.00809,-0.04025,0.01046,0,0,0.99995,1.25,-0.03448,-0.00805,-0.0395,0.01035,0,0,0.99995,1.2667,-0.03448,-0.00801,-0.03878,0.01023,0,0,0.99995,1.2833,-0.03448,-0.00796,-0.03809,0.0101,0,0,0.99995,1.3,-0.03448,-0.00791,-0.03743,0.00996,0,0,0.99995,1.3167,-0.03448,-0.00786,-0.03681,0.0098,0,0,0.99995,1.3333,-0.03448,-0.0078,-0.03622,0.00964,0,0,0.99995,1.35,-0.03448,-0.00774,-0.03566,0.00947,0,0,0.99996,1.3667,-0.03448,-0.00768,-0.03514,0.00929,0,0,0.99996,1.3833,-0.03448,-0.00762,-0.03465,0.0091,0,0,0.99996,1.4,-0.03448,-0.00755,-0.03419,0.00891,0,0,0.99996,1.4167,-0.03448,-0.00748,-0.03377,0.00871,0,0,0.99996,1.4333,-0.03448,-0.00742,-0.03338,0.0085,0,0,0.99996,1.45,-0.03448,-0.00735,-0.03302,0.00829,0,0,0.99997,1.4667,-0.03448,-0.00727,-0.0327,0.00808,0,0,0.99997,1.4833,-0.03448,-0.0072,-0.03242,0.00786,0,0,0.99997,1.5,-0.03448,-0.00713,-0.03217,0.00764,0,0,0.99997,1.5167,-0.03448,-0.00706,-0.03196,0.00742,0,0,0.99997,1.5333,-0.03448,-0.00698,-0.03178,0.00719,0,0,0.99997,1.55,-0.03448,-0.00691,-0.03164,0.00697,0,0,0.99998,1.5667,-0.03448,-0.00684,-0.03154,0.00675,0,0,0.99998,1.5833,-0.03448,-0.00676,-0.03147,0.00652,0,0,0.99998,1.6,-0.03448,-0.00669,-0.03144,0.0063,0,0,0.99998,1.6167,-0.03448,-0.00662,-0.03145,0.00609,0,0,0.99998,1.6333,-0.03448,-0.00655,-0.0315,0.00587,0,0,0.99998,1.65,-0.03448,-0.00648,-0.03158,0.00566,0,0,0.99998,1.6667,-0.03448,-0.00641,-0.03171,0.00545,0,0,0.99999,1.6833,-0.03448,-0.00635,-0.03187,0.00525,0,0,0.99999,1.7,-0.03448,-0.00628,-0.03207,0.00506,0,0,0.99999,1.7167,-0.03448,-0.00622,-0.03231,0.00487,0,0,0.99999,1.7333,-0.03448,-0.00616,-0.03259,0.00469,0,0,0.99999,1.75,-0.03448,-0.00611,-0.03291,0.00451,0,0,0.99999,1.7667,-0.03448,-0.00605,-0.03327,0.00435,0,0,0.99999,1.7833,-0.03448,-0.006,-0.03366,0.00419,0,0,0.99999,1.8,-0.03448,-0.00596,-0.0341,0.00405,0,0,0.99999,1.8167,-0.03448,-0.00591,-0.03459,0.00392,0,0,0.99999,1.8333,-0.03448,-0.00587,-0.03511,0.0038,0,0,0.99999,1.85,-0.03448,-0.00584,-0.03567,0.00369,0,0,0.99999,1.8667,-0.03448,-0.0058,-0.03628,0.00359,0,0,0.99999,1.8833,-0.03448,-0.00578,-0.03692,0.00351,0,0,0.99999},
-	}},
+Config.Damage = {
+	Enabled = true,
+	MinSpeed = 70,     -- batida abaixo disso (stud/s contra a parede) NÃO dá dano
+	FatalSpeed = 240,  -- batida nessa velocidade destrói o carro de uma vez
+	Curve = 1.3,       -- >1 = batidas médias machucam pouco, só as muito fortes pesam
+	Cooldown = 0.4,    -- segundos entre danos (evita contar a mesma batida 2x)
+	SmokeAt = 30,      -- % de dano em que começa a sair fumaça do capô
+	DeadAt = 100,      -- % de dano em que o motor morre e não liga mais
+	TopLoss = 0.5,     -- perda máxima de velocidade final antes de morrer (50%)
+	Dents = true,      -- batida forte amassa a lataria perto do impacto
+	Vital = true,      -- dano nos pontos vitais (motor, radiador, bateria, direcao, tanque, pneus)
+	VitalMul = 1.3,    -- multiplicador do dano nos pontos vitais
+	Break = true,      -- batida forte entorta, quebra e derruba farois, lanternas, retrovisores, placa etc
 }
-
-local function dcBuildEmbedded()
-    local built = {}
-    for clipName, d in pairs(DASH_CLIP_DATA) do
-        local poses = {}
-        for partName, arr in pairs(d.parts) do
-            local list = {}
-            for i = 1, #arr, 8 do
-                list[#list + 1] = {
-                    t = arr[i],
-                    cf = CFrame.new(arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5], arr[i + 6], arr[i + 7]),
-                }
-            end
-            poses[partName] = list
-        end
-        built[clipName] = {len = d.len, poses = poses}
-    end
-    return built
+Config.ToolFx = {
+	Reach = 9,          -- distância máxima (studs * escala) do jogador até a lataria pra usar a ferramenta
+	Cooldown = 0.7,     -- tempo entre usos
+	HammerRadius = 5,   -- área desamassada por golpe
+	HammerFix = 0.4,    -- quanto do amassado some por golpe (0 a 1)
+	WrenchRepair = 25,  -- % de dano do motor que a chave inglesa tira por uso
+	HotwireLeft = 15,   -- a chave de fenda deixa o motor morto com (100 - isso)% de dano
+}
+Config.UserTweaks = {
+	SeatHeight = 1.35,
+	TopSpeed = 230,
+	BodyColor = Color3.fromRGB(17, 17, 21),
+}
+local S = Config.Scale
+Config.DefaultColors = {
+	Estofado = Color3.fromRGB(17, 17, 20),
+	Aros = Color3.fromRGB(34, 35, 40),
+	Pinca = Color3.fromRGB(208, 22, 26),
+	Costura = Color3.fromRGB(176, 178, 186),
+}
+Config.Tweaks = {
+	DashTop = 3.08, ClusterY = 3.0, ClusterZ = -0.5,
+	WheelY = 3.06, WheelZ = -0.03, WheelScale = 0.82, WheelTilt = 18,
+	FuelY = 2.76, FuelZ = 7.02, FuelDia = 0.6, FuelSide = 1,
+	Sunroof = "fechado", SunWidth = 3.3,
+	SeatHeight = Config.SeatHeight, TopSpeed = Config.TopSpeed, BodyColor = Config.BodyColor,
+}
+Config.DefaultOff = {
+	Painel = { px = 0, py = 0.16, pz = 0, rx = 0, ry = 0, rz = 0 },
+	Velocimetro = { px = 0, py = 0, pz = -0.06, rx = 0, ry = 0, rz = 0 },
+	Volante = { px = 0, py = -0.18, pz = 0.12, rx = -1, ry = 0, rz = 0 },
+	Coluna = { px = 0, py = -0.16, pz = -0.06, rx = -22, ry = 0, rz = 0 },
+	Teto = { px = 0, py = 0.02, pz = 0, rx = 0, ry = 0, rz = 0 },
+	ForroTeto = { px = 0, py = 0.02, pz = 0, rx = 0, ry = 0, rz = 0 },
+	ParaBrisa = { px = 0, py = -0.08, pz = 0.06, rx = 0, ry = 0, rz = 0 },
+	Pedais = { px = 0.28, py = 0, pz = 0, rx = 0, ry = 0, rz = 0 },
+	TelaCentral = { px = 0, py = -0.1, pz = -0.08, rx = 0, ry = 0, rz = 0 },
+	RetroInt = { px = 0, py = -0.26, pz = 0, rx = 0, ry = 0, rz = 0 },
+}
+local function newOff(d)
+	d = d or {}
+	return { px = d.px or 0, py = d.py or 0, pz = d.pz or 0, rx = d.rx or 0, ry = d.ry or 0, rz = d.rz or 0,
+		sx = d.sx or 1, sy = d.sy or 1, sz = d.sz or 1, sc = d.sc or 1 }
 end
-
-local function dcBuild()
-    if not DashClips.Built then DashClips.Built = dcBuildEmbedded() end
-    return DashClips.Built
+Config.Tweaks.Off = {}
+for n, o in pairs(Config.DefaultOff) do
+	Config.Tweaks.Off[n] = newOff(o)
 end
-
-local DC_WANTED = {"Dash1", "Dash2", "BackDash", "DashLeft", "DashRight", "idle"}
-
-local function dcIsRbxm(content)
-    return type(content) == "string" and string.sub(content, 1, 8) == "<roblox!"
-end
-
--- baixa o .rbxm do GitHub (se ainda não estiver salvo), lê as KeyframeSequences
--- e devolve {clip = {len, poses}} ou false + motivo
-local function dcLoadFromFile()
-    if not (isfile and readfile and writefile and getcustomasset) then
-        return false, "executor sem isfile/readfile/writefile/getcustomasset"
-    end
-    local file = DashClips.FileName
-
-    local okR, content = pcall(function()
-        if isfile(file) then return readfile(file) end
-        return nil
-    end)
-    if not (okR and dcIsRbxm(content)) then
-        local okH, body = pcall(function() return game:HttpGet(DashClips.GithubUrl) end)
-        if not okH or not dcIsRbxm(body) then
-            return false, "não consegui baixar o arquivo do GitHub"
-        end
-        local okW = pcall(function() writefile(file, body) end)
-        if not okW then return false, "não consegui salvar o arquivo (writefile)" end
-    end
-
-    local okO, objs = pcall(function() return game:GetObjects(getcustomasset(file)) end)
-    if not okO or not objs or not objs[1] then return false, "falha ao ler o .rbxm" end
-    local model = objs[1]
-
-    local seqs = {}
-    for _, d in ipairs(model:GetDescendants()) do
-        if d:IsA("KeyframeSequence") then seqs[d.Name] = d end
-    end
-
-    local result, count = {}, 0
-    for _, clipName in ipairs(DC_WANTED) do
-        local ks = seqs[clipName]
-        if ks then
-            local kfs = {}
-            for _, c in ipairs(ks:GetChildren()) do
-                if c:IsA("Keyframe") then kfs[#kfs + 1] = c end
-            end
-            table.sort(kfs, function(a, b) return a.Time < b.Time end)
-
-            local poses, len = {}, 0
-            local function walk(parent, t)
-                for _, pose in ipairs(parent:GetChildren()) do
-                    if pose:IsA("Pose") then
-                        if pose.Weight > 0 and pose.Name ~= "HumanoidRootPart" then
-                            local list = poses[pose.Name]
-                            if not list then list = {}; poses[pose.Name] = list end
-                            list[#list + 1] = {t = t, cf = pose.CFrame}
-                        end
-                        walk(pose, t)
-                    end
-                end
-            end
-            for _, kf in ipairs(kfs) do
-                len = math.max(len, kf.Time)
-                walk(kf, kf.Time)
-            end
-            if next(poses) then
-                result[clipName] = {len = len, poses = poses}
-                count += 1
-            end
-        end
-    end
-    pcall(function() model:Destroy() end) -- só usei como fonte de dados
-
-    if count == 0 then return false, "nenhuma animação encontrada no arquivo" end
-    return result
-end
-
--- roda em segundo plano ao carregar o script (o primeiro dash não precisa esperar o download)
-local function dcLoadAsync()
-    if not DashClips.UseGithub then return end
-    local ok, res, msg = pcall(dcLoadFromFile)
-    if ok and type(res) == "table" then
-        local built = dcBuild()
-        for name, clip in pairs(res) do built[name] = clip end
-        DashClips.Source = "github"
-        print("[Dash] animações carregadas do arquivo do GitHub")
-    else
-        warn("[Dash] usando animações embutidas (" .. tostring(ok and msg or res) .. ")")
-    end
-end
-
-local function dcMotors()
-    if not Character or not Character.Parent then return false end
-    local torso = DashClips.Motors["Torso"]
-    if DashClips.MotorChar == Character and torso and torso.Parent then return true end
-    local m = {}
-    for _, d in ipairs(Character:GetDescendants()) do
-        if d:IsA("Motor6D") and d.Part1 then m[d.Part1.Name] = d end
-    end
-    DashClips.Motors = m
-    DashClips.MotorChar = Character
-    return m["Torso"] ~= nil
-end
-
-local function dcSample(list, t)
-    local n = #list
-    if t <= list[1].t then return list[1].cf end
-    if t >= list[n].t then return list[n].cf end
-    for i = 1, n - 1 do
-        local a, b = list[i], list[i + 1]
-        if t <= b.t then
-            local span = b.t - a.t
-            if span <= 0 then return b.cf end
-            return a.cf:Lerp(b.cf, (t - a.t) / span)
-        end
-    end
-    return list[n].cf
-end
-
-local function dcRestoreAutoRotate()
-    if DashClips.AutoRotateSaved ~= nil then
-        if Humanoid and Humanoid.Parent then Humanoid.AutoRotate = DashClips.AutoRotateSaved end
-        DashClips.AutoRotateSaved = nil
-    end
-end
-
-local function dcStep(dt)
-    local playing = DashClips.Playing
-    if next(playing) == nil then
-        dcRestoreAutoRotate()
-        return
-    end
-    if DashClips.MotorChar ~= Character then -- respawn: descarta o que estava tocando
-        table.clear(playing)
-        DashClips.AutoRotateSaved = nil
-        return
-    end
-
-    local active = {}
-    for tr in pairs(playing) do
-        tr.t += dt * DashClips.Speed
-        if not tr.stopping and tr.t >= tr.clip.len then
-            tr.stopping = true
-            tr.fade = DashClips.FadeOut
-        end
-        if tr.stopping then
-            tr.w -= dt / tr.fade
-        else
-            tr.w = math.min(1, tr.w + dt / DashClips.FadeIn)
-        end
-        if tr.stopping and tr.w <= 0 then
-            playing[tr] = nil
-        else
-            active[#active + 1] = tr
-        end
-    end
-
-    for partName, motor in pairs(DashClips.Motors) do
-        if motor.Parent then
-            local result
-            for _, tr in ipairs(active) do
-                local list = tr.clip.poses[partName]
-                if list then
-                    local cf = dcSample(list, math.min(tr.t, tr.clip.len))
-                    local base = result or motor.Transform
-                    result = base:Lerp(cf, math.clamp(tr.w, 0, 1))
-                end
-            end
-            if result then motor.Transform = result end
-        end
-    end
-
-    if next(playing) == nil then dcRestoreAutoRotate() end
-end
-
-local function dcEnsureConn()
-    if DashClips.Conn then return end
-    DashClips.Conn = RunService.PreSimulation:Connect(function(dt)
-        local ok, err = pcall(dcStep, dt)
-        if not ok and not DashClips.Warned then
-            DashClips.Warned = true
-            warn("[Dash] erro na animação por keyframes:", err)
-        end
-    end)
-end
-
-local function dcStopAll(fade)
-    for tr in pairs(DashClips.Playing) do
-        tr.stopping = true
-        tr.fade = math.max(fade or 0.05, 0.001)
-    end
-end
-
-local function dcPlay(kind)
-    if not DashClips.Enabled or not Character or not Humanoid or not HRP then return false end
-    local built = dcBuild()
-    if not dcMotors() then return false end
-
-    local name
-    if kind == "Front" then
-        name = DashClips.NextFront == 1 and "Dash1" or "Dash2"
-        DashClips.NextFront = 3 - DashClips.NextFront
-    elseif kind == "Back" then
-        name = "BackDash"
-    elseif kind == "Left" then
-        name = "DashLeft"
-    elseif kind == "Right" then
-        name = "DashRight"
-    end
-    local clip = name and built[name]
-    if not clip then return false end
-
-    dcStopAll(0.04)
-    DashClips.Playing[{clip = clip, t = 0, w = 0, stopping = false, fade = DashClips.FadeOut}] = true
-
-    -- o boneco não gira sozinho durante o dash (volta ao normal quando a animação acaba)
-    if DashClips.AutoRotateSaved == nil then DashClips.AutoRotateSaved = Humanoid.AutoRotate end
-    Humanoid.AutoRotate = false
-
-    dcEnsureConn()
-    return true
-end
-
--- Escolhe o tipo de dash NO CHÃO pela direção em que você está andando, relativa ao boneco:
--- parado ou andando pra frente = Front | pra trás = Back | pro lado = Right / Left.
--- (Com shift lock / câmera travada o boneco encara a câmera, então andar pro lado = dash pro lado.)
-GetGroundDashKind = function()
-    local look = HRP.CFrame.LookVector
-    local right = HRP.CFrame.RightVector
-    local move = Humanoid.MoveDirection
-    if move.Magnitude < 0.1 then return "Front", look end
-    local f, r = move:Dot(look), move:Dot(right)
-    if math.abs(f) >= math.abs(r) then
-        if f >= 0 then return "Front", look end
-        return "Back", -look
-    end
-    if r >= 0 then return "Right", right end
-    return "Left", -right
-end
-
-local procedural = PlayDashAnim
-PlayDashAnim = function(kind, direction)
-    if kind ~= "Air" and DashClips.Enabled then
-        dashRestore()                -- cancela a animação procedural, se estiver rodando
-        DashAnimState.Token += 1
-        local ok, played = pcall(dcPlay, kind)
-        if ok and played then return end
-    end
-    dcStopAll(0.05)
-    -- sem keyframes (R15, falha...): Left/Right usam a pose procedural de Front
-    procedural((kind == "Left" or kind == "Right") and "Front" or kind, direction)
-end
-
-    -- ========== LOCOMOÇÃO POR KEYFRAMES: IDLE ==========
-    -- Usa os mesmos keyframe embutido (idle) e o mesmo sistema de Motor6D do dash.
-    -- A velocidade é lida do próprio boneco (HumanoidRootPart), então se adapta a qualquer jogo,
-    -- não importa qual seja o WalkSpeed dele:
-    --   parado (< IdleBelow)         -> Idle
-    --   andando (>= IdleBelow)       -> sem animação do script (volta a do jogo)
-    -- No ar, sentado, escalando, nadando, morto ou durante o dash, ela sai de cena sozinha.
-    local Loco = {
-        Enabled = true,
-        IdleBelow = 1,       -- studs/s: abaixo disso = parado (Idle)
-        IdleRate = 1,        -- velocidade do Idle
-        Fade = 0.15,         -- tempo de transição entre animações (s)
-        Smooth = 14,         -- suavização da leitura de velocidade (maior = mais rápido)
-        Speed = 0,
-        Moving = false,
-        Tracks = {},         -- [nome] = {name, t, w}
-        Order = {},          -- do mais antigo pro mais novo
-        Char = nil,
-        Conn = nil,
-        Warned = false,
-    }
-
-    local LOCO_BLOCKED = {
-        [Enum.HumanoidStateType.Seated] = true,
-        [Enum.HumanoidStateType.Climbing] = true,
-        [Enum.HumanoidStateType.Swimming] = true,
-        [Enum.HumanoidStateType.PlatformStanding] = true,
-        [Enum.HumanoidStateType.Physics] = true,
-        [Enum.HumanoidStateType.Ragdoll] = true,
-        [Enum.HumanoidStateType.FallingDown] = true,
-        [Enum.HumanoidStateType.Dead] = true,
-        [Enum.HumanoidStateType.Flying] = true,
-    }
-
-    local function locoClear()
-        table.clear(Loco.Tracks)
-        table.clear(Loco.Order)
-    end
-
-    local function locoRemove(tr)
-        Loco.Tracks[tr.name] = nil
-        local i = table.find(Loco.Order, tr)
-        if i then table.remove(Loco.Order, i) end
-    end
-
-    -- true = pode tocar | false = fade-out | nil = parar na hora (dash assumiu)
-    local function locoCanPlay()
-        if not Loco.Enabled or not Character or not Character.Parent or not Humanoid or not Humanoid.Parent or not HRP then
-            return false
-        end
-        if next(DashClips.Playing) ~= nil or DashAnimState.Joints ~= nil then return nil end
-        if Humanoid.Health <= 0 or Humanoid.Sit or Humanoid.PlatformStand then return false end
-        if LOCO_BLOCKED[Humanoid:GetState()] then return false end
-        if Humanoid.FloorMaterial == Enum.Material.Air then return false end
-        return true
-    end
-
-    local function locoStep(dt)
-        if Loco.Char ~= Character then -- respawn: recomeça do zero
-            Loco.Char = Character
-            locoClear()
-            Loco.Speed, Loco.Moving = 0, false
-        end
-
-        local can = locoCanPlay()
-        if can == nil then locoClear() return end
-        if can and not dcMotors() then can = false end
-
-        -- velocidade horizontal real do boneco (suavizada)
-        local desired
-        if can then
-            local v = HRP.AssemblyLinearVelocity
-            local sp = Vector3.new(v.X, 0, v.Z).Magnitude
-            Loco.Speed += (sp - Loco.Speed) * (1 - math.exp(-dt * Loco.Smooth))
-            local s = Loco.Speed
-
-            if Loco.Moving then
-                if s < Loco.IdleBelow * 0.6 then Loco.Moving = false end
-            elseif s >= Loco.IdleBelow then
-                Loco.Moving = true
-            end
-
-            if not Loco.Moving then desired = "idle" end
-        end
-
-        local built = dcBuild()
-        local tracks, order = Loco.Tracks, Loco.Order
-
-        if desired and built[desired] then
-            local tr = tracks[desired]
-            if not tr then
-                tr = {name = desired, t = 0, w = 0}
-                tracks[desired] = tr
-                order[#order + 1] = tr
-            elseif order[#order] ~= tr then
-                table.remove(order, table.find(order, tr))
-                order[#order + 1] = tr
-            end
-            tr.w = math.min(1, tr.w + dt / Loco.Fade)
-            if tr.w >= 1 then -- a nova cobriu tudo, descarta as antigas
-                for i = #order - 1, 1, -1 do
-                    tracks[order[i].name] = nil
-                    table.remove(order, i)
-                end
-            end
-        else
-            for i = #order, 1, -1 do
-                local tr = order[i]
-                tr.w -= dt / Loco.Fade
-                if tr.w <= 0 then locoRemove(tr) end
-            end
-        end
-
-        if #order == 0 then return end
-
-        -- avança o tempo da animação (loop)
-        for _, tr in ipairs(order) do
-            local clip = built[tr.name]
-            if clip and clip.len > 0 then
-                tr.t = (tr.t + dt * Loco.IdleRate) % clip.len
-            end
-        end
-
-        for partName, motor in pairs(DashClips.Motors) do
-            if motor.Parent then
-                local result
-                for _, tr in ipairs(order) do
-                    local clip = built[tr.name]
-                    local list = clip and clip.poses[partName]
-                    if list then
-                        local cf = dcSample(list, tr.t)
-                        result = (result or motor.Transform):Lerp(cf, math.clamp(tr.w, 0, 1))
-                    end
-                end
-                if result then motor.Transform = result end
-            end
-        end
-    end
-
-    local function locoEnsureConn()
-        if Loco.Conn then return end
-        Loco.Conn = RunService.PreSimulation:Connect(function(dt)
-            local ok, err = pcall(locoStep, dt)
-            if not ok and not Loco.Warned then
-                Loco.Warned = true
-                warn("[Loco] erro na animação de idle:", err)
-            end
-        end)
-    end
-    locoEnsureConn()
-    -- ========== FIM DA LOCOMOÇÃO ==========
-
-
-task.spawn(dcLoadAsync)
-end
-
-
-local function ExecDash()
-    if State.IsSandiActive then return end
-    if State.Energy < Constants.ENERGY_COSTS.DASH or os.clock() < State.Cooldowns.DASH then return end
-    
-    State.Energy -= Constants.ENERGY_COSTS.DASH
-    State.Energy = math.max(0, State.Energy)
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    State.Cooldowns.DASH = os.clock() + Constants.COOLDOWNS.DASH
-    if PsyBar.Use("Dash") then return end
-    
-    -- Efeitos sonoros e visuais
-    -- Tipo do dash: Air (no ar) | Front | Back | Left | Right (no chão, pela direção em que você anda)
-    local isAirDash = Humanoid.FloorMaterial == Enum.Material.Air
-    local dashKind, groundDirection = "Air", nil
-    if not isAirDash then dashKind, groundDirection = GetGroundDashKind() end
-    local isBackDash = dashKind == "Back"
-    PlaySFX(isBackDash and Sounds.DASH_BACK or Sounds.DASH)
-    Falar("dash")
-    ShowCooldownText("Dash Impulse", Constants.COOLDOWNS.DASH, Colors.DASH_GREEN)
-    ScreenFade(0.15, 0, 0.35, Colors.DASH_GREEN, 0.5, 0.2)
-    
-    local dashEffect = Create("ColorCorrectionEffect", {Name = "DashEffect", TintColor = Color3.new(1,1,1), Contrast = 0, Saturation = 0, Parent = Lighting})
-    TweenService:Create(dashEffect, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TintColor = Colors.DASH_GREEN, Contrast = 0.1, Saturation = -0.1}):Play()
-    TweenService:Create(Camera, TweenInfo.new(0.25), {FieldOfView = 125}):Play()
-    
-    -- ========== VIEWPORTFRAME DO DASH ==========
-    if _G.DashViewport then
-        if _G.DashViewport.syncConn then _G.DashViewport.syncConn:Disconnect() end
-        if _G.DashViewport.gui then _G.DashViewport.gui:Destroy() end
-    end
-    
-    Character.Archivable = true
-    local charClone = Character:Clone()
-    
-    for _, v in pairs(charClone:GetDescendants()) do
-        if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-    end
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "DashBypassGui"
-    screenGui.IgnoreGuiInset = true
-    screenGui.Parent = Player:WaitForChild("PlayerGui")
-    
-    local vpf = Instance.new("ViewportFrame")
-    vpf.Size = UDim2.new(1, 0, 1, 0)
-    vpf.BackgroundTransparency = 1
-    vpf.CurrentCamera = workspace.CurrentCamera
-    vpf.Parent = screenGui
-    charClone.Parent = vpf
-    
-    local cloneParts = {}
-    local function indexCloneParts(instance, path)
-        for _, child in pairs(instance:GetChildren()) do
-            local newPath = path .. "." .. child.Name
-            if child:IsA("BasePart") then
-                cloneParts[newPath] = child
-            end
-            indexCloneParts(child, newPath)
-        end
-    end
-    indexCloneParts(charClone, "")
-    
-    local syncConn = RunService.RenderStepped:Connect(function()
-        if not Character or not Character.Parent then return end
-        local __o = (getgenv and getgenv() or _G); vpf.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(Character:FindFirstChild("HumanoidRootPart"))))
-        
-        local realParts = {}
-        local function indexRealParts(instance, path)
-            for _, child in pairs(instance:GetChildren()) do
-                local newPath = path .. "." .. child.Name
-                if child:IsA("BasePart") then
-                    realParts[newPath] = child
-                end
-                indexRealParts(child, newPath)
-            end
-        end
-        indexRealParts(Character, "")
-        
-        for path, clonePart in pairs(cloneParts) do
-            local realPart = realParts[path]
-            if realPart then
-                clonePart.CFrame = realPart.CFrame
-            end
-        end
-    end)
-    
-    _G.DashViewport = {
-        gui = screenGui,
-        syncConn = syncConn,
-        charClone = charClone
-    }
-    -- ========== FIM DO VIEWPORTFRAME ==========
-    
-    -- Direção do dash
-    local direction = groundDirection or Camera.CFrame.LookVector
-    
-    local bv = Create("BodyVelocity", {MaxForce = Vector3.new(1e6, 1e6, 1e6), Velocity = direction * Constants.DASH_FORCE, Parent = HRP})
-
-    -- Animação do dash (frente / trás / ar)
-    PlayDashAnim(dashKind, direction)
-
-    local collisionConn
-    collisionConn = HRP.Touched:Connect(function(hit)
-        local hitParent = hit.Parent
-        if hitParent then
-            local otherHum = hitParent:FindFirstChildOfClass("Humanoid")
-            if otherHum and otherHum ~= Humanoid and otherHum.Health > 0 then
-                if bv and bv.Parent then bv:Destroy() end
-                HRP.Velocity = Vector3.new(0, HRP.Velocity.Y, 0)
-                PlaySFX(Sounds.COLLISION_IMPACT)
-                if collisionConn then collisionConn:Disconnect() end
-            end
-        end
-    end)
-    Debris:AddItem(bv, 0.25)
-    
-    -- Hologramas durante o dash
-    task.spawn(function()
-        local start = os.clock()
-        while os.clock() - start < 0.25 do
-            if not LiteMode then
-                CreateHologramClone(Constants.HOLOGRAM_CLONE.DASH.DELAY, Constants.HOLOGRAM_CLONE.DASH.DURATION, Constants.HOLOGRAM_CLONE.DASH.END_TRANSPARENCY, 0, 0, 0, "dash")
-            end
-            RunService.Heartbeat:Wait()
-        end
-        if collisionConn then collisionConn:Disconnect() end
-        
-        -- Limpeza do efeito visual
-        TweenService:Create(dashEffect, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TintColor = Color3.new(1,1,1), Contrast = 0, Saturation = 0}):Play()
-        TweenService:Create(Camera, TweenInfo.new(0.4), {FieldOfView = 70}):Play()
-        Debris:AddItem(dashEffect, 0.45)
-        
-        -- ========== LIMPEZA DO VIEWPORTFRAME DO DASH ==========
-        if _G.DashViewport then
-            if _G.DashViewport.syncConn then _G.DashViewport.syncConn:Disconnect() end
-            if _G.DashViewport.gui then _G.DashViewport.gui:Destroy() end
-            if _G.DashViewport.charClone then _G.DashViewport.charClone:Destroy() end
-            _G.DashViewport = nil
-        end
-        -- ========== FIM DA LIMPEZA ==========
-    end)
-    
-    local dashSignal = Instance.new("StringValue")
-    dashSignal.Name = "CYBER_DASH"
-    dashSignal.Value = tostring(HRP.CFrame)
-    dashSignal.Parent = Character
-    Debris:AddItem(dashSignal, 0.4)
-end
-
-local KIROSHI_FADE_IN = 0.35
-local KIROSHI_FADE_OUT = 0.6
-local KIROSHI_HL_FILL = 0.85
-
--- Fade suave para Highlight e para os BillboardGui (via CanvasGroup "Root")
-local function FadeKiroshiItem(item, visible, duration)
-    if not item or not item.Parent then return end
-    local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    if item:IsA("Highlight") then
-        TweenService:Create(item, info, {
-            FillTransparency = visible and KIROSHI_HL_FILL or 1,
-            OutlineTransparency = visible and 0 or 1
-        }):Play()
-    elseif item:IsA("BillboardGui") then
-        local root = item:FindFirstChild("Root")
-        if root then
-            TweenService:Create(root, info, {GroupTransparency = visible and 0 or 1}):Play()
-        end
-    end
-end
-
-local function KiroshiHealthColor(pct)
-    local red = Color3.fromRGB(255, 40, 70)
-    local yellow = Color3.fromRGB(252, 238, 10)
-    local cyan = Color3.fromRGB(0, 240, 255)
-    if pct >= 0.5 then
-        return yellow:Lerp(cyan, (pct - 0.5) / 0.5)
-    end
-    return red:Lerp(yellow, pct / 0.5)
-end
-
--- Barra de vida vertical (em pe), do tamanho do boneco, na esquerda do player
-local function CreateKiroshiHealthBar(char, hum, hrp)
-    local bbCF, bbSize = char:GetBoundingBox()
-    local h = math.clamp(bbSize.Y, 3, 12)
-    local textH = 0.9
-    local totalH = h + textH
-    local barCenterY = bbCF.Position.Y - hrp.Position.Y
-
-    local billboard = Create("BillboardGui", {
-        Name = "KiroshiHealth",
-        Adornee = hrp,
-        Size = UDim2.new(1.8, 0, totalH, 0),
-        StudsOffset = Vector3.new(3.8, barCenterY + textH / 2, -1.5),
-        AlwaysOnTop = true,
-        LightInfluence = 0,
-        ResetOnSpawn = false,
-        Parent = char
-    })
-
-    local root = Create("CanvasGroup", {
-        Name = "Root",
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        GroupTransparency = 1, -- comeca invisivel (fade-in)
-        Parent = billboard
-    })
-
-    local textFrac = textH / totalH
-    local barFrac = h / totalH
-
-    local pctLabel = Create("TextLabel", {
-        Name = "Pct",
-        Size = UDim2.new(1, 0, textFrac, 0),
-        BackgroundTransparency = 1,
-        Text = "100%",
-        Font = Enum.Font.Code,
-        TextScaled = true,
-        TextColor3 = Color3.fromRGB(0, 240, 255),
-        TextStrokeTransparency = 0.3,
-        TextStrokeColor3 = Color3.fromRGB(0, 0, 0),
-        Parent = root
-    })
-
-    local bar = Create("Frame", {
-        Name = "Bar",
-        Position = UDim2.new(0.3, 0, textFrac, 0),
-        Size = UDim2.new(0.4, 0, barFrac, 0),
-        BackgroundColor3 = Color3.fromRGB(10, 6, 14),
-        BackgroundTransparency = 0.2,
-        BorderSizePixel = 0,
-        Parent = root
-    })
-    Create("UIStroke", {
-        Color = Color3.fromRGB(200, 50, 70),
-        Thickness = 1.5,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        Parent = bar
-    })
-
-    local inner = Create("Frame", {
-        Name = "Inner",
-        Position = UDim2.new(0.12, 0, 0.012, 0),
-        Size = UDim2.new(0.76, 0, 0.976, 0),
-        BackgroundTransparency = 1,
-        ClipsDescendants = true,
-        Parent = bar
-    })
-
-    local fill = Create("Frame", {
-        Name = "Fill",
-        AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.new(0, 0, 1, 0),
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(0, 240, 255),
-        BorderSizePixel = 0,
-        Parent = inner
-    })
-    Create("UIGradient", {
-        Rotation = 90,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(1, 0.45)
-        }),
-        Parent = fill
-    })
-
-    -- segmentos (linhas escuras a cada 10%) estilo HUD cyberpunk
-    for i = 1, 9 do
-        Create("Frame", {
-            Size = UDim2.new(1, 0, 0.012, 0),
-            AnchorPoint = Vector2.new(0, 0.5),
-            Position = UDim2.new(0, 0, i / 10, 0),
-            BackgroundColor3 = Color3.fromRGB(5, 3, 8),
-            BorderSizePixel = 0,
-            ZIndex = 3,
-            Parent = inner
-        })
-    end
-
-    -- marcacoes laterais (0 / 50 / 100%) na cor do Kiroshi
-    for _, f in ipairs({0, 0.5, 1}) do
-        Create("Frame", {
-            AnchorPoint = Vector2.new(1, 0.5),
-            Position = UDim2.new(0.3, 0, textFrac + barFrac * f, 0),
-            Size = UDim2.new(0.18, 0, 0.006, 0),
-            BackgroundColor3 = Color3.fromRGB(200, 50, 70),
-            BorderSizePixel = 0,
-            Parent = root
-        })
-    end
-
-    -- atualizacao suave da barra e do %
-    task.spawn(function()
-        local shown = math.clamp(hum.Health / math.max(1, hum.MaxHealth), 0, 1)
-        while State.IsKiroshiActive and billboard.Parent and hum.Parent do
-            local target = math.clamp(hum.Health / math.max(1, hum.MaxHealth), 0, 1)
-            shown += (target - shown) * 0.25
-            local color = KiroshiHealthColor(shown)
-            fill.Size = UDim2.new(1, 0, math.max(shown, 0.001), 0)
-            fill.BackgroundColor3 = color
-            pctLabel.TextColor3 = color
-            pctLabel.Text = math.floor(target * 100 + 0.5) .. "%"
-            RunService.Heartbeat:Wait()
-        end
-    end)
-
-    return billboard
-end
-
+Config.Tweaks.Colors = {}
+for n, c in pairs(Config.DefaultColors) do Config.Tweaks.Colors[n] = c end
 do
-local JUNK = {"Script", "LocalScript", "ModuleScript", "Sound", "ParticleEmitter", "Trail", "Beam", "Highlight", "BillboardGui", "ForceField", "Fire", "Smoke", "Sparkles", "PointLight", "SpotLight", "SurfaceLight", "BodyMover", "VectorForce", "Animator"}
-local gui, vpf, pairsList = nil, nil, {}
-local BIND = "KiroshiSelfViewport"
-local KiroshiVP = {}
-
-local function keyed(root)
-    local map, used = {}, {}
-    for _, d in ipairs(root:GetDescendants()) do
-        if d:IsA("BasePart") then
-            local names, o = {}, d
-            while o and o ~= root do
-                table.insert(names, 1, o.Name)
-                o = o.Parent
-            end
-            local key = table.concat(names, "/")
-            used[key] = (used[key] or 0) + 1
-            if used[key] > 1 then key = key .. "#" .. used[key] end
-            map[key] = d
-        end
-    end
-    return map
+	local U = Config.UserTweaks
+	if type(U) == "table" then
+		for k, v in pairs(U) do
+			if k == "Off" and type(v) == "table" then
+				for n, o in pairs(v) do
+					local t = newOff(Config.Tweaks.Off[n])
+					for f, val in pairs(o) do t[f] = val end
+					Config.Tweaks.Off[n] = t
+				end
+			elseif k == "Colors" and type(v) == "table" then
+				for n, c in pairs(v) do Config.Tweaks.Colors[n] = c end
+			elseif k ~= "Scale" and k ~= "WedgeFlip" then
+				Config.Tweaks[k] = v
+			end
+		end
+		Config.BodyColor = Config.Tweaks.BodyColor
+		Config.SeatHeight = Config.Tweaks.SeatHeight
+		Config.TopSpeed = Config.Tweaks.TopSpeed
+	end
 end
-
-function KiroshiVP.Off()
-    pcall(function() RunService:UnbindFromRenderStep(BIND) end)
-    pairsList = {}
-    if gui then pcall(function() gui:Destroy() end) gui = nil end
-    vpf = nil
+if Config.WedgeFlip == "auto" then
+	local flipped = false
+	pcall(function()
+		local w = Instance.new("WedgePart")
+		w.Anchored = true
+		w.CanCollide = true
+		w.CanQuery = true
+		w.Transparency = 1
+		w.Size = Vector3.new(4, 4, 4)
+		w.CFrame = CFrame.new(0, 9000, 0)
+		w.Parent = workspace
+		RunService.Heartbeat:Wait()
+		RunService.Heartbeat:Wait()
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Include
+		rp.FilterDescendantsInstances = { w }
+		local front = workspace:Raycast(Vector3.new(0, 9010, -1.5), Vector3.new(0, -20, 0), rp)
+		local back = workspace:Raycast(Vector3.new(0, 9010, 1.5), Vector3.new(0, -20, 0), rp)
+		w:Destroy()
+		if front and back then flipped = front.Position.Y > back.Position.Y + 0.5 end
+	end)
+	Config.WedgeFlip = flipped
 end
-
-function KiroshiVP.On()
-    KiroshiVP.Off()
-    local src = Character
-    if not src or not src.Parent or not HRP then return end
-
-    local wasArchivable = src.Archivable
-    src.Archivable = true
-    local ok, ghost = pcall(function() return src:Clone() end)
-    src.Archivable = wasArchivable
-    if not ok or not ghost then return end
-
-    local srcMap, ghostMap = keyed(src), keyed(ghost)
-    pairsList = {}
-    for key, g in pairs(ghostMap) do
-        local o = srcMap[key]
-        if o then table.insert(pairsList, {g, o}) end
-    end
-    if #pairsList == 0 then ghost:Destroy() return end
-
-    for _, obj in ipairs(ghost:GetDescendants()) do
-        for _, cls in ipairs(JUNK) do
-            if obj:IsA(cls) then obj:Destroy() break end
-        end
-    end
-
-    for _, pr in ipairs(pairsList) do
-        local part = pr[1]
-        if part.Parent then
-            part.Anchored = true
-            part.CanCollide = false
-            part.CanQuery = false
-            part.CanTouch = false
-            part.CastShadow = false
-            part.Massless = true
-        end
-    end
-
-    local hum = ghost:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function()
-            hum.PlatformStand = true
-            hum.Sit = true
-            hum.AutoRotate = false
-            hum.WalkSpeed = 0
-            hum.JumpPower = 0
-            hum.JumpHeight = 0
-            hum.RequiresNeck = false
-            hum.BreakJointsOnDeath = false
-            hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-            hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-            hum.NameDisplayDistance = 0
-            hum.HealthDisplayDistance = 0
-            hum:ChangeState(Enum.HumanoidStateType.Physics)
-        end)
-    end
-
-    gui = Instance.new("ScreenGui")
-    gui.Name = "KiroshiSelfViewportGui"
-    gui.IgnoreGuiInset = true
-    gui.ResetOnSpawn = false
-    gui.DisplayOrder = -1
-    gui.Parent = Player:WaitForChild("PlayerGui")
-
-    vpf = Instance.new("ViewportFrame")
-    vpf.Name = "KiroshiSelfViewport"
-    vpf.Size = UDim2.new(1, 0, 1, 0)
-    vpf.BackgroundTransparency = 1
-    vpf.Ambient = Color3.fromRGB(200, 200, 200)
-    vpf.LightColor = Color3.fromRGB(140, 140, 140)
-    vpf.CurrentCamera = Workspace.CurrentCamera
-    vpf.Parent = gui
-
-    ghost.Name = "KiroshiGhost"
-    ghost.Parent = vpf
-
-    RunService:BindToRenderStep(BIND, Enum.RenderPriority.Last.Value, function()
-        if not src.Parent or not HRP or not HRP.Parent or not vpf then
-            KiroshiVP.Off()
-            return
-        end
-        local cam = Workspace.CurrentCamera
-        vpf.CurrentCamera = cam
-        local __o = (getgenv and getgenv()) or _G
-        vpf.Visible = (cam.CFrame.Position - HRP.Position).Magnitude >= 1.6
-            and not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(HRP)))
-        for _, pr in ipairs(pairsList) do
-            local copy, real = pr[1], pr[2]
-            if real.Parent and copy.Parent then
-                copy.CFrame = real.CFrame
-                copy.Transparency = real.Transparency
-            end
-        end
-    end)
-end
-Constants.KiroshiVP = KiroshiVP
-end
-
-local function ExecKiroshi()
-    if State.IsKiroshiActive then
-        if Constants.KiroshiStop and os.clock() - (Constants.KiroshiStartT or 0) > 0.4 then Constants.KiroshiStop() end
-        return
-    end
-    if State.IsSandiActive then return end
-    if State.Energy < Constants.ENERGY_COSTS.KIROSHI or os.clock() < State.Cooldowns.KIROSHI or State.IsKiroshiActive then return end
-    State.Energy -= Constants.ENERGY_COSTS.KIROSHI
-    State.Energy = math.max(0, State.Energy)
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    if PsyBar.Use("Kiroshi") then return end
-    State.IsKiroshiActive = true
-    Constants.KiroshiStartT = os.clock()
-    pcall(Constants.KiroshiVP.On)
-    PlaySFX(Sounds.KIROSHI_ON)
-    Falar("kiroshi")
-    ScreenFade(0.3, 0.2, 0.6, Colors.KIROSHI_RED, 0.7, 0.25)
-    local kiroshiCC = Create("ColorCorrectionEffect", {Name = "KiroshiCC", TintColor = Colors.KIROSHI_RED, Saturation = 0.5, Contrast = 0.2, Parent = Lighting})
-    
-    for _, p in Players:GetPlayers() do
-        if p ~= Player then
-            local char = p.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if char and hum and hrp then
-                -- Highlight (comeca invisivel e faz fade-in)
-                local highlight = Create("Highlight", {
-                    OutlineColor = Colors.KIROSHI_RED,
-                    FillColor = Colors.KIROSHI_RED,
-                    FillTransparency = 1,
-                    OutlineTransparency = 1,
-                    Parent = char
-                })
-                table.insert(activeHighlights, highlight)
-                FadeKiroshiItem(highlight, true, KIROSHI_FADE_IN)
-
-                -- Barra de vida (esquerda do player)
-                local healthGui = CreateKiroshiHealthBar(char, hum, hrp)
-                table.insert(activeHighlights, healthGui)
-                FadeKiroshiItem(healthGui, true, KIROSHI_FADE_IN)
-                
-                -- HotBar (mesmo estilo do Sharingan): 5 slots com as tools do jogador
-                local billboard = Create("BillboardGui", {
-                    Name = "KiroshiHotbar",
-                    Size = UDim2.new(5.5, 0, 1.1, 0),
-                    StudsOffset = Vector3.new(0, -3.2, 0),
-                    AlwaysOnTop = true,
-                    Parent = char
-                })
-
-                local root = Create("CanvasGroup", {
-                    Name = "Root",
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BackgroundTransparency = 1,
-                    GroupTransparency = 1, -- fade-in
-                    Parent = billboard
-                })
-
-                local mainFrame = Create("Frame", {
-                    Name = "MainFrame",
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BackgroundColor3 = Color3.fromRGB(15, 15, 15),
-                    BackgroundTransparency = 0.5,
-                    Parent = root
-                })
-                Create("UICorner", {CornerRadius = UDim.new(0.2, 0), Parent = mainFrame})
-                Create("UIListLayout", {
-                    FillDirection = Enum.FillDirection.Horizontal,
-                    HorizontalAlignment = Enum.HorizontalAlignment.Center,
-                    VerticalAlignment = Enum.VerticalAlignment.Center,
-                    Padding = UDim.new(0.04, 0),
-                    Parent = mainFrame
-                })
-
-                table.insert(activeHighlights, billboard)
-                FadeKiroshiItem(billboard, true, KIROSHI_FADE_IN)
-
-                task.spawn(function()
-                    local ultimaChave = nil
-                    while State.IsKiroshiActive and char.Parent do
-                        local items = {}
-                        local backpack = p:FindFirstChild("Backpack")
-                        if backpack then
-                            for _, t in ipairs(backpack:GetChildren()) do
-                                if t:IsA("Tool") then table.insert(items, t) end
-                            end
-                        end
-                        local equipped = char:FindFirstChildOfClass("Tool")
-                        if equipped then table.insert(items, equipped) end
-
-                        -- so reconstroi os slots quando as tools mudam (evita piscar)
-                        local chave = ""
-                        for i = 1, 5 do
-                            local t = items[i]
-                            chave ..= (t and (t.Name .. "|" .. t.TextureId) or "-") .. ";"
-                        end
-
-                        if chave ~= ultimaChave then
-                            ultimaChave = chave
-                            for _, child in ipairs(mainFrame:GetChildren()) do
-                                if child:IsA("Frame") then child:Destroy() end
-                            end
-
-                            for i = 1, 5 do
-                                local slot = Create("Frame", {
-                                    Size = UDim2.new(0.16, 0, 0.8, 0),
-                                    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-                                    BackgroundTransparency = 0.2,
-                                    BorderSizePixel = 1,
-                                    BorderColor3 = Color3.fromRGB(55, 55, 55),
-                                    LayoutOrder = i,
-                                    Parent = mainFrame
-                                })
-                                Create("UICorner", {CornerRadius = UDim.new(0.15, 0), Parent = slot})
-
-                                local tool = items[i]
-                                if tool then
-                                    slot.BorderColor3 = Color3.fromRGB(90, 215, 255)
-                                    if tool.TextureId ~= "" then
-                                        Create("ImageLabel", {
-                                            Size = UDim2.new(0.85, 0, 0.85, 0),
-                                            Position = UDim2.new(0.075, 0, 0.075, 0),
-                                            Image = tool.TextureId,
-                                            BackgroundTransparency = 1,
-                                            Parent = slot
-                                        })
-                                    else
-                                        Create("TextLabel", {
-                                            Size = UDim2.new(0.85, 0, 0.85, 0),
-                                            Position = UDim2.new(0.075, 0, 0.075, 0),
-                                            Text = string.sub(tool.Name, 1, 3),
-                                            TextScaled = true,
-                                            BackgroundTransparency = 1,
-                                            TextColor3 = Color3.new(1, 1, 1),
-                                            Font = Enum.Font.SourceSansBold,
-                                            Parent = slot
-                                        })
-                                    end
-                                end
-                            end
-                        end
-
-                        task.wait(0.3)
-                    end
-                end)
-            end
-        end
-    end
-    
-    local kiroshiStopped = false
-    local function stopKiroshi()
-        if kiroshiStopped or not State.IsKiroshiActive then return end
-        kiroshiStopped = true
-        pcall(Constants.KiroshiVP.Off)
-        PlaySFX(Sounds.KIROSHI_OFF)
-        ScreenFade(0.4, 0, 0.6, Colors.KIROSHI_RED, 0.3, 0.1)
-        State.IsKiroshiActive = false
-        State.Cooldowns.KIROSHI = os.clock() + Constants.COOLDOWNS.KIROSHI
-        ShowCooldownText("KIROSHI OPTICS", Constants.COOLDOWNS.KIROSHI, Colors.KIROSHI)
-        if kiroshiCC then 
-            TweenService:Create(kiroshiCC, TweenInfo.new(0.6), {Saturation = 0, Contrast = 0}):Play() 
-            task.delay(0.7, function() kiroshiCC:Destroy() end) 
-        end
-
-        -- Fade-out suave (acompanha o fade do Kiroshi) e so depois destroi
-        local toDestroy = activeHighlights
-        activeHighlights = {}
-        for _, h in ipairs(toDestroy) do
-            FadeKiroshiItem(h, false, KIROSHI_FADE_OUT)
-        end
-        task.delay(KIROSHI_FADE_OUT + 0.1, function()
-            for _, h in ipairs(toDestroy) do
-                if h then h:Destroy() end
-            end
-        end)
-    end
-    Constants.KiroshiStop = stopKiroshi
-    task.spawn(function()
-        task.wait(5)
-        stopKiroshi()
-    end)
-end
-
--- ==========================================
--- PHASE SHIFT (noclip atravessa paredes) - antigo Optical Camo
--- ==========================================
-local phaseChar = nil
-local phaseParts = {}          -- [BasePart] = CanCollide original
-local phaseConns = {}
-local phaseForce = nil
-local phaseHighlight = nil
-local phaseSafeCF = nil
-local phaseEndingSince = nil
-local phasePrevShake = 0
-local phaseStart = 0
-local PHASE_EXIT_GRACE = 1.5
-local PhaseGhost = {
-    Extra = 0,          -- 0 = clone 100% igual ao boneco (suba p/ 0.2~0.4 se quiser translucido)
-    EmergeTime = 0.35,  -- tempo dos clones saindo do corpo ao ativar
-    RetractTime = 0.2,  -- tempo dos clones voltando pro corpo ao acabar
-    -- 5 clones: {lado (-1 esquerda, 1 direita, 0 = atravessa o corpo indo de um lado ao outro), distancia maxima}
-    Layout = {
-        {-1, 3.4}, {1, 3.4}, {-1, 2.2}, {1, 2.2}, {0, 2.6},
-    },
-    List = {},
-    Conn = nil,
-}
-
-local PHASE_JUNK = {"Script", "LocalScript", "ModuleScript", "Sound", "ParticleEmitter", "Trail", "Beam", "Highlight", "BillboardGui", "ForceField", "Fire", "Smoke", "Sparkles", "PointLight", "SpotLight", "SurfaceLight", "BodyMover", "VectorForce", "Animator"}
-
-function PhaseGhost.Stop()
-    if PhaseGhost.Conn then
-        PhaseGhost.Conn:Disconnect()
-        PhaseGhost.Conn = nil
-    end
-    if PhaseGhost.Gui then
-        pcall(function() PhaseGhost.Gui:Destroy() end)
-        PhaseGhost.Gui = nil
-        PhaseGhost.Viewport = nil
-    end
-end
-
--- ViewportFrame unico que guarda todos os clones (fora do Workspace = zero conflito
--- com fisica, Humanoids, deteccao de inimigos, etc). Usa a mesma camera do jogo,
--- entao os clones aparecem 1:1 no tamanho/posicao do seu boneco (R6 e R15).
-function PhaseGhost.GetViewport()
-    if PhaseGhost.Viewport and PhaseGhost.Viewport.Parent then return PhaseGhost.Viewport end
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "PhaseGhostGui"
-    gui.IgnoreGuiInset = true
-    gui.ResetOnSpawn = false
-    gui.DisplayOrder = -1
-    gui.Parent = Player:WaitForChild("PlayerGui")
-
-    local vpf = Instance.new("ViewportFrame")
-    vpf.Name = "PhaseGhostViewport"
-    vpf.Size = UDim2.new(1, 0, 1, 0)
-    vpf.BackgroundTransparency = 1
-    vpf.Ambient = Color3.fromRGB(200, 200, 200)    -- padrao do ViewportFrame (cores fieis)
-    vpf.LightColor = Color3.fromRGB(140, 140, 140)
-    vpf.CurrentCamera = Workspace.CurrentCamera
-    vpf.Parent = gui
-
-    PhaseGhost.Gui = gui
-    PhaseGhost.Viewport = vpf
-    return vpf
-end
-
--- remove os clones na hora (eles nao ficam no mapa)
-function PhaseGhost.Clear()
-    for _, g in ipairs(PhaseGhost.List) do
-        if g.model then pcall(function() g.model:Destroy() end) end
-    end
-    PhaseGhost.List = {}
-    PhaseGhost.Stop()
-end
-
--- clones voltam pra dentro do corpo e somem
-function PhaseGhost.Retract()
-    local now = os.clock()
-    for _, g in ipairs(PhaseGhost.List) do
-        if not g.dying then g.dying = now end
-    end
-end
-
--- cria 1 clone EXATO do boneco (mesmas cores, roupas, acessorios) no Workspace
--- Tamanho 1:1 garantido + Humanoid seguro (sem conflito de física)
-function PhaseGhost.Create(index: number)
-    local src = Character
-    if not src or not src.Parent then return end
-    local layout = PhaseGhost.Layout[index]
-
-    local wasArchivable = src.Archivable
-    src.Archivable = true
-    local ok, ghost = pcall(function() return src:Clone() end)
-    src.Archivable = wasArchivable
-    if not ok or not ghost then return end
-
-    -- pareia cada parte do clone com a parte original pelo caminho (nome/pai/...)
-    local function keyed(root: Instance)
-        local map, used = {}, {}
-        for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("BasePart") then
-                local names, o = {}, d
-                while o and o ~= root do
-                    table.insert(names, 1, o.Name)
-                    o = o.Parent
-                end
-                local key = table.concat(names, "/")
-                used[key] = (used[key] or 0) + 1
-                if used[key] > 1 then key = key .. "#" .. used[key] end
-                map[key] = d
-            end
-        end
-        return map
-    end
-
-    local srcMap, ghostMap = keyed(src), keyed(ghost)
-    local pairsList = {}
-    for key, g in pairs(ghostMap) do
-        local o = srcMap[key]
-        if o then table.insert(pairsList, {g, o}) end
-    end
-    if #pairsList == 0 then ghost:Destroy() return end
-
-    -- limpa scripts, sons, efeitos (Humanoid é mantido e configurado abaixo)
-    for _, obj in ipairs(ghost:GetDescendants()) do
-        local junk = obj.Name == "PhaseAtt"
-        if not junk then
-            for _, cls in ipairs(PHASE_JUNK) do
-                if obj:IsA(cls) then junk = true break end
-            end
-        end
-        if junk then obj:Destroy() end
-    end
-
-    for _, pr in ipairs(pairsList) do
-        local part = pr[1]
-        if part.Parent then
-            part.Anchored = true
-            part.CanCollide = false
-            part.CanQuery = false
-            part.CanTouch = false
-            part.CastShadow = false
-            part.Massless = true
-            pr[4] = part.Name == "HumanoidRootPart"
-            if not pr[4] and PhaseGhost.Extra > 0 then
-                part.Transparency = math.clamp(part.Transparency + PhaseGhost.Extra, 0, 1)
-            end
-            pr[3] = part.Transparency  -- transparencia original (usada no fade-in)
-            if not pr[4] then part.Transparency = 1 end
-        end
-    end
-
-    -- Mantém o Humanoid no clone (desativado de forma segura)
-    -- Anchored + CanCollide=false + PlatformStand = zero conflito com o boneco real
-    local hum = ghost:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function()
-            hum.PlatformStand = true
-            hum.Sit = true
-            hum.AutoRotate = false
-            hum.WalkSpeed = 0
-            hum.JumpPower = 0
-            hum.JumpHeight = 0
-            hum.RequiresNeck = false
-            hum.BreakJointsOnDeath = false
-            hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-            hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-            hum.NameDisplayDistance = 0
-            hum.HealthDisplayDistance = 0
-            hum:ChangeState(Enum.HumanoidStateType.Physics)
-        end)
-    end
-
-    ghost.Name = "PhaseGhost"
-    ghost.Parent = PhaseGhost.GetViewport()   -- ViewportFrame: 1:1 com o boneco e sem conflito
-
-    table.insert(PhaseGhost.List, {
-        model = ghost,
-        pairs = pairsList,
-        side = layout[1],
-        dist = layout[2],
-        phase = index * 1.7,
-        freq = 34 + index * 3.5,   -- velocidade da vibracao
-        born = os.clock(),
-        dying = nil,
-        settled = false,
-    })
-end
-
-function PhaseGhost.Update()
-    local list = PhaseGhost.List
-    if #list == 0 then PhaseGhost.Stop() return end
-    if not HRP or not HRP.Parent then PhaseGhost.Clear() return end
-
-    local now = os.clock()
-    local right = HRP.CFrame.RightVector
-
-    do
-        local __o = (getgenv and getgenv()) or _G
-        local vp = PhaseGhost.Viewport
-        if vp and vp.Parent then
-            vp.Visible = not (__o.SandiVPOccluded and __o.SandiVPOccluded(__o.SandiVPBodyPoints(HRP, 3.4)))
-        end
-    end
-
-    for i = #list, 1, -1 do
-        local g = list[i]
-        local emerge = math.clamp((now - g.born) / PhaseGhost.EmergeTime, 0, 1)
-        emerge = 1 - (1 - emerge) ^ 3            -- saem do corpo desacelerando
-        if g.dying then
-            local k = math.clamp((now - g.dying) / PhaseGhost.RetractTime, 0, 1)
-            if k >= 1 then
-                pcall(function() g.model:Destroy() end)
-                table.remove(list, i)
-                continue
-            end
-            emerge = emerge * (1 - k)            -- voltam pro corpo
-        end
-
-        -- vibracao: entra e sai do corpo rapidinho
-        local wave = math.sin(now * g.freq + g.phase)
-        local dist
-        if g.side == 0 then
-            dist = g.dist * wave
-        else
-            dist = g.side * g.dist * (0.5 + 0.5 * wave)
-        end
-        local shift = right * (dist * emerge)
-
-        local fade = emerge < 1 or g.dying ~= nil
-        local setTransparency = fade or not g.settled
-        g.settled = not fade
-
-        for _, pr in ipairs(g.pairs) do
-            local gp, op = pr[1], pr[2]
-            if gp.Parent and op.Parent then
-                gp.CFrame = op.CFrame + shift
-                if setTransparency and not pr[4] then
-                    gp.Transparency = 1 - (1 - pr[3]) * emerge
-                end
-            end
-        end
-    end
-
-    if #list == 0 then PhaseGhost.Stop() end
-end
-
--- 5 clones saindo do corpo que ficam vibrando enquanto a habilidade dura
--- Workspace = tamanho exatamente igual ao do seu boneco
-function PhaseGhost.Spawn()
-    if LiteMode then return end
-    PhaseGhost.Clear()
-    for i = 1, #PhaseGhost.Layout do
-        PhaseGhost.Create(i)
-    end
-    if #PhaseGhost.List > 0 then
-        PhaseGhost.Conn = RunService.RenderStepped:Connect(PhaseGhost.Update)
-    end
-end
-
--- true se o boneco esta dentro de alguma parede/chao solido
-local function PhaseIsInsideGeometry()
-    if not phaseChar or not phaseChar.Parent then return false end
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {phaseChar}
-    local cf, size = phaseChar:GetBoundingBox()
-    local found = Workspace:GetPartBoundsInBox(cf, size * 0.8, params)
-    for _, p in ipairs(found) do
-        if p.CanCollide and p.Name ~= "PhaseGhost" then
-            local model = p:FindFirstAncestorOfClass("Model")
-            local isCharacter = model and model:FindFirstChildOfClass("Humanoid")
-            if not isCharacter then return true end
-        end
-    end
-    return false
-end
-
--- desfaz tudo: colisao, forca anti-gravidade, highlight, conexoes
-local function FinalizePhase()
-    if Character and Character == phaseChar then PhaseGhost.Retract() else PhaseGhost.Clear() end
-    for _, c in ipairs(phaseConns) do pcall(function() c:Disconnect() end) end
-    phaseConns = {}
-    if phasePrevShake ~= 0 and HRP and HRP.Parent and Character == phaseChar then
-        pcall(function() HRP.CFrame = HRP.CFrame - HRP.CFrame.RightVector * phasePrevShake end)
-    end
-    phasePrevShake = 0
-    for part, original in pairs(phaseParts) do
-        if part and part.Parent then pcall(function() part.CanCollide = original end) end
-    end
-    phaseParts = {}
-    if phaseForce then
-        local att = phaseForce.Attachment0
-        phaseForce:Destroy()
-        if att then att:Destroy() end
-        phaseForce = nil
-    end
-    if phaseHighlight then
-        local hl = phaseHighlight
-        phaseHighlight = nil
-        TweenService:Create(hl, TweenInfo.new(0.3), {FillTransparency = 1, OutlineTransparency = 1}):Play()
-        Debris:AddItem(hl, 0.35)
-    end
-    phaseEndingSince = nil
-    phaseChar = nil
-    phaseSafeCF = nil
-end
-
--- ============================================================
--- ANIMAÇÃO DE TELA DO PHASE SHIFT
--- Entrada: desfoque de dissolução (dessatura + blur + FOV abre)
--- Saída:   rebobinar (flash branco + FOV "puxa" e volta + filtro neutro)
--- ============================================================
-local phaseFxCC, phaseFxBlur = nil, nil
-local phaseBaseFOV = nil
-local phaseFxToken = 0
-local PHASE_FOV_OUT = 10   -- quanto o FOV abre na entrada
-
-local function PhaseFxClear()
-    if phaseFxCC then pcall(function() phaseFxCC:Destroy() end) phaseFxCC = nil end
-    if phaseFxBlur then pcall(function() phaseFxBlur:Destroy() end) phaseFxBlur = nil end
-end
-
-local function PhaseScreenIn()
-    if LiteMode then return end
-    phaseFxToken += 1
-    PhaseFxClear()
-    phaseBaseFOV = Camera.FieldOfView
-
-    phaseFxCC = Create("ColorCorrectionEffect", {Name = "PhaseDissolveCC", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Brightness = 0, Parent = Lighting})
-    phaseFxBlur = Create("BlurEffect", {Name = "PhaseDissolveBlur", Size = 0, Parent = Lighting})
-
-    -- dessatura e esfria a cor (corpo virando fantasma)
-    TweenService:Create(phaseFxCC, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Saturation = -0.85,
-        Contrast = 0.12,
-        TintColor = Color3.fromRGB(205, 235, 255),
-    }):Play()
-
-    -- blur de dissolução: sobe rápido e some
-    local up = TweenService:Create(phaseFxBlur, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 16})
-    up:Play()
-    local blur = phaseFxBlur
-    up.Completed:Connect(function()
-        if blur and blur.Parent then
-            TweenService:Create(blur, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = 0}):Play()
-        end
-    end)
-
-    -- FOV abre
-    TweenService:Create(Camera, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = phaseBaseFOV + PHASE_FOV_OUT}):Play()
-end
-
-local function PhaseScreenOut()
-    if LiteMode then return end
-    phaseFxToken += 1
-    local myFx = phaseFxToken
-    local cc, blur = phaseFxCC, phaseFxBlur
-    local baseFOV = phaseBaseFOV
-    phaseFxCC, phaseFxBlur = nil, nil
-    if not cc or not cc.Parent then
-        cc = Create("ColorCorrectionEffect", {Name = "PhaseDissolveCC", TintColor = Color3.new(1,1,1), Saturation = 0, Contrast = 0, Brightness = 0, Parent = Lighting})
-    end
-    if not blur or not blur.Parent then
-        blur = Create("BlurEffect", {Name = "PhaseDissolveBlur", Size = 0, Parent = Lighting})
-    end
-
-    -- rebobinar: flash branco + filtro volta ao neutro
-    local flash = TweenService:Create(cc, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Brightness = 0.55, Saturation = -0.3, Contrast = 0.1, TintColor = Color3.new(1,1,1),
-    })
-    flash:Play()
-    flash.Completed:Connect(function()
-        if cc.Parent then
-            TweenService:Create(cc, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Brightness = 0, Saturation = 0, Contrast = 0, TintColor = Color3.new(1,1,1),
-            }):Play()
-        end
-    end)
-
-    -- blur curto de "fita rebobinando"
-    TweenService:Create(blur, TweenInfo.new(0.08), {Size = 10}):Play()
-    task.delay(0.08, function()
-        if blur.Parent then
-            TweenService:Create(blur, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = 0}):Play()
-        end
-    end)
-
-    -- FOV é puxado pra dentro e volta ao normal (se o Sandevistan não estiver usando)
-    if baseFOV and not State.IsSandiActive then
-        local pull = TweenService:Create(Camera, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = baseFOV - 8})
-        pull:Play()
-        pull.Completed:Connect(function()
-            if not State.IsSandiActive then
-                TweenService:Create(Camera, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = baseFOV}):Play()
-            end
-        end)
-    end
-
-    task.delay(0.6, function()
-        pcall(function() cc:Destroy() end)
-        pcall(function() blur:Destroy() end)
-    end)
-end
-
-local function ResetOptical()
-    if not State.IsOpticalActive then return end
-    opticalToken += 1
-    State.IsOpticalActive = false
-    PhaseGhost.Retract()
-    PhaseScreenOut()
-    Falar("optical_off")
-    State.Cooldowns.OPTICAL = os.clock() + Constants.COOLDOWNS.OPTICAL
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    ShowCooldownText("PHASE SHIFT", Constants.COOLDOWNS.OPTICAL, Colors.OPTICAL)
-    -- se ainda estiver dentro de uma parede, continua sem colisao ate sair
-    -- (ver o loop do Stepped); se o personagem mudou (respawn), finaliza na hora
-    if phaseChar and phaseChar == Character and PhaseIsInsideGeometry() then
-        phaseEndingSince = os.clock()
-    else
-        FinalizePhase()
-    end
-end
-
-local function ExecOptical()
-    if State.IsSandiActive then return end
-    if State.IsOpticalActive or phaseChar then return end
-    if os.clock() < State.Cooldowns.OPTICAL then return end
-    if State.Energy < Constants.ENERGY_COSTS.OPTICAL then return end
-    if not Character or not HRP or not Humanoid or Humanoid.Health <= 0 then return end
-
-    State.Energy -= Constants.ENERGY_COSTS.OPTICAL
-    State.Energy = math.max(0, State.Energy)
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    if PsyBar.Use("Optical") then return end
-    State.IsOpticalActive = true
-    Falar("optical_on")
-    PlaySFX(Sounds.OPTICAL_CAMO)
-    PhaseScreenIn()
-
-    phaseChar = Character
-    phaseStart = os.clock()
-    phaseSafeCF = HRP.CFrame
-    phaseEndingSince = nil
-    phasePrevShake = 0
-    opticalToken += 1
-    local myToken = opticalToken
-    local char = Character
-    local root = HRP
-    local hum = Humanoid
-
-    -- guarda a colisao original de cada parte
-    for _, v in ipairs(char:GetDescendants()) do
-        if v:IsA("BasePart") then phaseParts[v] = v.CanCollide end
-    end
-
-    -- anti-gravidade (senao o boneco cai pelo chao ao perder colisao)
-    local att = Create("Attachment", {Name = "PhaseAtt", Parent = root})
-    phaseForce = Create("VectorForce", {
-        Name = "PhaseAntiGravity",
-        Attachment0 = att,
-        RelativeTo = Enum.ActuatorRelativeTo.World,
-        ApplyAtCenterOfMass = true,
-        Force = Vector3.new(0, root.AssemblyMass * Workspace.Gravity, 0),
-        Parent = root
-    })
-
-    -- noclip + controle vertical (Espaco sobe / Shift desce) + seguranca ao sair
-    table.insert(phaseConns, RunService.Stepped:Connect(function()
-        if Character ~= char or not char.Parent or not root.Parent then
-            FinalizePhase()
-            return
-        end
-        for part in pairs(phaseParts) do
-            if part.Parent then part.CanCollide = false end
-        end
-        local v = root.AssemblyLinearVelocity
-        local up = 0
-        if State.IsOpticalActive then
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then up = 28 end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then up = -28 end
-        end
-        root.AssemblyLinearVelocity = Vector3.new(v.X, up, v.Z)
-
-        if phaseEndingSince then
-            -- terminou a habilidade: so devolve a colisao quando estiver fora de paredes
-            if not PhaseIsInsideGeometry() then
-                FinalizePhase()
-            elseif os.clock() - phaseEndingSince > PHASE_EXIT_GRACE then
-                if phaseSafeCF then root.CFrame = phaseSafeCF end
-                root.AssemblyLinearVelocity = Vector3.zero
-                FinalizePhase()
-            end
-        elseif not PhaseIsInsideGeometry() then
-            phaseSafeCF = root.CFrame
-        end
-    end))
-
-    -- vibracao esquerda/direita (forte no inicio, tremor leve depois)
-    table.insert(phaseConns, RunService.RenderStepped:Connect(function()
-        if Character ~= char or not root.Parent then return end
-        local t = os.clock() - phaseStart
-        local amp
-        if not State.IsOpticalActive then
-            amp = 0
-        else
-            amp = 0.45 - math.clamp(t / 0.6, 0, 1) * 0.33 -- 0.45 -> 0.12
-        end
-        local shake = math.sin(t * 120) * amp
-        local delta = shake - phasePrevShake
-        phasePrevShake = shake
-        root.CFrame = root.CFrame + root.CFrame.RightVector * delta
-    end))
-
-    -- clones exatos do boneco: so esquerda e direita, acompanham o personagem
-    PhaseGhost.Spawn()
-
-    task.delay(Constants.OPTICAL_DURATION * (1 - 0.4 * math.clamp(State.Psychosis / PsyBar.MAX, 0, 1)), function()
-        if myToken == opticalToken then ResetOptical() end
-    end)
-end
-
-local function UpdateKeybind(ability)
-    ContextActionService:UnbindAction(AbilityActions[ability])
-    ContextActionService:BindAction(AbilityActions[ability], function(_, inputState)
-        if inputState == Enum.UserInputState.Begin then
-            if ability == "Dash" then ExecDash()
-            elseif ability == "Sandi" then ExecSandi()
-            elseif ability == "Kiroshi" then ExecKiroshi()
-            elseif ability == "Optical" then ExecOptical()
-            elseif ability == "Dodge" then ActivateDodgeReady() end
-        end
-        return Enum.ContextActionResult.Sink
-    end, false, CurrentKeybinds[ability])
-end
-
-local function BindAllKeybinds()
-    for ab in pairs(CurrentKeybinds) do UpdateKeybind(ab) end
-end
-
-local function LimparAcessorios()
-    local char = Player.Character
-    if char then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("Accessory") and (v.Name:find("SetItem_") or v:FindFirstChild("AutoWeldTag")) then v:Destroy() end
-        end
-    end
-end
-
-local function AplicarSet(listaIds)
-    local character = Player.Character or Player.CharacterAdded:Wait()
-    LimparAcessorios()
-    for _, id in pairs(listaIds) do
-        task.spawn(function()
-            local sucesso, objects = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
-            if sucesso and objects and objects[1] then
-                local asset = objects[1]:Clone()
-                asset.Name = "SetItem_" .. id
-                local tag = Instance.new("BoolValue")
-                tag.Name = "AutoWeldTag"
-                tag.Parent = asset
-                local handle = asset:IsA("BasePart") and asset or asset:FindFirstChild("Handle", true)
-                if handle then
-                    for _, v in pairs(asset:GetDescendants()) do if v:IsA("LuaSourceContainer") then v:Destroy() end end
-                    handle.CanCollide = false
-                    handle.Massless = true
-                    asset.Parent = character
-                    local attachmentItem = handle:FindFirstChildWhichIsA("Attachment")
-                    local partAlvo = nil
-                    local attachmentCorpo = nil
-                    if attachmentItem then
-                        for _, parte in pairs(character:GetChildren()) do
-                            if parte:IsA("BasePart") then
-                                local found = parte:FindFirstChild(attachmentItem.Name)
-                                if found then partAlvo = parte attachmentCorpo = found break end
-                            end
-                        end
-                    end
-                    if not partAlvo then partAlvo = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart") end
-                    if partAlvo then
-                        local weld = Instance.new("Weld")
-                        weld.Part0 = partAlvo
-                        weld.Part1 = handle
-                        if attachmentItem and attachmentCorpo then
-                            weld.C0 = attachmentCorpo.CFrame
-                            weld.C1 = attachmentItem.CFrame
-                        else
-                            weld.C0 = CFrame.new(0, 0, 0.6) * CFrame.Angles(0, math.rad(180), 0)
-                        end
-                        weld.Parent = handle
-                    end
-                end
-                objects[1]:Destroy()
-            end
-        end)
-    end
-end
-
-local function MakeDraggable(movable: Frame, hit: GuiObject)
-    hit = hit or movable
-    local dragging = false
-    local dragStart, startPos
-    local stroke = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 2, Transparency = 0.5, Enabled = false, Parent = movable})
-    table.insert(UI_Elements, {Frame = movable, Stroke = stroke})
-    hit.InputBegan:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and State.EditMode then
-            dragging = true
-            dragStart = input.Position
-            startPos = movable.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and dragging and State.EditMode then
-            local delta = input.Position - dragStart
-            movable.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-    end)
-end
-
-local function CreateEnergyBar(gui)
-    local container = Create("Frame", {
-        Name = "EnergyBar",
-        Size = UDim2.new(0, 32, 0, 190),
-        Position = UDim2.new(0, 28, 0.5, -140),
-        BackgroundColor3 = Color3.fromRGB(4, 4, 9),
-        BorderSizePixel = 0,
-        Parent = gui
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 18), Parent = container})
-
-    Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 7, Transparency = 0.05, Parent = container})
-    Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 3.5, Transparency = 0.45, Parent = container})
-
-    local innerGlow = Create("UIStroke", {Color = Colors.CYBER_ORANGE, Thickness = 12, Transparency = 0.75, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = container})
-
-    local inner = Create("Frame", {Size = UDim2.new(1, -10, 1, -10), Position = UDim2.new(0, 5, 0, 5), BackgroundColor3 = Color3.fromRGB(2, 2, 7), BorderSizePixel = 0, Parent = container})
-    Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = inner})
-
-    energyFill = Create("Frame", {
-    Name = "Fill",
-    Size = UDim2.new(1, -12, 1, -12),
-    Position = UDim2.new(0, 6, 1, -6),
-    AnchorPoint = Vector2.new(0, 1),
-    ClipsDescendants = true,
-        BackgroundColor3 = Colors.LIGHT_GREEN,
-        BorderSizePixel = 0,
-        Parent = inner
-    })
-    local fillGradient = Create("UIGradient", {Color = ColorSequence.new(Colors.LIGHT_GREEN, Colors.CYBER_ORANGE), Rotation = 90, Parent = energyFill})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = energyFill})
-
-    local scanline = Create("Frame", {Size = UDim2.new(1, 0, 0, 3), BackgroundColor3 = Color3.fromRGB(255,255,255), BackgroundTransparency = 0.7, Parent = energyFill})
-    Create("UIGradient", {Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(0.5,0), NumberSequenceKeypoint.new(1,1)}), Parent = scanline})
-    task.spawn(function()
-        while energyFill.Parent do
-            scanline.Position = UDim2.new(0, 0, math.random(), 0)
-            TweenService:Create(scanline, TweenInfo.new(0.6, Enum.EasingStyle.Linear), {Position = UDim2.new(0,0,1,0)}):Play()
-            task.wait(0.6)
-        end
-    end)
-
-    energyPercentLabel = Create("TextLabel", {
-        Size = UDim2.new(0, 50, 0, 22),
-        Position = UDim2.new(0.5, 0, 1, 12),
-        AnchorPoint = Vector2.new(0.5, 0),
-        BackgroundTransparency = 1,
-        Text = "100%",
-        TextColor3 = Colors.UI_NEON,
-        Font = Enum.Font.Code,
-        TextSize = 18,
-        TextStrokeTransparency = 0.25,
-        Parent = container
-    })
-
-    local circuitTop = Create("Frame", {Size = UDim2.new(1, -14, 0, 2), Position = UDim2.new(0, 7, 0, 9), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, Parent = container})
-    Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(255,255,255), Colors.UI_NEON), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(0.4,0), NumberSequenceKeypoint.new(1,1)}), Parent = circuitTop})
-
-    local circuitBottom = Create("Frame", {Size = UDim2.new(1, -14, 0, 2), Position = UDim2.new(0, 7, 1, -11), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, Parent = container})
-    Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(255,255,255), Colors.UI_NEON), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(0.4,0), NumberSequenceKeypoint.new(1,1)}), Parent = circuitBottom})
-
-    -- ========== BARRA PEQUENA DE CYBERPSYCHOSIS (0–100%) ==========
-    -- Filha do container da energia: anda junto quando a barra é arrastada no modo de edição.
-    local psyBar = Create("Frame", {
-        Name = "PsychosisBar",
-        Size = UDim2.new(0, 14, 0, 110),
-        Position = UDim2.new(1, 12, 1, 0),
-        AnchorPoint = Vector2.new(0, 1),
-        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-        BorderSizePixel = 0,
-        Parent = container
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = psyBar})
-    Create("UIStroke", {Color = Color3.fromRGB(80, 0, 8), Thickness = 3, Transparency = 0.05, Parent = psyBar})
-    Create("UIStroke", {Color = PsyBar.COLOR_MID, Thickness = 1.5, Transparency = 0.5, Parent = psyBar})
-
-    local psyInner = Create("Frame", {
-        Size = UDim2.new(1, -6, 1, -6),
-        Position = UDim2.new(0, 3, 0, 3),
-        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-        BorderSizePixel = 0,
-        ClipsDescendants = true,
-        Parent = psyBar
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = psyInner})
-
-    psyFill = Create("Frame", {
-        Name = "PsyFill",
-        Size = UDim2.new(1, 0, 0, 0),
-        Position = UDim2.new(0, 0, 1, 0),
-        AnchorPoint = Vector2.new(0, 1),
-        BackgroundColor3 = PsyBar.COLOR_LOW,
-        BorderSizePixel = 0,
-        Parent = psyInner
-    })
-    -- degrade preto (base) -> vermelho (ponta)
-    Create("UIGradient", {
-        Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(18, 18, 18)),
-        Rotation = 90,
-        Parent = psyFill
-    })
-
-    -- Marca dos 50% (metade da barra): daqui pra cima é zona de perigo
-    Create("Frame", {
-        Name = "Mark50",
-        Size = UDim2.new(1, 0, 0, 2),
-        Position = UDim2.new(0, 0, 0.5, -1),
-        BackgroundColor3 = Color3.fromRGB(255, 60, 60),
-        BackgroundTransparency = 0.2,
-        BorderSizePixel = 0,
-        ZIndex = 3,
-        Parent = psyInner
-    })
-
-    psyPercentLabel = Create("TextLabel", {
-        Name = "PsyPercent",
-        Size = UDim2.new(0, 44, 0, 14),
-        Position = UDim2.new(0.5, 0, 1, 3),
-        AnchorPoint = Vector2.new(0.5, 0),
-        BackgroundTransparency = 1,
-        Text = "0%",
-        TextColor3 = PsyBar.COLOR_MID,
-        Font = Enum.Font.Code,
-        TextSize = 12,
-        TextStrokeTransparency = 0.25,
-        Parent = psyBar
-    })
-
-    return container
-end
-
-local function LoadConfig()
-    local success, result = pcall(function()
-        if isfile(CONFIG_FILE) then
-            local content = readfile(CONFIG_FILE)
-            return HttpService:JSONDecode(content)
-        else
-            local json = HttpService:JSONEncode(DefaultConfig)
-            writefile(CONFIG_FILE, json)
-            return DefaultConfig
-        end
-    end)
-    
-    if success and result then
-        return result
-    else
-        return DefaultConfig
-    end
-end
-
-local function SaveConfig()
-    local config = {
-        UIPositions = {},
-        EnabledAbilities = EnabledAbilities,
-        Keybinds = {},
-        Settings = {
-            DodgeMode = DodgeMode,
-            LiteMode = LiteMode,
-            CurrentSet = currentSet,
-            CloneColorIndex = cloneColorIndex
-        }
-    }
-    
-    for name, pos in pairs(savedPositions) do
-        config.UIPositions[name] = {
-            ScaleX = pos.X.Scale,
-            OffsetX = pos.X.Offset,
-            ScaleY = pos.Y.Scale,
-            OffsetY = pos.Y.Offset
-        }
-    end
-    
-    if next(config.UIPositions) == nil then
-        config.UIPositions = DefaultConfig.UIPositions
-    end
-    
-    for ab, key in pairs(CurrentKeybinds) do
-        config.Keybinds[ab] = key.Name
-    end
-    
-    local success, err = pcall(function()
-        local json = HttpService:JSONEncode(config)
-        writefile(CONFIG_FILE, json)
-    end)
-    
-    if not success then
-    end
-end
-
-local function ApplyConfig(config)
-    if not config then return end
-    
-    if config.UIPositions then
-        for name, posData in pairs(config.UIPositions) do
-            savedPositions[name] = UDim2.new(posData.ScaleX, posData.OffsetX, posData.ScaleY, posData.OffsetY)
-        end
-    end
-    
-    if config.EnabledAbilities then
-        for ab, state in pairs(config.EnabledAbilities) do
-            if EnabledAbilities[ab] ~= nil then
-                EnabledAbilities[ab] = state
-            end
-        end
-    end
-    
-    if config.Keybinds then
-        for ab, keyName in pairs(config.Keybinds) do
-            local success, keycode = pcall(function()
-                return Enum.KeyCode[keyName]
-            end)
-            if success and keycode and CurrentKeybinds[ab] ~= nil then
-                CurrentKeybinds[ab] = keycode
-            end
-        end
-    end
-    
-    if config.Settings then
-        if config.Settings.DodgeMode then
-            DodgeMode = config.Settings.DodgeMode
-        end
-        if config.Settings.LiteMode ~= nil then
-            LiteMode = config.Settings.LiteMode
-        end
-        if config.Settings.CurrentSet then
-            currentSet = config.Settings.CurrentSet
-        end
-        if config.Settings.CloneColorIndex then
-            cloneColorIndex = config.Settings.CloneColorIndex
-        end
-    end
-end
-
-local function BuildUI()
-    if Player.PlayerGui:FindFirstChild("CyberRebuilt") then Player.PlayerGui.CyberRebuilt:Destroy() end
-    local gui = Create("ScreenGui", {Name = "CyberRebuilt", Parent = Player.PlayerGui, IgnoreGuiInset = true})
-
-    local hudOverlay = Create("Frame", {Size = UDim2.new(1,0,1,0), BackgroundColor3 = Color3.fromRGB(0,0,0), BackgroundTransparency = 0.92, Parent = gui})
-    Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(10,10,15), Color3.fromRGB(0,0,0)), Rotation = 90, Parent = hudOverlay})
-
-    CreateEnergyBar(gui)
-    KeybindCurrentTexts = {}
-
-    local lockBtn = Create("TextButton", {Name = "LockBtn", Size = ButtonConfigs.LockBtn.Size, Position = ButtonConfigs.LockBtn.Position, Text = ButtonConfigs.LockBtn.Text, BackgroundColor3 = ButtonConfigs.LockBtn.BackgroundColor3, TextColor3 = ButtonConfigs.LockBtn.TextColor3, Font = ButtonConfigs.LockBtn.Font, TextSize = ButtonConfigs.LockBtn.TextSize, Parent = gui})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = lockBtn})
-    local lockStroke1 = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 3, Transparency = 0.3, Parent = lockBtn})
-    local lockStroke2 = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.6, Parent = lockBtn})
-    local lockGradient = Create("UIGradient", {Color = ColorSequence.new(Colors.UI_DARK, Colors.CYBER_ORANGE), Rotation = 45, Parent = lockBtn})
-
-    local function CreateSkillBtn(key, color, pos, name, func)
-        local btnContainer = Create("Frame", {Name = name .. "Container", Size = UDim2.new(0, 54, 0, 54), Position = savedPositions[name] or pos, BackgroundTransparency = 1, Parent = gui})
-
-        local btn = Create("TextButton", {Name = name, Size = UDim2.new(1, 0, 1, 0), Text = key, BackgroundColor3 = Colors.UI_DARK, TextColor3 = color, Font = Enum.Font.SciFi, TextSize = 21, AutoButtonColor = false, Parent = btnContainer})
-
-        local strokeOuter = Create("UIStroke", {Color = color, Thickness = 3.5, Transparency = 0.25, Parent = btn})
-        local strokeInner = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 1.2, Transparency = 0.5, Parent = btn})
-
-        Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = btn})
-
-        local gradient = Create("UIGradient", {Color = ColorSequence.new(Colors.UI_DARK, color:Lerp(Colors.UI_NEON, 0.45)), Rotation = 35, Parent = btn})
-
-        local glow = Create("UIStroke", {Color = Colors.UI_GLOW, Thickness = 4.5, Transparency = 0.78, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = btn})
-
-        btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = color:Lerp(Colors.CYBER_ORANGE, 0.3)}):Play()
-            TweenService:Create(glow, TweenInfo.new(0.15), {Transparency = 0.35}):Play()
-            TweenService:Create(strokeOuter, TweenInfo.new(0.15), {Thickness = 4.2}):Play()
-        end)
-        btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = Colors.UI_DARK}):Play()
-            TweenService:Create(glow, TweenInfo.new(0.2), {Transparency = 0.78}):Play()
-            TweenService:Create(strokeOuter, TweenInfo.new(0.2), {Thickness = 3.5}):Play()
-        end)
-
-        btn.MouseButton1Down:Connect(function()
-            if not State.EditMode then
-                TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.9, 0, 0.9, 0), BackgroundColor3 = color}):Play()
-                func()
-            end
-        end)
-        btn.MouseButton1Up:Connect(function()
-            if not State.EditMode then
-                TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Colors.UI_DARK}):Play()
-            end
-        end)
-
-        TweenService:Create(btn, TweenInfo.new(2.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Rotation = 2.8}):Play()
-
-        MakeDraggable(btnContainer, btn)
-        SkillContainers[name] = btnContainer
-
-        if name == "SandiBtn" then
-            task.spawn(function()
-                while btn.Parent do
-                    local hue = (os.clock() % 4.5) / 4.5
-                    local rainbowColor = Color3.fromHSV(hue, 1, 1)
-                    btn.TextColor3 = rainbowColor
-                    strokeOuter.Color = rainbowColor
-                    gradient.Color = ColorSequence.new(Colors.UI_DARK, rainbowColor)
-                    task.wait()
-                end
-            end)
-        end
-        return btn
-    end
-
-    CreateSkillBtn(ButtonConfigs.DashBtn.Key, ButtonConfigs.DashBtn.Color, ButtonConfigs.DashBtn.Position, "DashBtn", ExecDash)
-    CreateSkillBtn(ButtonConfigs.SandiBtn.Key, ButtonConfigs.SandiBtn.Color, ButtonConfigs.SandiBtn.Position, "SandiBtn", ExecSandi)
-    CreateSkillBtn(ButtonConfigs.KiroshiBtn.Key, ButtonConfigs.KiroshiBtn.Color, ButtonConfigs.KiroshiBtn.Position, "KiroshiBtn", ExecKiroshi)
-    CreateSkillBtn(ButtonConfigs.OpticalBtn.Key, ButtonConfigs.OpticalBtn.Color, ButtonConfigs.OpticalBtn.Position, "OpticalBtn", ExecOptical)
-    CreateSkillBtn(ButtonConfigs.DodgeBtn.Key, ButtonConfigs.DodgeBtn.Color, ButtonConfigs.DodgeBtn.Position, "DodgeBtn", ActivateDodgeReady)
-
-    for abilityKey, isEnabled in pairs(EnabledAbilities) do
-        local btnName = AbilityMap[abilityKey]
-        if btnName and SkillContainers[btnName] then
-            local visible = isEnabled
-            if btnName == "DodgeBtn" then visible = visible and (DodgeMode == "Counter") end
-            SkillContainers[btnName].Visible = visible
-        end
-    end
-
-    local settingsMenu = Create("Frame", {
-    Name = "SettingsMenu", 
-    Size = UDim2.new(0, 0, 0, 0),
-    Position = UDim2.new(0, 78, 0, 28), 
-    BackgroundColor3 = Color3.fromRGB(4,4,8), 
-    Visible = false,
-    BorderSizePixel = 0, 
-    Parent = gui
-})
-    Create("UICorner", {CornerRadius = UDim.new(0, 16), Parent = settingsMenu})
-    local menuStroke1 = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 4, Transparency = 0.2, Parent = settingsMenu})
-    local menuStroke2 = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.55, Parent = settingsMenu})
-
-    local title = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Text = "NEURAL INTERFACE\nCYBER REBUILT 2077", TextColor3 = Colors.CYBER_ORANGE, Font = Enum.Font.SciFi, TextSize = 19, TextStrokeTransparency = 0.5, Parent = settingsMenu})
-
-    local scroll = Create("ScrollingFrame", {Name = "AbilitiesScroll", Size = UDim2.new(1, -24, 1, -148), Position = UDim2.new(0, 12, 0, 66), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6, ScrollBarImageColor3 = Colors.UI_NEON, Parent = settingsMenu})
-    Create("UIListLayout", {Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll})
-
-    local abilitiesList = {
-        {display = "DASH IMPULSE", key = "Dash", color = Colors.DASH_GREEN},
-        {display = "SANDEVISTAN", key = "Sandi", color = Colors.SANDI_TINT},
-        {display = "KIROSHI OPTICS", key = "Kiroshi", color = Colors.KIROSHI},
-        {display = "PHASE SHIFT", key = "Optical", color = Colors.OPTICAL},
-        {display = "NEURAL DODGE", key = "Dodge", color = Colors.DODGE_START}
-    }
-    for _, ab in ipairs(abilitiesList) do
-        local row = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-        Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = row})
-        Create("TextLabel", {Size = UDim2.new(0.64, 0, 1, 0), BackgroundTransparency = 1, Text = "  " .. ab.display, TextColor3 = ab.color, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
-
-        local tog = Create("TextButton", {Size = UDim2.new(0.29, 0, 0.78, 0), Position = UDim2.new(0.68, 0, 0.11, 0), Text = EnabledAbilities[ab.key] and "ON" or "OFF", BackgroundColor3 = EnabledAbilities[ab.key] and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = row})
-        Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = tog})
-
-        tog.MouseButton1Click:Connect(function()
-    EnabledAbilities[ab.key] = not EnabledAbilities[ab.key]
-    tog.Text = EnabledAbilities[ab.key] and "ON" or "OFF"
-    tog.BackgroundColor3 = EnabledAbilities[ab.key] and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-    if ab.key == "Dodge" and not EnabledAbilities.Dodge then State.IsDodgeReady = false end
-    local btnName = AbilityMap[ab.key]
-    if btnName and SkillContainers[btnName] then
-        local visible = EnabledAbilities[ab.key]
-        if btnName == "DodgeBtn" then visible = visible and DodgeMode == "Counter" end
-        SkillContainers[btnName].Visible = visible
-    end
-    SaveConfig()
-end)
-    end
-
-    local modeRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = modeRow})
-    Create("TextLabel", {Size = UDim2.new(0.64, 0, 1, 0), BackgroundTransparency = 1, Text = "  DODGE MODE", TextColor3 = Colors.DODGE_START, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = modeRow})
-    local modeToggle = Create("TextButton", {Size = UDim2.new(0.29, 0, 0.78, 0), Position = UDim2.new(0.68, 0, 0.11, 0), Text = DodgeMode == "Counter" and "COUNTER" or "AUTO", BackgroundColor3 = DodgeMode == "Counter" and Color3.fromRGB(255, 165, 0) or Color3.fromRGB(0, 255, 255), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = modeRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = modeToggle})
-    modeToggle.MouseButton1Click:Connect(function()
-    if DodgeMode == "Counter" then
-        DodgeMode = "Auto"
-        modeToggle.Text = "AUTO"
-        modeToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
-    else
-        DodgeMode = "Counter"
-        modeToggle.Text = "COUNTER"
-        modeToggle.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-    end
-    if SkillContainers["DodgeBtn"] then SkillContainers["DodgeBtn"].Visible = (EnabledAbilities.Dodge and DodgeMode == "Counter") end
-    SaveConfig()
-end)
-
-    local liteRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = liteRow})
-    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  MODO LITE", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = liteRow})
-    local liteToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = LiteMode and "ON" or "OFF", BackgroundColor3 = LiteMode and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = liteRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = liteToggle})
-    liteToggle.MouseButton1Click:Connect(function()
-    LiteMode = not LiteMode
-    liteToggle.Text = LiteMode and "ON" or "OFF"
-    liteToggle.BackgroundColor3 = LiteMode and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-    SaveConfig()
-end)
-
-    local noclipRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = noclipRow})
-    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  NOCLIP", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = noclipRow})
-    local noclipToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = Noclip and "ON" or "OFF", BackgroundColor3 = Noclip and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = noclipRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = noclipToggle})
-    noclipToggle.MouseButton1Click:Connect(function()
-        ToggleNoclip()
-        noclipToggle.Text = Noclip and "ON" or "OFF"
-        noclipToggle.BackgroundColor3 = Noclip and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-    end)
-
-local lineRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = lineRow})
-Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  LINE", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = lineRow})
-local lineToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = lineEnabled and "ON" or "OFF", BackgroundColor3 = lineEnabled and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = lineRow})
-Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = lineToggle})
-lineToggle.MouseButton1Click:Connect(function()
-    Toggleline()
-    lineToggle.Text = lineEnabled and "ON" or "OFF"
-    lineToggle.BackgroundColor3 = lineEnabled and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-end)
-
-    local keybindsHeader = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Text = "  CUSTOM KEYBINDS", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 21, TextXAlignment = Enum.TextXAlignment.Left, Parent = scroll})
-
-    local keybindList = {
-        {name = "DASH IMPULSE", ab = "Dash", color = Colors.DASH_GREEN},
-        {name = "SANDEVISTAN", ab = "Sandi", color = Colors.SANDI_TINT},
-        {name = "KIROSHI OPTICS", ab = "Kiroshi", color = Colors.KIROSHI},
-        {name = "PHASE SHIFT", ab = "Optical", color = Colors.OPTICAL},
-        {name = "NEURAL DODGE", ab = "Dodge", color = Colors.DODGE_START}
-    }
-    for _, kb in ipairs(keybindList) do
-        local row = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-        Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = row})
-        Create("TextLabel", {Size = UDim2.new(0.48, 0, 1, 0), BackgroundTransparency = 1, Text = "  " .. kb.name, TextColor3 = kb.color, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
-        local currentKeyText = Create("TextLabel", {Size = UDim2.new(0.26, 0, 1, 0), Position = UDim2.new(0.48, 0, 0, 0), BackgroundTransparency = 1, Text = CurrentKeybinds[kb.ab].Name, TextColor3 = Colors.UI_NEON, Font = Enum.Font.Code, TextSize = 21, Parent = row})
-        KeybindCurrentTexts[kb.ab] = currentKeyText
-        local rebindButton = Create("TextButton", {Size = UDim2.new(0.22, 0, 0.78, 0), Position = UDim2.new(0.76, 0, 0.11, 0), Text = "REBIND", BackgroundColor3 = Colors.UI_ACCENT, TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 16, Parent = row})
-        Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = rebindButton})
-        rebindButton.MouseButton1Click:Connect(function() RebindingAbility = kb.ab end)
-    end
-
-    local setsRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1, Parent = scroll})
-    local setsBtn = Create("TextButton", {Size = UDim2.new(0.9, 0, 0, 50), Position = UDim2.new(0.05, 0, 0, 6), Text = " TROCA SET", BackgroundColor3 = setColors[currentSet], TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 21, Parent = setsRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = setsBtn})
-    Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 2.5, Parent = setsBtn})
-        setsBtn.MouseButton1Click:Connect(function()
-    if currentSet == 1 then
-        currentSet = 2
-        setsBtn.BackgroundColor3 = setColors[2]
-        AplicarSet(SET_2)
-    elseif currentSet == 2 then
-        currentSet = 3
-        setsBtn.BackgroundColor3 = setColors[3]
-        AplicarSet(SET_3)
-    else
-        currentSet = 1
-        setsBtn.BackgroundColor3 = setColors[1]
-        AplicarSet(SET_1)
-    end
-    SaveConfig()
-end)
-
-    scroll.CanvasSize = UDim2.new(0, 0, 0, scroll.UIListLayout.AbsoluteContentSize.Y + 160)
-
-    MakeDraggable(gui:FindFirstChild("EnergyBar"), gui:FindFirstChild("EnergyBar"))
-    lockBtn.MouseButton1Click:Connect(function()
-    State.EditMode = not State.EditMode
-    lockBtn.BackgroundColor3 = State.EditMode and Colors.EDIT_MODE or Colors.UI_DARK
-    lockBtn.TextColor3 = State.EditMode and Colors.UI_DARK or Colors.UI_NEON
-    for _, item in ipairs(UI_Elements) do item.Stroke.Enabled = State.EditMode end
-    
-    if not State.EditMode then
-        savedPositions["EnergyBar"] = gui:FindFirstChild("EnergyBar") and gui:FindFirstChild("EnergyBar").Position or savedPositions["EnergyBar"]
-        savedPositions["DashBtn"] = gui:FindFirstChild("DashBtnContainer") and gui:FindFirstChild("DashBtnContainer").Position or savedPositions["DashBtn"]
-        savedPositions["SandiBtn"] = gui:FindFirstChild("SandiBtnContainer") and gui:FindFirstChild("SandiBtnContainer").Position or savedPositions["SandiBtn"]
-        savedPositions["KiroshiBtn"] = gui:FindFirstChild("KiroshiBtnContainer") and gui:FindFirstChild("KiroshiBtnContainer").Position or savedPositions["KiroshiBtn"]
-        savedPositions["OpticalBtn"] = gui:FindFirstChild("OpticalBtnContainer") and gui:FindFirstChild("OpticalBtnContainer").Position or savedPositions["OpticalBtn"]
-        savedPositions["DodgeBtn"] = gui:FindFirstChild("DodgeBtnContainer") and gui:FindFirstChild("DodgeBtnContainer").Position or savedPositions["DodgeBtn"]
-        
-        SaveConfig()
-    end
-end)
-
-    UpdateDashButton()
-    UpdateKiroshiButton()
-    UpdateOpticalButton()
-    if SkillContainers["DodgeBtn"] then SkillContainers["DodgeBtn"].Visible = (EnabledAbilities.Dodge and DodgeMode == "Counter") end
-    
-    task.spawn(function()
-        while gui.Parent do
-            task.wait(30)
-        end
-    end)
-    
-    for _, btnName in pairs({"DashBtn", "SandiBtn", "KiroshiBtn", "OpticalBtn", "DodgeBtn"}) do
-        local container = gui:FindFirstChild(btnName .. "Container")
-        if container then
-            local btn = container:FindFirstChild(btnName)
-            if btn then
-                PulseAnimation(btn)
-            end
-        end
-    end
-end
-
-local walkConn: RBXScriptConnection? = nil
-local function InitWalkEffect()
-    if walkConn then walkConn:Disconnect() walkConn = nil end
-    if LiteMode then return end
-    walkConn = RunService.RenderStepped:Connect(function()
-        if not Humanoid or not Humanoid.Parent then return end
-        local CT = tick()
-        if Humanoid.MoveDirection.Magnitude > 0 then
-            local BobbleX = math.cos(CT*5)*0.25
-            local BobbleY = math.abs(math.sin(CT*5))*0.25
-            local Bobble = Vector3.new(BobbleX,BobbleY,0)
-            Humanoid.CameraOffset = Humanoid.CameraOffset:lerp(Bobble, 0.25)
-        else
-            Humanoid.CameraOffset = Humanoid.CameraOffset * 0.75
-        end
-    end)
-end
-
-local Joints = {}
-local JointsC0 = {}
-local JointTilts = {}
-local DefaultLerpAlpha = 0.145
-local dotThreshold = 0.9
-local lastTime = 0
-local tickRate = 1 / 60
-
-local function LerpJoints(moveDirection, angles)
-    JointTilts.RootJointTilt = JointTilts.RootJointTilt:Lerp(CFrame.Angles(unpack(angles.RootJoint)), DefaultLerpAlpha)
-    Joints.RootJoint.C0 = JointsC0.RootJointC0 * JointTilts.RootJointTilt
-    JointTilts.NeckTilt = JointTilts.NeckTilt:Lerp(CFrame.Angles(unpack(angles.Neck)), DefaultLerpAlpha)
-    Joints.Neck.C0 = JointsC0.NeckC0 * JointTilts.NeckTilt
-    JointTilts.RightShoulderTilt = JointTilts.RightShoulderTilt:Lerp(CFrame.Angles(unpack(angles.RightShoulder)), DefaultLerpAlpha)
-    Joints.RightShoulder.C0 = JointsC0.RightShoulderC0 * JointTilts.RightShoulderTilt
-    JointTilts.LeftShoulderTilt = JointTilts.LeftShoulderTilt:Lerp(CFrame.Angles(unpack(angles.LeftShoulder)), DefaultLerpAlpha)
-    Joints.LeftShoulder.C0 = JointsC0.LeftShoulderC0 * JointTilts.LeftShoulderTilt
-    JointTilts.RightHipTilt = JointTilts.RightHipTilt:Lerp(CFrame.Angles(unpack(angles.RightHip)), DefaultLerpAlpha)
-    Joints.RightHip.C0 = JointsC0.RightHipC0 * JointTilts.RightHipTilt
-    JointTilts.LeftHipTilt = JointTilts.LeftHipTilt:Lerp(CFrame.Angles(unpack(angles.LeftHip)), DefaultLerpAlpha)
-    Joints.LeftHip.C0 = JointsC0.LeftHipC0 * JointTilts.LeftHipTilt
-end
-
-local function UpdateDirectionalMovement()
-    local now = workspace:GetServerTimeNow()
-    if now - lastTime >= tickRate then
-        lastTime = now
-        local moveDirection = HRP.CFrame:VectorToObjectSpace(Humanoid.MoveDirection)
-        if moveDirection:Dot(Vector3.new(1,0,-1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 5, 0, math.rad(-moveDirection.X) * 25}, Neck = {math.rad(moveDirection.Z) * 5, 0, math.rad(moveDirection.X) * 15}, RightShoulder = {0, math.rad(-moveDirection.X) * 10, 0}, LeftShoulder = {0, math.rad(-moveDirection.X) * 10, 0}, RightHip = {0, math.rad(-moveDirection.X) * 10, 0}, LeftHip = {0, math.rad(-moveDirection.X) * 10, 0}})
-        elseif moveDirection:Dot(Vector3.new(1,0,1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 5, 0, math.rad(moveDirection.X) * 25}, Neck = {math.rad(moveDirection.Z) * 5, 0, math.rad(-moveDirection.X) * 25}, RightShoulder = {0, math.rad(moveDirection.X) * 10, 0}, LeftShoulder = {0, math.rad(moveDirection.X) * 10, 0}, RightHip = {0, math.rad(moveDirection.X) * 10, 0}, LeftHip = {0, math.rad(moveDirection.X) * 10, 0}})
-        elseif moveDirection:Dot(Vector3.new(-1,0,1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 5, 0, math.rad(moveDirection.X) * 25}, Neck = {math.rad(moveDirection.Z) * 5, 0, math.rad(-moveDirection.X) * 25}, RightShoulder = {0, math.rad(moveDirection.X) * 10, 0}, LeftShoulder = {0, math.rad(moveDirection.X) * 10, 0}, RightHip = {0, math.rad(moveDirection.X) * 10, 0}, LeftHip = {0, math.rad(moveDirection.X) * 10, 0}})
-        elseif moveDirection:Dot(Vector3.new(-1,0,-1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 5, 0, math.rad(-moveDirection.X) * 25}, Neck = {math.rad(moveDirection.Z) * 5, 0, math.rad(moveDirection.X) * 15}, RightShoulder = {0, math.rad(-moveDirection.X) * 10, 0}, LeftShoulder = {0, math.rad(-moveDirection.X) * 10, 0}, RightHip = {0, math.rad(-moveDirection.X) * 10, 0}, LeftHip = {0, math.rad(-moveDirection.X) * 10, 0}})
-        elseif moveDirection:Dot(Vector3.new(0,0,-1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 10, 0, 0}, Neck = {math.rad(moveDirection.Z) * 10, 0, 0}, RightShoulder = {0, 0, 0}, LeftShoulder = {0, 0, 0}, RightHip = {0, 0, 0}, LeftHip = {0, 0, 0}})
-        elseif moveDirection:Dot(Vector3.new(1,0,0).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {0, 0, math.rad(-moveDirection.X) * 35}, Neck = {0, 0, math.rad(moveDirection.X) * 35}, RightShoulder = {0, math.rad(-moveDirection.X) * 15, 0}, LeftShoulder = {0, math.rad(-moveDirection.X) * 15, 0}, RightHip = {0, math.rad(-moveDirection.X) * 15, 0}, LeftHip = {0, math.rad(-moveDirection.X) * 15, 0}})
-        elseif moveDirection:Dot(Vector3.new(0,0,1).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {math.rad(-moveDirection.Z) * 10, 0, 0}, Neck = {math.rad(moveDirection.Z) * 10, 0, 0}, RightShoulder = {0, 0, 0}, LeftShoulder = {0, 0, 0}, RightHip = {0, 0, 0}, LeftHip = {0, 0, 0}})
-        elseif moveDirection:Dot(Vector3.new(-1,0,0).Unit) > dotThreshold then
-            LerpJoints(moveDirection, {RootJoint = {0, 0, math.rad(-moveDirection.X) * 35}, Neck = {0, 0, math.rad(moveDirection.X) * 35}, RightShoulder = {0, math.rad(-moveDirection.X) * 15, 0}, LeftShoulder = {0, math.rad(-moveDirection.X) * 15, 0}, RightHip = {0, math.rad(-moveDirection.X) * 15, 0}, LeftHip = {0, math.rad(-moveDirection.X) * 15, 0}})
-        else
-            LerpJoints(moveDirection, {RootJoint = {0, 0, 0}, Neck = {0, 0, 0}, RightShoulder = {0, 0, 0}, LeftShoulder = {0, 0, 0}, RightHip = {0, 0, 0}, LeftHip = {0, 0, 0}})
-        end
-    end
-end
-
-local dirConn: RBXScriptConnection? = nil
-local function InitDirectionalMovement()
-    if dirConn then dirConn:Disconnect() dirConn = nil end
-    if LiteMode then return end
-    local torso = Character:FindFirstChild("UpperTorso") or Character:FindFirstChild("Torso")
-    if not torso then return end
-    
-    local isR15 = (torso:FindFirstChild("Neck") ~= nil)
-    
-    if isR15 then
-        local rootJoint = HRP:FindFirstChild("RootJoint")
-        local neck = torso:FindFirstChild("Neck")
-        local rightShoulder = torso:FindFirstChild("Right Shoulder")
-        local leftShoulder = torso:FindFirstChild("Left Shoulder")
-        local rightHip = torso:FindFirstChild("Right Hip")
-        local leftHip = torso:FindFirstChild("Left Hip")
-        
-        if not rootJoint or not neck or not rightShoulder or not leftShoulder or not rightHip or not leftHip then
-            return
-        end
-        
-        Joints = {
-            RootJoint = rootJoint,
-            Neck = neck,
-            RightShoulder = rightShoulder,
-            LeftShoulder = leftShoulder,
-            RightHip = rightHip,
-            LeftHip = leftHip
-        }
-        
-        JointsC0 = {
-            RootJointC0 = rootJoint.C0,
-            NeckC0 = neck.C0,
-            RightShoulderC0 = rightShoulder.C0,
-            LeftShoulderC0 = leftShoulder.C0,
-            RightHipC0 = rightHip.C0,
-            LeftHipC0 = leftHip.C0
-        }
-        
-        JointTilts = {
-            RootJointTilt = CFrame.new(),
-            NeckTilt = CFrame.new(),
-            RightShoulderTilt = CFrame.new(),
-            LeftShoulderTilt = CFrame.new(),
-            RightHipTilt = CFrame.new(),
-            LeftHipTilt = CFrame.new()
-        }
-        
-        dirConn = RunService.Heartbeat:Connect(UpdateDirectionalMovement)
-    end
-end
-
+local WR = 1.35 * S
+local WHEELBASE = 11.2 * S
+local R = math.rad
+local CLEANUP_KEY = "__ChargerCleanup"
+local genv = _G
 do
-local PsyGlitch = {
-    START = 22.5, STEP = 5, Active = {}, NextAt = 0,
-    VIEWPORT_START = 60,       -- % da barra: daqui pra cima entra o glitch de ViewportFrame
-    STOP_OLD_GLITCH = false,   -- true = o glitch antigo (tremer/piscar a peça real) PARA em 60% | false = só trava no nível de 60% e continua junto com o do ViewportFrame
-    VIEWPORT_MAX = 75,         -- % da barra onde o glitch de ViewportFrame chega no máximo (sobe de VIEWPORT_START até aqui)
-    CLONE_START = 85,          -- % da barra: daqui pra cima aparecem CLONES do corpo inteiro (ecos) no ViewportFrame
-    ECHO_MIN = 1,              -- quantidade de clones ao mesmo tempo em CLONE_START (sobe até ECHO_MAX em 100%)
-    ECHO_MAX = 4,              -- máximo de clones ao mesmo tempo
-    ECHO_TINT = false,         -- false = clones com a MESMA cor do seu boneco | true = piscam em neon (ciano/magenta/vermelho)
-    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil, echoes = {}, echoNextAt = 0},
+	local okG, e = pcall(function() return getgenv() end)
+	if okG and type(e) == "table" then genv = e end
+end
+if type(genv[CLEANUP_KEY]) == "function" then pcall(genv[CLEANUP_KEY]) end
+local conns = {}
+local function track(c) conns[#conns + 1] = c return c end
+local function getGuiParent()
+	if Config.UseHiddenGui then
+		local okH, hui = pcall(function() return gethui and gethui() end)
+		if okH and typeof(hui) == "Instance" then return hui end
+		local okC, core = pcall(function() return game:GetService("CoreGui") end)
+		if okC and core then
+			local probe = Instance.new("Folder")
+			local okP = pcall(function() probe.Parent = core end)
+			pcall(function() probe:Destroy() end)
+			if okP then return core end
+		end
+	end
+	return player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 15)
+end
+local function parentGui(g)
+	pcall(function()
+		if syn and syn.protect_gui then syn.protect_gui(g)
+		elseif protect_gui then protect_gui(g) end
+	end)
+	local p = getGuiParent()
+	if p then pcall(function() g.Parent = p end) end
+	if not g.Parent then
+		local pg = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 15)
+		if pg then pcall(function() g.Parent = pg end) end
+	end
+end
+local function playSound(id, vol, pitch)
+	if not id then return end
+	local snd
+	pcall(function()
+		local s = Instance.new("Sound")
+		s.SoundId = id
+		s.Volume = vol or 0.6
+		s.PlaybackSpeed = pitch or 1
+		s.Parent = SoundService
+		s:Play()
+		Debris:AddItem(s, 8)
+		snd = s
+	end)
+	return snd
+end
+function Config.Damage.speedMul(c)
+	local D = Config.Damage
+	if not D.Enabled then return 1 end
+	local k = math.clamp(((c.dmg or 0) - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	return 1 - D.TopLoss * k
+end
+function Config.Damage.smoke(c)
+	local D = Config.Damage
+	local d = c.dmg or 0
+	if not (c.root and c.root.Parent) then return end
+	if d < D.SmokeAt then
+		if c.dmgSmoke and c.dmgSmoke.Parent then c.dmgSmoke.Rate = 0 end
+		return
+	end
+	local pe = c.dmgSmoke
+	if not (pe and pe.Parent) then
+		local at = Instance.new("Attachment")
+		at.Name = "DamageSmoke"
+		at.Position = Vector3.new(0, 3.7 * S, -5.2 * S)
+		at.Parent = c.root
+		pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Lifetime = NumberRange.new(1.2, 2.2)
+		pe.Speed = NumberRange.new(5, 9)
+		pe.SpreadAngle = Vector2.new(12, 12)
+		pe.Acceleration = Vector3.new(0, 5, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-30, 30)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2 * S), NumberSequenceKeypoint.new(1, 4.5 * S) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(0.7, 0.7), NumberSequenceKeypoint.new(1, 1) })
+		pe.Parent = at
+		c.dmgSmoke = pe
+	end
+	local k = math.clamp((d - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	pe.Rate = 5 + 30 * k
+	local g = math.floor(190 - 150 * k)
+	pe.Color = ColorSequence.new(Color3.fromRGB(g, g, g))
+end
+-- retorna true se a batida foi forte o bastante pra causar dano
+function Config.Damage.hit(c, imp, point, nrm)
+	local D = Config.Damage
+	if not D.Enabled or c.cine or imp < D.MinSpeed then return false end
+	local now = os.clock()
+	if now - (c.dmgT or 0) < D.Cooldown then return false end
+	c.dmgT = now
+	local sev = math.clamp((imp - D.MinSpeed) / math.max(D.FatalSpeed - D.MinSpeed, 1), 0, 1)
+	local base = 100 * sev ^ D.Curve
+	if D.Vital and point and c.root and c.root.Parent then
+		pcall(D.vitalHit, c, c.root.CFrame:PointToObjectSpace(point), base, sev)
+		c.dmg = math.min(100, c.dmg or 0)
+	else
+		c.dmg = math.min(100, (c.dmg or 0) + base)
+	end
+	c.shakeA = math.max(c.shakeA or 0, 0.4 + 1.6 * sev)
+	playSound(Config.SoundLand, 0.7 + 0.5 * sev, 0.75 - 0.25 * sev)
+	playSound("rbxasset://sounds/impact_explosion_03.mp3", 0.15 + 0.5 * sev, 1.5 - 0.5 * sev)
+	pcall(function()
+		local at = Instance.new("Attachment")
+		at.Parent = workspace.Terrain
+		if nrm and nrm.Magnitude > 0.01 then
+			at.WorldCFrame = CFrame.lookAt(point, point + nrm) * CFrame.Angles(-math.pi / 2, 0, 0)
+		else
+			at.WorldPosition = point
+		end
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+		pe.LightEmission = 1
+		pe.Lifetime = NumberRange.new(0.25, 0.6)
+		pe.Speed = NumberRange.new(15, 45)
+		pe.SpreadAngle = Vector2.new(60, 60)
+		pe.Acceleration = Vector3.new(0, -70, 0)
+		pe.Size = NumberSequence.new(0.35 * S, 0)
+		pe.Rate = 0
+		pe.Parent = at
+		pe:Emit(math.floor(10 + 30 * sev))
+		Debris:AddItem(at, 1.5)
+	end)
+	if D.Dents then pcall(D.dent, c, point, nrm, sev) end
+	if D.Break then task.delay(0.05, function() pcall(D.loose, c, point, nrm, sev) end) end
+	if c.dmg >= D.DeadAt then
+		c.engineOn = false
+		c.throttle = 0
+	end
+	Config.Damage.smoke(c)
+	return true
+end
+Config.Damage.Panels = {
+	Body = true, Side = true, Door = true, ArchUp = true, ArchSkin = true, ArchSkinWedge = true, SideEndWedge = true,
+	BackDeckWedge = true, DoorArchWedge = true, FlareSkin = true, DoorSkin = true, ShoulderRidge = true, LowerBead = true,
+	Cowl = true, TrunkDeck = true, FrontLip = true, FrontLipFill = true, Bumper = true, BumperTopRoll = true,
+	BumperLowRoll = true, TailPanel = true, ExhLip = true,
 }
-
-function PsyGlitch.Level()
-    local v = State.Psychosis
-    if v < PsyGlitch.START then return 0 end
-    return math.floor((v - PsyGlitch.START) / PsyGlitch.STEP) + 1
+function Config.Damage.isPanel(nm)
+	if Config.Damage.Panels[nm] then return true end
+	return (nm:find("^SideCap") or nm:find("^BodyCap") or nm:find("^ArchUpCap") or nm:find("^ArchSkinCap")
+		or nm:find("^RBumper") or nm:find("^BumperEnd") or nm:find("^Grille") or nm:find("^Hood") or nm:find("^Valance")) ~= nil
 end
-
-local function psyRestore(rec)
-    if rec.part and rec.part.Parent then rec.part.LocalTransparencyModifier = 0 end
-    if rec.motor and rec.motor.Parent then rec.motor.Transform = rec.lastBase or CFrame.identity end
-    if rec.weld and rec.weld.Parent then rec.weld.C0 = rec.baseC0 end
+-- lista as chapas que podem amassar (só as presas direto no carro ou no capô)
+function Config.Damage.collect(c)
+	if c.dents then return c.dents end
+	local list = {}
+	c.dents = list
+	pcall(function()
+		for _, p in ipairs(c.model:GetDescendants()) do
+			if p:IsA("BasePart") and p ~= c.root and p.Name ~= "HoodRoot" and Config.Damage.isPanel(p.Name) then
+				local w = p:FindFirstChildOfClass("Weld")
+				local base = w and w.Part0
+				if w and w.Part1 == p and base and (base == c.root or base.Name == "HoodRoot") then
+					local zp = c.root.CFrame:PointToObjectSpace((base.CFrame * w.C0).Position)
+					local zx, zz = zp.X / S, zp.Z / S
+					local row = (zz < -7.6 and 1) or (zz < -3.3 and 2) or (zz < 4.2 and 3) or (zz < 8.0 and 4) or 5
+					local col = (zx < -1.9 and 1) or (zx > 1.9 and 3) or 2
+					list[#list + 1] = { p = p, w = w, base = base, c0 = w.C0, col0 = p.Color, off = Vector3.zero, rot = Vector3.zero, zone = (row - 1) * 3 + col }
+				end
+			end
+		end
+	end)
+	return list
 end
-
-function PsyGlitch.Clear()
-    for key, rec in pairs(PsyGlitch.Active) do
-        psyRestore(rec)
-        PsyGlitch.Active[key] = nil
-    end
+function Config.Damage.setDent(d, off, rot)
+	d.off, d.rot = off, rot
+	local pos = d.c0.Position
+	d.w.C0 = CFrame.new(pos + off) * CFrame.Angles(rot.X, rot.Y, rot.Z) * (d.c0 - pos)
 end
-
-local function psyJitter(mag, rot)
-    local function r() return (math.random() * 2 - 1) end
-    return CFrame.new(r() * mag, r() * mag, r() * mag)
-        * CFrame.Angles(math.rad(r() * rot), math.rad(r() * rot), math.rad(r() * rot))
+-- empurra as chapas perto do impacto pra dentro do carro (n = normal da parede apontando pro carro)
+function Config.Damage.dent(c, point, nrm, sev)
+	local D = Config.Damage
+	if not (D.Dents and nrm and c.root and c.root.Parent) then return end
+	local list = D.collect(c)
+	local rc = c.root.CFrame
+	local lp = rc:PointToObjectSpace(point)
+	local nL = rc:VectorToObjectSpace(nrm)
+	nL = Vector3.new(nL.X, 0, nL.Z)
+	if nL.Magnitude < 0.01 then return end
+	nL = nL.Unit
+	local depth = (0.3 + 2.2 * sev) * S
+	local radius = (2.6 + 4.2 * sev) * S
+	local maxOff = 3.4 * S
+	local rng = Random.new()
+	for _, d in ipairs(list) do
+		if d.p.Parent and d.base.Parent then
+			local ctr = rc:PointToObjectSpace((d.base.CFrame * d.c0).Position)
+			local dist = (ctr - lp).Magnitude
+			if dist < radius then
+				local f = 1 - (dist / radius) ^ 2
+				local vBase = d.base.CFrame:VectorToObjectSpace(rc:VectorToWorldSpace(nL * depth * f))
+				local off = d.off + vBase
+				if off.Magnitude > maxOff then off = off.Unit * maxOff end
+				local k = 0.16 * sev * f
+				local rot = d.rot + Vector3.new(rng:NextNumber(-k, k), rng:NextNumber(-k, k), rng:NextNumber(-k, k))
+				D.setDent(d, off, rot)
+				d.p.Color = d.p.Color:Lerp(Color3.fromRGB(58, 58, 64), 0.25 * f * (0.4 + sev))
+			end
+		end
+	end
 end
-
-
--- ============================================================
--- GLITCH DE VIEWPORTFRAME (a partir de VIEWPORT_START %)
--- Cópia FIEL (mesma cor, textura e malha, sem neon) das peças e acessórios do boneco, na MESMA
--- câmera do jogo. A peça real continua visível e a cópia pula/gira/pisca por cima (duplicação).
--- ============================================================
--- O ViewportFrame recebe um CLONE do personagem INTEIRO (com Humanoid, roupas e cor do corpo, que só
--- renderizam certo dentro de um Model com Humanoid). O clone fica ancorado e escondido; só as peças
--- sorteadas aparecem, seguindo a peça real com deslocamento.
-local function vpIsJunk(d)
-    return d:IsA("LuaSourceContainer") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam")
-        or d:IsA("Highlight") or d:IsA("BillboardGui") or d:IsA("ForceField") or d:IsA("Fire") or d:IsA("Smoke")
-        or d:IsA("Sparkles") or d:IsA("Light") or d:IsA("JointInstance") or d:IsA("WeldConstraint")
-        or d:IsA("Constraint") or d:IsA("BodyMover")
+function Config.Damage.dentCount(c)
+	local n = 0
+	for _, d in ipairs(c.dents or {}) do
+		if d.off.Magnitude > 0.001 or d.rot.Magnitude > 0.001 then n = n + 1 end
+	end
+	for _, e in ipairs(c.loose or {}) do
+		if e.gone or e.hp < e.hp0 then n = n + 1 end
+	end
+	return n
 end
-
-local function vpEndRec(r)
-    if r.g and r.g.Parent then r.g.Transparency = 1 end
-    if r.src and r.src.Parent then r.src.LocalTransparencyModifier = 0 end
-    PsyGlitch.VP.used[r.src] = nil
+-- desamassa chapas perto do ponto lp (espaço local do carro); devolve quantas foram mexidas
+function Config.Damage.fix(c, lp, radius, amt)
+	local D = Config.Damage
+	if not ((c.dents or c.loose) and c.root and c.root.Parent) then return 0 end
+	local rc = c.root.CFrame
+	local n = pcall(D.restore, c, lp, radius * 1.4, amt) and (c.restoredN or 0) or 0
+	for _, d in ipairs(c.dents or {}) do
+		if d.p.Parent and d.base.Parent and (d.off.Magnitude > 0.001 or d.rot.Magnitude > 0.001) then
+			local dist = (rc:PointToObjectSpace((d.base.CFrame * d.c0).Position) - lp).Magnitude
+			if dist < radius then
+				local f = 1 - dist / radius
+				local k = 1 - math.clamp(amt * (0.5 + f), 0, 1)
+				local off, rot = d.off * k, d.rot * k
+				if off.Magnitude < 0.02 * S and rot.Magnitude < 0.01 then
+					off, rot = Vector3.zero, Vector3.zero
+					d.p.Color = d.col0
+				else
+					d.p.Color = d.p.Color:Lerp(d.col0, 0.5)
+				end
+				D.setDent(d, off, rot)
+				n = n + 1
+			end
+		end
+	end
+	return n
 end
-
--- ECOS: clones do corpo INTEIRO (a partir de CLONE_START %), congelados na pose do momento,
--- deslocados pro lado, piscando por pouco tempo. O corpo real continua visível.
-local function vpClearEchoes()
-    local V = PsyGlitch.VP
-    for _, e in ipairs(V.echoes) do
-        if e.model then pcall(function() e.model:Destroy() end) end
-    end
-    V.echoes = {}
+Config.Damage.Loose = {
+	HeadLens = { hp = 0.6, glass = true }, HeadBezel = { hp = 1.2 }, HeadCup = { hp = 2.0 },
+	HeadReflector = { hp = 2.0 }, HeadReflectorStep = { hp = 2.0 }, HeadBulb = { hp = 1.6 },
+	AmberLamp = { hp = 0.6, glass = true }, AmberRing = { hp = 1.2 },
+	MarkF = { hp = 0.7, glass = true }, MarkR = { hp = 0.7, glass = true },
+	FenderBadge = { hp = 0.8 }, GrilleBadge = { hp = 0.8 },
+	MirrorGlass = { hp = 0.6, glass = true }, MirrorHead = { hp = 1.2 }, MirrorArm = { hp = 1.8 },
+	TailLens = { hp = 0.7, glass = true }, TailLensLow = { hp = 0.7, glass = true },
+	TailLensEdge = { hp = 0.5 }, TailRib = { hp = 0.5 }, TailLowTrim = { hp = 0.9 },
+	TailFrameTop = { hp = 1.4 }, TailFrameBot = { hp = 1.4 }, TailFrameEnd = { hp = 1.4 },
+	RevLamp = { hp = 0.7, glass = true },
+	Plate = { hp = 1.0 }, PlateBack = { hp = 1.0 }, PlatePanel = { hp = 1.4 }, ExhTip = { hp = 2.6 },
+	Windshield = { hp = 3.4, glass = true }, RearGlass = { hp = 3.4, glass = true }, QuarterGlass = { hp = 3.0, glass = true },
+}
+function Config.Damage.collectLoose(c)
+	if c.loose then return c.loose end
+	local D = Config.Damage
+	local list = {}
+	c.loose = list
+	pcall(function()
+		for _, p in ipairs(c.model:GetDescendants()) do
+			if p:IsA("BasePart") and p ~= c.root then
+				local spec = D.Loose[(p.Name:gsub("%d+$", ""))]
+				local w = spec and p:FindFirstChildOfClass("Weld")
+				if w and w.Part1 == p and w.Part0 == c.root then
+					local e = {
+						p = p, w = w, c0 = w.C0, hp = spec.hp, hp0 = spec.hp, glass = spec.glass == true,
+						off = Vector3.zero, rot = Vector3.zero, col0 = p.Color, mat0 = p.Material, tr0 = p.Transparency,
+					}
+					for _, L in ipairs({ c.lens, c.tails, c.revs, c.glow }) do
+						if table.find(L, p) then e.list = L end
+					end
+					if p.Name == "HeadLens" and math.abs(math.abs(w.C0.X) / S - 2.34) < 0.1 then
+						for _, l in ipairs(c.lampList or {}) do
+							local em = l.light and l.light.Parent
+							if em and em:IsA("BasePart") and c.root.CFrame:PointToObjectSpace(em.Position).X * w.C0.X > 0 then
+								e.lamp = l
+							end
+						end
+					end
+					list[#list + 1] = e
+				end
+			end
+		end
+	end)
+	return list
 end
-
-local function vpBuildClone(char)
-    local V = PsyGlitch.VP
-    vpClearEchoes()
-    for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
-    V.recs, V.used, V.map = {}, {}, {}
-    if V.clone then V.clone:Destroy() V.clone = nil end
-    V.char = char
-    -- marca cada peça real com um id; o clone herda o id e o mapa real->cópia nasce por id
-    -- (não depende mais da ordem/quantidade de descendentes, que quebrava com objetos não-clonáveis)
-    local byId, n = {}, 0
-    for _, d in ipairs(char:GetDescendants()) do
-        if d:IsA("BasePart") then
-            n += 1
-            byId[n] = d
-            d:SetAttribute("PsyVpId", n)
-        end
-    end
-    local was = char.Archivable
-    char.Archivable = true
-    local ok, clone = pcall(function() return char:Clone() end)
-    char.Archivable = was
-    for _, d in ipairs(byId) do
-        if d.Parent then d:SetAttribute("PsyVpId", nil) end
-    end
-    if not ok or not clone then
-        warn("[Sandevistan] glitch ViewportFrame: não consegui clonar o personagem")
-        return false
-    end
-    for _, c in ipairs(clone:GetDescendants()) do
-        if c:IsA("BasePart") then
-            local i = c:GetAttribute("PsyVpId")
-            if i and byId[i] then V.map[byId[i]] = c end
-        end
-    end
-    for _, c in ipairs(clone:GetDescendants()) do
-        if c:IsA("BasePart") then
-            c.Anchored = true
-            c.CanCollide = false
-            c.CanQuery = false
-            c.CanTouch = false
-            c.CastShadow = false
-            c.Transparency = 1   -- escondido até a peça ser sorteada
-        elseif vpIsJunk(c) then
-            c:Destroy()
-        end
-    end
-    local hum = clone:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-        hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-    end
-    clone.Parent = V.vp
-    V.clone = clone
-    return next(V.map) ~= nil
+function Config.Damage.shards(wp, col, size, vel)
+	local rng = Random.new()
+	local n = math.clamp(math.floor(size.Magnitude / S * 2) + 3, 3, 8)
+	for _ = 1, n do
+		local s = Instance.new("Part")
+		local k = rng:NextNumber(0.5, 1.4)
+		s.Size = Vector3.new(0.24 * k, 0.03, 0.18 * k) * S
+		s.Color = col
+		s.Material = Enum.Material.Glass
+		s.Transparency = 0.25
+		s.CanTouch = false
+		s.CanQuery = false
+		s.CastShadow = false
+		local sp = size * 0.35
+		s.CFrame = CFrame.new(wp + Vector3.new(rng:NextNumber(-1, 1) * sp.X, rng:NextNumber(-1, 1) * sp.Y, rng:NextNumber(-1, 1) * sp.Z))
+			* CFrame.Angles(rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28))
+		s.Parent = workspace
+		s.AssemblyLinearVelocity = (vel or Vector3.zero) * 0.25 + Vector3.new(rng:NextNumber(-12, 12), rng:NextNumber(6, 18), rng:NextNumber(-12, 12))
+		s.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-12, 12), rng:NextNumber(-12, 12), rng:NextNumber(-12, 12))
+		Debris:AddItem(s, 5)
+	end
 end
-
-local function vpSpawnEcho(p2)
-    local V = PsyGlitch.VP
-    if not V.vp or not V.clone or not V.clone.Parent or not HRP or not HRP.Parent then return end
-    local was = V.clone.Archivable
-    V.clone.Archivable = true
-    local ok, model = pcall(function() return V.clone:Clone() end)
-    V.clone.Archivable = was
-    if not ok or not model then return end
-    local ghostById = {}
-    for _, d in ipairs(model:GetDescendants()) do
-        if d:IsA("BasePart") then
-            local i = d:GetAttribute("PsyVpId")
-            if i then ghostById[i] = d end
-        end
-    end
-    local parts, reals, bases, pj = {}, {}, {}, {}
-    for real, g in pairs(V.map) do
-        local gp = ghostById[g:GetAttribute("PsyVpId")]
-        if gp then
-            if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 then
-                gp.CFrame = real.CFrame
-                gp.Transparency = real.Transparency   -- opaco (sem semi-transparência)
-                table.insert(parts, gp)
-                table.insert(reals, real)
-                table.insert(bases, real.Transparency)
-                table.insert(pj, Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1))
-            else
-                gp.Transparency = 1
-            end
-        end
-    end
-    if PsyGlitch.ECHO_TINT and math.random() < 0.45 then
-        local tints = {Color3.fromRGB(0, 240, 255), Color3.fromRGB(255, 0, 140), Color3.fromRGB(255, 30, 30), Color3.new(1, 1, 1)}
-        local tint = tints[math.random(#tints)]
-        for _, gp in ipairs(parts) do
-            gp.Color = tint
-            gp.Material = Enum.Material.Neon
-        end
-    end
-    model.Parent = V.vp
-    local now = os.clock()
-    table.insert(V.echoes, {
-        model = model, parts = parts, reals = reals, bases = bases, partJit = pj,
-        born = now, life = 0.3 + math.random() * 0.5,
-        side = (math.random() < 0.5 and -1 or 1) * (1.4 + math.random() * 3 + p2 * 2.5),
-        lift = (math.random() * 2 - 1) * 1.2,
-        rotY = (math.random() * 2 - 1) * (14 + 30 * p2), rotZ = (math.random() * 2 - 1) * (6 + 16 * p2),
-        jx = 0, jy = 0, jmag = 0.5 + 0.8 * p2,
-        nextRoll = 0, blink = false,
-    })
+function Config.Damage.breakOff(c, e, nrm, sev)
+	local D = Config.Damage
+	local p = e.p
+	if e.gone or not p.Parent then return end
+	e.gone = true
+	if e.list then
+		local i = table.find(e.list, p)
+		if i then table.remove(e.list, i) end
+	end
+	if e.lamp then
+		e.lamp.broken = true
+		pcall(function()
+			e.lamp.light.Enabled = false
+			e.lamp.light.Parent:SetAttribute("Broken", true)
+		end)
+	end
+	local rc = c.root.CFrame
+	if e.glass then
+		D.shards(p.Position, e.col0, p.Size, c.vel)
+		p.Parent = nil
+		return
+	end
+	local rng = Random.new()
+	local side = e.c0.X > 0.3 * S and 1 or (e.c0.X < -0.3 * S and -1 or (rng:NextNumber() < 0.5 and -1 or 1))
+	e.w.Enabled = false
+	p.Parent = workspace
+	p.Anchored = false
+	p.CanCollide = true
+	p.CanTouch = false
+	p.Massless = false
+	p.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.7, 0.25)
+	local v = (c.vel or Vector3.zero) * 0.3 + rc.RightVector * side * (6 + 10 * sev) + Vector3.new(0, 16 + 14 * sev, 0)
+		+ (nrm or Vector3.zero) * (3 + 6 * sev) + Vector3.new(rng:NextNumber(-3, 3), 0, rng:NextNumber(-3, 3))
+	p.AssemblyLinearVelocity = v
+	p.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-10, 10), rng:NextNumber(-10, 10), rng:NextNumber(-10, 10))
+	task.delay(120, function()
+		if e.gone and p.Parent == workspace then p:Destroy() end
+	end)
 end
-
--- cada eco SAI do corpo (deslocamento sobe de 0), buga (pulos, giros, piscadas) e VOLTA pro corpo (0),
--- seguindo o boneco real em todo frame, nunca fica solto no mapa
-local function vpEchoStep(now)
-    local V = PsyGlitch.VP
-    local cam = Workspace.CurrentCamera
-    for i = #V.echoes, 1, -1 do
-        local e = V.echoes[i]
-        local u = (now - e.born) / e.life
-        if u >= 1 or not e.model.Parent or not cam or not HRP or not HRP.Parent then
-            pcall(function() e.model:Destroy() end)
-            table.remove(V.echoes, i)
-        else
-            if now >= e.nextRoll then
-                e.nextRoll = now + 0.03 + math.random() * 0.04
-                e.blink = math.random() < 0.3
-                if math.random() < 0.4 then
-                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag * 3, (math.random() * 2 - 1) * e.jmag * 1.5   -- pulo brusco
-                else
-                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag, (math.random() * 2 - 1) * e.jmag * 0.5
-                end
-            end
-            local env = math.sin(math.pi * u)            -- 0 -> 1 -> 0
-            env = math.floor(env * 6 + 0.5) / 6          -- degraus: movimento travado/glitchado
-            local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
-            local offset = right * (e.side * env + e.jx * env) + up * (e.lift * env + e.jy * env)
-            local pivot = HRP.CFrame
-            local rot = CFrame.Angles(0, math.rad(e.rotY * env), math.rad(e.rotZ * env))
-            local base = pivot * rot * pivot:Inverse()
-            for k, gp in ipairs(e.parts) do
-                local real = e.reals[k]
-                if real.Parent then
-                    gp.CFrame = base * real.CFrame + offset + e.partJit[k] * (0.35 * env)
-                    gp.Transparency = e.blink and 1 or e.bases[k]
-                else
-                    gp.Transparency = 1
-                end
-            end
-        end
-    end
+function Config.Damage.loose(c, point, nrm, sev)
+	local D = Config.Damage
+	if not (D.Break and nrm and c.root and c.root.Parent) then return end
+	local list = D.collectLoose(c)
+	local rc = c.root.CFrame
+	local lp = rc:PointToObjectSpace(point)
+	local nL = rc:VectorToObjectSpace(nrm)
+	nL = Vector3.new(nL.X, 0, nL.Z)
+	if nL.Magnitude < 0.01 then return end
+	nL = nL.Unit
+	local radius = (3.6 + 4.6 * sev) * S
+	local rng = Random.new()
+	for _, e in ipairs(list) do
+		if not e.gone and e.p.Parent then
+			local q = e.c0.Position - lp
+			local dist = Vector3.new(q.X, q.Y * 0.5, q.Z).Magnitude
+			if dist < radius then
+				local f = 1 - (dist / radius) ^ 2
+				e.hp = e.hp - (0.5 + 2.6 * sev) * f
+				if e.hp <= 0 then
+					D.breakOff(c, e, nrm, sev)
+				elseif not e.glass then
+					local off = e.off + nL * (0.15 + 0.7 * sev) * f * S
+					if off.Magnitude > 1.2 * S then off = off.Unit * 1.2 * S end
+					local k = (0.1 + 0.5 * (1 - e.hp / e.hp0)) * f
+					D.setDent(e, off, e.rot + Vector3.new(rng:NextNumber(-k, k), rng:NextNumber(-k, k), rng:NextNumber(-k, k)))
+					if not e.list then
+						e.p.Color = e.p.Color:Lerp(Color3.fromRGB(50, 50, 55), 0.2 * f)
+					end
+				end
+			end
+		end
+	end
 end
-
-local function vpFollow()
-    local V = PsyGlitch.VP
-    local cam = Workspace.CurrentCamera
-    if not cam or not V.vp then return end
-    if V.vp.CurrentCamera ~= cam then V.vp.CurrentCamera = cam end
-    local now = os.clock()
-    vpEchoStep(now)
-    for i = #V.recs, 1, -1 do
-        local r = V.recs[i]
-        if now >= r.untilT or not r.src.Parent or not r.g.Parent then
-            vpEndRec(r)
-            table.remove(V.recs, i)
-        else
-            if now >= r.reroll then
-                r.reroll = now + 0.03 + math.random() * 0.04
-                r.dx = (math.random() * 2 - 1) * r.mag
-                r.dy = (math.random() * 2 - 1) * r.mag * 0.4
-                r.rot = CFrame.Angles(math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg))
-                r.blink = math.random() < 0.1
-            end
-            local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
-            r.g.CFrame = (r.src.CFrame * r.rot) + right * r.dx + up * r.dy
-            r.g.Transparency = r.blink and 1 or r.src.Transparency
-            -- a peça real continua VISÍVEL: a cópia glitchada aparece por cima como uma duplicação
-        end
-    end
+function Config.Damage.restore(c, lp, radius, amt)
+	local D = Config.Damage
+	c.restoredN = 0
+	if not (c.loose and c.model and c.model.Parent) then return end
+	local cand = {}
+	for _, e in ipairs(c.loose) do
+		local q = e.c0.Position - lp
+		local dist = Vector3.new(q.X, q.Y * 0.5, q.Z).Magnitude
+		if dist < radius then
+			if e.gone then
+				if e.glass or e.p.Parent == workspace then cand[#cand + 1] = { e = e, d = dist } end
+			elseif e.hp < e.hp0 or e.off.Magnitude > 0.001 or e.rot.Magnitude > 0.001 then
+				local k = 1 - math.clamp(amt * 1.5, 0, 1)
+				local off, rot = e.off * k, e.rot * k
+				if off.Magnitude < 0.02 * S and rot.Magnitude < 0.01 then
+					off, rot = Vector3.zero, Vector3.zero
+					e.hp = e.hp0
+					if not e.list then e.p.Color = e.col0 end
+				end
+				D.setDent(e, off, rot)
+				c.restoredN = c.restoredN + 1
+			end
+		end
+	end
+	table.sort(cand, function(a, b) return a.d < b.d end)
+	for i = 1, math.min(#cand, 2) do
+		local e = cand[i].e
+		local p = e.p
+		p.AssemblyLinearVelocity = Vector3.zero
+		p.AssemblyAngularVelocity = Vector3.zero
+		p.CanCollide = false
+		p.Massless = true
+		p.CustomPhysicalProperties = nil
+		p.Color = e.col0
+		p.Material = e.mat0
+		p.Transparency = e.tr0
+		p.Parent = c.model
+		e.w.Enabled = true
+		e.gone = false
+		e.hp = e.hp0
+		D.setDent(e, Vector3.zero, Vector3.zero)
+		if e.list then e.list[#e.list + 1] = p end
+		if e.lamp then
+			e.lamp.broken = false
+			pcall(function() e.lamp.light.Parent:SetAttribute("Broken", nil) end)
+		end
+		c.tailState = nil
+		c.revState = nil
+		c.restoredN = c.restoredN + 1
+	end
 end
-
-local function vpEnsure()
-    local V = PsyGlitch.VP
-    if V.gui and V.gui.Parent and V.vp then return true end
-    local pg = Player:FindFirstChildOfClass("PlayerGui")
-    if not pg then return false end
-    local g = Instance.new("ScreenGui")
-    g.Name = "PsyViewportGlitch"
-    g.IgnoreGuiInset = true
-    g.ResetOnSpawn = false
-    g.DisplayOrder = 850
-    g.Parent = pg
-    local vp = Instance.new("ViewportFrame")
-    vp.Size = UDim2.fromScale(1, 1)
-    vp.BackgroundTransparency = 1
-    vp.Ambient = Color3.fromRGB(170, 170, 170)
-    vp.LightColor = Color3.new(1, 1, 1)
-    pcall(function() vp.LightDirection = -Lighting:GetSunDirection() end)
-    vp.CurrentCamera = Workspace.CurrentCamera
-    vp.ZIndex = 5
-    vp.Parent = g
-    V.gui, V.vp, V.clone, V.char = g, vp, nil, nil
-    if V.conn then V.conn:Disconnect() end
-    V.conn = RunService.RenderStepped:Connect(vpFollow)
-    return true
+Config.Damage.Vitals = {
+	{ id = "motor", name = "Motor", x = 0, z = -5.3, w = 1.0, hood = true },
+	{ id = "rad", name = "Radiador", x = 0, z = -9.2, w = 1.5, hood = true },
+	{ id = "bat", name = "Bateria", x = 1.57, z = -8.4, w = 1.0, hood = true },
+	{ id = "dir", name = "Direcao", x = -0.9, z = -7.0, w = 0.9, hood = true },
+	{ id = "tank", name = "Tanque", x = 0, z = 7.0, w = 1.2 },
+}
+function Config.Damage.vd(c)
+	if not c.vd then c.vd = { rad = 0, bat = 0, dir = 0, tank = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0 } end
+	return c.vd
 end
-
-function PsyGlitch.ClearViewport()
-    local V = PsyGlitch.VP
-    if not V.gui and not V.conn and #V.recs == 0 then return end
-    for _, r in ipairs(V.recs) do pcall(vpEndRec, r) end
-    vpClearEchoes()
-    V.recs, V.used, V.map = {}, {}, {}
-    if V.conn then V.conn:Disconnect() V.conn = nil end
-    if V.gui then V.gui:Destroy() end
-    V.gui, V.vp, V.clone, V.char = nil, nil, nil, nil
+function Config.Damage.vval(c, id)
+	if id == "motor" then return c.dmg or 0 end
+	return Config.Damage.vd(c)[id] or 0
 end
-
-function PsyGlitch.UpdateViewport(dt)
-    local V = PsyGlitch.VP
-    if not vpEnsure() then return end
-    if V.char ~= Character or not V.clone or not V.clone.Parent then
-        if os.clock() < (V.buildRetry or 0) then return end
-        if not vpBuildClone(Character) then
-            V.buildRetry = os.clock() + 2
-            return
-        end
-    end
-    local p = math.clamp((State.Psychosis - PsyGlitch.VIEWPORT_START) / math.max(1, PsyGlitch.VIEWPORT_MAX - PsyGlitch.VIEWPORT_START), 0, 1)
-    if State.Psychosis >= PsyGlitch.CLONE_START then
-        local p2 = math.clamp((State.Psychosis - PsyGlitch.CLONE_START) / math.max(1, PsyBar.MAX - PsyGlitch.CLONE_START), 0, 1)
-        local t = os.clock()
-        local maxE = PsyGlitch.ECHO_MIN + math.floor(p2 * (PsyGlitch.ECHO_MAX - PsyGlitch.ECHO_MIN) + 0.5)
-        if t >= V.echoNextAt and #V.echoes < maxE then
-            V.echoNextAt = t + (0.14 - 0.09 * p2) * (0.5 + math.random())
-            for _ = 1, math.min(maxE - #V.echoes, 1 + math.floor(p2 * 2)) do
-                vpSpawnEcho(p2)
-            end
-        end
-    elseif #V.echoes > 0 then
-        vpClearEchoes()
-    end
-    local now = os.clock()
-    if now < V.nextAt then return end
-    V.nextAt = now + (0.55 - 0.25 * p) * (0.5 + math.random())
-    local room = 1 + math.floor(p * 3) - #V.recs
-    if room <= 0 then return end
-    local cand = {}
-    for real, g in pairs(V.map) do
-        if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 and not V.used[real] then
-            table.insert(cand, real)
-        end
-    end
-    local n = math.min(#cand, room, 1 + math.floor(p * 1.5))
-    for _ = 1, n do
-        local src = table.remove(cand, math.random(#cand))
-        local g = V.map[src]
-        if g and g.Parent then
-            V.used[src] = true
-            table.insert(V.recs, {
-                src = src, g = g,
-                untilT = now + 0.06 + math.random() * 0.12 + p * 0.06,
-                reroll = 0, dx = 0, dy = 0, rot = CFrame.identity, blink = false,
-                mag = 0.12 + 0.5 * p, rotDeg = 3 + 8 * p,
-            })
-        end
-    end
+function Config.Damage.vset(c, id, v)
+	v = math.clamp(v, 0, 100)
+	if id == "motor" then c.dmg = v else Config.Damage.vd(c)[id] = v end
 end
-
-function PsyGlitch.Update(dt)
-    local level = PsyGlitch.Level()
-    if level == 0 or PsyBar.Busy or not Character or not Character.Parent then
-        if next(PsyGlitch.Active) then PsyGlitch.Clear() end
-        PsyGlitch.ClearViewport()
-        return
-    end
-    if State.Psychosis >= PsyGlitch.VIEWPORT_START then
-        PsyGlitch.UpdateViewport(dt)
-        if PsyGlitch.STOP_OLD_GLITCH then
-            if next(PsyGlitch.Active) then PsyGlitch.Clear() end   -- o glitch antigo para aqui
-            return
-        end
-        level = math.floor((PsyGlitch.VIEWPORT_START - PsyGlitch.START) / PsyGlitch.STEP) + 1   -- só trava no nível de 60%
-    else
-        PsyGlitch.ClearViewport()
-    end
-    local now = os.clock()
-    local mag = 0.05 + level * 0.04
-    local rot = level * 2.5
-
-    for key, rec in pairs(PsyGlitch.Active) do
-        if now >= rec.untilT or not rec.part.Parent then
-            psyRestore(rec)
-            PsyGlitch.Active[key] = nil
-        else
-            rec.part.LocalTransparencyModifier = (math.random() < 0.5) and rec.alpha or 0
-            if rec.motor then
-                local cur = rec.motor.Transform
-                if cur ~= rec.applied then rec.lastBase = cur end
-                rec.applied = (rec.lastBase or cur) * psyJitter(mag, rot)
-                rec.motor.Transform = rec.applied
-            elseif rec.weld then
-                rec.weld.C0 = rec.baseC0 * psyJitter(mag, rot)
-            end
-        end
-    end
-
-    if now >= PsyGlitch.NextAt then
-        PsyGlitch.NextAt = now + math.max(0.08, 1.2 - level * 0.07) * (0.5 + math.random())
-        local candidates = {}
-        for _, d in ipairs(Character:GetDescendants()) do
-            if d:IsA("BasePart") and d ~= HRP and d.Name ~= "HumanoidRootPart" and not PsyGlitch.Active[d] then
-                table.insert(candidates, d)
-            end
-        end
-        local count = math.min(#candidates, 1 + math.floor(level / 3))
-        for _ = 1, count do
-            local idx = math.random(#candidates)
-            local part = table.remove(candidates, idx)
-            local rec = {
-                part = part,
-                untilT = now + 0.06 + math.random() * 0.12 + level * 0.01,
-                alpha = math.clamp(0.4 + level * 0.04 + math.random() * 0.2, 0.4, 1),
-            }
-            local acc = part:FindFirstAncestorOfClass("Accessory")
-            if acc then
-                local w = part:FindFirstChildWhichIsA("Weld")
-                if w and w:IsA("Weld") then rec.weld = w rec.baseC0 = w.C0 end
-            else
-                for _, m in ipairs(Character:GetDescendants()) do
-                    if m:IsA("Motor6D") and m.Part1 == part then rec.motor = m break end
-                end
-            end
-            PsyGlitch.Active[part] = rec
-        end
-    end
+function Config.Damage.points(c)
+	if c.vpts then return c.vpts end
+	local list = {}
+	for _, v in ipairs(Config.Damage.Vitals) do
+		list[#list + 1] = { id = v.id, name = v.name, x = v.x, z = v.z, w = v.w, hood = v.hood }
+	end
+	for i, w in ipairs(c.wheels or {}) do
+		local x, z = w.base.Position.X / S, w.base.Position.Z / S
+		list[#list + 1] = { id = "t" .. i, name = (z < 0 and "Pneu diant." or "Pneu tras.") .. (x < 0 and " esq." or " dir."), x = x, z = z, w = 1.6, tire = true, idx = i }
+	end
+	c.vpts = list
+	return list
 end
-
-PsyBar.Glitch = PsyGlitch
+function Config.Damage.worstNear(c, tp, maxd)
+	local best, bv = nil, 0
+	for _, p in ipairs(Config.Damage.points(c)) do
+		local v = Config.Damage.vval(c, p.id)
+		local dx, dz = p.x * S - tp.X, p.z * S - tp.Z
+		if v > bv and math.sqrt(dx * dx + dz * dz) <= maxd then best, bv = p, v end
+	end
+	return best
 end
-
-RunService.Heartbeat:Connect(function(dt)
-    if not HRP or not Humanoid then return end
-    if Humanoid.Health < State.LastHealth then
-    local dmgDealt = State.LastHealth - Humanoid.Health
-    if dmgDealt > 1 then FalasDano(dmgDealt) end
-    if dmgDealt > 1 and State.IsDodgeReady and EnabledAbilities.Dodge and not IsDodging then
-        local ca = nil
-        local ld = 25
-        local params = OverlapParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = {Character}
-        for _, p in ipairs(Workspace:GetPartBoundsInRadius(HRP.Position, 25, params)) do
-            local model = p:FindFirstAncestorOfClass("Model")
-            if model and model ~= Character and model.Name ~= "PhaseGhost" and model.Name ~= "HologramClone" and model:FindFirstChildOfClass("Humanoid") then
-                local r = model:FindFirstChild("HumanoidRootPart")
-                if r then
-                    local d = (HRP.Position - r.Position).Magnitude
-                    if d < ld then ld = d ca = r end
-                end
-            end
-        end
-        ExecDodge(ca)
-        if DodgeMode == "Auto" then
-            if State.Energy >= Constants.ENERGY_COSTS.DODGE then
-                State.Energy -= Constants.ENERGY_COSTS.DODGE
-                State.Energy = math.max(0, State.Energy)
-                State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-            end
-        end
-    end
+function Config.Damage.noStart(c)
+	local vd = c.vd
+	return vd ~= nil and (vd.bat >= 100 or (c.fuelLvl or 1) <= 0)
 end
-    State.LastHealth = Humanoid.Health
-    State.LastVelocityY = HRP.Velocity.Y
-    local isMoving = HRP.Velocity.Magnitude > Constants.MOVING_THRESHOLD
-    if State.IsSandiActive then
-        State.Energy -= Constants.ENERGY_COSTS.SANDI_DRAIN * dt
-        State.Energy = math.max(0, State.Energy)
-        Humanoid.WalkSpeed = Constants.SANDI_SPEED
-        if isMoving then
-            if os.clock() - lastSandiClone > Constants.HOLOGRAM_CLONE.SANDI.DELAY then
-                CreateHologramClone(Constants.HOLOGRAM_CLONE.SANDI.DELAY, Constants.HOLOGRAM_CLONE.SANDI.DURATION, Constants.HOLOGRAM_CLONE.SANDI.END_TRANSPARENCY, 0, 0, 0, "sandi")
-                lastSandiClone = os.clock()
-            end
-            if sandiLoopSound and not sandiLoopSound.Playing then sandiLoopSound:Play()
-            elseif not sandiLoopSound then
-                sandiLoopSound = Create("Sound", {SoundId = Sounds.SANDI_LOOP.id, Volume = Sounds.SANDI_LOOP.volume, PlaybackSpeed = Sounds.SANDI_LOOP.pitch, Looped = Sounds.SANDI_LOOP.looped, Parent = HRP})
-                sandiLoopSound:Play()
-            end
-        else
-            if sandiLoopSound and sandiLoopSound.Playing then sandiLoopSound:Stop() end
-        end
-        if State.Energy <= 0 then
-            State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_ZERO
-            Falar("sandi_zerou")
-            PsyBar.Add(PsyBar.GAIN_ZERO)
-            if math.random() < (PsyBar.DIRECT_ZERO_BASE + PsyBar.DIRECT_ZERO_SCALE * (State.Psychosis / PsyBar.MAX)) then
-                ExecCyberpsychosis()
-                if not PsyBar.Busy then State.Psychosis = PsyBar.RESET_TO end
-            end
-            ResetSandi()
-        end
-    else
-        if os.clock() > State.NoRegenUntil then
-            State.Energy = math.min(Constants.MAX_ENERGY, State.Energy + (Constants.REGEN_RATE * dt))
-        end
-    end
-    if DodgeMode == "Auto" and os.clock() >= State.Cooldowns.DODGE and not State.IsDodgeReady and not IsDodging and State.Energy >= Constants.ENERGY_COSTS.DODGE and EnabledAbilities.Dodge then
-        ActivateDodgeReady()
-    end
-    -- ========== BARRA DE CYBERPSYCHOSIS: ganho, queda e gatilho em 100% ==========
-    do
-        local now = os.clock()
-        if State.IsSandiActive then
-            State.PsychosisIdleSince = now
-            PsyBar.Add(PsyBar.GAIN_SANDI * dt)
-        elseif not PsyBar.Busy and now - State.PsychosisIdleSince > PsyBar.DECAY_DELAY then
-            if State.Psychosis > 0 then
-                PsyBar.DecayAcc = (PsyBar.DecayAcc or 0) + dt
-                while PsyBar.DecayAcc >= PsyBar.DECAY_INTERVAL do
-                    PsyBar.DecayAcc -= PsyBar.DECAY_INTERVAL
-                    State.Psychosis = math.max(0, State.Psychosis - PsyBar.DECAY_STEP)
-                end
-            end
-        else
-            PsyBar.DecayAcc = 0
-        end
-        local okG, errG = pcall(PsyBar.Glitch.Update, dt)
-        if not okG and not PsyBar.GlitchErrWarned then
-            PsyBar.GlitchErrWarned = true
-            warn("[Sandevistan] erro no glitch da psicose: " .. tostring(errG))
-        end
+function Config.Damage.vitalHit(c, lp, base, sev)
+	local D = Config.Damage
+	local R = (6 + 7 * sev) * S
+	for _, p in ipairs(D.points(c)) do
+		local dx, dz = lp.X - p.x * S, lp.Z - p.z * S
+		local f = math.max(0, 1 - (math.sqrt(dx * dx + dz * dz) / R) ^ 2)
+		local add = base * p.w * f * D.VitalMul
+		if p.id == "motor" then add = add + base * 0.12 end
+		if add > 0 then
+			D.vset(c, p.id, D.vval(c, p.id) + add)
+			if p.id == "dir" and add > 1 and not c.pullDir then c.pullDir = math.random() < 0.5 and -1 or 1 end
+		end
+	end
+end
+function Config.Damage.emitter(c, key, pos, build)
+	local pe = c[key]
+	if pe and pe.Parent then return pe end
+	local at = Instance.new("Attachment")
+	at.Position = pos
+	at.Parent = c.root
+	pe = Instance.new("ParticleEmitter")
+	build(pe)
+	pe.Rate = 0
+	pe.Parent = at
+	c[key] = pe
+	return pe
+end
+function Config.Damage.vitalStep(c, dt)
+	local D = Config.Damage
+	if not (D.Enabled and D.Vital and c.root and c.root.Parent) then return end
+	local vd = D.vd(c)
+	local mot = c.dmg or 0
+	local flats, slow, pull, tp, tr = 0, 0, 0, 0, 0
+	for i, w in ipairs(c.wheels) do
+		local t = vd["t" .. i] or 0
+		local bx, bz = w.base.Position.X, w.base.Position.Z
+		if t >= 100 then
+			flats = flats + 1
+			pull = pull + (bx < 0 and 1 or -1)
+			tp = tp + (bz < 0 and -0.035 or 0.035)
+			tr = tr + (bx < 0 and 0.05 or -0.05)
+			if math.abs(c.vF or 0) > 20 and c.cf then
+				w.spk = (w.spk or 0) - dt
+				if w.spk <= 0 then
+					w.spk = 0.12
+					D.sparks(c.cf:PointToWorldSpace(w.base.Position) - Vector3.new(0, 1.1 * S, 0), nil, 2)
+				end
+			end
+		elseif t >= 50 then
+			slow = slow + 1
+		end
+	end
+	c.flats = flats
+	local k = math.min(1, dt * 6)
+	c.leanP = (c.leanP or 0) + (math.clamp(tp, -0.07, 0.07) - (c.leanP or 0)) * k
+	c.leanR = (c.leanR or 0) + (math.clamp(tr, -0.07, 0.07) - (c.leanR or 0)) * k
+	if flats > 0 and math.abs(c.vF or 0) > 20 then
+		c.shakeA = math.max(c.shakeA or 0, 0.25 + 0.25 * math.clamp(math.abs(c.vF) / 200, 0, 1))
+	end
+	local dirK = vd.dir / 100
+	c.vSteer = 1 - 0.55 * dirK
+	c.vPull = (c.pullDir or 1) * 0.3 * dirK + pull * 0.1
+	c.vGrip = math.clamp(1 - 0.15 * slow - 0.25 * flats, 0.35, 1)
+	c.vTop = math.max(0.4, 1 - 0.2 * flats - 0.06 * slow)
+	c.vAcc = 1 - 0.5 * math.clamp((mot - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	local radK = vd.rad / 100
+	if radK >= 0.2 and c.engineOn then
+		c.engTemp = math.min(100, (c.engTemp or 0) + radK * (0.35 + 0.65 * (c.throttle or 0)) * 9 * dt)
+	else
+		c.engTemp = math.max(0, (c.engTemp or 0) - 5 * dt)
+	end
+	if c.engTemp > 70 and c.engineOn then
+		c.dmg = math.min(100, mot + (c.engTemp - 70) / 30 * 2.5 * dt)
+	end
+	local tankK = vd.tank / 100
+	if tankK >= 0.6 and c.engineOn then
+		c.fuelLvl = math.max(0, (c.fuelLvl or 1) - dt * (0.02 + 0.06 * (tankK - 0.6) / 0.4))
+	end
+	if c.engineOn and ((c.dmg or 0) >= D.DeadAt or (c.fuelLvl or 1) <= 0) then
+		c.engineOn = false
+		c.throttle = 0
+	end
+	if vd.bat >= 100 then c.lamps = false end
+	local steam = D.emitter(c, "vSteam", Vector3.new(0, 3.4 * S, -8.6 * S), function(pe)
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(235, 240, 245))
+		pe.Lifetime = NumberRange.new(0.8, 1.4)
+		pe.Speed = NumberRange.new(6, 12)
+		pe.SpreadAngle = Vector2.new(20, 20)
+		pe.Acceleration = Vector3.new(0, 8, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8 * S), NumberSequenceKeypoint.new(1, 3 * S) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1) })
+		pe.LightEmission = 0.2
+	end)
+	local sr = radK >= 0.2 and math.floor(6 + 40 * radK + 0.5) or 0
+	if steam.Rate ~= sr then steam.Rate = sr end
+	local leak = D.emitter(c, "vLeak", Vector3.new(0, 1.0 * S, 7 * S), function(pe)
+		pe.Color = ColorSequence.new(Color3.fromRGB(70, 52, 22))
+		pe.Lifetime = NumberRange.new(0.5, 0.8)
+		pe.Speed = NumberRange.new(2, 6)
+		pe.SpreadAngle = Vector2.new(40, 40)
+		pe.Acceleration = Vector3.new(0, -60, 0)
+		pe.Size = NumberSequence.new(0.25 * S)
+		pe.Transparency = NumberSequence.new(0.15)
+	end)
+	local lr = (tankK >= 0.3 and (c.fuelLvl or 1) > 0) and math.floor(6 + 24 * tankK + 0.5) or 0
+	if leak.Rate ~= lr then leak.Rate = lr end
+	c.smokeT = (c.smokeT or 0) - dt
+	if c.smokeT <= 0 then
+		c.smokeT = 0.5
+		D.smoke(c)
+	end
+end
+function Config.Damage.sparks(point, nrm, count)
+	pcall(function()
+		local at = Instance.new("Attachment")
+		at.Parent = workspace.Terrain
+		if nrm and nrm.Magnitude > 0.01 then
+			at.WorldCFrame = CFrame.lookAt(point, point + nrm) * CFrame.Angles(-math.pi / 2, 0, 0)
+		else
+			at.WorldPosition = point
+		end
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+		pe.LightEmission = 1
+		pe.Lifetime = NumberRange.new(0.25, 0.6)
+		pe.Speed = NumberRange.new(10, 30)
+		pe.SpreadAngle = Vector2.new(70, 70)
+		pe.Acceleration = Vector3.new(0, -60, 0)
+		pe.Size = NumberSequence.new(0.3 * S, 0)
+		pe.Rate = 0
+		pe.Parent = at
+		pe:Emit(count or 12)
+		Debris:AddItem(at, 1.5)
+	end)
+end
+local cabinGrp, cabinEQ = nil, nil
+local function cabinGet()
+	if cabinGrp and cabinGrp.Parent and cabinEQ and cabinEQ.Parent then return cabinGrp, cabinEQ end
+	local ok = pcall(function()
+		local g = SoundService:FindFirstChild("ChargerCabin")
+		if not g then
+			g = Instance.new("SoundGroup")
+			g.Name = "ChargerCabin"
+			g.Parent = SoundService
+		end
+		local eq = g:FindFirstChild("CabinEQ")
+		if not eq then
+			eq = Instance.new("EqualizerSoundEffect")
+			eq.Name = "CabinEQ"
+			eq.Parent = g
+		end
+		cabinGrp, cabinEQ = g, eq
+	end)
+	if ok then return cabinGrp, cabinEQ end
+	return nil
+end
+local function cabinAttach(snd)
+	if snd and Config.Cabin and Config.Cabin.Enabled then
+		local g = cabinGet()
+		if g then pcall(function() snd.SoundGroup = g end) end
+	end
+	return snd
+end
+local controls = nil
+local function getMove()
+	if controls == nil then
+		controls = false
+		pcall(function()
+			local ps = player:FindFirstChild("PlayerScripts")
+			local pm = ps and ps:FindFirstChild("PlayerModule")
+			if pm then controls = require(pm):GetControls() or false end
+		end)
+	end
+	if controls then
+		local ok, v = pcall(function() return controls:GetMoveVector() end)
+		if ok and typeof(v) == "Vector3" then return v end
+	end
+	local x = (UIS:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
+	local z = (UIS:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+	return Vector3.new(x, 0, z)
+end
+local function charParts()
+	local ch = player.Character
+	if not ch then return nil end
+	local hum = ch:FindFirstChildOfClass("Humanoid")
+	local rp = ch:FindFirstChild("HumanoidRootPart")
+	if hum and rp and hum.Health > 0 then return ch, hum, rp end
+	return nil
+end
+local BODY = Config.BodyColor
+local BLACK = Color3.fromRGB(14, 14, 17)
+local DARK = Color3.fromRGB(30, 31, 36)
+local GLASS = Color3.fromRGB(12, 17, 24)
+local CHROME = Color3.fromRGB(200, 204, 211)
+local RIMC = Color3.fromRGB(24, 25, 29)
+local SPOKE = Color3.fromRGB(34, 35, 40)
+local TIRE = Color3.fromRGB(12, 12, 14)
+local RED_DIM = Color3.fromRGB(60, 0, 0)
+local RED_MID = Color3.fromRGB(170, 0, 0)
+local RED_HI = Color3.fromRGB(255, 30, 30)
+local PLASTIC = Enum.Material.SmoothPlastic
+local METAL = Enum.Material.Metal
+local NEON = Enum.Material.Neon
+local function V(x, y, z) return Vector3.new(x, y, z) end
+local function P(x, y, z, rx, ry, rz)
+	return CFrame.new(x, y, z) * CFrame.Angles(R(rx or 0), R(ry or 0), R(rz or 0))
+end
+local SEAT_REL = CFrame.new(-1.55 * S, (1.5 + Config.SeatHeight) * S, 1.2 * S)
+local SPINS = {
+	spin8 = {0, 2.55, -8.85},
+	spin9 = {-1.62, 2.55, -7.45},
+	spin1 = {0, 3.45, -6.7},
+	spin2 = {0, 2.45, -6.7},
+	spin3 = {-1.1, 3, -6.65},
+	spin4 = {1.1, 3, -6.65},
+	spin5 = {-0.58, 4.33, -6.665},
+	spin6 = {0, 4.33, -6.665},
+	spin7 = {0.58, 4.33, -6.665}
+}
+local PARTS = {
+{"Body","b",4,2.225,0.23,0,2.237,-9.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.325,2.155,0.23,-2.662,2.203,-9.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.325,2.155,0.23,2.662,2.203,-9.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.315,0.23,0,2.232,-9.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.475,2.245,0.23,-2.737,2.197,-9.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.475,2.245,0.23,2.737,2.197,-9.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-9.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-9.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-9.5,0,0,0,"K","P",0,0,""},
+{"Side","b",1.565,2.32,0.23,-2.782,2.185,-9.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.565,2.32,0.23,2.782,2.185,-9.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-9.3,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-9.3,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-9.3,0,0,0,"K","P",0,0,""},
+{"Side","b",1.595,2.359,0.23,-2.797,2.176,-9.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.595,2.359,0.23,2.797,2.176,-9.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-9.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-9.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-9.1,0,0,0,"K","P",0,0,""},
+{"Side","b",1.625,2.376,0.23,-2.812,2.177,-9.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.625,2.376,0.23,2.812,2.177,-9.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-8.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-8.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-8.9,0,0,0,"K","P",0,0,""},
+{"Side","b",1.641,2.393,0.23,-2.82,2.179,-8.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.641,2.393,0.23,2.82,2.179,-8.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-8.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-8.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-8.7,0,0,0,"K","P",0,0,""},
+{"Side","b",1.642,2.41,0.23,-2.821,2.18,-8.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.642,2.41,0.23,2.821,2.18,-8.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-8.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-8.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-8.5,0,0,0,"K","P",0,0,""},
+{"Side","b",1.643,2.427,0.23,-2.822,2.181,-8.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.643,2.427,0.23,2.822,2.181,-8.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-8.3,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-8.3,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-8.3,0,0,0,"K","P",0,0,""},
+{"Side","b",1.645,2.444,0.23,-2.822,2.183,-8.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.645,2.444,0.23,2.822,2.183,-8.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-8.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-8.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-8.1,0,0,0,"K","P",0,0,""},
+{"Side","b",1.646,2.461,0.23,-2.823,2.184,-8.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.646,2.461,0.23,2.823,2.184,-8.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-7.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-7.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-7.9,0,0,0,"K","P",0,0,""},
+{"Side","b",1.647,2.475,0.23,-2.824,2.188,-7.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.647,2.475,0.23,2.824,2.188,-7.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-7.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-7.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-7.7,0,0,0,"K","P",0,0,""},
+{"Side","b",1.649,2.485,0.23,-2.824,2.192,-7.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.649,2.485,0.23,2.824,2.192,-7.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-7.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-7.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-7.5,0,0,0,"K","P",0,0,""},
+{"Side","b",1.65,2.495,0.23,-2.825,2.197,-7.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.65,2.495,0.23,2.825,2.197,-7.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.575,0.23,0,2.237,-7.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.651,2.505,0.23,-2.826,2.203,-7.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.651,2.505,0.23,2.826,2.203,-7.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-7.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.62,0.23,-1.975,2.72,-7.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.62,0.23,1.975,2.72,-7.1,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.433,0.3,0.23,-2.716,2.2895,-7.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.433,1.025,0.23,-2.716,2.952,-7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.325,0.23,-3.543,2.802,-7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.433,0.3,0.23,2.716,2.2895,-7.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.433,1.025,0.23,2.716,2.952,-7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.325,0.23,3.543,2.802,-7.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-6.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.625,0.23,-1.975,2.723,-6.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.625,0.23,1.975,2.723,-6.9,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.434,0.275,0.23,-2.717,2.5905,-6.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.434,0.747,0.23,-2.717,3.1015,-6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.047,0.23,-3.544,2.9515,-6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.434,0.275,0.23,2.717,2.5905,-6.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.434,0.747,0.23,2.717,3.1015,-6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.047,0.23,3.544,2.9515,-6.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-6.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.635,0.23,-1.975,2.728,-6.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.635,0.23,1.975,2.728,-6.7,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.435,0.3,0.23,-2.718,2.768,-6.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.435,0.567,0.23,-2.718,3.2015,-6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.867,0.23,-3.545,3.0515,-6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.435,0.3,0.23,2.718,2.768,-6.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.435,0.567,0.23,2.718,3.2015,-6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.867,0.23,3.545,3.0515,-6.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-6.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.645,0.23,-1.975,2.732,-6.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.645,0.23,1.975,2.732,-6.5,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.437,0.3,0.23,-2.718,2.904,-6.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.437,0.441,0.23,-2.718,3.2745,-6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.741,0.23,-3.547,3.1245,-6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.437,0.3,0.23,2.718,2.904,-6.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.437,0.441,0.23,2.718,3.2745,-6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.741,0.23,3.547,3.1245,-6.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-6.3,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.655,0.23,-1.975,2.737,-6.3,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.655,0.23,1.975,2.737,-6.3,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.438,0.3,0.23,-2.719,3.001,-6.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.438,0.354,0.23,-2.719,3.328,-6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.654,0.23,-3.548,3.178,-6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.438,0.3,0.23,2.719,3.001,-6.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.438,0.354,0.23,2.719,3.328,-6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.654,0.23,3.548,3.178,-6.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-6.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.665,0.23,-1.975,2.742,-6.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.665,0.23,1.975,2.742,-6.1,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.439,0.3,0.23,-2.72,3.0665,-6.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.439,0.2985,0.23,-2.72,3.3658,-6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.5985,0.23,-3.549,3.2157,-6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.439,0.3,0.23,2.72,3.0665,-6.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.439,0.2985,0.23,2.72,3.3658,-6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.5985,0.23,3.549,3.2157,-6.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-5.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.675,0.23,-1.975,2.748,-5.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.675,0.23,1.975,2.748,-5.9,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.439,0.3,0.23,-2.72,3.1045,-5.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.439,0.27,0.23,-2.72,3.3895,-5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.57,0.23,-3.549,3.2395,-5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.439,0.3,0.23,2.72,3.1045,-5.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.439,0.27,0.23,2.72,3.3895,-5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.57,0.23,3.549,3.2395,-5.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-5.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.685,0.23,-1.975,2.752,-5.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.685,0.23,1.975,2.752,-5.7,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.438,0.3,0.23,-2.719,3.117,-5.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.438,0.268,0.23,-2.719,3.401,-5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.568,0.23,-3.548,3.251,-5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.438,0.3,0.23,2.719,3.117,-5.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.438,0.268,0.23,2.719,3.401,-5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.568,0.23,3.548,3.251,-5.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-5.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.695,0.23,-1.975,2.758,-5.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.695,0.23,1.975,2.758,-5.5,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.437,0.3,0.23,-2.718,3.117,-5.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.437,0.278,0.23,-2.718,3.406,-5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.578,0.23,-3.547,3.256,-5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.437,0.3,0.23,2.718,3.117,-5.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.437,0.278,0.23,2.718,3.406,-5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.578,0.23,3.547,3.256,-5.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-5.3,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.705,0.23,-1.975,2.763,-5.3,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.705,0.23,1.975,2.763,-5.3,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.435,0.3,0.23,-2.718,3.1045,-5.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.435,0.3,0.23,-2.718,3.4045,-5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.6,0.23,-3.545,3.2545,-5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.435,0.3,0.23,2.718,3.1045,-5.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.435,0.3,0.23,2.718,3.4045,-5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.6,0.23,3.545,3.2545,-5.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-5.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.715,0.23,-1.975,2.768,-5.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.715,0.23,1.975,2.768,-5.1,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.434,0.3,0.23,-2.717,3.0665,-5.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.434,0.3485,0.23,-2.717,3.3907,-5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.6485,0.23,-3.544,3.2408,-5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.434,0.3,0.23,2.717,3.0665,-5.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.434,0.3485,0.23,2.717,3.3907,-5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.6485,0.23,3.544,3.2408,-5.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-4.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.725,0.23,-1.975,2.772,-4.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.725,0.23,1.975,2.772,-4.9,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.433,0.3,0.23,-2.716,3.001,-4.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.433,0.424,0.23,-2.716,3.363,-4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.724,0.23,-3.543,3.213,-4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.433,0.3,0.23,2.716,3.001,-4.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.433,0.424,0.23,2.716,3.363,-4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.724,0.23,3.543,3.213,-4.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-4.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.735,0.23,-1.975,2.777,-4.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.735,0.23,1.975,2.777,-4.7,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.431,0.3,0.23,-2.716,2.904,-4.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.431,0.531,0.23,-2.716,3.3195,-4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.831,0.23,-3.541,3.1695,-4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.431,0.3,0.23,2.716,2.904,-4.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.431,0.531,0.23,2.716,3.3195,-4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.831,0.23,3.541,3.1695,-4.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-4.5,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.745,0.23,-1.975,2.782,-4.5,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.745,0.23,1.975,2.782,-4.5,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.43,0.3,0.23,-2.715,2.768,-4.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.43,0.677,0.23,-2.715,3.2565,-4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.977,0.23,-3.54,3.1065,-4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.43,0.3,0.23,2.715,2.768,-4.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.43,0.677,0.23,2.715,3.2565,-4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.977,0.23,3.54,3.1065,-4.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-4.3,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.755,0.23,-1.975,2.787,-4.3,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.755,0.23,1.975,2.787,-4.3,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.429,0.275,0.23,-2.714,2.5905,-4.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.429,0.877,0.23,-2.714,3.1665,-4.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.177,0.23,-3.539,3.0165,-4.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.429,0.275,0.23,2.714,2.5905,-4.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.429,0.877,0.23,2.714,3.1665,-4.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.177,0.23,3.539,3.0165,-4.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-4.1,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.765,0.23,-1.975,2.792,-4.1,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.765,0.23,1.975,2.792,-4.1,0,0,0,"K","P",0,0,""},
+{"ArchIn","b",1.427,0.3,0.23,-2.714,2.2895,-4.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.427,1.175,0.23,-2.714,3.027,-4.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.475,0.23,-3.537,2.877,-4.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.427,0.3,0.23,2.714,2.2895,-4.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.427,1.175,0.23,2.714,3.027,-4.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.475,0.23,3.537,2.877,-4.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-3.9,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.775,0.23,-1.975,2.797,-3.9,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.775,0.23,1.975,2.797,-3.9,0,0,0,"K","P",0,0,""},
+{"Side","b",1.646,2.675,0.23,-2.823,2.288,-3.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.646,2.675,0.23,2.823,2.288,-3.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,0.95,0.23,0,1.425,-3.7,0,0,0,"B","P",0.12,0,""},
+{"BayWall","b",0.05,1.785,0.23,-1.975,2.803,-3.7,0,0,0,"K","P",0,0,""},
+{"BayWall","b",0.05,1.785,0.23,1.975,2.803,-3.7,0,0,0,"K","P",0,0,""},
+{"Side","b",1.645,2.685,0.23,-2.822,2.292,-3.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.645,2.685,0.23,2.822,2.292,-3.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.765,0.23,0,2.333,-3.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.643,2.695,0.23,-2.822,2.297,-3.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.643,2.695,0.23,2.822,2.297,-3.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.775,0.23,0,2.337,-3.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.642,2.705,0.23,-2.821,2.303,-3.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.642,2.705,0.23,2.821,2.303,-3.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.785,0.23,0,2.342,-3.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.641,2.715,0.23,-2.82,2.308,-3.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.641,2.715,0.23,2.82,2.308,-3.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.795,0.23,0,2.348,-2.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.635,2.725,0.23,-2.817,2.312,-2.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.635,2.725,0.23,2.817,2.312,-2.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.805,0.23,0,2.353,-2.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.625,2.735,0.23,-2.812,2.317,-2.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.625,2.735,0.23,2.812,2.317,-2.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.815,0.23,0,2.357,-2.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.615,2.745,0.23,-2.808,2.323,-2.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.615,2.745,0.23,2.808,2.323,-2.5,0,0,0,"B","P",0.12,0,""},
+{"Floor","b",4,0.275,0.23,0,1.1125,-2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.475,0.23,-2.6395,1.2125,-2.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.772,0.23,-3.43,2.336,-2.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.272,0.23,-3.13,2.586,-2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.475,0.23,2.6395,1.2125,-2.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.772,0.23,3.43,2.336,-2.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.272,0.23,3.13,2.586,-2.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-2.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.248,0.5,0.23,-2.624,1.2,-2.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.777,0.23,-3.423,2.338,-2.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.277,0.23,-3.123,2.588,-2.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.248,0.5,0.23,2.624,1.2,-2.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.777,0.23,3.423,2.338,-2.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.277,0.23,3.123,2.588,-2.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-1.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.245,0.5,0.23,-2.622,1.2,-1.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.781,0.23,-3.42,2.341,-1.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.281,0.23,-3.12,2.591,-1.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.245,0.5,0.23,2.622,1.2,-1.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.781,0.23,3.42,2.341,-1.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.281,0.23,3.12,2.591,-1.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-1.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.241,0.5,0.23,-2.62,1.2,-1.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.786,0.23,-3.416,2.343,-1.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.286,0.23,-3.116,2.593,-1.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.241,0.5,0.23,2.62,1.2,-1.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.786,0.23,3.416,2.343,-1.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.286,0.23,3.116,2.593,-1.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-1.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.237,0.5,0.23,-2.619,1.2,-1.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.79,0.23,-3.412,2.345,-1.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.29,0.23,-3.112,2.595,-1.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.237,0.5,0.23,2.619,1.2,-1.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.79,0.23,3.412,2.345,-1.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.29,0.23,3.112,2.595,-1.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-1.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.234,0.5,0.23,-2.617,1.2,-1.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.795,0.23,-3.409,2.348,-1.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.295,0.23,-3.109,2.598,-1.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.234,0.5,0.23,2.617,1.2,-1.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.795,0.23,3.409,2.348,-1.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.295,0.23,3.109,2.598,-1.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-1.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.5,0.23,-2.615,1.2,-1.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.8,0.23,-3.405,2.35,-1.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.3,0.23,-3.105,2.6,-1.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.23,0.5,0.23,2.615,1.2,-1.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.8,0.23,3.405,2.35,-1.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.3,0.23,3.105,2.6,-1.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-0.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.226,0.5,0.23,-2.613,1.2,-0.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.804,0.23,-3.401,2.352,-0.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.304,0.23,-3.101,2.602,-0.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.226,0.5,0.23,2.613,1.2,-0.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.804,0.23,3.401,2.352,-0.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.304,0.23,3.101,2.602,-0.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-0.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.223,0.5,0.23,-2.611,1.2,-0.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.809,0.23,-3.398,2.354,-0.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.309,0.23,-3.098,2.604,-0.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.223,0.5,0.23,2.611,1.2,-0.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.809,0.23,3.398,2.354,-0.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.309,0.23,3.098,2.604,-0.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-0.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.219,0.5,0.23,-2.61,1.2,-0.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.813,0.23,-3.394,2.357,-0.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.313,0.23,-3.094,2.607,-0.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.219,0.5,0.23,2.61,1.2,-0.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.813,0.23,3.394,2.357,-0.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.313,0.23,3.094,2.607,-0.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-0.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.215,0.5,0.23,-2.608,1.2,-0.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.818,0.23,-3.39,2.359,-0.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.318,0.23,-3.09,2.609,-0.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.215,0.5,0.23,2.608,1.2,-0.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.818,0.23,3.39,2.359,-0.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.318,0.23,3.09,2.609,-0.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,-0.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.212,0.5,0.23,-2.606,1.2,-0.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.822,0.23,-3.387,2.361,-0.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.322,0.23,-3.087,2.611,-0.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.212,0.5,0.23,2.606,1.2,-0.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.822,0.23,3.387,2.361,-0.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.322,0.23,3.087,2.611,-0.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,0.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.212,0.5,0.23,-2.606,1.2,0.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.827,0.23,-3.387,2.363,0.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.327,0.23,-3.087,2.613,0.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.212,0.5,0.23,2.606,1.2,0.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.827,0.23,3.387,2.363,0.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.327,0.23,3.087,2.613,0.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,0.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.217,0.5,0.23,-2.609,1.2,0.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.831,0.23,-3.392,2.366,0.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.331,0.23,-3.092,2.616,0.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.217,0.5,0.23,2.609,1.2,0.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.831,0.23,3.392,2.366,0.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.331,0.23,3.092,2.616,0.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,0.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.222,0.5,0.23,-2.611,1.2,0.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.836,0.23,-3.397,2.368,0.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.336,0.23,-3.097,2.618,0.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.222,0.5,0.23,2.611,1.2,0.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.836,0.23,3.397,2.368,0.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.336,0.23,3.097,2.618,0.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,0.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.227,0.5,0.23,-2.613,1.2,0.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.84,0.23,-3.402,2.37,0.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.34,0.23,-3.102,2.62,0.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.227,0.5,0.23,2.613,1.2,0.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.84,0.23,3.402,2.37,0.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.34,0.23,3.102,2.62,0.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,0.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.232,0.5,0.23,-2.616,1.2,0.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.845,0.23,-3.407,2.373,0.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.345,0.23,-3.107,2.623,0.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.232,0.5,0.23,2.616,1.2,0.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.845,0.23,3.407,2.373,0.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.345,0.23,3.107,2.623,0.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,1.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.236,0.5,0.23,-2.618,1.2,1.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.85,0.23,-3.411,2.375,1.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.35,0.23,-3.111,2.625,1.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.236,0.5,0.23,2.618,1.2,1.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.85,0.23,3.411,2.375,1.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.35,0.23,3.111,2.625,1.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,1.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.241,0.5,0.23,-2.621,1.2,1.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.854,0.23,-3.416,2.377,1.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.354,0.23,-3.116,2.627,1.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.241,0.5,0.23,2.621,1.2,1.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.854,0.23,3.416,2.377,1.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.354,0.23,3.116,2.627,1.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,1.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.246,0.5,0.23,-2.623,1.2,1.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.859,0.23,-3.421,2.379,1.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.359,0.23,-3.121,2.629,1.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.246,0.5,0.23,2.623,1.2,1.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.859,0.23,3.421,2.379,1.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.359,0.23,3.121,2.629,1.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,1.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.251,0.5,0.23,-2.625,1.2,1.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.863,0.23,-3.426,2.382,1.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.363,0.23,-3.126,2.632,1.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.251,0.5,0.23,2.625,1.2,1.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.863,0.23,3.426,2.382,1.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.363,0.23,3.126,2.632,1.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,1.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.256,0.5,0.23,-2.628,1.2,1.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.868,0.23,-3.431,2.384,1.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.368,0.23,-3.131,2.634,1.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.256,0.5,0.23,2.628,1.2,1.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.868,0.23,3.431,2.384,1.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.368,0.23,3.131,2.634,1.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,2.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.26,0.5,0.23,-2.63,1.2,2.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.874,0.23,-3.435,2.387,2.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.374,0.23,-3.135,2.637,2.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.26,0.5,0.23,2.63,1.2,2.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.874,0.23,3.435,2.387,2.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.374,0.23,3.135,2.637,2.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.265,0.5,0.23,-2.633,1.2,2.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.883,0.23,-3.44,2.391,2.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.383,0.23,-3.14,2.641,2.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.265,0.5,0.23,2.633,1.2,2.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.883,0.23,3.44,2.391,2.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.383,0.23,3.14,2.641,2.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,2.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.27,0.5,0.23,-2.635,1.2,2.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.892,0.23,-3.445,2.396,2.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.392,0.23,-3.145,2.646,2.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.27,0.5,0.23,2.635,1.2,2.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.892,0.23,3.445,2.396,2.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.392,0.23,3.145,2.646,2.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,2.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.28,0.5,0.23,-2.64,1.2,2.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.9,0.23,-3.455,2.4,2.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.4,0.23,-3.155,2.65,2.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.28,0.5,0.23,2.64,1.2,2.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.9,0.23,3.455,2.4,2.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.4,0.23,3.155,2.65,2.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,2.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.29,0.5,0.23,-2.645,1.2,2.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.909,0.23,-3.465,2.405,2.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.409,0.23,-3.165,2.655,2.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.29,0.5,0.23,2.645,1.2,2.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.909,0.23,3.465,2.405,2.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.409,0.23,3.165,2.655,2.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,3.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.3,0.5,0.23,-2.65,1.2,3.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.918,0.23,-3.475,2.409,3.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.418,0.23,-3.175,2.659,3.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.3,0.5,0.23,2.65,1.2,3.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.918,0.23,3.475,2.409,3.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.418,0.23,3.175,2.659,3.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,3.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.31,0.5,0.23,-2.655,1.2,3.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.926,0.23,-3.485,2.413,3.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.426,0.23,-3.185,2.663,3.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.31,0.5,0.23,2.655,1.2,3.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.926,0.23,3.485,2.413,3.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.426,0.23,3.185,2.663,3.3,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,3.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.32,0.856,0.23,-2.66,1.378,3.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.935,0.23,-3.495,2.417,3.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.435,0.23,-3.195,2.667,3.5,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.32,0.856,0.23,2.66,1.378,3.5,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.935,0.23,3.495,2.417,3.5,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.435,0.23,3.195,2.667,3.5,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,3.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.33,1.463,0.23,-2.665,1.681,3.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.944,0.23,-3.505,2.422,3.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.444,0.23,-3.205,2.672,3.7,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.33,1.463,0.23,2.665,1.681,3.7,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,2.944,0.23,3.505,2.422,3.7,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.444,0.23,3.205,2.672,3.7,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,3.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.34,0.756,0.23,-2.67,2.355,3.9,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.078,0.23,-2.05,1.464,3.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.925,0.23,-3.515,2.94,3.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.452,0.23,-3.215,2.676,3.9,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.34,0.756,0.23,2.67,2.355,3.9,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.078,0.23,2.05,1.464,3.9,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.925,0.23,3.515,2.94,3.9,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.452,0.23,3.215,2.676,3.9,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.3,0.23,0,1.1,4.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.35,0.554,0.23,-2.675,2.685,4.1,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.508,0.23,-2.05,1.679,4.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.503,0.23,-3.525,3.16,4.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.461,0.23,-3.225,2.68,4.1,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.35,0.554,0.23,2.675,2.685,4.1,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.508,0.23,2.05,1.679,4.1,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.503,0.23,3.525,3.16,4.1,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.461,0.23,3.225,2.68,4.1,0,0,0,"K","P",0,0,""},
+{"Floor","b",4,0.275,0.23,0,1.1125,4.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.36,0.471,0.23,-2.68,2.902,4.3,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.766,0.23,-2.05,1.808,4.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.254,0.23,-3.535,3.293,4.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.47,0.23,-3.235,2.685,4.3,0,0,0,"K","P",0,0,""},
+{"Sill","b",1.36,0.471,0.23,2.68,2.902,4.3,0,0,0,"K","P",0,0,""},
+{"WellWall","b",0.1,1.766,0.23,2.05,1.808,4.3,0,0,0,"K","P",0,0,""},
+{"Door","b",0.35,1.254,0.23,3.535,3.293,4.3,0,0,0,"B","P",0.12,0,""},
+{"DoorTrim","b",0.25,2.47,0.23,3.235,2.685,4.3,0,0,0,"K","P",0,0,""},
+{"Body","b",4,3.412,0.23,0,2.656,4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.5,0.3,0.23,-2.75,3.0675,4.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.5,0.711,0.23,-2.75,3.573,4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.011,0.23,-3.61,3.423,4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.5,0.3,0.23,2.75,3.0675,4.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.5,0.711,0.23,2.75,3.573,4.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.011,0.23,3.61,3.423,4.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.345,0.23,0,2.622,4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.503,0.3,0.23,-2.751,3.1865,4.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.503,0.6,0.23,-2.751,3.6365,4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.9,0.23,-3.613,3.4865,4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.503,0.3,0.23,2.751,3.1865,4.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.503,0.6,0.23,2.751,3.6365,4.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.9,0.23,3.613,3.4865,4.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.278,0.23,0,2.589,4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.505,0.3,0.23,-2.753,3.2725,4.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.505,0.523,0.23,-2.753,3.684,4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.823,0.23,-3.615,3.534,4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.505,0.3,0.23,2.753,3.2725,4.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.505,0.523,0.23,2.753,3.684,4.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.823,0.23,3.615,3.534,4.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.211,0.23,0,2.556,5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.508,0.3,0.23,-2.754,3.3315,5.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.508,0.472,0.23,-2.754,3.7175,5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.772,0.23,-3.618,3.5675,5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.508,0.3,0.23,2.754,3.3315,5.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.508,0.472,0.23,2.754,3.7175,5.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.772,0.23,3.618,3.5675,5.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.144,0.23,0,2.522,5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.511,0.3,0.23,-2.755,3.366,5.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.511,0.443,0.23,-2.755,3.7375,5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.743,0.23,-3.621,3.5875,5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.511,0.3,0.23,2.755,3.366,5.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.511,0.443,0.23,2.755,3.7375,5.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.743,0.23,3.621,3.5875,5.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.077,0.23,0,2.489,5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.513,0.3,0.23,-2.757,3.377,5.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.513,0.438,0.23,-2.757,3.746,5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.738,0.23,-3.623,3.596,5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.513,0.3,0.23,2.757,3.377,5.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.513,0.438,0.23,2.757,3.746,5.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.738,0.23,3.623,3.596,5.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.01,0.23,0,2.455,5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.516,0.3,0.23,-2.758,3.377,5.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.516,0.444,0.23,-2.758,3.749,5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.744,0.23,-3.626,3.599,5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.516,0.3,0.23,2.758,3.377,5.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.516,0.444,0.23,2.758,3.749,5.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.744,0.23,3.626,3.599,5.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.943,0.23,0,2.422,5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.519,0.3,0.23,-2.759,3.366,5.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.519,0.461,0.23,-2.759,3.7465,5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.761,0.23,-3.629,3.5965,5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.519,0.3,0.23,2.759,3.366,5.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.519,0.461,0.23,2.759,3.7465,5.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.761,0.23,3.629,3.5965,5.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,3.0117,0.23,0,2.4564,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.518,0.3,0.23,-2.759,3.3315,6.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.518,0.4808,0.23,-2.759,3.7219,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.7808,0.23,-3.628,3.5719,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.518,0.3,0.23,2.759,3.3315,6.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.518,0.4808,0.23,2.759,3.7219,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.7808,0.23,3.628,3.5719,6.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.994,0.23,0,2.4476,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.514,0.3,0.23,-2.757,3.2725,6.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.514,0.5221,0.23,-2.757,3.6835,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.8221,0.23,-3.624,3.5335,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.514,0.3,0.23,2.757,3.2725,6.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.514,0.5221,0.23,2.757,3.6835,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.8221,0.23,3.624,3.5335,6.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.9771,0.23,0,2.4386,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.51,0.3,0.23,-2.755,3.1865,6.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.51,0.5906,0.23,-2.755,3.6318,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.8906,0.23,-3.62,3.4818,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.51,0.3,0.23,2.755,3.1865,6.5,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.51,0.5906,0.23,2.755,3.6318,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.8906,0.23,3.62,3.4818,6.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.9588,0.23,0,2.4294,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.506,0.3,0.23,-2.753,3.0675,6.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.506,0.6913,0.23,-2.753,3.5632,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.9913,0.23,-3.616,3.4131,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.506,0.3,0.23,2.753,3.0675,6.7,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.506,0.6913,0.23,2.753,3.5632,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,0.9913,0.23,3.616,3.4131,6.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.9401,0.23,0,2.4201,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.502,0.3,0.23,-2.751,2.9075,6.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.502,0.8327,0.23,-2.751,3.4738,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.1326,0.23,-3.612,3.3238,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.502,0.3,0.23,2.751,2.9075,6.9,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.502,0.8327,0.23,2.751,3.4738,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.1326,0.23,3.612,3.3238,6.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.9212,0.23,0,2.4106,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.498,0.3,0.23,-2.749,2.687,7.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.498,1.0342,0.23,-2.749,3.3541,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.3342,0.23,-3.608,3.2041,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.498,0.3,0.23,2.749,2.687,7.1,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.498,1.0342,0.23,2.749,3.3541,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.3342,0.23,3.608,3.2041,7.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.9019,0.23,0,2.4009,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.494,0.3,0.23,-2.747,2.343,7.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.494,1.3594,0.23,-2.747,3.1727,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.6593,0.23,-3.604,3.0227,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchIn","b",1.494,0.3,0.23,2.747,2.343,7.3,0,0,0,"K","P",0,0,""},
+{"ArchUp","b",1.494,1.3594,0.23,2.747,3.1727,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkin","b",0.22,1.6593,0.23,3.604,3.0227,7.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.8832,0.23,0,2.3911,7.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.71,2.8832,0.23,-2.855,2.3911,7.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.71,2.8832,0.23,2.855,2.3911,7.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.8632,0.23,0,2.3811,7.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.706,2.8632,0.23,-2.853,2.3811,7.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.706,2.8632,0.23,2.853,2.3811,7.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.8429,0.23,0,2.3719,7.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.702,2.8429,0.23,-2.851,2.3719,7.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.702,2.8429,0.23,2.851,2.3719,7.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.8192,0.23,0,2.3626,8.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.692,2.8192,0.23,-2.846,2.3626,8.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.692,2.8192,0.23,2.846,2.3626,8.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.7912,0.23,0,2.3561,8.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.676,2.7912,0.23,-2.838,2.3561,8.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.676,2.7912,0.23,2.838,2.3561,8.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.7629,0.23,0,2.3494,8.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.66,2.7629,0.23,-2.83,2.3494,8.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.66,2.7629,0.23,2.83,2.3494,8.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.7342,0.23,0,2.3416,8.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.644,2.7342,0.23,-2.822,2.3416,8.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.644,2.7342,0.23,2.822,2.3416,8.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.7051,0.23,0,2.3346,8.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.628,2.7051,0.23,-2.814,2.3346,8.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.628,2.7051,0.23,2.814,2.3346,8.9,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.6758,0.23,0,2.3274,9.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.612,2.6758,0.23,-2.806,2.3274,9.1,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.612,2.6758,0.23,2.806,2.3274,9.1,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.6461,0.23,0,2.32,9.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.596,2.6461,0.23,-2.798,2.32,9.3,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.596,2.6461,0.23,2.798,2.32,9.3,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.595,0.23,0,2.3225,9.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.58,2.595,0.23,-2.79,2.3225,9.5,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.58,2.595,0.23,2.79,2.3225,9.5,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.5037,0.23,0,2.3268,9.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.508,2.5037,0.23,-2.754,2.3268,9.7,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.508,2.5037,0.23,2.754,2.3268,9.7,0,0,0,"B","P",0.12,0,""},
+{"Body","b",4,2.393,0.23,0,2.321,9.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.436,2.393,0.23,-2.718,2.321,9.9,0,0,0,"B","P",0.12,0,""},
+{"Side","b",1.436,2.393,0.23,2.718,2.321,9.9,0,0,0,"B","P",0.12,0,""},
+{"Tunnel","b",0.9,0.45,6.4,0,1.5,0.8,0,0,0,"K","P",0,0,""},
+{"DoorGlass","b",0.09,1.2713,2.5455,-3.0651,4.3455,0.6473,0,0,-12.579,"G","G",0.1,0.55,""},
+{"DoorGlass","w",0.09,1.2713,1.643,-3.0651,4.3455,-1.4170,0,180,12.579,"G","G",0.1,0.55,""},
+{"DoorGlass","b",0.09,1.2713,2.5455,3.0651,4.3455,0.6473,0,0,12.579,"G","G",0.1,0.55,""},
+{"DoorGlass","w",0.09,1.2713,1.643,3.0651,4.3455,-1.4170,0,180,-12.579,"G","G",0.1,0.55,""},
+{"Cowl","b",7.1,0.22,0.6,0,3.72,-2.62,0,0,0,"B","P",0.12,0,""},
+{"Header","b",5.7,0.2,0.3,0,4.9,-0.3,0,0,0,"B","P",0.12,0,""},
+{"Roof","b",5.7,0.16,3.6,0,4.92,1.45,0,0,0,"B","P",0.12,0,""},
+{"RoofEdge","b",0.32,0.23,3.6,-2.99,4.885,1.45,0,0,0,"B","P",0.12,0,""},
+{"HeaderEdge","b",0.32,0.24,0.55,-2.99,4.88,-0.345,0,0,0,"B","P",0.12,0,""},
+{"RoofEdge","b",0.32,0.23,3.6,2.99,4.885,1.45,0,0,0,"B","P",0.12,0,""},
+{"HeaderEdge","b",0.32,0.24,0.55,2.99,4.88,-0.345,0,0,0,"B","P",0.12,0,""},
+{"Headliner","b",5.6,0.065,3.5,0,4.8075,1.45,0,0,0,"W","P",0,0,""},
+{"RearGlass","b",4.5,0.1,3.0943,0,4.45,4.55,18.316,0,0,"G","G",0.1,0.55,""},
+{"RearFrameTop","b",4.6,0.115,0.255,0,4.9125,3.1075,0,0,0,"K","P",0,0,""},
+{"RearFrameBot","b",4.6,0.14,0.3,0,3.97,6,0,0,0,"K","P",0,0,""},
+{"TrunkDeck","b",5.2,0.14,3.9,0,3.6819,8,6.4188,0,0,"B","P",0.12,0,""},
+{"Sail","w",0.95,1.1868,4.0352,-2.62,4.4109,5.0026,0,0,0,"B","P",0.12,0,""},
+{"SailEdge","w",0.3,0.7107,4.3658,-3.1,4.1734,5.1679,0,0,0,"B","P",0.12,0,""},
+{"Sail","w",0.95,1.1868,4.0352,2.62,4.4109,5.0026,0,0,0,"B","P",0.12,0,""},
+{"SailEdge","w",0.3,0.7107,4.3658,3.1,4.1734,5.1679,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0193,0.22,0,3.9719,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.518,0.0193,0.22,-2.759,3.9719,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0193,0.22,-3.628,3.9719,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.518,0.0193,0.22,2.759,3.9719,6.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0193,0.22,3.628,3.9719,6.1,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0196,0.22,0,3.9544,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.514,0.0196,0.22,-2.757,3.9544,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0196,0.22,-3.624,3.9544,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.514,0.0196,0.22,2.757,3.9544,6.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0196,0.22,3.624,3.9544,6.3,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.02,0.22,0,3.9371,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.51,0.02,0.22,-2.755,3.9371,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.02,0.22,-3.62,3.9371,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.51,0.02,0.22,2.755,3.9371,6.5,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.02,0.22,3.62,3.9371,6.5,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0203,0.22,0,3.919,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.506,0.0203,0.22,-2.753,3.919,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0203,0.22,-3.616,3.919,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.506,0.0203,0.22,2.753,3.919,6.7,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0203,0.22,3.616,3.919,6.7,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0206,0.22,0,3.9005,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.502,0.0206,0.22,-2.751,3.9005,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0206,0.22,-3.612,3.9005,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.502,0.0206,0.22,2.751,3.9005,6.9,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0206,0.22,3.612,3.9005,6.9,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.021,0.22,0,3.8817,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.498,0.021,0.22,-2.749,3.8817,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.021,0.22,-3.608,3.8817,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.498,0.021,0.22,2.749,3.8817,7.1,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.021,0.22,3.608,3.8817,7.1,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0213,0.22,0,3.8626,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.494,0.0213,0.22,-2.747,3.8631,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0213,0.22,-3.604,3.8631,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchUpCap","w",1.494,0.0213,0.22,2.747,3.8631,7.3,0,0,0,"B","P",0.12,0,""},
+{"ArchSkinCap","w",0.22,0.0213,0.22,3.604,3.8631,7.3,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0217,0.22,0,3.8435,7.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.71,0.0217,0.22,-2.855,3.8435,7.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.71,0.0217,0.22,2.855,3.8435,7.5,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.022,0.22,0,3.8237,7.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.706,0.022,0.22,-2.853,3.8237,7.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.706,0.022,0.22,2.853,3.8237,7.7,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0223,0.22,0,3.8045,7.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.702,0.0223,0.22,-2.851,3.8045,7.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.702,0.0223,0.22,2.851,3.8045,7.9,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0227,0.22,0,3.7836,8.1,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.692,0.0227,0.22,-2.846,3.7836,8.1,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.692,0.0227,0.22,2.846,3.7836,8.1,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.023,0.22,0,3.7632,8.3,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.676,0.023,0.22,-2.838,3.7632,8.3,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.676,0.023,0.22,2.838,3.7632,8.3,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0233,0.22,0,3.7426,8.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.66,0.0233,0.22,-2.83,3.7426,8.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.66,0.0233,0.22,2.83,3.7426,8.5,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0237,0.22,0,3.7205,8.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.644,0.0237,0.22,-2.822,3.7205,8.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.644,0.0237,0.22,2.822,3.7205,8.7,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.024,0.22,0,3.6992,8.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.628,0.024,0.22,-2.814,3.6992,8.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.628,0.024,0.22,2.814,3.6992,8.9,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0244,0.22,0,3.6775,9.1,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.612,0.0244,0.22,-2.806,3.6775,9.1,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.612,0.0244,0.22,2.806,3.6775,9.1,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0247,0.22,0,3.6554,9.3,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.596,0.0247,0.22,-2.798,3.6554,9.3,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.596,0.0247,0.22,2.798,3.6554,9.3,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.025,0.22,0,3.6326,9.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.58,0.025,0.22,-2.79,3.6326,9.5,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.58,0.025,0.22,2.79,3.6326,9.5,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0254,0.22,0,3.5914,9.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.508,0.0254,0.22,-2.754,3.5914,9.7,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.508,0.0254,0.22,2.754,3.5914,9.7,0,0,0,"B","P",0.12,0,""},
+{"BodyCap","w",4,0.0257,0.22,0,3.5303,9.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.436,0.0257,0.22,-2.718,3.5303,9.9,0,0,0,"B","P",0.12,0,""},
+{"SideCap","w",1.436,0.0257,0.22,2.718,3.5303,9.9,0,0,0,"B","P",0.12,0,""},
+{"MarkF","b",0.04,0.18,0.4,-3.63,2.9,-9.2,0,0,0,"A","N",0,0,""},
+{"MarkR","b",0.04,0.18,0.4,-3.624,2.75,9.2,0,0,0,"R","N",0,0,""},
+{"FenderBadge","b",0.04,0.1,0.35,-3.661,3.1,-3.2,0,0,0,"C","M",0.3,0,""},
+{"MarkF","b",0.04,0.18,0.4,3.63,2.9,-9.2,0,0,0,"A","N",0,0,""},
+{"MarkR","b",0.04,0.18,0.4,3.624,2.75,9.2,0,0,0,"R","N",0,0,""},
+{"FenderBadge","b",0.04,0.1,0.35,3.661,3.1,-3.2,0,0,0,"C","M",0.3,0,""},
+{"MirrorArm","b",0.7,0.1,0.14,-3.9,3.815,-1.35,0,0,0,"C","M",0.3,0,""},
+{"MirrorHead","b",0.28,0.3,0.5,-4.25,3.865,-1.4,0,0,0,"C","M",0.35,0,""},
+{"MirrorGlass","b",0.04,0.24,0.42,-4.1,3.865,-1.4,0,0,0,"D","M",0.4,0,""},
+{"FrontLip","b",7,0.3,0.3,0,3.3,-9.85,0,0,0,"B","P",0.12,0,""},
+{"FrontLipFill","b",6.6,0.4,0.2,0,3.2,-9.7,0,0,0,"B","P",0.12,0,""},
+{"GrilleFrameTop","b",7,0.14,0.2,0,3.06,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleFrameBot","b",7,0.14,0.2,0,2.11,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleFrameEnd","b",0.14,0.95,0.2,-3.46,2.58,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleFrameIn","b",0.1,0.95,0.2,-2,2.58,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleFrameEnd","b",0.14,0.95,0.2,3.46,2.58,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleFrameIn","b",0.1,0.95,0.2,2,2.58,-10.02,0,0,0,"C","M",0.5,0,""},
+{"GrilleBack","b",6.8,0.9,0.04,0,2.58,-10.035,0,0,0,"K","P",0,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.22,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.312,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.405,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.498,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.06,0.03,0,2.6025,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.683,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.775,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.868,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshH","b",3.9,0.035,0.03,0,2.96,-10.06,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-0.2,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-0.39,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-0.58,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-0.77,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-0.96,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-1.15,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-1.34,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-1.53,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-1.72,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,-1.91,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,0.2,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,0.39,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,0.58,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,0.77,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,0.96,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,1.15,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,1.34,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,1.53,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,1.72,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleMeshV","b",0.035,0.78,0.03,1.91,2.58,-10.08,0,0,0,"D","M",0.2,0,""},
+{"GrilleDivider","b",0.2,0.95,0.22,0,2.58,-10.03,0,0,0,"C","M",0.5,0,""},
+{"GrilleSplit","b",0.07,0.82,0.14,-1,2.58,-10.05,0,0,0,"C","M",0.6,0,""},
+{"GrilleSplit","b",0.07,0.82,0.14,1,2.58,-10.05,0,0,0,"C","M",0.6,0,""},
+{"GrilleMid","b",3.9,0.06,0.12,0,2.58,-10.06,0,0,0,"C","M",0.6,0,""},
+{"GrilleBadge","b",0.95,0.24,0.04,-1.47,2.31,-10.14,0,0,0,"K","P",0,0,""},
+{"Bumper","b",7,0.42,0.425,0,1.72,-9.8325,0,0,0,"C","M",0.5,0,""},
+{"BumperTopRoll","b",6.9,0.08,0.515,0,1.95,-9.8175,0,0,0,"C2","M",0.85,0,""},
+{"BumperLowRoll","b",6.8,0.07,0.54,0,1.5,-9.805,0,0,0,"C2","M",0.85,0,""},
+{"BumperSlot","b",2.7,0.15,0.055,0,1.7,-10.0475,0,0,0,"BK","P",0,0,""},
+{"SlotRimTop","b",2.8,0.03,0.04,0,1.795,-10.04,0,0,0,"C2","M",0.9,0,""},
+{"SlotRimBot","b",2.8,0.03,0.04,0,1.605,-10.04,0,0,0,"C2","M",0.9,0,""},
+{"SlotRimEnd","b",0.03,0.2,0.04,-1.4,1.7,-10.04,0,0,0,"C2","M",0.9,0,""},
+{"BumperEnd","b",0.325,0.42,1.3,-3.5125,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
+{"BumperEndIn","b",0.325,0.42,0.7,-3.5125,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
+{"Valance","b",3,0.55,0.3,-1.8,1.28,-9.7,0,0,0,"K","P",0,0,""},
+{"ValanceEnd","b",0.55,0.5,0.8,-3.275,1.305,-9.4,0,0,0,"K","P",0,0,""},
+{"SlotRimEnd","b",0.03,0.2,0.04,1.4,1.7,-10.04,0,0,0,"C2","M",0.9,0,""},
+{"BumperEnd","b",0.325,0.42,1.3,3.5125,1.72,-9.2,0,0,0,"C","M",0.5,0,""},
+{"BumperEndIn","b",0.325,0.42,0.7,3.5125,1.72,-8.6,0,0,0,"C","M",0.5,0,""},
+{"Valance","b",3,0.55,0.3,1.8,1.28,-9.7,0,0,0,"K","P",0,0,""},
+{"ValanceEnd","b",0.55,0.5,0.8,3.275,1.305,-9.4,0,0,0,"K","P",0,0,""},
+{"ValanceCenter","b",1.6,0.55,0.3,0,1.28,-9.7,0,0,0,"K","P",0,0,""},
+{"HeadBezel","c",0.1,0.68,0.68,-2.34,2.62,-10.1,0,90,0,"C","M",0.6,0,""},
+{"HeadCup","c",0.04,0.6,0.6,-2.34,2.62,-10.17,0,90,0,"K","P",0,0,""},
+{"HeadReflector","c",0.04,0.52,0.52,-2.34,2.62,-10.21,0,90,0,"C2","M",0.95,0,""},
+{"HeadReflectorStep","c",0.04,0.36,0.36,-2.34,2.62,-10.25,0,90,0,"S","M",0.9,0,""},
+{"HeadBulb","c",0.04,0.18,0.18,-2.34,2.62,-10.29,0,90,0,"WB","P",0,0,""},
+{"HeadLens","c",0.02,0.56,0.56,-2.34,2.62,-10.31,0,90,0,"H","G",0.2,0.7,"lens"},
+{"HeadBezel","c",0.1,0.68,0.68,-3.05,2.62,-10.1,0,90,0,"C","M",0.6,0,""},
+{"HeadCup","c",0.04,0.6,0.6,-3.05,2.62,-10.17,0,90,0,"K","P",0,0,""},
+{"HeadReflector","c",0.04,0.52,0.52,-3.05,2.62,-10.21,0,90,0,"C2","M",0.95,0,""},
+{"HeadReflectorStep","c",0.04,0.36,0.36,-3.05,2.62,-10.25,0,90,0,"S","M",0.9,0,""},
+{"HeadBulb","c",0.04,0.18,0.18,-3.05,2.62,-10.29,0,90,0,"WB","P",0,0,""},
+{"HeadLens","c",0.02,0.56,0.56,-3.05,2.62,-10.31,0,90,0,"H","G",0.2,0.7,"lens2"},
+{"HeadBezel","c",0.1,0.68,0.68,2.34,2.62,-10.1,0,90,0,"C","M",0.6,0,""},
+{"HeadCup","c",0.04,0.6,0.6,2.34,2.62,-10.17,0,90,0,"K","P",0,0,""},
+{"HeadReflector","c",0.04,0.52,0.52,2.34,2.62,-10.21,0,90,0,"C2","M",0.95,0,""},
+{"HeadReflectorStep","c",0.04,0.36,0.36,2.34,2.62,-10.25,0,90,0,"S","M",0.9,0,""},
+{"HeadBulb","c",0.04,0.18,0.18,2.34,2.62,-10.29,0,90,0,"WB","P",0,0,""},
+{"HeadLens","c",0.02,0.56,0.56,2.34,2.62,-10.31,0,90,0,"H","G",0.2,0.7,"lens"},
+{"HeadBezel","c",0.1,0.68,0.68,3.05,2.62,-10.1,0,90,0,"C","M",0.6,0,""},
+{"HeadCup","c",0.04,0.6,0.6,3.05,2.62,-10.17,0,90,0,"K","P",0,0,""},
+{"HeadReflector","c",0.04,0.52,0.52,3.05,2.62,-10.21,0,90,0,"C2","M",0.95,0,""},
+{"HeadReflectorStep","c",0.04,0.36,0.36,3.05,2.62,-10.25,0,90,0,"S","M",0.9,0,""},
+{"HeadBulb","c",0.04,0.18,0.18,3.05,2.62,-10.29,0,90,0,"WB","P",0,0,""},
+{"HeadLens","c",0.02,0.56,0.56,3.05,2.62,-10.31,0,90,0,"H","G",0.2,0.7,"lens2"},
+{"AmberRing","c",0.24,0.46,0.46,-3,1.2,-9.97,0,90,0,"C","M",0.6,0,""},
+{"AmberLamp","c",0.04,0.36,0.36,-3,1.2,-10.11,0,90,0,"A","N",0,0,""},
+{"AmberRing","c",0.24,0.46,0.46,3,1.2,-9.97,0,90,0,"C","M",0.6,0,""},
+{"AmberLamp","c",0.04,0.36,0.36,3,1.2,-10.11,0,90,0,"A","N",0,0,""},
+{"HoodBulge","b",3,0.12,2,0,3.525,-8.1,-3.313,0,0,"B","P",0.12,0,""},
+{"HoodEdge","b",0.1,0.06,2,-1.55,3.585,-8.1,-3.313,0,0,"B","P",0.12,0,""},
+{"HoodEdge","b",0.1,0.06,2,1.55,3.585,-8.1,-3.313,0,0,"B","P",0.12,0,""},
+{"BayFloor","b",4,0.1,3.4,0,1.95,-5.3,0,0,0,"K","P",0,0,""},
+{"BayRear","b",4,1.7,0.06,0,2.75,-3.64,0,0,0,"K","P",0,0,""},
+{"BlowerBase","b",1.5,0.2,2.4,0,3.29,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"BlowerCase","b",1.35,0.65,2.3,0,3.71,-5.3,0,0,0,"C","M",0.75,0,"blower"},
+{"BlowerTopPlate","b",1.45,0.08,2.4,0,4.07,-5.3,0,0,0,"C","M",0.75,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-6.2,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-5.95,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-5.7,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-5.45,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-5.2,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-4.95,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-4.7,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-4.45,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,-0.7,3.71,-4.2,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,-0.72,3.95,-6.1,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,-0.72,3.95,-5.6,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,-0.72,3.95,-5.1,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,-0.72,3.95,-4.6,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,-0.72,3.95,-4.1,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-6.2,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-5.95,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-5.7,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-5.45,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-5.2,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-4.95,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-4.7,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-4.45,0,0,0,"C","M",0.8,0,"blower"},
+{"BlowerRib","b",0.06,0.58,0.1,0.7,3.71,-4.2,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-6.1,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-5.6,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-5.1,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-4.6,0,0,0,"C","M",0.8,0,"blower"},
+{"CaseBolt","c",0.06,0.1,0.1,0.72,3.95,-4.1,0,0,0,"C","M",0.8,0,"blower"},
+{"EndPlate","b",1.45,0.7,0.12,0,3.71,-4.03,0,0,0,"C","M",0.8,0,"blower"},
+{"ChainLink","b",0.167,0.06,0.14,0.58,0,0,0,0,90,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.5602,0.1501,0,0,0,105,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,0.5023,0.29,0,0,0,120,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.4101,0.4101,0,0,0,135,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,0.29,0.5023,0,0,0,150,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.1501,0.5602,0,0,0,165,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,0,0.58,0,0,0,180,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.1501,0.5602,0,0,0,195,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0.29,0.5023,0,0,0,210,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.4101,0.4101,0,0,0,225,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0.5023,0.29,0,0,0,240,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.5602,0.1501,0,0,0,255,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0.58,0,0,0,0,270,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.5602,-0.1501,0,0,0,285,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0.5023,-0.29,0,0,0,300,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.4101,-0.4101,0,0,0,315,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0.29,-0.5023,0,0,0,330,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,-0.1501,-0.5602,0,0,0,345,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,-0,-0.58,0,0,0,360,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.1501,-0.5602,0,0,0,375,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,0.29,-0.5023,0,0,0,390,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.4101,-0.4101,0,0,0,405,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.167,0.06,0.14,0.5023,-0.29,0,0,0,420,"D","M",0.6,0,"spin1"},
+{"ChainLink","b",0.167,0.066,0.15,0.5602,-0.1501,0,0,0,435,"K","P",0,0,"spin1"},
+{"ChainLink","b",0.1728,0.06,0.14,0.45,0,0,0,0,90,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,0.4229,0.1539,0,0,0,110,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,0.3447,0.2893,0,0,0,130,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,0.225,0.3897,0,0,0,150,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,0.0781,0.4432,0,0,0,170,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,-0.0781,0.4432,0,0,0,190,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,-0.225,0.3897,0,0,0,210,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,-0.3447,0.2893,0,0,0,230,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,-0.4229,0.1539,0,0,0,250,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,-0.45,0,0,0,0,270,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,-0.4229,-0.1539,0,0,0,290,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,-0.3447,-0.2893,0,0,0,310,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,-0.225,-0.3897,0,0,0,330,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,-0.0781,-0.4432,0,0,0,350,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,0.0781,-0.4432,0,0,0,370,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,0.225,-0.3897,0,0,0,390,"K","P",0,0,"spin2"},
+{"ChainLink","b",0.1728,0.06,0.14,0.3447,-0.2893,0,0,0,410,"D","M",0.6,0,"spin2"},
+{"ChainLink","b",0.1728,0.066,0.15,0.4229,-0.1539,0,0,0,430,"K","P",0,0,"spin2"},
+{"ChainL0","b",0.07,0.1339,0.14,-0.4542,2.4529,-6.7,0,0,7.4696,"D","M",0.6,0,"chainL"},
+{"ChainL1","b",0.076,0.1339,0.15,-0.4703,2.5758,-6.7,0,0,7.4696,"K","P",0,0,"chainL"},
+{"ChainL2","b",0.07,0.1339,0.14,-0.4865,2.6987,-6.7,0,0,7.4696,"D","M",0.6,0,"chainL"},
+{"ChainL3","b",0.076,0.1339,0.15,-0.5026,2.8216,-6.7,0,0,7.4696,"K","P",0,0,"chainL"},
+{"ChainL4","b",0.07,0.1339,0.14,-0.5187,2.9445,-6.7,0,0,7.4696,"D","M",0.6,0,"chainL"},
+{"ChainL5","b",0.076,0.1339,0.15,-0.5348,3.0674,-6.7,0,0,7.4696,"K","P",0,0,"chainL"},
+{"ChainL6","b",0.07,0.1339,0.14,-0.5509,3.1903,-6.7,0,0,7.4696,"D","M",0.6,0,"chainL"},
+{"ChainL7","b",0.076,0.1339,0.15,-0.567,3.3132,-6.7,0,0,7.4696,"K","P",0,0,"chainL"},
+{"ChainR0","b",0.07,0.1339,0.14,0.4542,2.4529,-6.7,0,0,-7.4696,"D","M",0.6,0,"chainR"},
+{"ChainR1","b",0.076,0.1339,0.15,0.4703,2.5758,-6.7,0,0,-7.4696,"K","P",0,0,"chainR"},
+{"ChainR2","b",0.07,0.1339,0.14,0.4865,2.6987,-6.7,0,0,-7.4696,"D","M",0.6,0,"chainR"},
+{"ChainR3","b",0.076,0.1339,0.15,0.5026,2.8216,-6.7,0,0,-7.4696,"K","P",0,0,"chainR"},
+{"ChainR4","b",0.07,0.1339,0.14,0.5187,2.9445,-6.7,0,0,-7.4696,"D","M",0.6,0,"chainR"},
+{"ChainR5","b",0.076,0.1339,0.15,0.5348,3.0674,-6.7,0,0,-7.4696,"K","P",0,0,"chainR"},
+{"ChainR6","b",0.07,0.1339,0.14,0.5509,3.1903,-6.7,0,0,-7.4696,"D","M",0.6,0,"chainR"},
+{"ChainR7","b",0.076,0.1339,0.15,0.567,3.3132,-6.7,0,0,-7.4696,"K","P",0,0,"chainR"},
+{"HatNeck","b",1.5,0.2,1.3,0,4.15,-5.1,0,0,0,"C","M",0.8,0,"blower"},
+{"HatShoulder","b",1.9,0.08,1.46,0,4.12,-5.8,0,0,0,"C","M",0.95,0,"blower"},
+{"Hat","b",1.8,0.55,1.5,0,4.33,-5.8,0,0,0,"C","M",0.97,0,"blower"},
+{"HatLid","b",1.9,0.07,1.6,0,4.63,-5.8,0,0,0,"C","M",0.98,0,"blower"},
+{"HatLidInset","b",1.5,0.03,1.15,0,4.665,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatRidge","b",0.06,0.04,1.05,0,4.69,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatRidge","b",0.05,0.03,0.95,-0.58,4.685,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatRidge","b",0.05,0.03,0.95,0.58,4.685,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatFrontLip","b",1.95,0.1,0.12,0,4.64,-6.6,0,0,0,"C","M",1,0,"blower"},
+{"HatLatch","b",0.05,0.3,0.7,-0.92,4.33,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatLatchBolt","c",0.04,0.09,0.09,-0.95,4.33,-6,0,0,0,"D","M",0.6,0,"blower"},
+{"HatLatchBolt","c",0.04,0.09,0.09,-0.95,4.33,-5.6,0,0,0,"D","M",0.6,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,-0.86,4.18,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,-0.86,4.33,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,-0.86,4.48,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"HatLatch","b",0.05,0.3,0.7,0.92,4.33,-5.8,0,0,0,"C","M",1,0,"blower"},
+{"HatLatchBolt","c",0.04,0.09,0.09,0.95,4.33,-6,0,0,0,"D","M",0.6,0,"blower"},
+{"HatLatchBolt","c",0.04,0.09,0.09,0.95,4.33,-5.6,0,0,0,"D","M",0.6,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,0.86,4.18,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,0.86,4.33,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"HatRivet","c",0.05,0.09,0.09,0.86,4.48,-6.575,0,90,0,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,-0.8,4.685,-6.3,0,0,90,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,-0.8,4.685,-5.8,0,0,90,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,-0.8,4.685,-5.3,0,0,90,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,0.8,4.685,-6.3,0,0,90,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,0.8,4.685,-5.8,0,0,90,"C","M",1,0,"blower"},
+{"LidRivet","c",0.04,0.1,0.1,0.8,4.685,-5.3,0,0,90,"C","M",1,0,"blower"},
+{"HatRing","c",0.09,0.46,0.46,-0.58,4.33,-6.58,0,90,0,"C","M",1,0,"blower"},
+{"HatHole","c",0.05,0.37,0.37,-0.58,4.33,-6.615,0,90,0,"K","P",0,0,"blower"},
+{"HatGlow","c",0.05,0.31,0.31,-0.58,4.33,-6.625,0,90,0,"R","N",0,0,"glow"},
+{"HatHoleIn","c",0.05,0.24,0.24,-0.58,4.33,-6.635,0,90,0,"K","P",0,0,"blower"},
+{"FanHub","c",0.05,0.07,0.07,0,0,-0.01,0,90,0,"C","M",1,0,"spin5"},
+{"FanBlade","b",0.2,0.04,0.02,0,0,0,0,0,0,"C","M",1,0,"spin5"},
+{"FanBlade","b",0.2,0.04,0.024,0,0,0,0,0,45,"C","M",1,0,"spin5"},
+{"FanBlade","b",0.2,0.04,0.028,0,0,0,0,0,90,"C","M",1,0,"spin5"},
+{"FanBlade","b",0.2,0.04,0.032,0,0,0,0,0,135,"C","M",1,0,"spin5"},
+{"HatRing","c",0.09,0.46,0.46,0,4.33,-6.58,0,90,0,"C","M",1,0,"blower"},
+{"HatHole","c",0.05,0.37,0.37,0,4.33,-6.615,0,90,0,"K","P",0,0,"blower"},
+{"HatGlow","c",0.05,0.31,0.31,0,4.33,-6.625,0,90,0,"R","N",0,0,"glow"},
+{"HatHoleIn","c",0.05,0.24,0.24,0,4.33,-6.635,0,90,0,"K","P",0,0,"blower"},
+{"FanHub","c",0.05,0.07,0.07,0,0,-0.01,0,90,0,"C","M",1,0,"spin6"},
+{"FanBlade","b",0.2,0.04,0.02,0,0,0,0,0,0,"C","M",1,0,"spin6"},
+{"FanBlade","b",0.2,0.04,0.024,0,0,0,0,0,45,"C","M",1,0,"spin6"},
+{"FanBlade","b",0.2,0.04,0.028,0,0,0,0,0,90,"C","M",1,0,"spin6"},
+{"FanBlade","b",0.2,0.04,0.032,0,0,0,0,0,135,"C","M",1,0,"spin6"},
+{"HatRing","c",0.09,0.46,0.46,0.58,4.33,-6.58,0,90,0,"C","M",1,0,"blower"},
+{"HatHole","c",0.05,0.37,0.37,0.58,4.33,-6.615,0,90,0,"K","P",0,0,"blower"},
+{"HatGlow","c",0.05,0.31,0.31,0.58,4.33,-6.625,0,90,0,"R","N",0,0,"glow"},
+{"HatHoleIn","c",0.05,0.24,0.24,0.58,4.33,-6.635,0,90,0,"K","P",0,0,"blower"},
+{"FanHub","c",0.05,0.07,0.07,0,0,-0.01,0,90,0,"C","M",1,0,"spin7"},
+{"FanBlade","b",0.2,0.04,0.02,0,0,0,0,0,0,"C","M",1,0,"spin7"},
+{"FanBlade","b",0.2,0.04,0.024,0,0,0,0,0,45,"C","M",1,0,"spin7"},
+{"FanBlade","b",0.2,0.04,0.028,0,0,0,0,0,90,"C","M",1,0,"spin7"},
+{"FanBlade","b",0.2,0.04,0.032,0,0,0,0,0,135,"C","M",1,0,"spin7"},
+{"PulleyDisc","c",0.16,1.1,1.1,0,0,0,0,90,0,"C","M",0.85,0,"spin1"},
+{"PulleyFace","c",0.06,0.9,0.9,0,0,-0.1,0,90,0,"D","M",0.5,0,"spin1"},
+{"PulleyHub","c",0.1,0.44,0.44,0,0,-0.15,0,90,0,"C","M",0.9,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.303,0,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.193,0,-0.14,0,0,0,"C","M",0.8,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.151,0.262,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.096,0.167,-0.14,0,0,60,"C","M",0.8,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.151,0.262,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.096,0.167,-0.14,0,0,120,"C","M",0.8,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.303,0,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.193,0,-0.14,0,0,180,"C","M",0.8,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.151,-0.262,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.096,-0.167,-0.14,0,0,240,"C","M",0.8,0,"spin1"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.151,-0.262,-0.18,0,90,0,"K","M",0.2,0,"spin1"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.096,-0.167,-0.14,0,0,300,"C","M",0.8,0,"spin1"},
+{"PulleyDisc","c",0.16,0.84,0.84,0,0,0,0,90,0,"C","M",0.85,0,"spin2"},
+{"PulleyFace","c",0.06,0.64,0.64,0,0,-0.1,0,90,0,"D","M",0.5,0,"spin2"},
+{"PulleyHub","c",0.1,0.336,0.336,0,0,-0.15,0,90,0,"C","M",0.9,0,"spin2"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.231,0,-0.18,0,90,0,"K","M",0.2,0,"spin2"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.147,0,-0.14,0,0,0,"C","M",0.8,0,"spin2"},
+{"PulleyBolt","c",0.1,0.1,0.1,0,0.231,-0.18,0,90,0,"K","M",0.2,0,"spin2"},
+{"PulleySpoke","b",0.08,0.14,0.2,0,0.147,-0.14,0,0,90,"C","M",0.8,0,"spin2"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.231,0,-0.18,0,90,0,"K","M",0.2,0,"spin2"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.147,0,-0.14,0,0,180,"C","M",0.8,0,"spin2"},
+{"PulleyBolt","c",0.1,0.1,0.1,0,-0.231,-0.18,0,90,0,"K","M",0.2,0,"spin2"},
+{"PulleySpoke","b",0.08,0.14,0.2,0,-0.147,-0.14,0,0,270,"C","M",0.8,0,"spin2"},
+{"PulleyDisc","c",0.16,0.6,0.6,0,0,0,0,90,0,"C","M",0.85,0,"spin3"},
+{"PulleyFace","c",0.06,0.4,0.4,0,0,-0.1,0,90,0,"D","M",0.5,0,"spin3"},
+{"PulleyHub","c",0.1,0.24,0.24,0,0,-0.15,0,90,0,"C","M",0.9,0,"spin3"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.165,0,-0.18,0,90,0,"K","M",0.2,0,"spin3"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.105,0,-0.14,0,0,0,"C","M",0.8,0,"spin3"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.082,0.143,-0.18,0,90,0,"K","M",0.2,0,"spin3"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.052,0.091,-0.14,0,0,120,"C","M",0.8,0,"spin3"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.083,-0.143,-0.18,0,90,0,"K","M",0.2,0,"spin3"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.053,-0.091,-0.14,0,0,240,"C","M",0.8,0,"spin3"},
+{"PulleyDisc","c",0.16,0.6,0.6,0,0,0,0,90,0,"C","M",0.85,0,"spin4"},
+{"PulleyFace","c",0.06,0.4,0.4,0,0,-0.1,0,90,0,"D","M",0.5,0,"spin4"},
+{"PulleyHub","c",0.1,0.24,0.24,0,0,-0.15,0,90,0,"C","M",0.9,0,"spin4"},
+{"PulleyBolt","c",0.1,0.1,0.1,0.165,0,-0.18,0,90,0,"K","M",0.2,0,"spin4"},
+{"PulleySpoke","b",0.08,0.14,0.2,0.105,0,-0.14,0,0,0,"C","M",0.8,0,"spin4"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.082,0.143,-0.18,0,90,0,"K","M",0.2,0,"spin4"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.052,0.091,-0.14,0,0,120,"C","M",0.8,0,"spin4"},
+{"PulleyBolt","c",0.1,0.1,0.1,-0.083,-0.143,-0.18,0,90,0,"K","M",0.2,0,"spin4"},
+{"PulleySpoke","b",0.08,0.14,0.2,-0.053,-0.091,-0.14,0,0,240,"C","M",0.8,0,"spin4"},
+{"RearPanel","b",7,1.3,0.3,0,2.6,9.8,0,0,0,"B","P",0.12,0,""},
+{"RearPanelFill","b",6.8,1.5,0.3,0,2.5,9.6,0,0,0,"B","P",0.12,0,""},
+{"TailPanel","b",6.8,1,0.04,0,2.9,10.025,0,0,0,"K","P",0,0,""},
+{"TailFrameTop","b",6.92,0.07,0.1,0,3.435,10.055,0,0,0,"C","M",0.55,0,""},
+{"TailFrameTop2","b",6.6,0.02,0.06,0,3.34,10.075,0,0,0,"C2","M",0.8,0,""},
+{"TailFrameBot","b",6.92,0.07,0.1,0,2.365,10.055,0,0,0,"C","M",0.55,0,""},
+{"TailFrameEnd","b",0.08,1.07,0.125,-3.42,2.9,10.0425,0,0,0,"C","M",0.55,0,""},
+{"TailLens","b",2.33,0.32,0.04,-1.835,2.84,10.065,0,0,0,"L","N",0,0,"tail"},
+{"TailLensEdge","b",2.37,0.022,0.045,-1.835,3.01,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",2.37,0.022,0.045,-1.835,2.67,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",0.022,0.36,0.045,-0.665,2.84,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",0.022,0.36,0.045,-3.005,2.84,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailRib","b",2.2,0.014,0.045,-1.835,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailRib","b",0.014,0.3,0.045,-1.45,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailRib","b",0.014,0.3,0.045,-2.22,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailLensLow","b",2,0.05,0.04,-1.3,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
+{"TailFrameEnd","b",0.08,1.07,0.125,3.42,2.9,10.0425,0,0,0,"C","M",0.55,0,""},
+{"TailLens","b",2.33,0.32,0.04,1.835,2.84,10.065,0,0,0,"L","N",0,0,"tail"},
+{"TailLensEdge","b",2.37,0.022,0.045,1.835,3.01,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",2.37,0.022,0.045,1.835,2.67,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",0.022,0.36,0.045,0.665,2.84,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailLensEdge","b",0.022,0.36,0.045,3.005,2.84,10.09,0,0,0,"C2","M",0.8,0,""},
+{"TailRib","b",2.2,0.014,0.045,1.835,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailRib","b",0.014,0.3,0.045,1.45,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailRib","b",0.014,0.3,0.045,2.22,2.84,10.09,0,0,0,"C2","M",0.7,0,""},
+{"TailLensLow","b",2,0.05,0.04,1.3,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
+{"TailLensLow","b",0.6,0.05,0.04,0,2.55,10.065,0,0,0,"L","N",0,0,"tail"},
+{"TailLowTrim","b",4.7,0.016,0.1,0,2.495,10.03,0,0,0,"C2","M",0.8,0,""},
+{"TrunkKnob","c",0.04,0.12,0.12,0,3.17,10.06,0,90,0,"C2","M",0.8,0,""},
+{"RevLamp","b",0.45,0.12,0.05,-2.75,1.25,9.9,0,0,0,"D","P",0,0,"rev"},
+{"RevLamp","b",0.45,0.12,0.05,2.75,1.25,9.9,0,0,0,"D","P",0,0,"rev"},
+{"RBumper","b",7.05,0.45,0.36,0,1.9,9.94,0,0,0,"C","M",0.5,0,""},
+{"RBumperTopRoll","b",6.9,0.07,0.42,0,2.15,9.95,0,0,0,"C2","M",0.85,0,""},
+{"RBumperLowRoll","b",6.8,0.06,0.42,0,1.65,9.95,0,0,0,"C2","M",0.85,0,""},
+{"RBumperBulge","b",2.5,0.45,0.08,0,1.9,10.16,0,0,0,"C","M",0.6,0,""},
+{"RBumperRecess","b",2.1,0.14,0.03,0,1.9,10.215,0,0,0,"S","M",0.35,0,""},
+{"RBumperEnd","b",0.375,0.45,1.5,-3.4875,1.9,9.37,0,0,0,"C","M",0.5,0,""},
+{"RBumperEndCap","c",0.45,0.4,0.4,-3.42,1.9,10,0,0,90,"C2","M",0.8,0,""},
+{"RBumperGuard","b",0.2,1.2,0.22,-1.3,1.6,10.2,0,0,0,"C2","M",0.8,0,""},
+{"RBumperGuardCap","b",0.26,0.1,0.28,-1.3,2.24,10.2,0,0,0,"C","M",0.7,0,""},
+{"RBumperEnd","b",0.375,0.45,1.5,3.4875,1.9,9.37,0,0,0,"C","M",0.5,0,""},
+{"RBumperEndCap","c",0.45,0.4,0.4,3.42,1.9,10,0,0,90,"C2","M",0.8,0,""},
+{"RBumperGuard","b",0.2,1.2,0.22,1.3,1.6,10.2,0,0,0,"C2","M",0.8,0,""},
+{"RBumperGuardCap","b",0.26,0.1,0.28,1.3,2.24,10.2,0,0,0,"C","M",0.7,0,""},
+{"PlatePanel","b",2,0.7,0.175,0,1.3,9.9075,0,0,0,"K","P",0,0,""},
+{"PlateBack","b",1.62,0.82,0.04,0,1.3,10.04,0,0,0,"C2","M",0.7,0,""},
+{"Plate","b",1.5,0.7,0.03,0,1.3,10.07,0,0,0,"PL","P",0,0,""},
+{"PlateScrew","c",0.04,0.07,0.07,-0.68,1.02,10.1,0,90,0,"C","M",0.6,0,""},
+{"PlateScrew","c",0.04,0.07,0.07,-0.68,1.58,10.1,0,90,0,"C","M",0.6,0,""},
+{"PlateScrew","c",0.04,0.07,0.07,0.68,1.02,10.1,0,90,0,"C","M",0.6,0,""},
+{"PlateScrew","c",0.04,0.07,0.07,0.68,1.58,10.1,0,90,0,"C","M",0.6,0,""},
+{"ExhTip","c",0.7,0.36,0.56,-1.7,1.12,10.05,0,90,0,"C","M",0.5,0,""},
+{"ExhLip","c",0.06,0.4,0.62,-1.7,1.12,10.39,0,90,0,"C2","M",0.8,0,""},
+{"ExhHole","c",0.06,0.26,0.46,-1.7,1.12,10.42,0,90,0,"K","P",0,0,""},
+{"ExhTip","c",0.7,0.36,0.56,1.7,1.12,10.05,0,90,0,"C","M",0.5,0,""},
+{"ExhLip","c",0.06,0.4,0.62,1.7,1.12,10.39,0,90,0,"C2","M",0.8,0,""},
+{"ExhHole","c",0.06,0.26,0.46,1.7,1.12,10.42,0,90,0,"K","P",0,0,""},
+{"RValance","b",6.4,0.65,0.3,0,1.3,9.7,0,0,0,"K","P",0,0,""},
+{"BodyCapF","w",4,0.04,0.22,0,3.3695,-9.9,0,180,0,"B","P",0.12,0,""},
+{"BodyCapFB","w",4,0.05,0.22,0,1.0995,-9.9,0,180,180,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0255,0.22,0,3.4022,-9.7,0,180,0,"B","P",0.12,0,""},
+{"BodyCapFB","w",4,0.0495,0.22,0,1.0498,-9.7,0,180,180,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0105,0.22,0,3.4202,-9.5,0,180,0,"B","P",0.12,0,""},
+{"BodyCapFB","w",4,0.0285,0.22,0,1.0108,-9.5,0,180,180,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0095,0.22,0,3.4303,-9.3,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0105,0.22,0,3.4403,-9.1,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0095,0.22,0,3.4503,-8.9,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0095,0.22,0,3.4598,-8.7,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0105,0.22,0,3.4697,-8.5,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.0095,0.22,0,3.4797,-8.3,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.01,0.22,0,3.4895,-8.1,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.011,0.22,0,3.5,-7.9,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.009,0.22,0,3.51,-7.7,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.01,0.22,0,3.5195,-7.5,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.01,0.22,0,3.5295,-7.3,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.009,0.22,0,3.72,-3.5,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.01,0.22,0,3.7295,-3.3,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.011,0.22,0,3.74,-3.1,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.01,0.22,0,3.7505,-2.9,0,180,0,"B","P",0.12,0,""},
+{"BodyCapF","w",4,0.009,0.22,0,3.76,-2.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.325,0.039,0.22,-2.662,3.3,-9.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.325,0.051,0.22,-2.662,1.1,-9.9,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.475,0.0255,0.22,-2.737,3.3323,-9.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.475,0.0495,0.22,-2.737,1.0497,-9.7,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.565,0.0105,0.22,-2.782,3.3502,-9.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.565,0.0285,0.22,-2.782,1.0108,-9.5,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.595,0.0095,0.22,-2.797,3.3603,-9.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.625,0.0105,0.22,-2.812,3.3702,-9.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.641,0.0095,0.22,-2.82,3.3803,-8.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.642,0.0095,0.22,-2.821,3.3898,-8.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.643,0.0105,0.22,-2.822,3.3998,-8.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.645,0.0095,0.22,-2.822,3.4097,-8.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.646,0.011,0.22,-2.823,3.42,-8.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.647,0.009,0.22,-2.824,3.43,-7.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.649,0.01,0.22,-2.824,3.4395,-7.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.65,0.011,0.22,-2.825,3.45,-7.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.646,0.009,0.22,-2.823,3.63,-3.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.645,0.01,0.22,-2.822,3.6395,-3.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.643,0.011,0.22,-2.822,3.65,-3.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.642,0.01,0.22,-2.821,3.6605,-3.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.641,0.009,0.22,-2.82,3.67,-3.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.635,0.01,0.22,-2.817,3.6795,-2.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.625,0.011,0.22,-2.812,3.69,-2.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.325,0.039,0.22,2.662,3.3,-9.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.325,0.051,0.22,2.662,1.1,-9.9,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.475,0.0255,0.22,2.737,3.3323,-9.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.475,0.0495,0.22,2.737,1.0497,-9.7,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.565,0.0105,0.22,2.782,3.3502,-9.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapFB","w",1.565,0.0285,0.22,2.782,1.0108,-9.5,0,180,180,"B","P",0.12,0,""},
+{"SideCapF","w",1.595,0.0095,0.22,2.797,3.3603,-9.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.625,0.0105,0.22,2.812,3.3702,-9.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.641,0.0095,0.22,2.82,3.3803,-8.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.642,0.0095,0.22,2.821,3.3898,-8.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.643,0.0105,0.22,2.822,3.3998,-8.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.645,0.0095,0.22,2.822,3.4097,-8.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.646,0.011,0.22,2.823,3.42,-8.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.647,0.009,0.22,2.824,3.43,-7.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.649,0.01,0.22,2.824,3.4395,-7.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.65,0.011,0.22,2.825,3.45,-7.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.646,0.009,0.22,2.823,3.63,-3.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.645,0.01,0.22,2.822,3.6395,-3.7,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.643,0.011,0.22,2.822,3.65,-3.5,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.642,0.01,0.22,2.821,3.6605,-3.3,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.641,0.009,0.22,2.82,3.67,-3.1,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.635,0.01,0.22,2.817,3.6795,-2.9,0,180,0,"B","P",0.12,0,""},
+{"SideCapF","w",1.625,0.011,0.22,2.812,3.69,-2.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.433,0.0105,0.22,-2.716,3.4697,-7.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.434,0.01,0.22,-2.717,3.48,-6.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.435,0.01,0.22,-2.718,3.49,-6.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.437,0.01,0.22,-2.718,3.5,-6.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.438,0.01,0.22,-2.719,3.51,-6.3,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.439,0.0095,0.22,-2.72,3.5198,-6.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.439,0.0105,0.22,-2.72,3.5297,-5.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.438,0.01,0.22,-2.719,3.54,-5.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.437,0.0095,0.22,-2.718,3.5497,-5.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.435,0.0105,0.22,-2.718,3.5598,-5.3,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.434,0.01,0.22,-2.717,3.57,-5.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.433,0.01,0.22,-2.716,3.58,-4.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.431,0.01,0.22,-2.716,3.59,-4.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.43,0.01,0.22,-2.715,3.6,-4.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.429,0.0095,0.22,-2.714,3.6098,-4.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,-3.543,3.4697,-7.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.544,3.48,-6.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.545,3.49,-6.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.547,3.5,-6.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.548,3.51,-6.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,-3.549,3.5198,-6.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,-3.549,3.5297,-5.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.548,3.54,-5.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,-3.547,3.5497,-5.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,-3.545,3.5598,-5.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.544,3.57,-5.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.543,3.58,-4.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.541,3.59,-4.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,-3.54,3.6,-4.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,-3.539,3.6098,-4.3,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.433,0.0105,0.22,2.716,3.4697,-7.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.434,0.01,0.22,2.717,3.48,-6.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.435,0.01,0.22,2.718,3.49,-6.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.437,0.01,0.22,2.718,3.5,-6.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.438,0.01,0.22,2.719,3.51,-6.3,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.439,0.0095,0.22,2.72,3.5198,-6.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.439,0.0105,0.22,2.72,3.5297,-5.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.438,0.01,0.22,2.719,3.54,-5.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.437,0.0095,0.22,2.718,3.5497,-5.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.435,0.0105,0.22,2.718,3.5598,-5.3,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.434,0.01,0.22,2.717,3.57,-5.1,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.433,0.01,0.22,2.716,3.58,-4.9,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.431,0.01,0.22,2.716,3.59,-4.7,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.43,0.01,0.22,2.715,3.6,-4.5,0,180,0,"B","P",0.12,0,""},
+{"ArchUpCapF","w",1.429,0.0095,0.22,2.714,3.6098,-4.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,3.543,3.4697,-7.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.544,3.48,-6.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.545,3.49,-6.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.547,3.5,-6.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.548,3.51,-6.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,3.549,3.5198,-6.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,3.549,3.5297,-5.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.548,3.54,-5.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,3.547,3.5497,-5.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0105,0.22,3.545,3.5598,-5.3,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.544,3.57,-5.1,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.543,3.58,-4.9,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.541,3.59,-4.7,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.01,0.22,3.54,3.6,-4.5,0,180,0,"B","P",0.12,0,""},
+{"ArchSkinCapF","w",0.22,0.0095,0.22,3.539,3.6098,-4.3,0,180,0,"B","P",0.12,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.5405,-6.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,-1.475,3.55,-6.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.5595,-6.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.5695,-6.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,-1.475,3.58,-6.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,-1.475,3.59,-5.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,-1.475,3.6,-5.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6105,-5.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6205,-5.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,-1.475,3.63,-5.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6395,-4.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6495,-4.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6595,-4.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6695,-4.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,-1.475,3.6795,-4.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,-1.475,3.69,-3.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.5405,-6.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,1.475,3.55,-6.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.5595,-6.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.5695,-6.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,1.475,3.58,-6.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,1.475,3.59,-5.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,1.475,3.6,-5.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6105,-5.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6205,-5.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.009,0.22,1.475,3.63,-5.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6395,-4.9,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6495,-4.7,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6595,-4.5,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6695,-4.3,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.01,0.22,1.475,3.6795,-4.1,0,180,0,"K","P",0,0,""},
+{"BayWallCapF","w",0.05,0.011,0.22,1.475,3.69,-3.9,0,180,0,"K","P",0,0,""},
+{"APillar","b",0.3,0.3,2.2007,-3.1595,4.302,-1.5398,-30.7472,7.2836,4.313,"B","P",0.12,0,""},
+{"GlassPost","b",0.24,1.2407,0.3,-3.0766,4.326,1.975,0,0,-13.1999,"C","M",0.3,0,""},
+{"QuarterGlass","b",0.09,1.1534,1.09,-3.105,4.305,2.575,0,0,-13.912,"G","G",0.1,0.55,""},
+{"APillar","b",0.3,0.3,2.2007,3.1595,4.302,-1.5398,-30.7472,-7.2836,-4.313,"B","P",0.12,0,""},
+{"GlassPost","b",0.24,1.2407,0.3,3.0766,4.326,1.975,0,0,13.1999,"C","M",0.3,0,""},
+{"QuarterGlass","b",0.09,1.1534,1.09,3.105,4.305,2.575,0,0,13.912,"G","G",0.1,0.55,""},
+{"Windshield","b",6.28,0.1,2.3616,0,4.39,-1.4,-30.541,0,0,"G","G",0.1,0.55,""},
+{"ArchSkinWedge","w",0.22,0.1775,0.22,-3.543,2.0507,-7.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.433,0.1775,0.22,-2.716,2.0507,-7.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2885,0.22,-3.544,2.2837,-6.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.434,0.2885,0.22,-2.717,2.2837,-6.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.19,0.22,-3.545,2.523,-6.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.435,0.19,0.22,-2.718,2.523,-6.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.136,0.22,-3.547,2.686,-6.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.437,0.136,0.22,-2.718,2.686,-6.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.097,0.22,-3.548,2.8025,-6.3,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.438,0.097,0.22,-2.719,2.8025,-6.3,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0655,0.22,-3.549,2.8838,-6.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.439,0.0655,0.22,-2.72,2.8838,-6.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.038,0.22,-3.549,2.9355,-5.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.439,0.038,0.22,-2.72,2.9355,-5.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0125,0.22,-3.548,2.9607,-5.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.438,0.0125,0.22,-2.719,2.9607,-5.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0125,0.22,-3.547,2.9607,-5.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.437,0.0125,0.22,-2.718,2.9607,-5.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.038,0.22,-3.545,2.9355,-5.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.435,0.038,0.22,-2.718,2.9355,-5.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0655,0.22,-3.544,2.8838,-5.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.434,0.0655,0.22,-2.717,2.8838,-5.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.097,0.22,-3.543,2.8025,-4.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.433,0.097,0.22,-2.716,2.8025,-4.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.136,0.22,-3.541,2.686,-4.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.431,0.136,0.22,-2.716,2.686,-4.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.19,0.22,-3.54,2.523,-4.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.43,0.19,0.22,-2.715,2.523,-4.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2885,0.22,-3.539,2.2837,-4.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.429,0.2885,0.22,-2.714,2.2837,-4.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.1775,0.22,-3.537,2.0507,-4.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.427,0.1775,0.22,-2.714,2.0507,-4.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0685,0.22,-3.61,2.8833,4.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.5,0.0685,0.22,-2.75,2.8833,4.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.119,0.22,-3.613,2.977,4.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.503,0.119,0.22,-2.751,2.977,4.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.086,0.22,-3.615,3.0795,4.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.505,0.086,0.22,-2.753,3.0795,4.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.059,0.22,-3.618,3.152,5.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.508,0.059,0.22,-2.754,3.152,5.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0345,0.22,-3.621,3.1987,5.3,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.511,0.0345,0.22,-2.755,3.1987,5.3,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.011,0.22,-3.623,3.2215,5.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.513,0.011,0.22,-2.757,3.2215,5.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.011,0.22,-3.626,3.2215,5.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.516,0.011,0.22,-2.758,3.2215,5.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0345,0.22,-3.629,3.1987,5.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.519,0.0345,0.22,-2.759,3.1987,5.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.059,0.22,-3.628,3.152,6.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.518,0.059,0.22,-2.759,3.152,6.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.086,0.22,-3.624,3.0795,6.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.514,0.086,0.22,-2.757,3.0795,6.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.119,0.22,-3.62,2.977,6.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.51,0.119,0.22,-2.755,2.977,6.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.16,0.22,-3.616,2.8375,6.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.506,0.16,0.22,-2.753,2.8375,6.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2205,0.22,-3.612,2.6473,6.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.502,0.2205,0.22,-2.751,2.6473,6.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.344,0.22,-3.608,2.365,7.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.498,0.344,0.22,-2.749,2.365,7.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.215,0.22,-3.604,2.0855,7.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.494,0.215,0.22,-2.747,2.0855,7.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.1775,0.22,3.543,2.0507,-7.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.433,0.1775,0.22,2.716,2.0507,-7.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2885,0.22,3.544,2.2837,-6.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.434,0.2885,0.22,2.717,2.2837,-6.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.19,0.22,3.545,2.523,-6.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.435,0.19,0.22,2.718,2.523,-6.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.136,0.22,3.547,2.686,-6.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.437,0.136,0.22,2.718,2.686,-6.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.097,0.22,3.548,2.8025,-6.3,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.438,0.097,0.22,2.719,2.8025,-6.3,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0655,0.22,3.549,2.8838,-6.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.439,0.0655,0.22,2.72,2.8838,-6.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.038,0.22,3.549,2.9355,-5.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.439,0.038,0.22,2.72,2.9355,-5.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0125,0.22,3.548,2.9607,-5.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.438,0.0125,0.22,2.719,2.9607,-5.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0125,0.22,3.547,2.9607,-5.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.437,0.0125,0.22,2.718,2.9607,-5.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.038,0.22,3.545,2.9355,-5.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.435,0.038,0.22,2.718,2.9355,-5.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0655,0.22,3.544,2.8838,-5.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.434,0.0655,0.22,2.717,2.8838,-5.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.097,0.22,3.543,2.8025,-4.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.433,0.097,0.22,2.716,2.8025,-4.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.136,0.22,3.541,2.686,-4.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.431,0.136,0.22,2.716,2.686,-4.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.19,0.22,3.54,2.523,-4.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.43,0.19,0.22,2.715,2.523,-4.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2885,0.22,3.539,2.2837,-4.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.429,0.2885,0.22,2.714,2.2837,-4.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.1775,0.22,3.537,2.0507,-4.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.427,0.1775,0.22,2.714,2.0507,-4.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0685,0.22,3.61,2.8833,4.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.5,0.0685,0.22,2.75,2.8833,4.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.119,0.22,3.613,2.977,4.7,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.503,0.119,0.22,2.751,2.977,4.7,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.086,0.22,3.615,3.0795,4.9,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.505,0.086,0.22,2.753,3.0795,4.9,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.059,0.22,3.618,3.152,5.1,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.508,0.059,0.22,2.754,3.152,5.1,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0345,0.22,3.621,3.1987,5.3,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.511,0.0345,0.22,2.755,3.1987,5.3,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.011,0.22,3.623,3.2215,5.5,0,0,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.513,0.011,0.22,2.757,3.2215,5.5,0,0,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.011,0.22,3.626,3.2215,5.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.516,0.011,0.22,2.758,3.2215,5.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.0345,0.22,3.629,3.1987,5.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.519,0.0345,0.22,2.759,3.1987,5.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.059,0.22,3.628,3.152,6.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.518,0.059,0.22,2.759,3.152,6.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.086,0.22,3.624,3.0795,6.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.514,0.086,0.22,2.757,3.0795,6.3,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.119,0.22,3.62,2.977,6.5,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.51,0.119,0.22,2.755,2.977,6.5,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.16,0.22,3.616,2.8375,6.7,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.506,0.16,0.22,2.753,2.8375,6.7,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.2205,0.22,3.612,2.6473,6.9,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.502,0.2205,0.22,2.751,2.6473,6.9,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.344,0.22,3.608,2.365,7.1,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.498,0.344,0.22,2.749,2.365,7.1,0,180,180,"K","P",0,0,""},
+{"ArchSkinWedge","w",0.22,0.215,0.22,3.604,2.0855,7.3,0,180,180,"B","P",0.12,0,""},
+{"ArchInWedge","w",1.494,0.215,0.22,2.747,2.0855,7.3,0,180,180,"K","P",0,0,""},
+{"DoorArchWedge","w",0.35,1.0275,0.22,-3.515,1.4638,3.9,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.431,0.22,-3.525,2.193,4.1,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.2575,0.22,-3.535,2.5373,4.3,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,1.0275,0.22,3.515,1.4638,3.9,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.431,0.22,3.525,2.193,4.1,0,0,180,"B","P",0.12,0,""},
+{"DoorArchWedge","w",0.35,0.2575,0.22,3.535,2.5373,4.3,0,0,180,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.155,0.15,0.22,-3.3995,2.203,-9.9,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.245,0.09,0.22,-3.5195,2.197,-9.7,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.32,0.03,0.22,-3.5795,2.185,-9.5,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.359,0.03,0.22,-3.6095,2.176,-9.3,0,180,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.5037,0.072,0.22,-3.544,2.3268,9.7,0,0,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.393,0.072,0.22,-3.472,2.321,9.9,0,0,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.155,0.15,0.22,3.3995,2.203,-9.9,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.245,0.09,0.22,3.5195,2.197,-9.7,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.32,0.03,0.22,3.5795,2.185,-9.5,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.359,0.03,0.22,3.6095,2.176,-9.3,0,180,90,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.5037,0.072,0.22,3.544,2.3268,9.7,0,0,270,"B","P",0.12,0,""},
+{"SideEndWedge","w",2.393,0.072,0.22,3.472,2.321,9.9,0,0,270,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,4.3283,4.7,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.2613,4.9,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.1947,5.1,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,4.1277,5.3,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,4.0607,5.5,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0675,0.22,0,3.9937,5.7,0,0,0,"B","P",0.12,0,""},
+{"BackDeckWedge","w",4,0.0665,0.22,0,3.9268,5.9,0,0,0,"B","P",0.12,0,""},
+{"Oilpan","b",1.6,0.25,2.2,0,2.125,-5.3,0,0,0,"D","M",0.3,0,"blower"},
+{"Block","b",1.4,0.6,2.6,0,2.55,-5.3,0,0,0,"K","M",0.25,0,"blower"},
+{"Manifold","b",1.05,0.34,2.3,0,3.02,-5.3,0,0,0,"C","M",0.6,0,"blower"},
+{"Head","b",0.7,0.5,2.5,-1.05,2.75,-5.3,0,0,0,"C","M",0.55,0,"blower"},
+{"ValveCover","b",0.6,0.2,2.35,-1.05,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-6.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-6.08,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-5.86,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-5.64,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-5.42,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-5.2,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-4.98,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-4.76,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-4.54,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,-1.05,3.225,-4.32,0,0,0,"C","M",0.7,0,"blower"},
+{"OilCap","c",0.12,0.24,0.24,-1.05,3.31,-5.95,0,0,90,"K","M",0.3,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,-1.42,2.75,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,-1.6,2.75,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,-1.65,2.495,-6.2,0,0,90,"C","M",0.6,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,-1.42,2.75,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,-1.6,2.75,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,-1.65,2.495,-5.45,0,0,90,"C","M",0.6,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,-1.42,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,-1.6,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,-1.65,2.495,-4.7,0,0,90,"C","M",0.6,0,"blower"},
+{"Collector","b",0.3,0.3,2.4,-1.65,2.2,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"Head","b",0.7,0.5,2.5,1.05,2.75,-5.3,0,0,0,"C","M",0.55,0,"blower"},
+{"ValveCover","b",0.6,0.2,2.35,1.05,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-6.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-6.08,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-5.86,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-5.64,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-5.42,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-5.2,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-4.98,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-4.76,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-4.54,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-4.32,0,0,0,"C","M",0.7,0,"blower"},
+{"OilCap","c",0.12,0.24,0.24,1.05,3.31,-4.7,0,0,90,"K","M",0.3,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,1.42,2.75,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,1.6,2.75,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,1.65,2.495,-6.2,0,0,90,"C","M",0.6,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,1.42,2.75,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,1.6,2.75,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,1.65,2.495,-5.45,0,0,90,"C","M",0.6,0,"blower"},
+{"HeaderFlange","c",0.04,0.36,0.36,1.42,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderStub","c",0.32,0.22,0.22,1.6,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderPipe","c",0.29,0.22,0.22,1.65,2.495,-4.7,0,0,90,"C","M",0.6,0,"blower"},
+{"Collector","b",0.3,0.3,2.4,1.65,2.2,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"RearBracket","b",1,0.2,0.1,0,3.4,-3.92,0,0,0,"D","M",0.4,0,"blower"},
+{"RadSupport","b",3.9,1.5,0.1,0,2.65,-9.43,0,0,0,"K","P",0,0,""},
+{"RadCore","b",3.2,1.05,0.2,0,2.55,-9.2,0,0,0,"D","M",0.3,0,""},
+{"RadFin","b",0.03,1.05,0.04,-1.4,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-1.2,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-1,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-0.8,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-0.6,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-0.4,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,-0.2,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,0,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,0.2,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,0.4,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,0.6,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,0.8,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,1,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,1.2,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadFin","b",0.03,1.05,0.04,1.4,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
+{"RadTank","b",0.3,1.15,0.36,-1.75,2.55,-9.15,0,0,0,"K","P",0,0,""},
+{"RadTank","b",0.3,1.15,0.36,1.75,2.55,-9.15,0,0,0,"K","P",0,0,""},
+{"RadCap","c",0.16,0.2,0.2,1.75,3.2,-9.15,0,0,90,"C","M",0.8,0,""},
+{"Shroud","b",3.2,0.1,0.28,0,3.1,-8.84,0,0,0,"K","P",0,0,""},
+{"Shroud","b",3.2,0.1,0.28,0,2,-8.84,0,0,0,"K","P",0,0,""},
+{"Shroud","b",0.1,0.9,0.28,-1.55,2.55,-8.84,0,0,0,"K","P",0,0,""},
+{"Shroud","b",0.1,0.9,0.28,1.55,2.55,-8.84,0,0,0,"K","P",0,0,""},
+{"FanHubS","c",0.06,0.26,0.26,0,0,-0.045,0,90,0,"C","M",0.8,0,"spin8"},
+{"FanBladeS","b",0.2,0.9,0.03,0,0,0,0,0,0,"D","M",0.6,0,"spin8"},
+{"FanBladeS","b",0.2,0.9,0.03,0,0,0,0,0,45,"D","M",0.6,0,"spin8"},
+{"FanBladeS","b",0.2,0.9,0.03,0,0,0,0,0,90,"D","M",0.6,0,"spin8"},
+{"FanBladeS","b",0.2,0.9,0.03,0,0,0,0,0,135,"D","M",0.6,0,"spin8"},
+{"HoseUp","c",2.15,0.2,0.2,-1.05,2.9,-8.025,0,90,0,"K","P",0,0,""},
+{"HoseLow","c",2.15,0.2,0.2,1.05,2.2,-8.025,0,90,0,"K","P",0,0,""},
+{"StrutTower","b",0.5,0.8,0.5,-1.7,2.3,-7.9,0,0,0,"D","M",0.3,0,""},
+{"StrutCap","c",0.1,0.44,0.44,-1.7,2.75,-7.9,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,-1.83,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,-1.57,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,-1.57,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,-1.83,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
+{"StrutTower","b",0.5,0.8,0.5,1.7,2.3,-7.9,0,0,0,"D","M",0.3,0,""},
+{"StrutCap","c",0.1,0.44,0.44,1.7,2.75,-7.9,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,1.57,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,1.83,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,1.83,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
+{"StrutBolt","c",0.08,0.08,0.08,1.57,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
+{"Alternator","c",0.6,0.46,0.46,-1.62,2.55,-7.1,0,90,0,"D","M",0.4,0,""},
+{"AltPulley","c",0.1,0.34,0.34,0,0,0,0,90,0,"C","M",0.85,0,"spin9"},
+{"PowerSteer","c",0.5,0.4,0.4,1.62,2.5,-7.1,0,90,0,"D","M",0.4,0,""},
+{"Battery","b",0.7,0.6,0.5,1.57,2.3,-8.43,0,0,0,"BK","P",0,0,""},
+{"BatTerm","c",0.12,0.14,0.14,1.38,2.66,-8.43,0,0,90,"C","M",0.8,0,""},
+{"BatTerm","c",0.12,0.14,0.14,1.76,2.66,-8.43,0,0,90,"R","P",0,0,""},
+{"Overflow","b",0.7,0.6,0.5,-1.57,2.3,-8.43,0,0,0,"WF","P",0,0.5,""},
+{"OverflowCap","c",0.1,0.2,0.2,-1.57,2.65,-8.43,0,0,90,"R","P",0,0,""},
+{"Booster","c",0.5,0.46,0.46,-1.72,3.1,-3.9,0,90,0,"D","M",0.4,0,""},
+{"MasterCyl","c",0.6,0.22,0.22,-1.72,3.1,-4.45,0,90,0,"D","M",0.4,0,""},
+{"MasterRes","b",0.3,0.14,0.26,-1.72,3.28,-4.5,0,0,0,"K","P",0,0,""},
+{"MasterCap","c",0.08,0.14,0.14,-1.72,3.39,-4.5,0,0,90,"R","P",0,0,""},
+{"FuseBox","b",0.4,0.28,0.4,1.7,2.2,-3.95,0,0,0,"K","P",0,0,""},
+{"FuseLid","b",0.36,0.03,0.36,1.7,2.355,-3.95,0,0,0,"R","P",0,0,""},
+{"PlugBoot","c",0.12,0.1,0.1,-1.46,2.95,-5.83,0,0,0,"K","P",0,0,"blower"},
+{"PlugBoot","c",0.12,0.1,0.1,-1.46,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
+{"PlugBoot","c",0.12,0.1,0.1,-1.46,2.95,-4.33,0,0,0,"K","P",0,0,"blower"},
+{"PlugWire","b",0.03,0.03,1.5,-1.55,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
+{"CoverRail","b",0.06,0.07,2.35,-1.38,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverRail","b",0.06,0.07,2.35,-0.72,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-5.83,0,0,0,"K","P",0,0,"blower"},
+{"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
+{"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-4.33,0,0,0,"K","P",0,0,"blower"},
+{"PlugWire","b",0.03,0.03,1.5,1.55,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
+{"CoverRail","b",0.06,0.07,2.35,1.38,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverRail","b",0.06,0.07,2.35,0.72,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"Coil","b",0.2,0.3,0.2,-0.3,2.55,-3.9,0,0,0,"R","P",0,0,"blower"},
+{"Dipstick","b",0.05,0.5,0.05,0.4,2.6,-3.975,0,0,0,"C","M",0.6,0,"blower"},
+{"ExhPipe","c",7.5,0.2,0.2,-0.8,1,-0.5,0,90,0,"S","M",0.3,0,""},
+{"ExhPipe","c",7.5,0.2,0.2,0.8,1,-0.5,0,90,0,"S","M",0.3,0,""},
+{"DriveShaft","c",5,0.16,0.16,0,1,-1.5,0,90,0,"D","M",0.2,0,""},
+{"Diff","s",0.7,0.6,0.6,0,1,3.2,0,0,0,"D","M",0.3,0,""}
+}
+local COLS = {
+	LT = Color3.fromRGB(20, 20, 23),
+	B = Config.BodyColor, K = Color3.fromRGB(12, 12, 14), G = Color3.fromRGB(18, 24, 32), C = Color3.fromRGB(205, 209, 217),
+	T = Color3.fromRGB(10, 10, 12), W = Color3.fromRGB(214, 208, 192), R = Color3.fromRGB(200, 20, 20), A = Color3.fromRGB(255, 150, 0),
+	D = Color3.fromRGB(46, 47, 53), L = Color3.fromRGB(60, 0, 0), H = Color3.fromRGB(150, 155, 160), WF = Color3.fromRGB(235, 238, 240),
+	PL = Color3.fromRGB(235, 235, 235), C2 = Color3.fromRGB(238, 241, 247), S = Color3.fromRGB(160, 166, 176),
+	BK = Color3.fromRGB(6, 6, 8), WB = Color3.fromRGB(255, 238, 200),
+}
+local MATS = { P = Enum.Material.SmoothPlastic, M = Enum.Material.Metal, N = Enum.Material.Neon, G = Enum.Material.Glass }
+if Config.CheapGlass then MATS.G = Enum.Material.SmoothPlastic end
+local SHAPES = { b = "block", c = "cyl", s = "ball", w = "wedge" }
+local CAR_NAME = "1970_Dodge_Charger_RTChargerToretto"
+if Config.Lite == true and Config.LiteMode == "off" then Config.LiteMode = "lite" end
+local LITE = Config.LiteMode ~= "off"
+local LITE_SKIP = { LipBolt = true, DiscHole = true, RadFin = true, StrutBolt = true, Clamp = true, EngRibs = true, AltFin = true }
+local LITE_SKIP2 = {
+	TreadLug = true, TreadOutRib = true, SpokeRidge = true, ForkRidge = true, Lug = true,
+	CaliperBolt = true, CaliperLogo = true, EmblemH = true, EmblemV = true,
+	DoorTrim = true, PlugBoot = true, PlugWire = true,
+}
+local TIRE_PARTS = {}
+for _, n in ipairs({
+	"Tire", "SideWall", "SideWallOut", "TreadRib", "TreadLug", "TreadOutBase", "TreadOutRib",
+	"WheelFloor", "RimLip", "RimStep", "LipBolt", "BrakeDisc", "DiscHole", "DiscHat",
+	"SpokeRoot", "SpokeRidge", "SpokeFork", "ForkRidge", "Lug",
+	"HubPlate", "HubRing", "HubCap", "EmblemRed", "EmblemH", "EmblemV",
+	"Caliper", "CaliperLogo", "CaliperBolt",
+}) do TIRE_PARTS[n] = true end
+local DOOR_NAMES = {}
+for _, n in ipairs({
+	"Door", "DoorTrim", "DoorGlass", "DoorSkin", "LowerBead", "BeltMolding", "ShoulderRidge",
+	"HandlePocket", "Handle", "HandlePost", "HandleButton", "LockRing", "LockSlot",
+	"MirrorArm", "MirrorHead", "MirrorGlass",
+	"DoorPanelIn", "DoorCap", "DoorStrip", "Armrest", "DoorPull", "DoorPullPost",
+	"CrankRosette", "CrankHub", "CrankPivot", "DoorLock", "DoorPocket", "DoorPocketLip",
+	"SpeakerRing", "SpeakerGrille",
+}) do DOOR_NAMES[n] = true end
+local DOOR_ZMIN, DOOR_ZMAX = -2.35, 2.05
+local DOOR_HINGE = CFrame.new(-3.5 * S, 0, -2.42 * S)
+local DOOR_HINGE_INV = DOOR_HINGE:Inverse()
+local function doorSetup(c)
+	local items = {}
+	local winOf, crankOf = {}, {}
+	for _, g in ipairs(c.win or {}) do winOf[g.w] = g end
+	for _, k in ipairs(c.crank or {}) do crankOf[k.w] = k end
+	local dr = Instance.new("Part")
+	dr.Name = "DoorRoot"
+	dr.Size = Vector3.new(0.2, 0.2, 0.2) * S
+	dr.Transparency = 1
+	dr.Anchored = false
+	dr.CanCollide = false
+	dr.CanQuery = false
+	dr.CanTouch = false
+	dr.Massless = true
+	dr.CastShadow = false
+	dr.Parent = c.model
+	local dw = Instance.new("Weld")
+	dw.Part0 = c.root
+	dw.Part1 = dr
+	dw.C0 = CFrame.new()
+	dw.Parent = dr
+	c.doorW = dw
+	for _, p in ipairs(c.model:GetChildren()) do
+		if DOOR_NAMES[p.Name] and p:IsA("BasePart") then
+			local w = p:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == c.root and w.Part1 == p then
+				local pos = w.C0.Position
+				local x, z = pos.X / S, pos.Z / S
+				if x < -2.3 and z >= DOOR_ZMIN and z <= DOOR_ZMAX then
+					local g, k = winOf[w], crankOf[w]
+					w.Part0 = dr
+					items[#items + 1] = { w = w, base = (g and g.base) or (k and k.base) or w.C0, g = g, k = k }
+				end
+			end
+		end
+	end
+	c.door = items
+	c._doorWinQ = nil
+	return items
+end
+local function doorApply(c)
+	local a = c.doorAng or 0
+	local X = (a ~= 0) and (DOOR_HINGE * CFrame.Angles(0, -a, 0) * DOOR_HINGE_INV) or CFrame.new()
+	c.doorX = X
+	if c.doorW then c.doorW.C0 = X end
+	local list = c.door
+	if not list then return end
+	local wp = c.winP or 0
+	if c._doorWinQ == wp then return end
+	c._doorWinQ = wp
+	local e = wp * wp * (3 - 2 * wp)
+	local d = 1.28 * e * S
+	for _, it in ipairs(list) do
+		local g, k = it.g, it.k
+		if g then
+			local dd = (g.sd < 0) and d or 0
+			it.w.C0 = CFrame.new(g.sd * 0.2236 * dd, -dd, 0) * g.base
+		elseif k then
+			it.w.C0 = k.base * CFrame.Angles(k.sd * ((k.sd < 0) and e or 0) * 9 * (Config.CrankDir or 1), 0, 0)
+		end
+	end
+end
+local function doorSet(c, a)
+	a = a or 0
+	if (c.doorAng or 0) == a then return end
+	if not c.door then doorSetup(c) end
+	c.doorAng = a
+	doorApply(c)
+end
+local HOOD = { names = { BodyCapF = true, HoodRailCapF = true, BayWallCapF = true, HoodBulge = true, HoodEdge = true }, open = math.rad(62) }
+HOOD.hinge = CFrame.new(0, 3.62 * S, -3.3 * S)
+HOOD.hingeInv = HOOD.hinge:Inverse()
+function HOOD.build(c, bodyColor)
+	local model = c.model
+	local old = model:FindFirstChild("HoodRoot")
+	if old then
+		if old:GetAttribute("V") == 4 then
+			c.hoodW = old:FindFirstChildOfClass("Weld")
+			return
+		end
+		for _, p in ipairs(model:GetChildren()) do
+			local w = p:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == old then p:Destroy() end
+		end
+		old:Destroy()
+	end
+	for _, p in ipairs(model:GetChildren()) do
+		if HOOD.names[p.Name] and p:IsA("BasePart") then
+			local w = p:FindFirstChildOfClass("Weld")
+			if w and w.Part0 == c.root and w.Part1 == p then
+				local pos = w.C0.Position
+				local x, z = pos.X / S, pos.Z / S
+				if math.abs(x) + p.Size.X / S / 2 <= 2.06 and z >= -9.95 and z <= -3.25 then
+					p:Destroy()
+				end
+			end
+		end
+	end
+	local dr = Instance.new("Part")
+	dr.Name = "HoodRoot"
+	dr:SetAttribute("V", 4)
+	dr.Size = Vector3.new(0.2, 0.2, 0.2) * S
+	dr.Transparency = 1
+	dr.Anchored = false
+	dr.CanCollide = false
+	dr.CanQuery = false
+	dr.CanTouch = false
+	dr.Massless = true
+	dr.CastShadow = false
+	dr.Parent = model
+	local dw = Instance.new("Weld")
+	dw.Part0 = c.root
+	dw.Part1 = dr
+	dw.C0 = CFrame.new()
+	dw.Parent = dr
+	c.hoodW = dw
+	local BLK = Color3.fromRGB(12, 12, 14)
+	local CHR = Color3.fromRGB(205, 209, 217)
+	local function put(nm, sx, sy, sz, px, py, pz, rx, ry, rz, col, mat, refl, cyl, wedge)
+		local p = wedge and Instance.new("WedgePart") or Instance.new("Part")
+		p.Name = nm
+		if cyl and not wedge then p.Shape = Enum.PartType.Cylinder end
+		p.Size = Vector3.new(sx, sy, sz) * S
+		p.Color = col
+		p.Material = mat
+		p.Reflectance = refl or 0
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.CastShadow = false
+		p.Parent = model
+		local w = Instance.new("Weld")
+		w.Part0 = dr
+		w.Part1 = p
+		w.C0 = CFrame.new(px * S, py * S, pz * S) * CFrame.Angles(math.rad(rx), math.rad(ry), math.rad(rz))
+		w.Parent = p
+		return p
+	end
+	local PL = Enum.Material.SmoothPlastic
+	local MT = Enum.Material.Metal
+	local LIN = Color3.fromRGB(26, 26, 30)
+	local TOP = 3.70
+	local CY = TOP - 0.05
+	put("HoodSkin", 5.98, 0.1, 1.17, 0, 3.551, -9.275, -9.9, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 5.98, 0.1, 1.95, 0, CY, -7.725, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 1.89, 0.1, 2.9, -2.045, CY, -5.3, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 1.89, 0.1, 2.9, 2.045, CY, -5.3, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodSkin", 5.98, 0.1, 0.55, 0, CY, -3.575, 0, 0, 0, bodyColor, PL, 0.12)
+	-- V3: capo com dobra (aba) e painel interno rebaixado
+	local SLOPE = 3.551 - CY
+	local PY = 3.47
+	local FY, FH, FT = 3.45, 0.34, 0.07
+	for _, sd in ipairs({ -1, 1 }) do
+		put("HoodFold", FT, FH, 5.4, sd * 2.955, FY, -6.0, 0, 0, 0, bodyColor, PL, 0.12)
+		put("HoodFold", FT, FH, 1.17, sd * 2.955, FY + SLOPE, -9.275, -9.9, 0, 0, bodyColor, PL, 0.12)
+	end
+	put("HoodFold", 5.98, 0.3, 0.06, 0, 3.32, -9.83, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodFold", 5.9, 0.17, 0.06, 0, 3.535, -3.335, 0, 0, 0, bodyColor, PL, 0.12)
+	put("HoodLiner", 5.84, 0.04, 1.08, 0, PY + SLOPE, -9.26, -9.9, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 5.84, 0.04, 1.97, 0, PY, -7.735, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 1.84, 0.04, 2.9, -2.0, PY, -5.3, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 1.84, 0.04, 2.9, 2.0, PY, -5.3, 0, 0, 0, LIN, PL, 0)
+	put("HoodLiner", 5.84, 0.04, 0.51, 0, PY, -3.595, 0, 0, 0, LIN, PL, 0)
+	-- V4: cunhas (wedges) nas laterais do capo: chanfro do capo ate o paralama
+	do
+		local tall = Config.WedgeFlip and 90 or -90
+		for _, sd in ipairs({ -1, 1 }) do
+			local yw = sd * tall
+			put("HoodWedge", 5.4, 0.3, 0.56, sd * 3.27, 3.55, -6.0, 0, yw, 0, bodyColor, PL, 0.12, false, true)
+			put("HoodWedge", 1.17, 0.3, 0.56, sd * 3.27, 3.55 + SLOPE, -9.275, -9.9, yw, 0, bodyColor, PL, 0.12, false, true)
+		end
+	end
+	put("HoodHoleWall", 0.04, 0.24, 2.9, -1.08, CY - 0.07, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 0.04, 0.24, 2.9, 1.08, CY - 0.07, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 2.16, 0.24, 0.04, 0, CY - 0.07, -6.73, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleWall", 2.16, 0.24, 0.04, 0, CY - 0.07, -3.87, 0, 0, 0, BLK, PL, 0)
+	put("HoodHoleBead", 0.05, 0.03, 2.9, -1.12, TOP + 0.005, -5.3, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 0.05, 0.03, 2.9, 1.12, TOP + 0.005, -5.3, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 2.29, 0.03, 0.05, 0, TOP + 0.005, -6.77, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodHoleBead", 2.29, 0.03, 0.05, 0, TOP + 0.005, -3.83, 0, 0, 0, CHR, MT, 0.5)
+	put("HoodRib", 0.08, 0.18, 4.6, -2.5, 3.51, -6.2, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 4.6, 2.5, 3.51, -6.2, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 2.9, -1.3, 3.51, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodRib", 0.08, 0.18, 2.9, 1.3, 3.51, -5.3, 0, 0, 0, BLK, PL, 0)
+	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -8.1, 0, 0, 0, BLK, PL, 0)
+	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -7.0, 0, 0, 0, BLK, PL, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+				put("HoodPin", 0.3, 0.1, 0.1, sd * 2.4, TOP + 0.15, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
+		put("HoodPinCap", 0.04, 0.2, 0.2, sd * 2.4, TOP + 0.31, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
+		put("HoodHinge", 0.3, 0.12, 0.3, sd * 2.5, 3.6, -3.42, 0, 0, 0, BLK, PL, 0)
+	end
+end
+function HOOD.step(c, dt)
+	if not c.hoodW then return end
+	local tg = c.hoodT or 0
+	if c.driver and tg > 0 then
+		tg = 0
+		c.hoodT = 0
+	end
+	local ta = tg * HOOD.open
+	local cur = c.hoodA or 0
+	if cur == ta then return end
+	cur = cur + (ta - cur) * (1 - math.exp(-5 * dt))
+	if math.abs(ta - cur) < 0.002 then cur = ta end
+	c.hoodA = cur
+	c.hoodW.C0 = HOOD.hinge * CFrame.Angles(cur, 0, 0) * HOOD.hingeInv
+end
+do
+	local T = {
+		open = math.rad(70),
+		box = { loc = "trunk", tool = nil, have = { ["Martelo"] = true, ["Chave inglesa"] = true, ["Chave de fenda"] = true } },
+		order = { "Martelo", "Chave inglesa", "Chave de fenda" },
+	}
+	HOOD.T = T
+	T.hinge = CFrame.new(0, 3.9 * S, 6.12 * S)
+	T.hingeInv = T.hinge:Inverse()
+	local CF, V3 = CFrame.new, Vector3.new
+	local RED = Color3.fromRGB(196, 32, 36)
+	local DRED = Color3.fromRGB(150, 22, 26)
+	local STEEL = Color3.fromRGB(190, 194, 202)
+	local DK = Color3.fromRGB(22, 22, 26)
+	local WOOD = Color3.fromRGB(150, 102, 58)
+	local YEL = Color3.fromRGB(238, 190, 30)
+	local MT = Enum.Material.Metal
+	local PL = Enum.Material.SmoothPlastic
+	local WD = Enum.Material.Wood
+	local function sp(nm, sx, sy, sz, off, col, mat)
+		return { nm = nm, size = V3(sx, sy, sz), off = off, col = col, mat = mat }
+	end
+	T.LIFT = CF(0, -0.10, 0)
+	T.OPEN = math.rad(108)
+	T.HING = CF(0, 0.265, -0.44)
+	T.HINGINV = T.HING:Inverse()
+	do
+		local function build()
+			local CHR = Color3.fromRGB(216, 219, 226)
+			local RUB = Color3.fromRGB(26, 26, 30)
+			local ORG = Color3.fromRGB(232, 112, 28)
+			local MSTL = Color3.fromRGB(104, 108, 117)
+			local AZ = CFrame.Angles(0, math.rad(90), 0)
+			local AY = CFrame.Angles(0, 0, math.rad(90))
+			local function bl(nm, sx, sy, sz, off, col, mat, tr)
+				return { nm = nm, size = V3(sx, sy, sz), off = off, col = col, mat = mat, tr = tr }
+			end
+			local function cyl(nm, len, dia, off, col, mat)
+				return { nm = nm, size = V3(len, dia, dia), off = off, col = col, mat = mat, shape = Enum.PartType.Cylinder }
+			end
+			local function ball(nm, d, off, col, mat)
+				return { nm = nm, size = V3(d, d, d), off = off, col = col, mat = mat, shape = Enum.PartType.Ball }
+			end
+			local function seg(nm, p1, p2, dia, col, mat)
+				-- cilindro ligando dois pontos 3D
+				local d = p2 - p1
+				local len = d.Magnitude
+				d = d.Unit
+				local z = d:Cross(V3(0, 1, 0)).Unit
+				local y = z:Cross(d)
+				return cyl(nm, len + dia * 0.4, dia, CFrame.fromMatrix((p1 + p2) / 2, d, y, z), col, mat)
+			end
+			local body, lid = {}, {}
+			local function add(l, s) l[#l + 1] = s end
+			-- corpo: bandeja com cantos arredondados e borda enrolada
+			add(body, bl("Floor", 1.8, 0.05, 0.74, CF(0, -0.225, 0), RED, MT))
+			add(body, bl("FloorW", 1.68, 0.049, 0.86, CF(0, -0.2255, 0), RED, MT))
+			add(body, bl("Lining", 1.7, 0.02, 0.76, CF(0, -0.2, 0), DK, PL))
+			add(body, bl("WallF", 1.68, 0.45, 0.05, CF(0, 0.025, 0.405), RED, MT))
+			add(body, bl("WallB", 1.68, 0.45, 0.05, CF(0, 0.025, -0.405), RED, MT))
+			add(body, bl("WallL", 0.05, 0.45, 0.74, CF(-0.875, 0.025, 0), RED, MT))
+			add(body, bl("WallR", 0.05, 0.45, 0.74, CF(0.875, 0.025, 0), RED, MT))
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					add(body, cyl("Corner", 0.5, 0.12, CF(sx * 0.84, 0, sz * 0.37) * AY, RED, MT))
+					add(body, ball("CornerCap", 0.13, CF(sx * 0.84, 0.245, sz * 0.37), CHR, MT))
+					add(body, ball("CornerFoot", 0.13, CF(sx * 0.84, -0.245, sz * 0.37), RUB, PL))
+				end
+				add(body, cyl("RimSide", 0.74, 0.07, CF(sx * 0.87, 0.25, 0) * AZ, CHR, MT))
+				add(body, cyl("Hinge", 0.22, 0.07, CF(sx * 0.5, 0.265, -0.44), CHR, MT))
+				add(body, bl("LatchPlate", 0.2, 0.1, 0.02, CF(sx * 0.55, 0.15, 0.44), CHR, MT))
+				add(body, ball("LatchPin", 0.05, CF(sx * 0.55, 0.215, 0.45), MSTL, MT))
+			end
+			for _, sz in ipairs({ -1, 1 }) do
+				add(body, cyl("RimFront", 1.68, 0.07, CF(0, 0.25, sz * 0.4), CHR, MT))
+			end
+			add(body, bl("Badge", 0.3, 0.1, 0.015, CF(0, 0.02, 0.4375), CHR, MT))
+			add(body, bl("BadgeIn", 0.26, 0.06, 0.02, CF(0, 0.02, 0.4385), DK, PL))
+			-- tampa (gira na dobradiça)
+			add(lid, bl("LidTop", 1.8, 0.04, 0.74, CF(0, 0.43, 0), DRED, MT))
+			add(lid, bl("LidTopW", 1.68, 0.039, 0.86, CF(0, 0.4305, 0), DRED, MT))
+			add(lid, bl("LidSkirtF", 1.68, 0.165, 0.04, CF(0, 0.3675, 0.41), DRED, MT))
+			add(lid, bl("LidSkirtB", 1.68, 0.165, 0.04, CF(0, 0.3675, -0.41), DRED, MT))
+			add(lid, bl("LidSkirtL", 0.04, 0.165, 0.74, CF(-0.88, 0.3675, 0), DRED, MT))
+			add(lid, bl("LidSkirtR", 0.04, 0.165, 0.74, CF(0.88, 0.3675, 0), DRED, MT))
+			add(lid, bl("LidLiner", 1.64, 0.02, 0.7, CF(0, 0.4, 0), DK, PL))
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					add(lid, cyl("LidCorner", 0.165, 0.12, CF(sx * 0.84, 0.3675, sz * 0.37) * AY, DRED, MT))
+					add(lid, ball("LidCap", 0.12, CF(sx * 0.84, 0.39, sz * 0.37), DRED, MT))
+				end
+				add(lid, cyl("LidRimSide", 0.74, 0.08, CF(sx * 0.86, 0.41, 0) * AZ, DRED, MT))
+				add(lid, cyl("HandlePost", 0.09, 0.05, CF(sx * 0.32, 0.495, 0) * AY, STEEL, MT))
+				add(lid, ball("GripEnd", 0.075, CF(sx * 0.4, 0.53, 0), RUB, PL))
+				add(lid, bl("LatchTab", 0.14, 0.14, 0.02, CF(sx * 0.55, 0.29, 0.44), CHR, MT))
+			end
+			for _, sz in ipairs({ -1, 1 }) do
+				add(lid, cyl("LidRimFront", 1.68, 0.08, CF(0, 0.41, sz * 0.39), DRED, MT))
+			end
+			add(lid, cyl("Grip", 0.8, 0.075, CF(0, 0.53, 0), RUB, PL))
+			for _, s in ipairs(lid) do s.lid = true end
+			T.boxBody, T.boxLid, T.boxClosed = body, lid, {}
+			for _, s in ipairs(body) do T.boxClosed[#T.boxClosed + 1] = s end
+			for _, s in ipairs(lid) do T.boxClosed[#T.boxClosed + 1] = s end
 
-        if State.Psychosis >= PsyBar.MAX and not PsyBar.Busy then
-            PsyBar.Busy = true
-            task.spawn(function()
-                pcall(ExecCyberpsychosis)
-                -- ResetSandi ignora chamadas dentro da janela de trava logo após ativar
-                local wait_t = SandiLockTime - os.clock()
-                if wait_t > 0 then task.wait(wait_t) end
-                pcall(ResetSandi)
-                task.wait(Constants.CYBERPSYCHOSIS.Duration)
-                State.Psychosis = PsyBar.RESET_TO
-                State.PsychosisIdleSince = os.clock()
-                PsyBar.Busy = false
-            end)
-        end
-    end
-    if psyFill and psyPercentLabel and psyFill.Parent then
-        local v = State.Psychosis
-        local col
-        if v < 50 then
-            col = PsyBar.COLOR_LOW:Lerp(PsyBar.COLOR_MID, v / 50)
-        else
-            col = PsyBar.COLOR_MID:Lerp(PsyBar.COLOR_HIGH, (v - 50) / 50)
-        end
-        psyFill.Size = UDim2.new(1, 0, math.clamp(v / PsyBar.MAX, 0, 1), 0)
-        psyFill.BackgroundColor3 = col
-        -- zona de perigo (>50%): pulsa, cada vez mais rápido
-        psyPercentLabel.Text = string.format("%d%%", math.floor(v))
-        psyPercentLabel.TextColor3 = col
-        psyFill.BackgroundTransparency = v > 50 and (0.1 + 0.3 * math.abs(math.sin(os.clock() * (4 + (v - 50) / 6)))) or 0
-    end
-
-    if energyFill and energyPercentLabel then
-        local percent = State.Energy / Constants.MAX_ENERGY
-        local safePercent = math.max(0.02, percent)
-energyFill.Size = UDim2.new(1, -10, safePercent, -10)
-        energyPercentLabel.Text = string.format("%d%%", math.floor(State.Energy))
-        local barColor
-        if percent > 0.6 then
-            barColor = Colors.LIGHT_GREEN
-        elseif percent > 0.3 then
-            barColor = Colors.ENERGY_MEDIUM
-        else
-            barColor = Colors.ENERGY_LOW
-        end
-        energyFill.BackgroundColor3 = barColor
-    end
+			-- martelo de unha: cabo, cabeça com face e garra bipartida curva
+			local hammer = {
+				bl("Handle", 0.1, 0.1, 0.3, CF(), WOOD, WD, 1),
+				cyl("Shaft", 0.82, 0.085, CF(0, 0, 0.01) * AZ, WOOD, WD),
+				cyl("Grip", 0.3, 0.11, CF(0, 0, 0.22) * AZ, RUB, PL),
+				ball("GripCap", 0.12, CF(0, 0, 0.37), RUB, PL),
+				cyl("GripTop", 0.02, 0.118, CF(0, 0, 0.07) * AZ, STEEL, MT),
+				cyl("Collar", 0.06, 0.105, CF(0, 0, -0.355) * AZ, STEEL, MT),
+				cyl("Cheek", 0.15, 0.13, CF(0, 0, -0.4), STEEL, MT),
+				cyl("Neck", 0.08, 0.11, CF(0.115, 0, -0.4), STEEL, MT),
+				cyl("Poll", 0.09, 0.125, CF(0.2, 0, -0.4), STEEL, MT),
+				cyl("Face", 0.02, 0.13, CF(0.255, 0, -0.4), CHR, MT),
+			}
+			do
+				local path = {
+					{ -0.085, -0.4, 0.075, 0.022 },
+					{ -0.17, -0.404, 0.066, 0.027 },
+					{ -0.24, -0.388, 0.056, 0.033 },
+					{ -0.292, -0.35, 0.046, 0.04 },
+					{ -0.318, -0.3, 0.036, 0.046 },
+				}
+				for _, sy in ipairs({ -1, 1 }) do
+					for i = 1, #path do
+						local p = path[i]
+						local pt = V3(p[1], sy * p[4], p[2])
+						hammer[#hammer + 1] = ball("ClawJoint", p[3], CF(pt), STEEL, MT)
+						if i < #path then
+							local q = path[i + 1]
+							hammer[#hammer + 1] = seg("Claw", pt, V3(q[1], sy * q[4], q[2]), (p[3] + q[3]) / 2, STEEL, MT)
+						end
+					end
+				end
+			end
+			-- chave inglesa (ajustável): silhueta chapada feita de cunhas (triângulos), bordas arredondadas por cilindros,
+			-- cabo afunilado com painel e furo, cabeça inclinada 15°, mandíbula fixa e móvel, rosca sem-fim com janela
+			local function tri(nm, a, b, c, th, col, mat)
+				local ab, ac, bc = b - a, c - a, c - b
+				local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+				if abd > acd and abd > bcd then
+					c, a = a, c
+				elseif acd > bcd and acd > abd then
+					a, b = b, a
+				end
+				ab, ac, bc = b - a, c - a, c - b
+				local rc = ac:Cross(ab)
+				if rc.Magnitude < 1e-6 or bc.Magnitude < 1e-6 then return {} end
+				local right = rc.Unit
+				local up = bc:Cross(right).Unit
+				local back = bc.Unit
+				local h = math.max(math.abs(ab:Dot(up)), 0.001)
+				local w1 = math.max(math.abs(ab:Dot(back)), 0.001)
+				local w2 = math.max(math.abs(ac:Dot(back)), 0.001)
+				return {
+					{ nm = nm, size = V3(th, h, w1), off = CFrame.fromMatrix((a + b) / 2, right, up, back), col = col, mat = mat, wedge = true },
+					{ nm = nm, size = V3(th, h, w2), off = CFrame.fromMatrix((a + c) / 2, -right, up, -back), col = col, mat = mat, wedge = true },
+				}
+			end
+			-- polígono convexo no plano XZ (pts = {x, z}), espessura th no eixo Y, em frame opcional
+			local function poly(list, nm, pts, th, col, mat, frame)
+				frame = frame or CF()
+				local P = {}
+				for i, q in ipairs(pts) do P[i] = frame * V3(q[1], 0, q[2]) end
+				for i = 2, #P - 1 do
+					for _, w in ipairs(tri(nm, P[1], P[i], P[i + 1], th, col, mat)) do list[#list + 1] = w end
+				end
+			end
+			local HF = CF(0, 0, -0.12) * CFrame.Angles(0, math.rad(15), 0)
+			local WT, HT = 0.046, 0.06
+			local PAN = Color3.fromRGB(166, 171, 180)
+			local TZ = 0.5 -- centro da ponta redonda do cabo (cabo mais longo)
+			local wrench = { bl("Handle", 0.1, 0.05, 0.3, CF(), STEEL, MT, 1) }
+			local function wa(s) wrench[#wrench + 1] = s end
+			-- cabo: lâmina afunilada + bordas redondas + ponta redonda com furo
+			poly(wrench, "Shank", { { -0.056, -0.04 }, { 0.056, -0.04 }, { 0.042, TZ }, { -0.042, TZ } }, WT, STEEL, MT)
+			wa(seg("RailL", V3(-0.056, 0, -0.03), V3(-0.042, 0, TZ), 0.054, STEEL, MT))
+			wa(seg("RailR", V3(0.056, 0, -0.03), V3(0.042, 0, TZ), 0.054, STEEL, MT))
+			wa(cyl("Tail", 0.054, 0.138, CF(0, 0, TZ) * AY, STEEL, MT))
+			wa(cyl("TailRing", 0.056, 0.092, CF(0, 0, TZ) * AY, PAN, MT))
+			wa(cyl("TailHole", 0.058, 0.056, CF(0, 0, TZ) * AY, MSTL, MT))
+			poly(wrench, "Panel", { { -0.034, 0.02 }, { 0.034, 0.02 }, { 0.026, TZ - 0.09 }, { -0.026, TZ - 0.09 } }, WT + 0.005, PAN, MT)
+			-- pescoço: disco de ligação entre cabo e cabeça
+			wa(cyl("Joint", 0.058, 0.17, HF * CF(0, 0, 0.045) * AY, STEEL, MT))
+			-- cabeça com JANELA VAZADA (x 0.05..0.12, z -0.10..0.0), montada em 4 peças em volta
+			poly(wrench, "Head", { { -0.075, 0.075 }, { 0.05, 0.075 }, { 0.05, -0.17 }, { -0.135, -0.17 }, { -0.135, 0.0 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadTop", { { 0.05, 0.075 }, { 0.075, 0.075 }, { 0.135, 0.0 }, { 0.05, 0.0 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadSide", { { 0.12, 0.0 }, { 0.135, 0.0 }, { 0.135, -0.17 }, { 0.12, -0.17 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadBot", { { 0.05, -0.1 }, { 0.12, -0.1 }, { 0.12, -0.17 }, { 0.05, -0.17 } }, HT, STEEL, MT, HF)
+			-- mandíbulas menores: fixa (um pouco mais longa) e móvel
+			poly(wrench, "JawFixed", { { -0.135, -0.17 }, { -0.057, -0.17 }, { -0.057, -0.285 }, { -0.115, -0.27 } }, HT, STEEL, MT, HF)
+			poly(wrench, "JawMoving", { { 0.057, -0.17 }, { 0.135, -0.17 }, { 0.12, -0.255 }, { 0.057, -0.27 } }, HT, CHR, MT, HF)
+			-- rosca sem-fim de verdade: cremalheira fina atrás, eixo, núcleo e espiras (sem bloco preto)
+			local WX, WZ = 0.085, -0.05
+			wa(bl("Rack", 0.07, 0.016, 0.1, HF * CF(WX, 0, WZ), MSTL, MT))
+			wa(cyl("WormAxle", 0.112, 0.016, HF * CF(WX, 0, WZ) * AZ, DK, MT))
+			wa(cyl("WormCore", 0.096, 0.046, HF * CF(WX, 0, WZ) * AZ, MSTL, MT))
+			for k = -4, 4 do
+				wa(cyl("WormThread", 0.0085, 0.07, HF * CF(WX, 0, WZ + k * 0.0115) * CFrame.Angles(0, math.rad(14), 0) * AZ, STEEL, MT))
+			end
+			wa(cyl("WormCapA", 0.01, 0.052, HF * CF(WX, 0, WZ - 0.054) * AZ, CHR, MT))
+			wa(cyl("WormCapB", 0.01, 0.052, HF * CF(WX, 0, WZ + 0.054) * AZ, CHR, MT))
+			-- tamanho das ferramentas: martelo e chave inglesa ampliados (peças, posições e pegada)
+			local KBIG = 1.25
+			local function scaleParts(list, k)
+				for _, sp_ in ipairs(list) do
+					sp_.size = sp_.size * k
+					local pos = sp_.off.Position
+					sp_.off = CFrame.new(pos * k) * (sp_.off - pos)
+				end
+			end
+			scaleParts(hammer, KBIG)
+			scaleParts(wrench, KBIG)
+			-- ferramentas: eixo longo em Z, cabeça/ponta em -Z, "Handle" invisível no centro
+			T.tools = {
+				["Martelo"] = {
+					key = Enum.KeyCode.Q, ui = Vector2.new(-130, 30), grip = V3(0, 0, 0.2 * KBIG),
+					parts = hammer,
+				},
+				["Chave inglesa"] = {
+					key = Enum.KeyCode.R, ui = Vector2.new(0, 30), grip = V3(0, 0, 0.22 * KBIG),
+					parts = wrench,
+				},
+				["Chave de fenda"] = {
+					key = Enum.KeyCode.T, ui = Vector2.new(130, 30), grip = V3(0, 0, 0.2),
+					parts = {
+						bl("Handle", 0.1, 0.1, 0.3, CF(), ORG, PL, 1),
+						cyl("Grip", 0.36, 0.14, CF(0, 0, 0.2) * AZ, ORG, PL),
+						ball("GripCap", 0.14, CF(0, 0, 0.38), ORG, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.14) * AZ, DK, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.2) * AZ, DK, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.26) * AZ, DK, PL),
+						cyl("Ferrule", 0.07, 0.085, CF(0, 0, -0.015) * AZ, CHR, MT),
+						cyl("Shaft", 0.5, 0.045, CF(0, 0, -0.3) * AZ, STEEL, MT),
+						bl("Tip", 0.055, 0.02, 0.07, CF(0, 0, -0.57), MSTL, MT),
+					},
+				},
+			}
+			T.place = {
+				["Martelo"] = CF(-0.15, -0.109, -0.1) * CFrame.Angles(0, math.rad(268), 0),
+				["Chave inglesa"] = CF(0.26, -0.159, 0.15) * CFrame.Angles(0, math.rad(-91), 0),
+				["Chave de fenda"] = CF(0.35, -0.11, -0.3) * CFrame.Angles(0, math.rad(92), 0) * CFrame.Angles(math.rad(-6), 0, 0),
+			}
+		end
+		build()
+	end
+	function T.anim(dur, fn, done)
+		local t0 = os.clock()
+		local con
+		local finished = false
+		con = RunService.Heartbeat:Connect(function()
+			local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+			local ok = pcall(fn, a)
+			if a >= 1 or not ok then
+				con:Disconnect()
+				if not finished then
+					finished = true
+					if done then pcall(done) end
+				end
+			end
+		end)
+		return function()
+			finished = true
+			con:Disconnect()
+		end
+	end
+	local STRUT_A = { x = 3.16, y = 2.5, z = 8.0 }
+	local STRUT_B = { x = 3.16, y = 3.6, z = 7.7 }
+	function T.bindStruts(c)
+		local m = c.model
+		local list = {}
+		for _, sd in ipairs({ -1, 1 }) do
+			local tag = sd < 0 and "L" or "R"
+			local o = m:FindFirstChild("TrunkStrutOut" .. tag)
+			local r = m:FindFirstChild("TrunkStrutRod" .. tag)
+			if o and r then
+				local ow = o:FindFirstChildOfClass("Weld")
+				local rw = r:FindFirstChildOfClass("Weld")
+				if ow and rw then
+					list[#list + 1] = { sd = sd, o = o, ow = ow, r = r, rw = rw }
+				end
+			end
+		end
+		c.trunkStruts = list
+	end
+	function T.strutUpdate(c, W)
+		local list = c.trunkStruts
+		if not list then return end
+		for _, st in ipairs(list) do
+			local a = V3(st.sd * STRUT_A.x, STRUT_A.y, STRUT_A.z) * S
+			local b = W * (V3(st.sd * STRUT_B.x, STRUT_B.y, STRUT_B.z) * S)
+			local v = b - a
+			local d = v.Magnitude
+			if d > 0.01 then
+				local dir = v / d
+				local lb = d * 0.5 + 0.25 * S
+				local lr = math.max(d - lb + 0.4 * S, 0.3 * S)
+				st.o.Size = V3(lb, 0.17 * S, 0.17 * S)
+				local rot = CFrame.lookAt(V3(0, 0, 0), dir, V3(1, 0, 0)) * CFrame.Angles(0, math.pi / 2, 0)
+				st.ow.C0 = CFrame.new(a + dir * (lb / 2)) * rot
+				st.r.Size = V3(lr, 0.09 * S, 0.09 * S)
+				st.rw.C0 = CFrame.new(b - dir * (lr / 2)) * rot
+			end
+		end
+	end
+	function T.build(c)
+		local model = c.model
+		local stale = model:FindFirstChild("TrunkItems")
+		if stale then stale:Destroy() end
+		local old = model:FindFirstChild("TrunkRoot")
+		if old then
+			c.trunkW = old:FindFirstChildOfClass("Weld")
+			T.bindStruts(c)
+			T.strutUpdate(c, CFrame.new())
+			return
+		end
+		local dr = Instance.new("Part")
+		dr.Name = "TrunkRoot"
+		dr:SetAttribute("V", 1)
+		dr.Size = V3(0.2, 0.2, 0.2) * S
+		dr.Transparency = 1
+		dr.Anchored = false
+		dr.CanCollide = false
+		dr.CanQuery = false
+		dr.CanTouch = false
+		dr.Massless = true
+		dr.CastShadow = false
+		dr.Parent = model
+		local dw = Instance.new("Weld")
+		dw.Part0 = c.root
+		dw.Part1 = dr
+		dw.C0 = CFrame.new()
+		dw.Parent = dr
+		c.trunkW = dw
+		local deckC0, deckPart
+		local HW, ZW, ZE = 3.3, 7.44, 9.385
+		local th_ = math.rad(6.4188)
+		local c_, s_ = math.cos(th_), math.sin(th_)
+		local function lidLow(z)
+			local dy = -0.11
+			local dz = (z - 8 - dy * s_) / c_
+			return 3.6819 + dy * c_ - dz * s_
+		end
+		local function topAt(z)
+			return lidLow(z) - 0.05
+		end
+		for _, p in ipairs(model:GetChildren()) do
+			if p:IsA("BasePart") then
+				local w = p:FindFirstChildOfClass("Weld")
+				if w and w.Part0 == c.root and w.Part1 == p then
+					local pos = w.C0.Position
+					local x, z = pos.X / S, pos.Z / S
+					local nm = p.Name
+					if nm == "Body" and math.abs(x) < 0.01 and z > 6.25 and z < 9.35 then
+						p:Destroy()
+					elseif nm == "RearFrameBot" then
+						p.Size = V3(4.0 * S, p.Size.Y, p.Size.Z)
+						w.C0 = CFrame.new(0, -0.12 * S, 0) * w.C0
+					elseif nm == "TrunkDeck" then
+						p.Size = V3(4.06 * S, p.Size.Y, p.Size.Z)
+						w.Part0 = dr
+						deckC0 = w.C0
+						deckPart = p
+					elseif nm == "BodyCap" and math.abs(x) < 0.01 and z > 6.05 and z < 9.95 then
+						w.Part0 = dr
+						p.Size = V3((z > 7.45 and 2 * (HW + 0.04) or 4.06) * S, p.Size.Y, p.Size.Z)
+					elseif (nm == "Side" or nm == "SideCap") and z > 7.45 and z < 9.35 and math.abs(x) > 2.5 then
+						local wd = p.Size.X / S
+						local outer = math.abs(x) + wd / 2
+						local nw = outer - HW
+						if nw > 0.04 then
+							local sg = x < 0 and -1 or 1
+							p.Size = V3(nw * S, p.Size.Y, p.Size.Z)
+							w.C0 = CFrame.new(sg * (outer + HW) / 2 * S, pos.Y, pos.Z) * (w.C0 - w.C0.Position)
+						end
+					end
+				end
+			end
+		end
+		local function put(nm, sx, sy, sz, px, py, pz, col, mat, base, shape, rx, ry, rz)
+			local p = Instance.new("Part")
+			p.Name = nm
+			if shape then p.Shape = shape end
+			p.Size = V3(sx, sy, sz) * S
+			p.Color = col
+			p.Material = mat
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			p.Parent = model
+			local w = Instance.new("Weld")
+			w.Part0 = base
+			w.Part1 = p
+			w.C0 = CFrame.new(px * S, py * S, pz * S) * CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+			w.Parent = p
+			return p
+		end
+		local FAB = Enum.Material.Fabric
+		local LINER = Color3.fromRGB(32, 32, 37)
+		put("TrunkFloorBlock", 4.0, 0.55, 3.17, 0, 1.225, 7.8, Color3.fromRGB(14, 14, 17), PL, c.root)
+		put("TrunkCarpet", 3.96, 0.03, 3.13, 0, 1.515, 7.8, Color3.fromRGB(44, 44, 50), FAB, c.root)
+		for _, sd in ipairs({ -1, 1 }) do
+			put("TrunkFloorBlockW", 1.4, 0.55, 2.0, sd * 2.6, 1.225, 8.4, Color3.fromRGB(14, 14, 17), PL, c.root)
+			put("TrunkCarpetW", 1.4, 0.03, 1.97, sd * 2.6, 1.515, 8.4, Color3.fromRGB(44, 44, 50), FAB, c.root)
+		end
+		local nTop = topAt(7.42)
+		local wsegs = { { 7.42, 8.4 }, { 8.4, 9.385 } }
+		for _, sd in ipairs({ -1, 1 }) do
+			put("TrunkLiner", 0.05, nTop - 1.5, 7.42 - 6.215, sd * 1.975, (nTop + 1.5) / 2, (6.215 + 7.42) / 2, LINER, FAB, c.root)
+			for _, sg in ipairs(wsegs) do
+				local tp = topAt(sg[2])
+				put("TrunkLiner", 0.05, tp - 1.5, sg[2] - sg[1], sd * 3.275, (tp + 1.5) / 2, (sg[1] + sg[2]) / 2, LINER, FAB, c.root)
+			end
+			put("TrunkLinerWF", 1.4, nTop - 1.5, 0.05, sd * 2.6, (nTop + 1.5) / 2, 7.41, LINER, FAB, c.root)
+			local bTop = topAt(9.385)
+			put("TrunkLinerBW", 1.4, bTop - 1.5, 0.05, sd * 2.6, (bTop + 1.5) / 2, 9.36, LINER, FAB, c.root)
+		end
+		local fTop = topAt(6.24)
+		put("TrunkLinerF", 3.9, fTop - 1.5, 0.05, 0, (fTop + 1.5) / 2, 6.24, LINER, FAB, c.root)
+		local bTop2 = topAt(9.385)
+		put("TrunkLinerB", 3.9, bTop2 - 1.5, 0.05, 0, (bTop2 + 1.5) / 2, 9.36, LINER, FAB, c.root)
+		if not LITE then
+			local k = 0.676
+			local WD, DIA, RIM_IN, TIRE_OUT = 1.55, 2.9, 0.19, 0.30
+			local h = WD / 2
+			local rimD = DIA - 0.52
+			local rimR = rimD / 2
+			local hr = h - RIM_IN
+			local CHR = Color3.fromRGB(205, 209, 217)
+			local CHR2 = Color3.fromRGB(240, 243, 248)
+			local STEEL = Color3.fromRGB(172, 178, 186)
+			local TIREC = Color3.fromRGB(10, 10, 12)
+			local RIBC = Color3.fromRGB(30, 30, 33)
+			local LUGC = Color3.fromRGB(44, 44, 49)
+			local CYL = Enum.PartType.Cylinder
+			local F = CFrame.new(-2.2 * S, (1.535 + 0.775 * k) * S, 8.4 * S) * CFrame.Angles(0, 0, math.rad(90))
+			local function wp(nm, sx, sy, sz, lx, ly, lz, rx, ry, rz, col, mat, shape, rf)
+				local p = Instance.new("Part")
+				p.Name = nm
+				if shape then p.Shape = shape end
+				p.Size = V3(sx, sy, sz) * k * S
+				p.Color = col
+				p.Material = mat
+				p.Reflectance = rf or 0
+				p.Anchored = false
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.Massless = true
+				p.CastShadow = false
+				p.Parent = model
+				local w = Instance.new("Weld")
+				w.Part0 = c.root
+				w.Part1 = p
+				w.C0 = F * CFrame.new(lx * k * S, ly * k * S, lz * k * S) * CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+				w.Parent = p
+				return p
+			end
+			local function cx(nm, dd, th, face, col, mat, rf)
+				return wp(nm, th, dd, dd, hr + face - th / 2, 0, 0, 0, 0, 0, col, mat, CYL, rf)
+			end
+			local function bx(nm, th, wd, len, y, z, face, rxd, col, mat, rf)
+				return wp(nm, th, wd, len, hr + face - th / 2, y, z, rxd, 0, 0, col, mat, nil, rf)
+			end
+			local function segm(nm, th, wd, y0, z0, y1, z1, face, col, mat, rf)
+				local dy, dz = y1 - y0, z1 - z0
+				local len = math.sqrt(dy * dy + dz * dz)
+				return bx(nm, th, wd, len, (y0 + y1) / 2, (z0 + z1) / 2, face, math.deg(math.atan2(-dy, dz)), col, mat, rf)
+			end
+			local function pol(r, deg)
+				local a = math.rad(deg)
+				return r * math.cos(a), r * math.sin(a)
+			end
+			local function ring(nm, rad, radial, from, face, n, col, mat, rf, hb)
+				local th = face - from
+				local arc = 2 * math.pi * rad / n * 1.07
+				for i = 0, n - 1 do
+					local a = i * 360 / n
+					local ar = math.rad(a)
+					wp(nm, th, radial, arc, (hb or hr) + from + th / 2, rad * math.cos(ar), rad * math.sin(ar), a, 0, 0, col, mat, nil, rf)
+				end
+			end
+			wp("Tire", WD - 0.36, DIA, DIA, 0, 0, 0, 0, 0, 0, TIREC, PL, CYL, 0)
+			wp("SideWall", 0.18, DIA - 0.18, DIA - 0.18, -(h - 0.09), 0, 0, 0, 0, 0, TIREC, PL, CYL, 0)
+			ring("SideWallOut", DIA / 2 - 0.105, 0.17, TIRE_OUT - 0.18, TIRE_OUT, 36, TIREC, PL, 0, h)
+			local tw_ = WD - 0.36
+			local gap = tw_ * 0.07
+			local ribW = (tw_ - 3 * gap) / 4
+			local sp_ = ribW + gap
+			for ri = 0, 3 do
+				wp("TreadRib", ribW, DIA + 0.05, DIA + 0.05, (ri - 1.5) * sp_, 0, 0, 0, 0, 0, RIBC, PL, CYL, 0)
+			end
+			local x0, x1 = -0.18, TIRE_OUT - 0.18
+			local Rt = DIA / 2 + 0.035
+			ring("TreadOutBase", DIA / 2 - 0.095, 0.19, x0, x1, 32, TIREC, PL, 0, h)
+			for i = 0, 23 do
+				local a = i * 15 + 7.5
+				local ar = math.rad(a)
+				wp("TreadLug", (x1 - x0) * 0.8, 0.045, 0.14, h + (x0 + x1) / 2, Rt * math.cos(ar), Rt * math.sin(ar), a, 0, 0, LUGC, PL, nil, 0)
+			end
+			cx("WheelFloor", rimD - 0.06, 0.1, 0.06, Color3.fromRGB(16, 16, 19), MT, 0.25)
+			ring("RimLip", rimR + 0.01, 0.17, 0.04, 0.33, 30, CHR, MT, 0.9)
+			ring("RimStep", rimR - 0.16, 0.09, 0.04, 0.17, 26, STEEL, MT, 0.8)
+			for i = 0, 19 do
+				local ba = math.rad(i * 18 + 9)
+				local br = rimR + 0.01
+				wp("LipBolt", 0.05, 0.08, 0.08, hr + 0.38 - 0.025, br * math.cos(ba), br * math.sin(ba), 0, 0, 0, Color3.fromRGB(110, 115, 122), MT, CYL, 0.6)
+			end
+			cx("BrakeDisc", (rimR - 0.23) * 2, 0.06, 0.11, Color3.fromRGB(88, 92, 100), MT, 0.5)
+			cx("DiscHat", 0.8, 0.1, 0.16, Color3.fromRGB(28, 28, 32), MT, 0.3)
+			for i = 0, 4 do
+				local t0 = i * 72
+				local ry0, rz0 = pol(0.18, t0)
+				local ry1, rz1 = pol(0.60, t0)
+				segm("SpokeRoot", 0.2, 0.34, ry0, rz0, ry1, rz1, 0.28, CHR, MT, 0.9)
+				local qy0, qz0 = pol(0.2, t0)
+				local qy1, qz1 = pol(0.58, t0)
+				segm("SpokeRidge", 0.05, 0.14, qy0, qz0, qy1, qz1, 0.33, CHR2, MT, 1)
+				for _, sg in ipairs({ -1, 1 }) do
+					local ay, az = pol(0.52, t0)
+					local by, bz = pol(rimR - 0.1, t0 + sg * 15)
+					segm("SpokeFork", 0.2, 0.2, ay, az, by, bz, 0.28, CHR, MT, 0.9)
+					local cy2, cz2 = pol(0.56, t0)
+					local dy2, dz2 = pol(rimR - 0.2, t0 + sg * 14.5)
+					segm("ForkRidge", 0.05, 0.08, cy2, cz2, dy2, dz2, 0.33, CHR2, MT, 1)
+				end
+				local la = math.rad(i * 72 + 36)
+				wp("Lug", 0.08, 0.09, 0.09, hr + 0.34 - 0.04, 0.33 * math.cos(la), 0.33 * math.sin(la), 0, 0, 0, Color3.fromRGB(150, 155, 162), MT, CYL, 0.7)
+			end
+			cx("HubPlate", 0.52, 0.1, 0.22, CHR, MT, 0.9)
+			cx("HubRing", 0.5, 0.1, 0.34, CHR, MT, 1)
+			cx("HubCap", 0.38, 0.08, 0.39, Color3.fromRGB(13, 13, 16), PL, 0.1)
+			cx("EmblemRed", 0.26, 0.04, 0.43, Color3.fromRGB(190, 20, 24), PL, 0)
+			bx("EmblemH", 0.03, 0.03, 0.2, 0, 0, 0.47, 0, CHR, MT, 0.8)
+			bx("EmblemV", 0.03, 0.2, 0.03, 0, 0, 0.47, 0, CHR, MT, 0.8)
+		end
+		if deckC0 then
+			local ln = Instance.new("Part")
+			ln.Name = "TrunkLidLiner"
+			ln.Size = V3(3.9, 0.03, 3.7) * S
+			ln.Color = Color3.fromRGB(26, 26, 30)
+			ln.Material = PL
+			ln.Anchored = false
+			ln.CanCollide = false
+			ln.CanQuery = false
+			ln.CanTouch = false
+			ln.Massless = true
+			ln.CastShadow = false
+			ln.Parent = model
+			local lw = Instance.new("Weld")
+			lw.Part0 = dr
+			lw.Part1 = ln
+			lw.C0 = deckC0 * CFrame.new(0, -0.085 * S, 0)
+			lw.Parent = ln
+			for _, sd in ipairs({ -1, 1 }) do
+				local lw2 = ln:Clone()
+				lw2.Name = "TrunkLidLinerW"
+				lw2.Size = V3(1.38, 0.03, 2.35) * S
+				local lww = lw2:FindFirstChildOfClass("Weld")
+				lww.Part0 = dr
+				lww.Part1 = lw2
+				lww.C0 = deckC0 * CFrame.new(sd * 2.6 * S, -0.085 * S, 0.675 * S)
+				lw2.Parent = model
+				if deckPart then
+					local dw2 = deckPart:Clone()
+					dw2.Name = "TrunkDeckW"
+					dw2.Size = V3(1.44 * S, deckPart.Size.Y, 2.534 * S)
+					local dww = dw2:FindFirstChildOfClass("Weld")
+					dww.Part0 = dr
+					dww.Part1 = dw2
+					dww.C0 = deckC0 * CFrame.new(sd * 2.62 * S, 0, 0.683 * S)
+					dw2.Parent = model
+				end
+			end
+			for _, sd in ipairs({ -1, 1 }) do
+				local h = Instance.new("Part")
+				h.Name = "TrunkHinge"
+				h.Size = V3(0.3, 0.12, 0.5) * S
+				h.Color = Color3.fromRGB(12, 12, 14)
+				h.Material = PL
+				h.Anchored = false
+				h.CanCollide = false
+				h.CanQuery = false
+				h.CanTouch = false
+				h.Massless = true
+				h.CastShadow = false
+				h.Parent = model
+				local hw = Instance.new("Weld")
+				hw.Part0 = dr
+				hw.Part1 = h
+				hw.C0 = deckC0 * CFrame.new(sd * 1.7 * S, -0.15 * S, -1.7 * S)
+				hw.Parent = h
+			end
+		end
+		local DKS = Color3.fromRGB(46, 47, 53)
+		local CHRS = Color3.fromRGB(205, 209, 217)
+		local MNT = Color3.fromRGB(22, 22, 26)
+		for _, sd in ipairs({ -1, 1 }) do
+			local tag = sd < 0 and "L" or "R"
+			put("TrunkStrutMountB", 0.08, 0.3, 0.3, sd * 3.21, STRUT_A.y, STRUT_A.z, MNT, PL, c.root)
+			put("TrunkStrutMountL", 0.08, 0.2, 0.28, sd * 3.21, STRUT_B.y, STRUT_B.z, MNT, PL, dr)
+			put("TrunkStrutOut" .. tag, 1.25, 0.17, 0.17, sd * STRUT_A.x, STRUT_A.y, STRUT_A.z, DKS, MT, c.root, Enum.PartType.Cylinder)
+			put("TrunkStrutRod" .. tag, 0.5, 0.09, 0.09, sd * STRUT_A.x, STRUT_A.y, STRUT_A.z, CHRS, MT, c.root, Enum.PartType.Cylinder)
+		end
+		T.bindStruts(c)
+		T.strutUpdate(c, CFrame.new())
+	end
+	function T.sync(c)
+		local rec = c.trunkRec
+		if not rec then return end
+		local on = (c.trunkA or 0) > T.open * 0.85 and not c.driver
+		rec.on = on
+		rec.openLid(on)
+		rec.updatePrompts()
+	end
+	function T.step(c, dt)
+		local w = c.trunkW
+		if not w then return end
+		local tg = c.trunkT or 0
+		if c.driver and tg > 0 then
+			tg = 0
+			c.trunkT = 0
+		end
+		if tg > 0 and not c.trunkRec then T.fill(c) end
+		local ta = tg * T.open
+		local cur = c.trunkA or 0
+		if cur == ta then return end
+		cur = cur + (ta - cur) * (1 - math.exp(-5 * dt))
+		if math.abs(ta - cur) < 0.002 then cur = ta end
+		c.trunkA = cur
+		w.C0 = T.hinge * CFrame.Angles(-cur, 0, 0) * T.hingeInv
+		T.strutUpdate(c, w.C0)
+		T.sync(c)
+	end
+	function T.prompt(host, action, key, ui, hold, cb)
+		local pp = Instance.new("ProximityPrompt")
+		pp.ActionText = action
+		pp.ObjectText = "Caixa de ferramentas"
+		pp.KeyboardKeyCode = key
+		pp.HoldDuration = hold
+		pp.MaxActivationDistance = 9
+		pp.RequiresLineOfSight = false
+		pp.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		pp.UIOffset = ui
+		pp.Enabled = false
+		pp.Parent = host
+		track(pp.Triggered:Connect(function() cb() end))
+		return pp
+	end
+	function T.makeBox(parent, base, rel, kind, c)
+		local B = T.box
+		local rec = { kind = kind, car = c, prompts = {}, tools = {}, lid = {}, rel = rel, lidA = 0, lidWant = false, on = false }
+		local m = Instance.new("Model")
+		m.Name = "ToolBoxItem"
+		m.Parent = parent
+		rec.model = m
+		local function put(s, cf)
+			local p = Instance.new(s.wedge and "WedgePart" or "Part")
+			p.Name = s.nm
+			if s.shape then p.Shape = s.shape end
+			p.Size = s.size
+			p.Color = s.col
+			p.Material = s.mat
+			if s.tr then p.Transparency = s.tr end
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			p.Parent = m
+			local w = Instance.new("Weld")
+			w.Part0 = base
+			w.Part1 = p
+			w.C0 = rel * T.LIFT * cf
+			w.Parent = p
+			return p, w
+		end
+		function rec.setLid(a)
+			rec.lidA = a
+			local rot = T.HING * CFrame.Angles(-a, 0, 0) * T.HINGINV
+			for _, e in ipairs(rec.lid) do e.w.C0 = rel * T.LIFT * rot * e.off end
+			rec.updatePrompts()
+		end
+		function rec.updatePrompts()
+			local en = rec.on and rec.lidA > T.OPEN * 0.8
+			for _, pp in ipairs(rec.prompts) do
+				if pp.Parent and pp.Enabled ~= en then pp.Enabled = en end
+			end
+		end
+		function rec.openLid(want)
+			if rec.lidWant == want then return end
+			rec.lidWant = want
+			if rec.cancelLid then
+				rec.cancelLid()
+				rec.cancelLid = nil
+			end
+			local from, to = rec.lidA, want and T.OPEN or 0
+			local style = want and Enum.EasingStyle.Back or Enum.EasingStyle.Quad
+			rec.cancelLid = T.anim(want and 0.6 or 0.35, function(a)
+				local e = TweenService:GetValue(a, style, Enum.EasingDirection.Out)
+				rec.setLid(from + (to - from) * e)
+			end)
+		end
+		function rec.addTool(nm, animate)
+			local d = T.tools[nm]
+			if not d or rec.tools[nm] then return end
+			local list, ws, base0 = {}, {}, {}
+			for i, s in ipairs(d.parts) do
+				local p, w = put(s, T.place[nm] * s.off)
+				list[i], ws[i], base0[i] = p, w, w.C0
+			end
+			rec.tools[nm] = list
+			local pp = T.prompt(list[1], "Pegar " .. string.lower(nm), d.key, d.ui, 0.25, function() T.takeTool(rec, nm) end)
+			pp.Enabled = false
+			local keep = {}
+			for _, q in ipairs(rec.prompts) do
+				if q.Parent then keep[#keep + 1] = q end
+			end
+			keep[#keep + 1] = pp
+			rec.prompts = keep
+			if animate then
+				for i, w in ipairs(ws) do w.C0 = CF(0, 0.5, 0) * base0[i] end
+				T.anim(0.22, function(a)
+					local e = TweenService:GetValue(a, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					for i, w in ipairs(ws) do w.C0 = CF(0, 0.5 * (1 - e), 0) * base0[i] end
+				end)
+			end
+			rec.updatePrompts()
+		end
+		for i, s in ipairs(T.boxBody) do
+			local p = put(s, s.off)
+			if i == 1 then rec.base = p end
+		end
+		for _, s in ipairs(T.boxLid) do
+			local _p, w = put(s, s.off)
+			rec.lid[#rec.lid + 1] = { w = w, off = s.off }
+		end
+		local bp = T.prompt(rec.base, "Pegar caixa inteira", Enum.KeyCode.E, Vector2.new(0, -60), 0.4, function() T.takeBox(rec) end)
+		bp.Enabled = false
+		rec.prompts[#rec.prompts + 1] = bp
+		for _, nm in ipairs(T.order) do
+			if B.have[nm] then rec.addTool(nm, false) end
+		end
+		if kind == "world" then
+			rec.on = true
+			rec.openLid(true)
+		end
+		return rec
+	end
+	function T.buildTool(name, parts, grip, tip)
+		local tool = Instance.new("Tool")
+		tool.Name = name
+		tool.ToolTip = tip or name
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		tool.GripPos = grip or V3()
+		tool:SetAttribute("ChargerTool", true)
+		local handle
+		local inv = parts[1].off:Inverse()
+		for i, s in ipairs(parts) do
+			local p = Instance.new(s.wedge and "WedgePart" or "Part")
+			p.Name = (i == 1) and "Handle" or s.nm
+			if s.shape then p.Shape = s.shape end
+			p.Size = s.size
+			p.Color = s.col
+			p.Material = s.mat
+			if s.tr then p.Transparency = s.tr end
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			if i == 1 then
+				handle = p
+			else
+				local w = Instance.new("Weld")
+				w.Part0 = handle
+				w.Part1 = p
+				w.C0 = inv * s.off
+				w.Parent = p
+			end
+			p.Parent = tool
+		end
+		return tool
+	end
+	function T.give(tool)
+		local ch, hum = charParts()
+		local bp = player:FindFirstChildOfClass("Backpack")
+		if bp then
+			tool.Parent = bp
+			if hum then pcall(function() hum:EquipTool(tool) end) end
+		elseif ch then
+			tool.Parent = ch
+		end
+	end
+	function T.giveBox()
+		local B = T.box
+		local tool = T.buildTool("Caixa de Ferramentas", T.boxClosed, V3(0, 0.755, 0), "Clique: mire no porta-malas aberto para guardar, ou mire no chão para colocar")
+		B.tool = tool
+		track(tool.Activated:Connect(function() T.placeBox(tool) end))
+		track(tool.AncestryChanged:Connect(function()
+			if B.tool == tool and not tool:IsDescendantOf(game) then
+				B.tool = nil
+				B.loc = "trunk"
+			end
+		end))
+		T.give(tool)
+	end
+	function T.takeTool(rec, nm)
+		local B = T.box
+		if not B.have[nm] then return end
+		B.have[nm] = nil
+		local list = rec.tools[nm]
+		rec.tools[nm] = nil
+		local d = T.tools[nm]
+		local function finish()
+			if list then
+				for _, p in ipairs(list) do pcall(function() p:Destroy() end) end
+			end
+			if T.dead then return end
+			local tips = {
+				["Martelo"] = "Martelo - clique na lataria amassada pra desamassar. Perto da caixa aberta, guarda",
+				["Chave inglesa"] = "Chave inglesa - com o capô aberto, clique na frente do carro pra reparar o motor",
+				["Chave de fenda"] = "Chave de fenda - com o capô aberto, faz uma gambiarra se o motor morreu",
+			}
+			local tool = T.buildTool(nm, d.parts, d.grip, tips[nm] or nm)
+			if T.hold then pcall(T.hold, tool, nm) end
+			track(tool.Activated:Connect(function()
+				if not T.returnTool(tool, nm) then T.use(tool, nm) end
+			end))
+			T.give(tool)
+		end
+		if not list then
+			finish()
+			return
+		end
+		local keep = {}
+		for _, q in ipairs(rec.prompts) do
+			if q.Parent == list[1] then q.Enabled = false else keep[#keep + 1] = q end
+		end
+		rec.prompts = keep
+		local ws, base0 = {}, {}
+		for i, p in ipairs(list) do
+			local w = p:FindFirstChildOfClass("Weld")
+			ws[i], base0[i] = w, w and w.C0
+		end
+		T.anim(0.18, function(a)
+			local e = TweenService:GetValue(a, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			for i, w in ipairs(ws) do
+				if w then w.C0 = CF(0, 0.55 * e, 0) * base0[i] end
+			end
+		end, finish)
+	end
+	function T.returnTool(tool, nm)
+		local B = T.box
+		if B.have[nm] or not tool.Parent then return end
+		local ch, hum, rpart = charParts()
+		if not rpart then return end
+		local rec
+		local c = T.car
+		if c and c.trunkRec and c.model and c.model.Parent and c.root and not c.driver and (c.trunkA or 0) > T.open * 0.85 then
+			local rear = c.root.CFrame:PointToWorldSpace(V3(0, 2.5 * S, 11 * S))
+			if (rear - rpart.Position).Magnitude < 10 * S then rec = c.trunkRec end
+		end
+		if not rec and B.loc == "world" and T.worldRec and T.worldRec.base and T.worldRec.base.Parent then
+			if (T.worldRec.base.Position - rpart.Position).Magnitude < 10 then rec = T.worldRec end
+		end
+		if not rec or rec.lidA < T.OPEN * 0.6 then return end
+		B.have[nm] = true
+		tool:Destroy()
+		rec.addTool(nm, true)
+		return true
+	end
+	function T.say(msg)
+		pcall(function()
+			local g = T.toastGui
+			if not (g and g.Parent) then
+				g = Instance.new("ScreenGui")
+				g.Name = "ChargerToast"
+				g.ResetOnSpawn = false
+				g.IgnoreGuiInset = true
+				g.DisplayOrder = 60
+				local l = Instance.new("TextLabel")
+				l.Name = "L"
+				l.AnchorPoint = Vector2.new(0.5, 1)
+				l.Position = UDim2.fromScale(0.5, 0.8)
+				l.Size = UDim2.fromOffset(380, 38)
+				l.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+				l.BackgroundTransparency = 0.2
+				l.TextColor3 = Color3.fromRGB(240, 240, 245)
+				l.Font = Enum.Font.GothamMedium
+				l.TextSize = 15
+				l.TextWrapped = true
+				local cr = Instance.new("UICorner")
+				cr.CornerRadius = UDim.new(0, 10)
+				cr.Parent = l
+				l.Parent = g
+				parentGui(g)
+				T.toastGui = g
+			end
+			local l = g:FindFirstChild("L")
+			l.Text = msg
+			l.Visible = true
+			local t0 = os.clock()
+			T.toastT = t0
+			task.delay(2.4, function()
+				if T.toastT == t0 and l.Parent then l.Visible = false end
+			end)
+		end)
+	end
+	-- ponto da lataria mais perto do jogador (espaço local do carro) e a distância até ele
+	function T.carNear(c, rpart)
+		local lp = c.root.CFrame:PointToObjectSpace(rpart.Position)
+		local cx, cz = math.clamp(lp.X, -3.7 * S, 3.7 * S), math.clamp(lp.Z, -10.2 * S, 10.2 * S)
+		local dist = math.sqrt((lp.X - cx) ^ 2 + (lp.Z - cz) ^ 2)
+		return V3(cx, 2.4 * S, cz), dist
+	end
+	-- função de cada ferramenta ao clicar (fora da caixa de ferramentas)
+	function T.use(tool, nm)
+		local F = Config.ToolFx
+		if T.dead or not tool.Parent then return end
+		local now = os.clock()
+		if now - (T.useT or 0) < F.Cooldown then return end
+		T.useT = now
+		local _ch, _hum, rpart = charParts()
+		local c = T.car
+		local impactT = 0.14
+		local okPU, impPU = false, nil
+		if T.playUse then okPU, impPU = pcall(T.playUse, tool, nm) end
+		if okPU and impPU then
+			impactT = impPU
+		else
+			pcall(function()
+				local g0 = tool.Grip
+				T.anim(0.32, function(a)
+					local sn = math.sin(a * math.pi)
+					if nm == "Martelo" then
+						tool.Grip = g0 * CFrame.Angles(-1.15 * sn, 0, 0)
+					elseif nm == "Chave inglesa" then
+						tool.Grip = g0 * CFrame.Angles(-0.75 * sn, 0, 0.5 * sn)
+					else
+						tool.Grip = g0 * CFrame.Angles(0, 0, 2.2 * sn)
+					end
+				end, function() pcall(function() tool.Grip = g0 end) end)
+			end)
+		end
+		task.delay(impactT, function()
+			if T.dead or not rpart then return end
+			if not (c and c.model and c.model.Parent and c.root) then
+				T.say("Nenhum carro por perto")
+				return
+			end
+			local D = Config.Damage
+			local tp, dist = T.carNear(c, rpart)
+			if dist > F.Reach * S then
+				T.say("Chegue mais perto do carro")
+				return
+			end
+			local wp = c.root.CFrame:PointToWorldSpace(tp)
+			if nm == "Martelo" then
+				local fixed = D.fix(c, tp, F.HammerRadius * S, F.HammerFix)
+				playSound(Config.SoundLand, 0.55, fixed > 0 and 1.8 or 1.4)
+				if fixed > 0 then
+					D.sparks(wp, nil, 8)
+					T.say(D.dentCount(c) > 0 and "Desamassando... continue batendo" or "Lataria desamassada!")
+				else
+					T.say(D.dentCount(c) > 0 and "Sem amassado aqui, procure em volta" or "A lataria não tem amassados")
+				end
+				return
+			end
+			if c.driver then
+				T.say("Saia do carro primeiro")
+				return
+			end
+			local dmg = c.dmg or 0
+			if nm == "Chave inglesa" then
+				local pt = D.worstNear(c, tp, 7 * S)
+				if not pt then
+					playSound(Config.SoundDial, 0.4, 1.2)
+					local far = D.worstNear(c, tp, 1e9)
+					T.say(far and ("Chegue perto: " .. far.name .. " danificado") or "O carro está em ótimo estado")
+					return
+				end
+				if pt.hood and not ((c.hoodA or 0) > HOOD.open * 0.6) then
+					T.say("Abra o capô pra mexer em: " .. pt.name)
+					return
+				end
+				D.vset(c, pt.id, D.vval(c, pt.id) - (pt.tire and 100 or F.WrenchRepair))
+				if pt.id == "tank" and D.vval(c, "tank") < 60 then c.fuelLvl = 1 end
+				if pt.id == "rad" then c.engTemp = 0 end
+				for i = 0, 2 do
+					task.delay(i * 0.12, function() playSound(Config.SoundDial, 0.45, 1.5 + i * 0.12) end)
+				end
+				D.smoke(c)
+				T.say(string.format("%s reparado, dano restante: %d%%", pt.name, math.floor(D.vval(c, pt.id) + 0.5)))
+			else
+				if not (tp.Z < -2 * S and (c.hoodA or 0) > HOOD.open * 0.6) then
+					T.say("Abra o capô e fique na frente do carro")
+					return
+				end
+				if dmg >= D.DeadAt then
+					c.dmg = D.DeadAt - F.HotwireLeft
+					playSound(Config.SoundDial, 0.6, 0.9)
+					D.sparks(wp, nil, 14)
+					D.smoke(c)
+					T.say("Gambiarra feita: o motor volta a ligar, mas fraco")
+				elseif dmg > 0 then
+					playSound(Config.SoundDial, 0.4, 1.3)
+					T.say("Só a chave inglesa conserta isso de vez")
+				else
+					playSound(Config.SoundDial, 0.4, 1.3)
+					T.say("Não há nada pra ajustar no motor")
+				end
+			end
+		end)
+	end
+	function T.takeBox(rec)
+		local B = T.box
+		if B.loc == "carried" then return end
+		B.loc = "carried"
+		if rec.kind == "trunk" and rec.car then
+			local c = rec.car
+			c.trunkRec = nil
+			if c.trunkItems then
+				c.trunkItems:Destroy()
+				c.trunkItems = nil
+			end
+		elseif rec.folder then
+			rec.folder:Destroy()
+			if T.worldRec == rec then T.worldRec = nil end
+		end
+		T.giveBox()
+	end
+	function T.aim(ex)
+		local cam = workspace.CurrentCamera
+		if not cam then return nil end
+		local loc
+		if UIS.TouchEnabled and not UIS.MouseEnabled then
+			loc = cam.ViewportSize / 2
+		else
+			loc = UIS:GetMouseLocation()
+		end
+		local ray = cam:ViewportPointToRay(loc.X, loc.Y)
+		local prm = RaycastParams.new()
+		prm.FilterType = Enum.RaycastFilterType.Exclude
+		prm.FilterDescendantsInstances = ex
+		return workspace:Raycast(ray.Origin, ray.Direction * 300, prm)
+	end
+	function T.placeBox(tool)
+		local B = T.box
+		if B.tool ~= tool then return end
+		local ch, hum, rpart = charParts()
+		if not rpart then return end
+		local c = T.car
+		-- guarda no porta-malas só se você estiver mirando nele
+		if c and c.model and c.model.Parent and c.root and not c.driver and (c.trunkA or 0) > T.open * 0.85 then
+			local h1 = T.aim({ ch })
+			if h1 and h1.Instance:IsDescendantOf(c.model) then
+				local tp = c.root.CFrame:PointToWorldSpace(V3(0.9 * S, 1.53 * S, 7.8 * S))
+				if (h1.Position - tp).Magnitude < 5 * S and (tp - rpart.Position).Magnitude < 16 * S then
+					B.tool = nil
+					B.loc = "trunk"
+					tool:Destroy()
+					T.fill(c)
+					return
+				end
+			end
+		end
+		-- no chão: onde você está mirando (ou à frente, se não houver mira válida)
+		local ex = { ch }
+		if c and c.model then ex[#ex + 1] = c.model end
+		local look = rpart.CFrame.LookVector
+		local fwd = V3(look.X, 0, look.Z)
+		if fwd.Magnitude < 0.05 then fwd = V3(0, 0, -1) end
+		fwd = fwd.Unit
+		local pos
+		local hit = T.aim(ex)
+		if hit then
+			local flat = V3(hit.Position.X - rpart.Position.X, 0, hit.Position.Z - rpart.Position.Z)
+			if flat.Magnitude >= 2.5 then
+				fwd = flat.Unit
+				if flat.Magnitude <= 14 then
+					pos = hit.Position
+				else
+					local p2 = rpart.Position + fwd * 14
+					local prm = RaycastParams.new()
+					prm.FilterType = Enum.RaycastFilterType.Exclude
+					prm.FilterDescendantsInstances = ex
+					local h2 = workspace:Raycast(p2 + V3(0, 10, 0), V3(0, -30, 0), prm)
+					pos = h2 and h2.Position or nil
+				end
+			end
+		end
+		if not pos then
+			local prm = RaycastParams.new()
+			prm.FilterType = Enum.RaycastFilterType.Exclude
+			prm.FilterDescendantsInstances = ex
+			local from = rpart.Position + fwd * 3.5 + V3(0, 1, 0)
+			local h3 = workspace:Raycast(from, V3(0, -14, 0), prm)
+			pos = h3 and h3.Position or (rpart.Position + fwd * 3.5 - V3(0, 2.8, 0))
+		end
+		pos = pos + V3(0, 0.36, 0)
+		B.tool = nil
+		B.loc = "world"
+		tool:Destroy()
+		local f = Instance.new("Folder")
+		f.Name = "ChargerToolbox"
+		f.Parent = workspace
+		local a = Instance.new("Part")
+		a.Name = "Anchor"
+		a.Size = V3(0.2, 0.2, 0.2)
+		a.Transparency = 1
+		a.Anchored = true
+		a.CanCollide = false
+		a.CanQuery = false
+		a.CanTouch = false
+		a.CFrame = CFrame.lookAt(pos, pos + fwd)
+		a.Parent = f
+		local rec = T.makeBox(f, a, CF(), "world", nil)
+		rec.folder = f
+		T.worldRec = rec
+	end
+	function T.fill(c)
+		local B = T.box
+		T.car = c
+		if B.loc ~= "trunk" or c.trunkRec or not c.model or not c.model.Parent then return end
+		local f = Instance.new("Folder")
+		f.Name = "TrunkItems"
+		f.Parent = c.model
+		c.trunkItems = f
+		c.trunkRec = T.makeBox(f, c.root, CF(0.9 * S, 1.53 * S + 0.35, 7.8 * S), "trunk", c)
+		T.sync(c)
+	end
+	function T.cleanup()
+		local B = T.box
+		T.dead = true
+		pcall(function() if B.tool then B.tool:Destroy() end end)
+		pcall(function() if T.worldRec and T.worldRec.folder then T.worldRec.folder:Destroy() end end)
+		local function sweep(holder)
+			if not holder then return end
+			for _, t in ipairs(holder:GetChildren()) do
+				if t:IsA("Tool") and t:GetAttribute("ChargerTool") then pcall(function() t:Destroy() end) end
+			end
+		end
+		pcall(sweep, player:FindFirstChildOfClass("Backpack"))
+		pcall(sweep, player.Character)
+	end
+end
+local function attachLogic(car, bodyColor)
+	HOOD.build(car, bodyColor)
+	HOOD.T.build(car)
+	car.animate = function(c, dt, spd)
+		HOOD.step(c, dt)
+		HOOD.T.step(c, dt)
+		local a = math.clamp((c.rpm or 0) / 7000, 0, 1)
+		local run = math.clamp((c.rpm or 0) / 300, 0, 1)
+		if c.shiftW then
+			local tg = c.mode == "P" and -0.26 or (c.mode == "R" and -0.1 or (c.mode == "N" and 0.07 or 0.23))
+			local roll = Config.EnginePerf.Shake and math.sin(os.clock() * 38) * 0.006 * a or 0
+			local kk = c.gearKick
+			if kk then
+				local e = os.clock() - kk
+				if e < 0.35 then roll = roll + math.sin(e / 0.35 * math.pi) * 0.1 * (c.gearDir or 1) else c.gearKick = nil end
+			end
+			local cur = c._shAng or tg
+			cur = cur + (tg - cur) * (1 - math.exp(-16 * dt))
+			c._shAng = cur
+			c.shiftW.C0 = c.shiftBase * CFrame.Angles(cur, 0, roll)
+		end
+		local E = Config.EnginePerf
+		c._engAcc = (c._engAcc or 0) + dt
+		if E.Enabled and c._engAcc >= 1 / E.Hz then
+			local edt = c._engAcc
+			c._engAcc = 0
+			local cam = workspace.CurrentCamera
+			local far = cam and (cam.CFrame.Position - c.root.Position).Magnitude > E.LodDist
+			local rpm = c.rpm or 0
+			if not far then
+				if run > 0 then
+					c._bwOn = true
+					if E.Shake then
+						c.bw.C0 = CFrame.new(0, math.sin(os.clock() * 55) * 0.012 * S * (0.3 + a) * run, math.sin(os.clock() * 47) * 0.008 * S * a * run)
+					end
+				elseif c._bwOn then
+					c._bwOn = false
+					c.bw.C0 = CFrame.new()
+				end
+				if rpm > 1 or c._spinRest ~= true then
+					c._spinRest = rpm <= 1
+					c._ang = (c._ang or 0) + edt * rpm / 900 * 3.25
+					local ang = c._ang
+					local mul = { spin1 = 1.2, spin2 = 1.547, spin3 = 2.4, spin4 = 2.4, spin5 = 3.2, spin6 = 3.2, spin7 = 3.2, spin8 = 5, spin9 = 2.2 }
+					do
+						for nm, sp in pairs(c.spin) do
+							if E.Spin or nm == "spin8" or nm == "spin9" then
+							sp.w.C0 = sp.base * CFrame.Angles(0, 0, -ang * mul[nm])
+							end
+						end
+					end
+					local RUNLEN = 0.9915
+					local RUNSEG = RUNLEN / 8
+					local moved = ang * 1.2 * 0.58
+					local dirL = Vector3.new(-0.1300, 0.9915, 0)
+					local dirR = Vector3.new(0.1300, 0.9915, 0)
+					if E.Chain then
+						for _, ch in ipairs(c.chain) do
+							local u0 = (ch.i + 0.5) * RUNSEG
+							local u = (u0 + (ch.left and moved or -moved)) % RUNLEN
+							ch.w.C0 = ch.base + (ch.left and dirL or dirR) * ((u - u0) * S)
+						end
+					end
+				end
+			end
+		end
+		local th = math.floor((c.throttle or 0) * 8 + 0.5) / 8
+		if c._glowQ ~= th then
+			c._glowQ = th
+			local gc = Color3.fromRGB(math.floor(120 + 135 * th), math.floor(15 + 50 * th), math.floor(15 + 40 * th))
+			for _, p in ipairs(c.glow) do p.Color = gc end
+		end
+		if c.win then
+			local p = c.winP or 0
+			local t = c.winT or 0
+			if p ~= t then
+				local st = dt / 1.4
+				if p < t then p = math.min(t, p + st) else p = math.max(t, p - st) end
+				c.winP = p
+				local e = p * p * (3 - 2 * p)
+				local d = 1.28 * e * S
+				for _, g in ipairs(c.win) do
+					local dd = (g.sd < 0) and d or 0
+					g.w.C0 = ((g.door and c.doorX) or CFrame.new()) * CFrame.new(g.sd * 0.2236 * dd, -dd, 0) * g.base
+				end
+				for _, k in ipairs(c.crank) do
+					k.w.C0 = ((k.door and c.doorX) or CFrame.new()) * k.base * CFrame.Angles(k.sd * ((k.sd < 0) and e or 0) * 9 * (Config.CrankDir or 1), 0, 0)
+				end
+			end
+		end
+		if c.lampKnob then
+			local k = c.lampKnob
+			local want = c.lamps and 1 or 0
+			if k.x == nil then
+				k.x, k.v, k.tgt, k.seen, k.gate = want, 0, want, want, 0
+				k.dirty = true
+			end
+			if k.seen ~= want then
+				k.seen = want
+				local DAk = Config.DriveAnim
+				k.gate = c.lampHandOn and (os.clock() + 0.3 * ((DAk and DAk.LampTime) or 0.9)) or 0
+			end
+			if k.tgt ~= want and os.clock() >= k.gate then k.tgt = want end
+			local dtc = math.min(dt, 1 / 30)
+			local v = k.v + ((k.tgt - k.x) * 320 - k.v * 19) * dtc
+			local x = k.x + v * dtc
+			if math.abs(k.tgt - x) < 0.0004 and math.abs(v) < 0.01 then x, v = k.tgt, 0 end
+			if x ~= k.x or k.dirty then
+				k.dirty = false
+				k.x, k.v = x, v
+				k.w.C0 = k.base * CFrame.new(0, 0, 0.3 * S * x) * CFrame.Angles(0, 0, 0.28 * x)
+			else
+				k.v = v
+			end
+			if c.lampLed and k.ledOn ~= (k.tgt == 1) then
+				k.ledOn = k.tgt == 1
+				c.lampLed.Material = k.ledOn and MATS.N or MATS.P
+				c.lampLed.Color = k.ledOn and Color3.fromRGB(255, 170, 40) or Color3.fromRGB(70, 42, 10)
+			end
+		end
+		if c._lensOn ~= c.lamps then
+			c._lensOn = c.lamps
+			for _, p in ipairs(c.lens) do
+				if c.lamps then
+					p.Material = MATS.N
+					p.Color = Color3.fromRGB(255, 244, 210)
+				else
+					p.Material = MATS.G
+					p.Color = COLS.H
+				end
+			end
+		end
+	end
+	car.shellName = "Charger R/T 1970"
+	car._body = bodyColor
+	car.setShell = function(n) car.shellName = "Charger R/T 1970" end
+	car.apply = function(T)
+		if car._body ~= T.BodyColor then
+			for _, p in ipairs(car.model:GetDescendants()) do
+				if p:IsA("BasePart") and p.Color == car._body then p.Color = T.BodyColor end
+			end
+			car._body = T.BodyColor
+		end
+		SEAT_REL = CFrame.new(-1.55 * S, (1.5 + T.SeatHeight) * S, 1.2 * S)
+		Config.TopSpeed = T.TopSpeed
+	end
+	car.apply(Config.Tweaks)
+end
+local function buildCarRaw()
+	COLS.B = Config.Tweaks.BodyColor or Config.BodyColor
+	local model = Instance.new("Model")
+	model.Name = CAR_NAME
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(1, 1, 1)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.CFrame = CFrame.new(0, 1000, 0)
+	root.Parent = model
+	model.PrimaryPart = root
+	local function add(name, size, cf, color, mat, shape, tr, base, refl)
+		if LITE and (LITE_SKIP[name] or (Config.LiteMode == "super" and LITE_SKIP2[name])) then return nil, nil end
+		local p = (shape == "wedge") and Instance.new("WedgePart") or Instance.new("Part")
+		p.Name = name
+		if shape == "cyl" then p.Shape = Enum.PartType.Cylinder
+		elseif shape == "ball" then p.Shape = Enum.PartType.Ball end
+		p.Size = size * S
+		p.Color = color
+		p.Material = mat or MATS.P
+		p.Transparency = tr or 0
+		p.Reflectance = refl or 0
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		if (p.Size.Magnitude < 1.6 * S and not TIRE_PARTS[name]) or Config.LiteMode == "super" then p.CastShadow = false end
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Parent = model
+		local w = Instance.new("Weld")
+		w.Part0 = base or root
+		w.Part1 = p
+		w.C0 = CFrame.new(cf.Position * S) * (cf - cf.Position)
+		w.Parent = p
+		return p, w
+	end
+	local car = { model = model, root = root, wheels = {}, tails = {}, revs = {}, lampList = {}, smoke = {}, wheelOff = {}, lens = {}, chain = {}, win = {}, crank = {} }
+	local blowerBase, blowerW = add("BlowerBase", V(0.2, 0.2, 0.2), CFrame.new(), COLS.K, MATS.P, nil, 1, nil, 0)
+	car.bw = blowerW
+	car.spin = {}
+	car.glow = {}
+	local spinBase = {}
+	for nm, ps in pairs(SPINS) do
+		local bp, bw = add("SpinBase", V(0.1, 0.1, 0.1), CFrame.new(ps[1], ps[2], ps[3]), COLS.K, MATS.P, nil, 1, nil, 0)
+		spinBase[nm] = bp
+		car.spin[nm] = { w = bw, base = bw.C0 }
+	end
+	local plateText
+	do
+		local rng = Random.new()
+		local L = "ABCDEFGHJKLMNPRSTUVWXYZ"
+		local t = tostring(rng:NextInteger(1, 9))
+		for _ = 1, 3 do local n = rng:NextInteger(1, #L); t = t .. string.sub(L, n, n) end
+		for _ = 1, 3 do t = t .. tostring(rng:NextInteger(0, 9)) end
+		plateText = t
+	end
+	for _, d in ipairs(PARTS) do
+		local nm, sh, sx, sy, sz, x, y, z, rx, ry, rz, ck, mk, rf, tr, g = table.unpack(d)
+		local base = (g == "blower") and blowerBase or spinBase[g]
+		if sh == "w" and not Config.WedgeFlip then
+			ry = ry + 180
+			if nm == "DoorGlass" or nm == "SideEndWedge" then rz = -rz end
+		end
+		local p, pw = add(nm, V(sx, sy, sz), P(x, y, z, rx, ry, rz), COLS[ck], MATS[mk], SHAPES[sh], tr, base, rf)
+		if nm == "DoorGlass" and pw then car.win[#car.win + 1] = { w = pw, base = pw.C0, sd = (x < 0) and -1 or 1 } end
+		if nm == "GrilleBadge" then
+			local sg = Instance.new("SurfaceGui")
+			sg.Face = Enum.NormalId.Front
+			sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			sg.CanvasSize = Vector2.new(440, 96)
+			sg.LightInfluence = 0
+			sg.Parent = p
+			local tl = Instance.new("TextLabel")
+			tl.Size = UDim2.fromScale(1, 1)
+			tl.BackgroundTransparency = 1
+			tl.RichText = true
+			tl.Text = '<i><font color="#e8eaee">Charger</font></i> <font color="#e0141c"><b>R/T</b></font>'
+			tl.TextScaled = true
+			tl.Font = Enum.Font.GothamBold
+			tl.Parent = sg
+		end
+		if nm == "Plate" then
+			local sg = Instance.new("SurfaceGui")
+			sg.Face = Enum.NormalId.Back
+			sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			sg.CanvasSize = Vector2.new(300, 140)
+			sg.LightInfluence = 0.6
+			sg.Parent = p
+			local fr = Instance.new("Frame")
+			fr.AnchorPoint = Vector2.new(0.5, 0.5)
+			fr.Position = UDim2.fromScale(0.5, 0.5)
+			fr.Size = UDim2.fromScale(0.95, 0.86)
+			fr.BackgroundTransparency = 1
+			fr.Parent = sg
+			local st = Instance.new("UIStroke")
+			st.Thickness = 3
+			st.Color = Color3.fromRGB(24, 34, 84)
+			st.Parent = fr
+			local tl = Instance.new("TextLabel")
+			tl.AnchorPoint = Vector2.new(0.5, 0.5)
+			tl.Position = UDim2.fromScale(0.5, 0.5)
+			tl.Size = UDim2.fromScale(0.9, 0.62)
+			tl.BackgroundTransparency = 1
+			tl.TextScaled = true
+			tl.Font = Enum.Font.GothamBlack
+			tl.TextColor3 = Color3.fromRGB(24, 34, 84)
+			tl.Text = plateText
+			tl.Parent = fr
+		end
+		if g == "chainL" or g == "chainR" then
+			car.chain[#car.chain + 1] = { w = pw, base = pw.C0, left = (g == "chainL"), i = tonumber(string.match(nm, "%d+$")) or 0 }
+		end
+		if g == "tail" then car.tails[#car.tails + 1] = p
+		elseif g == "rev" then car.revs[#car.revs + 1] = p
+		elseif g == "glow" then car.glow[#car.glow + 1] = p
+		elseif g == "lens" or g == "lens2" then car.lens[#car.lens + 1] = p end
+	end
+	do
+		local FZ = { { -9.9, 3.44 }, { -9.3, 3.595 }, { -8.7, 3.642 }, { -8.1, 3.646 }, { -3.3, 3.642 }, { -2.7, 3.624 }, { -2.3, 3.605 }, { -1.5, 3.587 }, { -0.7, 3.573 }, { 0.1, 3.562 }, { 0.9, 3.582 }, { 1.7, 3.601 }, { 2.5, 3.62 }, { 3.3, 3.66 }, { 4.1, 3.7 }, { 4.3, 3.71 }, { 7.5, 3.71 }, { 8.1, 3.692 }, { 8.7, 3.644 }, { 9.3, 3.596 }, { 9.9, 3.436 } }
+		local TZ = { { -9.9, 3.28 }, { -9.3, 3.356 }, { -8.1, 3.415 }, { -7.5, 3.445 }, { -3.9, 3.625 }, { -2.7, 3.684 }, { -2.3, 3.722 }, { -1.5, 3.74 }, { -0.7, 3.759 }, { 0.1, 3.776 }, { 1.7, 3.814 }, { 3.3, 3.876 }, { 4.1, 3.912 }, { 4.3, 3.92 }, { 5.5, 3.9 }, { 7.5, 3.833 }, { 8.1, 3.77 }, { 8.7, 3.71 }, { 9.3, 3.64 }, { 9.9, 3.52 } }
+		local function interp(tb, z)
+			if z <= tb[1][1] then return tb[1][2] end
+			for i = 2, #tb do
+				local a, b = tb[i - 1], tb[i]
+				if z <= b[1] then return a[2] + (b[2] - a[2]) * (z - a[1]) / (b[1] - a[1]) end
+			end
+			return tb[#tb][2]
+		end
+		local function bumpT(z)
+			if z >= 7.3 and z <= 9.4 then return 0.09 * math.sin((z - 7.3) / 2.1 * math.pi) end
+			if z >= -9.2 and z <= -7.3 then return 0.07 * math.sin((z + 9.2) / 1.9 * math.pi) end
+			return 0
+		end
+		for _, sd in ipairs({ -1, 1 }) do
+			local function face(z) return interp(FZ, z) end
+			local function skin(z)
+				local f = interp(FZ, z) + bumpT(z)
+				if z > -2.2 and z < 2.4 then f = f + 0.045 end
+				return f
+			end
+			local function put(nm, sx, sy, sz, z, y, off, col, mat, shape, refl)
+				return add(nm, V(sx, sy, sz), P(sd * (skin(z) + off), y, z), col, mat, shape, 0, nil, refl or 0)
+			end
+			local function putF(nm, sx, sy, sz, z, y, off, col, mat, shape, refl)
+				return add(nm, V(sx, sy, sz), P(sd * (face(z) + off), y, z), col, mat, shape, 0, nil, refl or 0)
+			end
+			for i = 0, 10 do
+				local z = -2.0 + i * 0.4
+				add("DoorSkin", V(0.045, 2.2, 0.43), P(sd * (face(z) + 0.0225), 2.52, z), COLS.B, MATS.P, nil, 0, nil, 0.12)
+			end
+			for i = 0, 6 do
+				local z = -9.1 + i * 0.3
+				local t = bumpT(z)
+				add("FlareSkin", V(t + 0.02, 1.7, 0.33), P(sd * (face(z) + t / 2), 2.4, z), COLS.B, MATS.P, nil, 0, nil, 0.12)
+				local z2 = 7.5 + i * 0.3
+				local t2 = bumpT(z2)
+				add("FlareSkin", V(t2 + 0.02, 1.7, 0.33), P(sd * (face(z2) + t2 / 2), 2.4, z2), COLS.B, MATS.P, nil, 0, nil, 0.12)
+			end
+			for i = 0, 34 do
+				local z = -8.6 + i * 0.5
+				local yc = interp(TZ, z) - 0.55
+				put("ShoulderRidge", 0.07, 0.08, 0.55, z, yc, 0.035, COLS.B, MATS.P, nil, 0.12)
+			end
+			for i = 0, 14 do
+				local z = -3.3 + i * 0.5
+				put("LowerBead", 0.06, 0.075, 0.55, z, 1.95, 0.03, COLS.B, MATS.P, nil, 0.12)
+			end
+			for i = 0, 11 do
+				local z = -2.2 + i * 0.5
+				put("RockerChrome", 0.055, 0.13, 0.56, z, 1.2, 0.03, COLS.C, MATS.M, nil, 0.4)
+			end
+			for i = 0, 15 do
+				local z = -2.2 + i * 0.4
+				putF("BeltMolding", 0.09, 0.05, 0.45, z, interp(TZ, z) + 0.02, -0.03, COLS.C, MATS.M, nil, 0.45)
+			end
+			put("FenderCrease", 0.07, 1.9, 0.09, -2.62, 2.4, 0.035, COLS.B, MATS.P, nil, 0.12)
+			put("HandlePocket", 0.03, 0.27, 0.82, 1.55, 3.5, 0.02, COLS.K, MATS.P, nil, 0)
+			put("Handle", 0.07, 0.1, 0.64, 1.55, 3.5, 0.06, COLS.C, MATS.M, nil, 0.5)
+			put("HandlePost", 0.05, 0.09, 0.08, 1.28, 3.5, 0.045, COLS.C, MATS.M, nil, 0.5)
+			put("HandlePost", 0.05, 0.09, 0.08, 1.82, 3.5, 0.045, COLS.C, MATS.M, nil, 0.5)
+			put("HandleButton", 0.08, 0.16, 0.16, 0.98, 3.5, 0.075, COLS.C2, MATS.M, "cyl", 0.5)
+			put("LockRing", 0.05, 0.14, 0.14, 0.52, 3.5, 0.045, COLS.C, MATS.M, "cyl", 0.5)
+			put("LockSlot", 0.055, 0.035, 0.08, 0.52, 3.5, 0.05, COLS.K, MATS.P, nil, 0)
+			if sd == -1 then
+				put("FuelRing", 0.05, 0.44, 0.44, 8.6, 2.15, 0.025, COLS.C, MATS.M, "cyl", 0.5)
+				put("FuelCap", 0.06, 0.34, 0.34, 8.6, 2.15, 0.03, COLS.D, MATS.M, "cyl", 0.3)
+				put("FuelKnob", 0.075, 0.1, 0.1, 8.6, 2.15, 0.045, COLS.C, MATS.M, "cyl", 0.5)
+			end
+		end
+	end
+	local defs = { { -1, -5.6, true }, { 1, -5.6, true }, { -1, 5.6, false }, { 1, 5.6, false } }
+	local TIRE_OUT, RIM_IN = 0.30, 0.19
+	for i, d in ipairs(defs) do
+		local sd, z, front = d[1], d[2], d[3]
+		local w = front and 1.1 or 1.55
+		local dia = front and 2.7 or 2.9
+		local yc = front and 1.35 or 1.45
+		local cx = (front and 3.0 or 2.88) - TIRE_OUT
+		local f = w / 2 - 0.07
+		local base = CFrame.new(sd * cx * S, yc * S, z * S)
+		local kn = Instance.new("Part")
+		kn.Name = "Knuckle"
+		kn.Size = Vector3.new(0.2, 0.2, 0.2)
+		kn.Transparency = 1
+		kn.CanCollide = false
+		kn.CanQuery = false
+		kn.CanTouch = false
+		kn.Massless = true
+		kn.Parent = model
+		local kw = Instance.new("Weld")
+		kw.Part0 = root
+		kw.Part1 = kn
+		kw.C0 = base
+		kw.Parent = kn
+		local h = w / 2
+		local rimD = dia - 0.52
+		local rimR = rimD / 2
+		local hr = h - RIM_IN
+		local CHR = Color3.fromRGB(205, 209, 217)
+		local CHR2 = Color3.fromRGB(240, 243, 248)
+		local STEEL = Color3.fromRGB(172, 178, 186)
+		local DISC0 = Color3.fromRGB(88, 92, 100)
+		local tire, tw = add("Tire", V(w - 0.36, dia, dia), P(0, 0, 0), COLS.T, MATS.P, "cyl", 0, kn, 0)
+		local spokes, discs = {}, {}
+		local function cx_(nm, dd, th, face, col, mat, rf, list)
+			local p = add(nm, V(th, dd, dd), P(sd * (hr + face - th / 2), 0, 0), col, mat, "cyl", 0, tire, rf)
+			if list then list[#list + 1] = p end
+			return p
+		end
+		local function bx(nm, th, wd, len, y, z, face, rxd, col, mat, rf, list)
+			local p = add(nm, V(th, wd, len), P(sd * (hr + face - th / 2), y, z, rxd, 0, 0), col, mat, nil, 0, tire, rf)
+			if list then list[#list + 1] = p end
+			return p
+		end
+		local function segm(nm, th, wd, y0, z0, y1, z1, face, col, mat, rf, list)
+			local dy, dz = y1 - y0, z1 - z0
+			local len = math.sqrt(dy * dy + dz * dz)
+			return bx(nm, th, wd, len, (y0 + y1) / 2, (z0 + z1) / 2, face, math.deg(math.atan2(-dy, dz)), col, mat, rf, list)
+		end
+		local function pol(r, deg)
+			local a = math.rad(deg)
+			return r * math.cos(a), r * math.sin(a)
+		end
+		local function ring(nm, rad, radial, from, face, n, col, mat, rf, hb)
+			local th = face - from
+			local arc = 2 * math.pi * rad / n * 1.07
+			for k = 0, n - 1 do
+				local a = k * 360 / n
+				local ar = math.rad(a)
+				add(nm, V(th, radial, arc), P(sd * ((hb or hr) + from + th / 2), rad * math.cos(ar), rad * math.sin(ar), a, 0, 0), col, mat, nil, 0, tire, rf)
+			end
+		end
+		add("SideWall", V(0.18, dia - 0.18, dia - 0.18), P(-sd * (h - 0.09), 0, 0), COLS.T, MATS.P, "cyl", 0, tire, 0)
+		ring("SideWallOut", dia / 2 - 0.105, 0.17, TIRE_OUT - 0.18, TIRE_OUT, 36, COLS.T, MATS.P, 0, h)
+		do
+			local tw_ = w - 0.36
+			local gap = tw_ * 0.07
+			local ribW = (tw_ - 3 * gap) / 4
+			local sp_ = ribW + gap
+			for ri = 0, 3 do
+				add("TreadRib", V(ribW, dia + 0.05, dia + 0.05), P((ri - 1.5) * sp_, 0, 0), Color3.fromRGB(30, 30, 33), MATS.P, "cyl", 0, tire, 0)
+			end
+			local Rt = dia / 2 + 0.035
+			local beta = 55
+			local armL = tw_ * 0.5
+			local reach = armL * math.cos(math.rad(beta)) * 0.5
+			for k = 0, 23 do
+				local a = k * 15
+				local ar = math.rad(a)
+				for _, sx in ipairs({ -1, 1 }) do
+					add("TreadLug", V(armL, 0.045, 0.14), P(sx * reach, Rt * math.cos(ar), Rt * math.sin(ar), a, -sx * beta, 0), Color3.fromRGB(44, 44, 49), MATS.P, nil, 0, tire, 0)
+				end
+			end
+			local x0, x1 = -0.18, TIRE_OUT - 0.18
+			ring("TreadOutBase", dia / 2 - 0.095, 0.19, x0, x1, 32, COLS.T, MATS.P, 0, h)
+			local pos = x0 + gap
+			while pos + 0.03 < x1 do
+				ring("TreadOutRib", dia / 2 - 0.04, 0.13, pos, math.min(pos + ribW, x1), 32, Color3.fromRGB(30, 30, 33), MATS.P, 0, h)
+				pos = pos + ribW + gap
+			end
+			for k = 0, 23 do
+				local a = k * 15 + 7.5
+				local ar = math.rad(a)
+				add("TreadLug", V((x1 - x0) * 0.8, 0.045, 0.14), P(sd * (h + (x0 + x1) / 2), Rt * math.cos(ar), Rt * math.sin(ar), a, 0, 0), Color3.fromRGB(44, 44, 49), MATS.P, nil, 0, tire, 0)
+			end
+		end
+		cx_("WheelFloor", rimD - 0.06, 0.1, 0.06, Color3.fromRGB(16, 16, 19), MATS.M, 0.25)
+		ring("RimLip", rimR + 0.01, 0.17, 0.04, 0.33, 30, CHR, MATS.M, 0.9)
+		ring("RimStep", rimR - 0.16, 0.09, 0.04, 0.17, 26, STEEL, MATS.M, 0.8)
+		for k = 0, 19 do
+			local ba = math.rad(k * 18 + 9)
+			local br = rimR + 0.01
+			add("LipBolt", V(0.05, 0.08, 0.08), P(sd * (hr + 0.38 - 0.025), br * math.cos(ba), br * math.sin(ba)), Color3.fromRGB(110, 115, 122), MATS.M, "cyl", 0, tire, 0.6)
+		end
+		local discR = rimR - 0.23
+		cx_("BrakeDisc", discR * 2, 0.06, 0.11, DISC0, MATS.M, 0.5, discs)
+		for k = 0, 13 do
+			local da = math.rad(k * (360 / 14))
+			local p = add("DiscHole", V(0.05, 0.075, 0.075), P(sd * (hr + 0.155 - 0.025), discR * 0.86 * math.cos(da), discR * 0.86 * math.sin(da)), Color3.fromRGB(18, 18, 22), MATS.P, "cyl", 0, tire, 0)
+		end
+		for k = 0, 9 do
+			local da = math.rad(k * 36 + 18)
+			add("DiscHole", V(0.05, 0.075, 0.075), P(sd * (hr + 0.155 - 0.025), discR * 0.58 * math.cos(da), discR * 0.58 * math.sin(da)), Color3.fromRGB(18, 18, 22), MATS.P, "cyl", 0, tire, 0)
+		end
+		cx_("DiscHat", 0.8, 0.1, 0.16, Color3.fromRGB(28, 28, 32), MATS.M, 0.3)
+		for k = 0, 4 do
+			local th = k * 72
+			local ry0, rz0 = pol(0.18, th)
+			local ry1, rz1 = pol(0.60, th)
+			segm("SpokeRoot", 0.2, 0.34, ry0, rz0, ry1, rz1, 0.28, CHR, MATS.M, 0.9, spokes)
+			local qy0, qz0 = pol(0.2, th)
+			local qy1, qz1 = pol(0.58, th)
+			segm("SpokeRidge", 0.05, 0.14, qy0, qz0, qy1, qz1, 0.33, CHR2, MATS.M, 1, spokes)
+			for _, sg in ipairs({ -1, 1 }) do
+				local ay, az = pol(0.52, th)
+				local by, bz = pol(rimR - 0.1, th + sg * 15)
+				segm("SpokeFork", 0.2, 0.2, ay, az, by, bz, 0.28, CHR, MATS.M, 0.9, spokes)
+				local cy2, cz2 = pol(0.56, th)
+				local dy2, dz2 = pol(rimR - 0.2, th + sg * 14.5)
+				segm("ForkRidge", 0.05, 0.08, cy2, cz2, dy2, dz2, 0.33, CHR2, MATS.M, 1, spokes)
+			end
+			local la = math.rad(k * 72 + 36)
+			add("Lug", V(0.08, 0.09, 0.09), P(sd * (hr + 0.34 - 0.04), 0.33 * math.cos(la), 0.33 * math.sin(la)), Color3.fromRGB(150, 155, 162), MATS.M, "cyl", 0, tire, 0.7)
+		end
+		cx_("HubPlate", 0.52, 0.1, 0.22, CHR, MATS.M, 0.9)
+		cx_("HubRing", 0.5, 0.1, 0.34, CHR, MATS.M, 1)
+		cx_("HubCap", 0.38, 0.08, 0.39, Color3.fromRGB(13, 13, 16), MATS.P, 0.1)
+		cx_("EmblemRed", 0.26, 0.04, 0.43, Color3.fromRGB(190, 20, 24), MATS.P, 0)
+		bx("EmblemH", 0.03, 0.03, 0.2, 0, 0, 0.47, 0, CHR, MATS.M, 0.8)
+		bx("EmblemV", 0.03, 0.2, 0.03, 0, 0, 0.47, 0, CHR, MATS.M, 0.8)
+		local cAng = 40
+		local cyc, czc = pol(rimR * 0.62, cAng)
+		local ca = math.rad(cAng)
+		local radY, radZ = math.cos(ca), math.sin(ca)
+		local tanY, tanZ = -math.sin(ca), math.cos(ca)
+		local ch, cl = rimR * 0.30, rimR * 0.5
+		local cal = add("Caliper", V(0.09, ch, cl), P(sd * (hr + 0.2 - 0.045), cyc, czc, cAng, 0, 0), Color3.fromRGB(208, 22, 26), MATS.P, nil, 0, kn, 0.15)
+		add("CaliperLogo", V(0.05, ch * 0.3, cl * 0.36), P(sd * (hr + 0.235 - 0.025), cyc, czc, cAng, 0, 0), Color3.fromRGB(240, 240, 240), MATS.P, nil, 0, kn, 0)
+		for _, st in ipairs({ -1, 1 }) do
+			add("CaliperBolt", V(0.04, 0.06, 0.06), P(sd * (hr + 0.235 - 0.02), cyc + radY * ch * 0.32 + tanY * st * cl * 0.38, czc + radZ * ch * 0.32 + tanZ * st * cl * 0.38), Color3.fromRGB(190, 194, 200), MATS.M, "cyl", 0, kn, 0.6)
+		end
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 110, 40)
+		glow.Range = 7
+		glow.Brightness = 0
+		glow.Enabled = false
+		glow.Parent = cal
+		local blur = cx_("WheelBlur", rimD - 0.14, 0.03, 0.5, Color3.fromRGB(165, 170, 180), MATS.P, 0)
+		blur.Transparency = 1
+		blur.CastShadow = false
+		car.wheels[i] = { kw = kw, tw = tw, base = base, front = front, side = sd, spokes = spokes, discs = discs, blur = blur, glow = glow }
+		car.wheelOff[i] = Vector3.new(sd * cx * S, 0, z * S)
+	end
+	local SWX, SWY, SWZ, TILT = -1.55, 3.1, -0.4, 18
+	local CHRW = Color3.fromRGB(214, 218, 226)
+	local SLOT = Color3.fromRGB(10, 10, 13)
+	local sw, swW = add("SteerHub", V(0.22, 0.5, 0.5), P(SWX, SWY, SWZ, -TILT, 90, 0), Color3.fromRGB(14, 14, 17), MATS.P, "cyl", 0, nil, 0)
+	local RR = 0.62
+	local WOOD1, WOOD2 = Color3.fromRGB(132, 78, 41), Color3.fromRGB(106, 61, 31)
+	local NR = 32
+	for k = 0, NR - 1 do
+		local a = k * (360 / NR)
+		local ar = math.rad(a)
+		local arc = 2 * math.pi * RR / NR * 1.12
+		local th = (k % 2 == 0) and 0.17 or 0.186
+		add("SteerRim", V(th, th, arc), P(0, RR * math.cos(ar), RR * math.sin(ar), a, 0, 0), (k % 2 == 0) and WOOD1 or WOOD2, Enum.Material.Wood, nil, 0, sw, 0.04)
+	end
+	for _, th in ipairs({ 100, 180, 260 }) do
+		local tr = math.rad(th)
+		local function at(r, ax) return P(ax, r * math.cos(tr), r * math.sin(tr), th, 0, 0) end
+		add("SteerSpokeRoot", V(0.09, 0.2, 0.3), at(0.2, -0.04), CHRW, MATS.M, nil, 0, sw, 0.55)
+		add("SteerSpoke", V(0.064, 0.36, 0.2), at(0.43, -0.05), CHRW, MATS.M, nil, 0, sw, 0.55)
+		for _, rr in ipairs({ 0.35, 0.47 }) do
+			add("SteerSlot", V(0.09, 0.09, 0.09), at(rr, -0.052), SLOT, MATS.P, nil, 0, sw, 0)
+		end
+	end
+	add("SteerCenter", V(0.12, 0.42, 0.42), P(-0.1, 0, 0), CHRW, MATS.M, "cyl", 0, sw, 0.6)
+	add("SteerHorn", V(0.06, 0.3, 0.3), P(-0.17, 0, 0), Color3.fromRGB(14, 14, 17), MATS.P, "cyl", 0, sw, 0.1)
+	add("SteerBadge", V(0.04, 0.16, 0.16), P(-0.21, 0, 0), Color3.fromRGB(190, 20, 24), MATS.P, "cyl", 0, sw, 0.1)
+	add("SteerBadgeBar", V(0.03, 0.04, 0.13), P(-0.235, 0, 0), CHRW, MATS.M, nil, 0, sw, 0.6)
+	car.sw, car.swW, car.swBase = sw, swW, swW.C0
+	local LEA = Color3.fromRGB(20, 20, 23)
+	local LEA2 = Color3.fromRGB(31, 31, 35)
+	local SEATD = Color3.fromRGB(10, 10, 12)
+	local PLC = Color3.fromRGB(8, 8, 10)
+	local WHT = Color3.fromRGB(236, 238, 240)
+	local REDN = Color3.fromRGB(214, 26, 26)
+	local PANEL = Color3.fromRGB(22, 22, 25)
+	local PANEL2 = Color3.fromRGB(32, 32, 36)
+	local AMB = Color3.fromRGB(226, 190, 110)
+	local GZ = { bez = -1.065, face = -1.04, tick = -1.025, dec = -1.015, ndl = -0.99, hub = -0.975 }
+	local function surf(part, face, cw, ch)
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = face
+		sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		sg.CanvasSize = Vector2.new(cw, ch)
+		sg.LightInfluence = 0
+		sg.Parent = part
+		return sg
+	end
+	local function txt(parent, text, x, y, w, h, col)
+		local t = Instance.new("TextLabel")
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.new(0, x, 0, y)
+		t.Size = UDim2.new(0, w, 0, h)
+		t.BackgroundTransparency = 1
+		t.Text = text
+		t.TextColor3 = col
+		t.TextScaled = true
+		t.Font = Enum.Font.GothamBold
+		t.Parent = parent
+		return t
+	end
+	add("DashBody", V(5.9, 2.1, 1.25), P(0, 2.35, -1.775), COLS.K, MATS.P, nil, 0, nil, 0)
+	add("DashPadPass", V(3.15, 0.22, 1.32), P(1.375, 3.51, -1.74), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("DashPadBack", V(2.75, 0.22, 1.25), P(-1.575, 3.51, -1.775), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("ClusterPlate", V(2.3, 0.62, 0.08), P(-1.6, 3.31, -1.12), PLC, MATS.P, nil, 0, nil, 0)
+	add("ClusterBrow", V(2.4, 0.05, 0.2), P(-1.6, 3.645, -1.06), COLS.K, MATS.P, nil, 0, nil, 0.1)
+	do
+		local KX, KY, KZ = -2.9, 3.3, -1.08
+		local BLKP = Color3.fromRGB(20, 20, 22)
+		local RIB = Color3.fromRGB(58, 58, 63)
+		add("LampBezel", V(0.03, 0.46, 0.46), P(KX, KY, -1.14, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("LampWell", V(0.02, 0.36, 0.36), P(KX, KY, -1.12, 0, 90, 0), COLS.BK, MATS.P, "cyl", 0, nil, 0)
+		local led = add("LampLed", V(0.035, 0.035, 0.035), CFrame.new(KX, KY + 0.15, -1.108), Color3.fromRGB(70, 42, 10), MATS.P, "ball", 0, nil, 0)
+		local kb, kw = add("LampKnobBase", V(0.1, 0.1, 0.1), P(KX, KY, KZ), COLS.K, MATS.P, nil, 1, nil, 0)
+		if kb and kw then
+			add("LampKnobShaft", V(0.6, 0.07, 0.07), P(0, 0, -0.18, 0, 90, 0), CHRW, MATS.M, "cyl", 0, kb, 0.6)
+			add("LampKnobHead", V(0.1, 0.24, 0.24), P(0, 0, 0.08, 0, 90, 0), BLKP, MATS.P, "cyl", 0, kb, 0.05)
+			add("LampKnobCap", V(0.035, 0.17, 0.17), P(0, 0, 0.1425, 0, 90, 0), CHRW, MATS.M, "cyl", 0, kb, 0.6)
+			for i = 0, 15 do
+				local a = i * math.pi / 8
+				add("LampKnobRib", V(0.03, 0.03, 0.09), CFrame.new(math.cos(a) * 0.12, math.sin(a) * 0.12, 0.08) * CFrame.Angles(0, 0, a), RIB, MATS.P, nil, 0, kb, 0.1)
+			end
+			car.lampKnob = { w = kw, base = kw.C0 }
+		end
+		car.lampLed = led
+	end
+	local function gauge(cx, cy, d, a0, sweep, nSeg, majorEvery, labels, redFrac, caption, nA)
+		add("GaugeBezel", V(0.03, d + 0.09, d + 0.09), P(cx, cy, GZ.bez, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("GaugeFace", V(0.02, d, d), P(cx, cy, GZ.face, 0, 90, 0), PLC, MATS.P, "cyl", 0, nil, 0)
+		local ro = d * 0.5 * 0.93
+		for i = 0, nSeg do
+			local f = i / nSeg
+			local a = a0 + sweep * f
+			local mj = (i % majorEvery == 0)
+			local len = mj and d * 0.14 or d * 0.07
+			local rc = ro - len / 2
+			local ar = math.rad(a)
+			local col = (redFrac and f >= redFrac) and REDN or WHT
+			add("GaugeTick", V(mj and 0.016 or 0.009, len, 0.01), P(cx + rc * math.sin(ar), cy + rc * math.cos(ar), GZ.tick, 0, 0, -a), col, MATS.P, nil, 0, nil, 0)
+		end
+		local dec = add("GaugeDecal", V(d, d, 0.01), P(cx, cy, GZ.dec), PLC, MATS.P, nil, 1, nil, 0)
+		if dec then
+			local sg = surf(dec, Enum.NormalId.Back, 200, 200)
+			if labels then
+				for i, tx in ipairs(labels) do
+					local f = (i - 1) / math.max(#labels - 1, 1)
+					local ar = math.rad(a0 + sweep * f)
+					txt(sg, tx, 100 + 56 * math.sin(ar), 100 - 56 * math.cos(ar), 30, 20, WHT)
+				end
+			end
+			if caption then txt(sg, caption, 100, 150, 90, 20, REDN) end
+		end
+		local pv, pw = add("NeedlePivot", V(0.02, 0.02, 0.02), P(cx, cy, GZ.ndl, 0, 0, -nA), COLS.K, MATS.P, nil, 1, nil, 0)
+		local nl = d * 0.5 * 0.86
+		add("Needle", V(0.022, nl + 0.05, 0.02), P(0, (nl - 0.05) / 2, 0), REDN, MATS.P, nil, 0, pv, 0)
+		add("NeedleHub", V(0.03, d * 0.15, d * 0.15), P(cx, cy, GZ.hub, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.7)
+		return pw
+	end
+	car.nS = gauge(-2.4, 3.31, 0.5, -135, 270, 24, 2, { "0", "40", "80", "120", "160", "200", "240" }, nil, "KM/H", -135)
+	car.nT = gauge(-1.75, 3.31, 0.5, -135, 270, 16, 2, { "0", "1", "2", "3", "4", "5", "6", "7", "8" }, 0.8125, "RPM x1000", -135)
+	car.nSBase = car.nS and car.nS.C0
+	car.nTBase = car.nT and car.nT.C0
+	gauge(-1.15, 3.45, 0.17, -60, 120, 4, 2, nil, nil, nil, 25)
+	gauge(-0.75, 3.45, 0.17, -60, 120, 4, 2, nil, nil, nil, 0)
+	gauge(-1.15, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 12)
+	gauge(-0.75, 3.17, 0.17, -60, 120, 4, 2, nil, nil, nil, 8)
+	add("StackBezel", V(1.6, 1.15, 0.08), P(0, 2.375, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
+	add("StackTrimT", V(1.64, 0.04, 0.03), P(0, 2.97, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("StackTrimB", V(1.64, 0.04, 0.03), P(0, 1.78, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("StackTrimS", V(0.04, 1.15, 0.03), P(sd * 0.82, 2.375, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("RadioBody", V(1.4, 0.44, 0.05), P(0, 2.65, -1.065), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("RadioDial", V(0.78, 0.13, 0.02), P(-0.12, 2.72, -1.035), AMB, MATS.P, nil, 0, nil, 0)
+	add("RadioNeedle", V(0.012, 0.15, 0.02), P(0.08, 2.72, -1.02), REDN, MATS.P, nil, 0, nil, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("RadioKnob", V(0.05, 0.2, 0.2), P(sd * 0.58, 2.65, -1.03, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	end
+	for i = 0, 4 do
+		add("RadioKey", V(0.14, 0.08, 0.03), P(-0.4 + i * 0.2, 2.55, -1.035), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	add("HvacPanel", V(1.4, 0.55, 0.05), P(0, 2.15, -1.065), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	for i, kx in ipairs({ -0.35, 0.15, 0.4 }) do
+		local ty = 2.35 - (i - 1) * 0.15
+		add("HvacSlot", V(1.1, 0.03, 0.012), P(0, ty, -1.04), SLOT, MATS.P, nil, 0, nil, 0)
+		add("HvacSlider", V(0.1, 0.12, 0.05), P(kx, ty, -1.03), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("LighterRing", V(0.04, 0.17, 0.17), P(0.45, 1.88, -1.06, 0, 90, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	add("LighterPlug", V(0.02, 0.1, 0.1), P(0.45, 1.88, -1.035, 0, 90, 0), SLOT, MATS.P, "cyl", 0, nil, 0)
+	add("GloveDoor", V(1.7, 0.8, 0.08), P(2.05, 2.6, -1.12), PANEL, MATS.P, nil, 0, nil, 0.05)
+	add("GloveTrimT", V(1.74, 0.03, 0.03), P(2.05, 3.0, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("GloveTrimB", V(1.74, 0.03, 0.03), P(2.05, 2.2, -1.075), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("GloveHandle", V(0.5, 0.07, 0.05), P(2.05, 2.88, -1.07), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("KneePanelL", V(1.35, 0.7, 0.08), P(-1.5, 2.0, -1.12), PANEL, MATS.P, nil, 0, nil, 0.04)
+	add("KneePanelR", V(1.35, 0.7, 0.08), P(1.6, 1.75, -1.12), PANEL, MATS.P, nil, 0, nil, 0.04)
+	for _, vd in ipairs({ { -2.6, 2.7 }, { 2.6, 3.2 } }) do
+		local vx, vy = vd[1], vd[2]
+		add("VentFrame", V(0.56, 0.3, 0.06), P(vx, vy, -1.13), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("VentInner", V(0.48, 0.22, 0.03), P(vx, vy, -1.095), PLC, MATS.P, nil, 0, nil, 0)
+		for i = 0, 3 do
+			add("VentSlat", V(0.46, 0.025, 0.02), P(vx, vy - 0.075 + i * 0.05, -1.07), PANEL2, MATS.P, nil, 0, nil, 0)
+		end
+	end
+	add("Column", V(1.1, 0.34, 0.34), P(-1.55, 2.915, -0.971, -18, 90, 0), COLS.K, MATS.P, "cyl", 0, nil, 0.05)
+	add("ColumnCollar", V(0.05, 0.4, 0.4), P(-1.55, 2.852, -1.165, -18, 90, 0), PANEL, MATS.P, "cyl", 0, nil, 0)
+	add("StalkL", V(0.5, 0.05, 0.05), P(-1.97, 2.98, -0.78, 0, 0, 6), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("StalkLTip", V(0.14, 0.08, 0.08), P(-2.25, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
+	add("StalkR", V(0.5, 0.05, 0.05), P(-1.13, 2.98, -0.78, 0, 0, -6), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	add("StalkRTip", V(0.14, 0.08, 0.08), P(-0.85, 2.99, -0.78), CHRW, MATS.M, nil, 0, nil, 0.6)
+	local function pedal(nm, x, y, z, w, h, rx, ribs)
+		local pd = add(nm, V(w, h, 0.09), P(x, y, z, rx, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
+		for i = 1, ribs do
+			add(nm .. "Rib", V(w - 0.08, 0.03, 0.025), P(0, (i - (ribs + 1) / 2) * (h / (ribs + 1)), 0.052), COLS.K, MATS.P, nil, 0, pd, 0)
+		end
+		add(nm .. "Arm", V(0.09, 0.9, 0.06), P(x, y + 0.5, z - 0.2, -14, 0, 0), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	pedal("PedalBrake", -1.78, 1.62, -0.82, 0.62, 0.42, -35, 4)
+	pedal("PedalGas", -1.2, 1.62, -0.82, 0.3, 0.78, -28, 5)
+	add("DeadPedal", V(0.5, 0.34, 0.06), P(-2.35, 1.5, -0.88, -25, 0, 0), PANEL2, MATS.P, nil, 0, nil, 0.05)
+	for _, sx in ipairs({ -1.55, 1.55 }) do
+		add("FloorMat", V(1.7, 0.03, 2.4), P(sx, 1.265, 0), PANEL, MATS.P, nil, 0, nil, 0)
+	end
+	for _, sd in ipairs({ -1, 1 }) do
+		local dx = sd * 2.94
+		add("DoorPanelIn", V(0.06, 0.9, 4.4), P(dx, 2.5, 0.1), PANEL, MATS.P, nil, 0, nil, 0.03)
+		add("DoorCap", V(0.1, 0.04, 4.2), P(sd * 2.92, 2.97, 0.1), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("DoorStrip", V(0.03, 0.035, 3.9), P(sd * 2.905, 2.45, 0.1), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("Armrest", V(0.3, 0.2, 1.8), P(sd * 2.78, 2.95, 0.9), PANEL2, MATS.P, nil, 0, nil, 0.05)
+		add("DoorPull", V(0.07, 0.07, 0.8), P(sd * 2.86, 2.68, 0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+		for _, pz in ipairs({ 0.55, 1.25 }) do
+			add("DoorPullPost", V(0.08, 0.07, 0.07), P(sd * 2.875, 2.68, pz), CHRW, MATS.M, nil, 0, nil, 0.6)
+		end
+		add("CrankRosette", V(0.03, 0.24, 0.24), P(sd * 2.895, 2.4, -0.6, 0, 0, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("CrankHub", V(0.05, 0.1, 0.1), P(sd * 2.87, 2.4, -0.6, 0, 0, 0), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		local cp, cw = add("CrankPivot", V(0.1, 0.1, 0.1), P(sd * 2.87, 2.4, -0.6), COLS.K, MATS.P, nil, 1, nil, 0)
+		add("CrankArm", V(0.04, 0.04, 0.34), P(sd * -0.035, 0, 0.17), CHRW, MATS.M, nil, 0, cp, 0.6)
+		add("CrankKnob", V(0.1, 0.09, 0.09), P(sd * -0.07, 0, 0.33), COLS.K, MATS.P, "cyl", 0, cp, 0)
+		car.crank[#car.crank + 1] = { w = cw, base = cw.C0, sd = sd }
+		add("DoorLock", V(0.04, 0.03, 0.03), P(sd * 2.9, 3.0, -0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("DoorPocket", V(0.08, 0.3, 3.1), P(sd * 2.895, 2.15, 0.1), PANEL2, MATS.P, nil, 0, nil, 0.05)
+		add("DoorPocketLip", V(0.1, 0.04, 3.1), P(sd * 2.885, 2.32, 0.1), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("SpeakerRing", V(0.04, 0.62, 0.62), P(sd * 2.895, 2.65, -1.5), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+		add("SpeakerGrille", V(0.05, 0.5, 0.5), P(sd * 2.88, 2.65, -1.5), COLS.K, MATS.P, "cyl", 0, nil, 0)
+	end
+	for _, sx in ipairs({ -1.55, 1.55 }) do
+		add("SeatBase", V(1.2, 0.3, 1.2), P(sx, 1.38, 1.2), COLS.K, MATS.P, nil, 0, nil, 0)
+		add("SeatCushion", V(1.0, 0.3, 1.7), P(sx, 1.62, 1.1), LEA, MATS.P, nil, 0, nil, 0.03)
+		for i = 0, 4 do
+			add("SeatPleat", V(0.17, 0.04, 1.55), P(sx - 0.4 + i * 0.2, 1.79, 1.1), LEA2, MATS.P, nil, 0, nil, 0.04)
+		end
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBolster", V(0.34, 0.42, 1.7), P(sx + sd * 0.67, 1.72, 1.1), LEA, MATS.P, nil, 0, nil, 0.03)
+		end
+		add("SeatFront", V(1.68, 0.3, 0.2), P(sx, 1.6, 0.18), LEA, MATS.P, nil, 0, nil, 0.03)
+		local bp = add("SeatBackPivot", V(0.1, 0.1, 0.1), P(sx, 2.7, 2.1, 10, 0, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+		add("SeatBackShell", V(1.7, 1.9, 0.22), P(0, 0, 0.08), SEATD, MATS.P, nil, 0, bp, 0)
+		for i = 0, 4 do
+			add("SeatBackPleat", V(0.17, 1.55, 0.05), P(-0.4 + i * 0.2, -0.02, -0.13), LEA2, MATS.P, nil, 0, bp, 0.04)
+		end
+		for _, sd in ipairs({ -1, 1 }) do
+			add("SeatBackBolster", V(0.34, 1.7, 0.3), P(sd * 0.67, -0.02, -0.1), LEA, MATS.P, nil, 0, bp, 0.03)
+			add("HeadrestPost", V(0.06, 0.34, 0.06), P(sd * 0.26, 0.92, 0), CHRW, MATS.M, nil, 0, bp, 0.6)
+		end
+		add("Headrest", V(0.9, 0.46, 0.26), P(0, 1.13, 0), LEA, MATS.P, nil, 0, bp, 0.03)
+		add("HeadrestCap", V(0.74, 0.1, 0.22), P(0, 1.41, 0.01), LEA2, MATS.P, nil, 0, bp, 0.04)
+	end
+	add("RCushion", V(5.6, 0.34, 1.5), P(0, 1.7, 3.45), LEA, MATS.P, nil, 0, nil, 0.03)
+	local rbp = add("RBackPivot", V(0.1, 0.1, 0.1), P(0, 2.55, 4.25, 8, 0, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+	add("RBackShell", V(5.6, 1.5, 0.3), P(0, 0, 0), LEA, MATS.P, nil, 0, rbp, 0.03)
+	for i = 0, 8 do
+		local px = -2.48 + i * 0.62
+		add("RPleat", V(0.54, 0.04, 1.4), P(px, 1.89, 3.45), LEA2, MATS.P, nil, 0, nil, 0.04)
+		add("RBackPleat", V(0.54, 1.4, 0.04), P(px, 0, -0.17), LEA2, MATS.P, nil, 0, rbp, 0.04)
+	end
+	add("ConsoleBody", V(1.1, 0.8, 3.4), P(0, 1.75, 0.9), COLS.K, MATS.P, nil, 0, nil, 0.05)
+	add("ConsolePlate", V(1.0, 0.05, 1.95), P(0, 2.165, 0.175), PANEL, MATS.P, nil, 0, nil, 0.1)
+	add("ConsoleLid", V(1.02, 0.14, 1.35), P(0, 2.22, 1.9), COLS.K, MATS.P, nil, 0, nil, 0.08)
+	add("ConsoleLidPad", V(0.9, 0.03, 1.2), P(0, 2.295, 1.9), LEA2, MATS.P, nil, 0, nil, 0.04)
+	add("ConsoleLidSeam", V(1.06, 0.03, 0.04), P(0, 2.2, 1.2), SLOT, MATS.P, nil, 0, nil, 0)
+	for _, sd in ipairs({ -1, 1 }) do
+		add("ConsoleTrim", V(0.04, 0.04, 3.4), P(sd * 0.54, 2.15, 0.9), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("GateEdge", V(0.035, 0.02, 1.2), P(sd * 0.2, 2.195, 0), CHRW, MATS.M, nil, 0, nil, 0.6)
+		add("GateEnd", V(0.435, 0.02, 0.035), P(0, 2.195, sd * 0.6), CHRW, MATS.M, nil, 0, nil, 0.6)
+	end
+	add("GateInner", V(0.37, 0.01, 1.17), P(0, 2.192, 0), Color3.fromRGB(14, 14, 16), MATS.P, nil, 0, nil, 0)
+	add("GateSlot", V(0.16, 0.02, 0.95), P(0, 2.2, 0), SLOT, MATS.P, nil, 0, nil, 0)
+	local lab = add("GateLabels", V(0.16, 0.6, 0.012), P(0.33, 2.196, -0.02, -90, 0, 0), PLC, MATS.P, nil, 1, nil, 0)
+	if lab then
+		local sg = surf(lab, Enum.NormalId.Back, 64, 240)
+		for i, ch in ipairs({ "P", "R", "N", "D" }) do
+			txt(sg, ch, 32, 30 + (i - 1) * 60, 40, 44, WHT)
+		end
+	end
+	add("BadgeBack", V(0.44, 0.2, 0.012), P(0, 2.196, 0.86, -90, 0, 0), CHRW, MATS.M, nil, 0, nil, 0.6)
+	local bdg = add("BadgeRed", V(0.36, 0.14, 0.012), P(0, 2.203, 0.86, -90, 0, 0), Color3.fromRGB(190, 20, 24), MATS.P, nil, 0, nil, 0)
+	if bdg then
+		local sg = surf(bdg, Enum.NormalId.Back, 180, 70)
+		txt(sg, "R/T", 90, 35, 150, 56, WHT)
+	end
+	add("ConsoleVentBack", V(0.7, 0.6, 0.03), P(0, 1.7, 2.605), SLOT, MATS.P, nil, 0, nil, 0)
+	for i = 0, 3 do
+		add("ConsoleVent", V(0.62, 0.04, 0.03), P(0, 1.5 + i * 0.13, 2.62), CHRW, MATS.M, nil, 0, nil, 0.5)
+	end
+	add("ShiftBase", V(0.04, 0.26, 0.26), P(0, 2.21, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, nil, 0.6)
+	local piv, pivW = add("ShiftPivot", V(0.1, 0.1, 0.1), P(0, 2.2, 0), COLS.K, MATS.P, nil, 1, nil, 0)
+	add("ShiftStick", V(0.62, 0.08, 0.08), P(0, 0.31, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.7)
+	add("ShiftCollar", V(0.04, 0.14, 0.14), P(0, 0.5, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.7)
+	add("ShiftKnob", V(0.4, 0.19, 0.19), P(0, 0.72, 0, 0, 0, 90), CHRW, MATS.M, "cyl", 0, piv, 0.8)
+	add("ShiftCap", V(0.2, 0.2, 0.2), P(0, 0.93, 0), CHRW, MATS.M, "ball", 0, piv, 0.8)
+	car.shiftW, car.shiftBase, car.shiftKn = pivW, pivW.C0, Vector3.new(0, 0.97 * S, 0)
+	do
+		local bl = add("BrakeGlow", V(0.2, 0.2, 0.2), P(0, 3.35, 10.3), COLS.K, MATS.P, nil, 1, nil, 0)
+		local pl = Instance.new("PointLight")
+		pl.Color = Color3.fromRGB(255, 30, 30)
+		pl.Range = 10
+		pl.Brightness = 1.5
+		pl.Enabled = false
+		pl.Parent = bl
+		car.brakeLight = pl
+	end
+	for _, sd in ipairs({ -1, 1 }) do
+		local sp = add("SmokeEmit", V(0.2, 0.2, 0.2), P(sd * 2.9, 0.4, 5.6), COLS.K, MATS.P, nil, 1, nil, 0)
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Rate = 0
+		pe.Lifetime = NumberRange.new(0.6, 1.2)
+		pe.Speed = NumberRange.new(2, 6)
+		pe.SpreadAngle = Vector2.new(25, 25)
+		pe.Color = ColorSequence.new(Color3.fromRGB(215, 215, 215))
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) })
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 5) })
+		pe.Enabled = false
+		pe.Parent = sp
+		car.smoke[#car.smoke + 1] = pe
+	end
+	for _, sd in ipairs({ -1, 1 }) do
+		local em = add("LampEmit", V(0.2, 0.2, 0.2), P(sd * 2.34, 2.62, -10.45), COLS.K, MATS.P, nil, 1, nil, 0)
+		local sl = Instance.new("SpotLight")
+		sl.Face = Enum.NormalId.Front
+		sl.Range = math.min(Config.HeadlightRange or 60, 60)
+		sl.Angle = 65
+		sl.Brightness = Config.HeadlightBrightness or 3
+		sl.Shadows = false
+		sl.Color = Color3.fromRGB(255, 244, 225)
+		sl.Enabled = false
+		sl.Parent = em
+		car.lampList[#car.lampList + 1] = { light = sl }
+	end
+	attachLogic(car, COLS.B)
+	return car
+end
+local CACHE_VER = "v65i"
+local CACHE_DIR = "CHARGER_SCRIPT/modelos"
+local carTpl = nil
+local function newPlate()
+	local rng = Random.new()
+	local L = "ABCDEFGHJKLMNPRSTUVWXYZ"
+	local t = tostring(rng:NextInteger(1, 9))
+	for _ = 1, 3 do local n = rng:NextInteger(1, #L); t = t .. string.sub(L, n, n) end
+	for _ = 1, 3 do t = t .. tostring(rng:NextInteger(0, 9)) end
+	return t
+end
+local function cachePath()
+	return CACHE_DIR .. "/charger_" .. CACHE_VER .. "_s" .. tostring(S) .. "_g" .. tostring(Config.CheapGlass and 1 or 0) .. "_w" .. tostring(Config.WedgeFlip) .. "_l" .. tostring(Config.LiteMode) .. ".rbxm"
+end
+local function tagK(o, k)
+	if o then o:SetAttribute("K", k) end
+end
+local function tagCar(c)
+	tagK(c.bw, "bw")
+	for nm, s in pairs(c.spin) do tagK(s.w, "sp:" .. nm) end
+	for i, h in ipairs(c.chain) do
+		tagK(h.w, "ch:" .. i)
+		h.w:SetAttribute("L", h.left)
+		h.w:SetAttribute("I", h.i)
+	end
+	for i, p in ipairs(c.tails) do tagK(p, "tl:" .. i) end
+	for i, p in ipairs(c.revs) do tagK(p, "rv:" .. i) end
+	for i, g in ipairs(c.win) do
+		tagK(g.w, "wg:" .. i)
+		g.w:SetAttribute("D", g.sd)
+	end
+	for i, g in ipairs(c.crank) do
+		tagK(g.w, "ck:" .. i)
+		g.w:SetAttribute("D", g.sd)
+	end
+	for i, p in ipairs(c.glow) do tagK(p, "gl:" .. i) end
+	for i, p in ipairs(c.lens) do tagK(p, "ln:" .. i) end
+	for i, l in ipairs(c.lampList) do tagK(l.light, "lp:" .. i) end
+	for i, e in ipairs(c.smoke) do tagK(e, "sm:" .. i) end
+	for i, w in ipairs(c.wheels) do
+		tagK(w.kw, "w" .. i .. "k")
+		w.kw:SetAttribute("F", w.front)
+		w.kw:SetAttribute("S", w.side)
+		tagK(w.tw, "w" .. i .. "t")
+		tagK(w.blur, "w" .. i .. "b")
+		tagK(w.glow, "w" .. i .. "g")
+		for j, p in ipairs(w.spokes) do tagK(p, "w" .. i .. "s" .. j) end
+		for j, p in ipairs(w.discs) do tagK(p, "w" .. i .. "d" .. j) end
+	end
+	tagK(c.shiftW, "shW")
+	if c.shiftW then c.shiftW:SetAttribute("KN", c.shiftKn) end
+	tagK(c.sw, "sw")
+	tagK(c.nS, "nS")
+	tagK(c.nT, "nT")
+	tagK(c.swW, "swW")
+	tagK(c.brakeLight, "bk")
+	if c.lampKnob then tagK(c.lampKnob.w, "lkW") end
+	tagK(c.lampLed, "lkL")
+	c.model:SetAttribute("BodyColor", c._body)
+end
+local function bindCar(model)
+	local K = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		local k = d:GetAttribute("K")
+		if k then K[k] = d end
+	end
+	local root = model.PrimaryPart or model:FindFirstChild("Root")
+	assert(root and K.bw and K.sw and K.swW and K.bk and K.shW)
+	model.PrimaryPart = root
+	local car = { model = model, root = root, wheels = {}, tails = {}, revs = {}, lampList = {}, smoke = {}, wheelOff = {}, lens = {}, chain = {}, spin = {}, glow = {}, win = {}, crank = {} }
+	car.bw = K.bw
+	for k, d in pairs(K) do
+		local nm = string.match(k, "^sp:(.+)$")
+		if nm then car.spin[nm] = { w = d, base = d.C0 } end
+	end
+	local function list(prefix, out, wrap)
+		local i = 1
+		while K[prefix .. i] do
+			local o = K[prefix .. i]
+			out[i] = wrap and wrap(o) or o
+			i = i + 1
+		end
+	end
+	list("ch:", car.chain, function(w)
+		return { w = w, base = w.C0, left = w:GetAttribute("L") == true, i = w:GetAttribute("I") or 0 }
+	end)
+	list("tl:", car.tails)
+	list("wg:", car.win, function(w) return { w = w, base = w.C0, sd = w:GetAttribute("D") or 1 } end)
+	list("ck:", car.crank, function(w) return { w = w, base = w.C0, sd = w:GetAttribute("D") or 1 } end)
+	list("rv:", car.revs)
+	list("gl:", car.glow)
+	list("ln:", car.lens)
+	list("lp:", car.lampList, function(l) return { light = l } end)
+	list("sm:", car.smoke)
+	for i = 1, 4 do
+		local kw = K["w" .. i .. "k"]
+		assert(kw and K["w" .. i .. "t"] and K["w" .. i .. "b"] and K["w" .. i .. "g"])
+		local w = {
+			kw = kw, tw = K["w" .. i .. "t"], base = kw.C0,
+			front = kw:GetAttribute("F") == true, side = kw:GetAttribute("S"),
+			spokes = {}, discs = {}, blur = K["w" .. i .. "b"], glow = K["w" .. i .. "g"],
+		}
+		list("w" .. i .. "s", w.spokes)
+		list("w" .. i .. "d", w.discs)
+		car.wheels[i] = w
+		car.wheelOff[i] = Vector3.new(kw.C0.X, 0, kw.C0.Z)
+	end
+	car.sw, car.swW, car.swBase = K.sw, K.swW, K.swW.C0
+	car.shiftW = K.shW
+	if car.shiftW then
+		car.shiftBase = car.shiftW.C0
+		car.shiftKn = car.shiftW:GetAttribute("KN") or Vector3.new(0, 0.97 * S, 0)
+	end
+	car.nS, car.nT = K.nS, K.nT
+	if car.nS then car.nSBase = car.nS.C0 end
+	if car.nT then car.nTBase = car.nT.C0 end
+	car.brakeLight = K.bk
+	if K.lkW then car.lampKnob = { w = K.lkW, base = K.lkW.C0 } end
+	car.lampLed = K.lkL
+	local plate = model:FindFirstChild("Plate")
+	local tl = plate and plate:FindFirstChildWhichIsA("TextLabel", true)
+	if tl then tl.Text = newPlate() end
+	attachLogic(car, model:GetAttribute("BodyColor") or COLS.B)
+	return car
+end
+local function loadDisk()
+	if Config.CacheDisk == false then return nil end
+	if not (isfile and readfile and getcustomasset) then return nil end
+	local path = cachePath()
+	local okF, has = pcall(isfile, path)
+	if not (okF and has) then return nil end
+	local ok, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
+	if ok and type(objs) == "table" and objs[1] and objs[1]:IsA("Model") then return objs[1] end
+	if delfile then pcall(delfile, path) end
+	return nil
+end
+local function saveDisk(m)
+	if Config.CacheDisk == false then return end
+	if not (saveinstance and isfile and writefile) then return end
+	pcall(function()
+		if makefolder and isfolder then
+			if not isfolder("CHARGER_SCRIPT") then makefolder("CHARGER_SCRIPT") end
+			if not isfolder(CACHE_DIR) then makefolder(CACHE_DIR) end
+		end
+	end)
+	local path = cachePath()
+	local okH, has = pcall(isfile, path)
+	if okH and has then return end
+	local base = string.gsub(path, "%.rbxm$", "")
+	local attempts = {
+		{ Object = m, FilePath = base, FileName = base, IsModel = true, Decompile = false, SaveBytecode = false, ShowStatus = false, mode = "optimized" },
+		{ Object = m, FileName = path, IsModel = true, Decompile = false },
+	}
+	m.Parent = workspace
+	for _, opt in ipairs(attempts) do
+		pcall(saveinstance, opt)
+		local ok, h = pcall(isfile, path)
+		if ok and h then break end
+	end
+	m.Parent = nil
+end
+local function buildCar()
+	if not carTpl then carTpl = loadDisk() end
+	if carTpl then
+		local ok, c = pcall(function() return bindCar(carTpl:Clone()) end)
+		if ok and c then return c end
+		carTpl = nil
+		if delfile then pcall(delfile, cachePath()) end
+	end
+	local c = buildCarRaw()
+	pcall(tagCar, c)
+	pcall(function() carTpl = c.model:Clone() end)
+	if carTpl then
+		local tpl = carTpl
+		task.delay(4, function() pcall(saveDisk, tpl) end)
+	end
+	return c
+end
+local car = nil
+local gear = Config.StartGear
+local held = { brake = false, brakeUi = false }
+local saved = nil
+local skidFolder = nil
+local skidList = {}
+local filterT = 0
+local rp = RaycastParams.new()
+rp.FilterType = Enum.RaycastFilterType.Exclude
+rp.IgnoreWater = true
+rp.RespectCanCollide = true
+local function refreshFilter()
+	local list = {}
+	if car and car.model then list[#list + 1] = car.model end
+	if skidFolder and skidFolder.Parent then list[#list + 1] = skidFolder end
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Character then list[#list + 1] = pl.Character end
+	end
+	rp.FilterDescendantsInstances = list
+end
+local RAYC = {}
+RAYC.HS = { 2.2 * S, 3.6 * S }
+RAYC.HW = 3.6 * S
+RAYC.HL = 10 * S
+function RAYC.wallHit(o, d)
+	local h = workspace:Raycast(o, d, rp)
+	if h and math.abs(h.Normal.Y) < 0.35 then return h end
+	return nil
+end
+function RAYC.sweep(origin, dir, len)
+	local u = Vector3.new(dir.X, 0, dir.Z)
+	if u.Magnitude < 1e-4 then return len end
+	u = u.Unit
+	local side = Vector3.new(-u.Z, 0, u.X)
+	local best = len
+	local hw = RAYC.HW
+	for _, off in ipairs({ 0, -hw, hw, -hw * 0.5, hw * 0.5 }) do
+		for _, hh in ipairs(RAYC.HS) do
+			local h = RAYC.wallHit(origin + side * off + Vector3.new(0, hh, 0), u * len)
+			if h and h.Distance < best then best = h.Distance end
+		end
+	end
+	return best
+end
+local hudApi = {}
+local MODES = { "P", "R", "N", "D" }
+local function modeIndex(m)
+	for i, v in ipairs(MODES) do if v == m then return i end end
+	return 1
+end
+local function setGear(n)
+	n = math.clamp(math.floor(n + 0.5), 1, 5)
+	if n == gear then return end
+	if car then
+		car.gearKick = os.clock()
+		car.gearDir = n > gear and 1 or -1
+	end
+	gear = n
+	playSound(Config.SoundDial, 0.7)
+end
+local function setMode(name, force)
+	local c = car
+	if not c then return false end
+	if c.mode == name and not c.parkPending then return true end
+	local sp = math.abs(c.vF or 0)
+	if name == "P" then
+		if force or sp < 3 then
+			c.mode = "P"
+			c.vel = Vector3.zero
+			c.parkPending = false
+			playSound(Config.SoundDial, 0.8, 0.8)
+		else
+			c.parkPending = true
+		end
+		return true
+	end
+	c.parkPending = false
+	if (name == "R" and (c.vF or 0) > 8) or (name == "D" and (c.vF or 0) < -8) then
+		playSound(Config.SoundInvalid, 0.6)
+		return false
+	end
+	c.mode = name
+	playSound(Config.SoundDial, 0.7)
+	return true
+end
+local CAM = { on = false, orig = nil, snap = 0 }
+function CAM.set(on, silent)
+	on = on and true or false
+	if on == CAM.on then return end
+	local c = car
+	if on and not (c and c.driver) then return end
+	CAM.on = on
+	CAM.snap = CAM.snap + 1
+	local id = CAM.snap
+	local o = CAM.orig or { min = 0.5, max = 128 }
+	if on then
+		pcall(function()
+			player.CameraMinZoomDistance = 0.5
+			player.CameraMaxZoomDistance = 0.5
+		end)
+		task.spawn(function()
+			for _ = 1, 3 do RunService.RenderStepped:Wait() end
+			if CAM.snap ~= id or not CAM.on then return end
+			pcall(function() player.CameraMaxZoomDistance = math.max(Config.CamMaxZoom, 5) end)
+		end)
+	else
+		pcall(function()
+			player.CameraMaxZoomDistance = math.max(o.max, 14)
+			player.CameraMinZoomDistance = 14
+		end)
+	end
+	if hudApi.camSet then hudApi.camSet(on) end
+end
+function CAM.toggle() CAM.set(not CAM.on) end
+function CAM.reset()
+	CAM.snap = CAM.snap + 1
+	local was = CAM.on
+	CAM.on = false
+	if CAM.orig then
+		pcall(function()
+			player.CameraMinZoomDistance = CAM.orig.min
+			player.CameraMaxZoomDistance = CAM.orig.max
+		end)
+	end
+	CAM.orig = nil
+	if hudApi.camSet then hudApi.camSet(false) end
+	return was
+end
+local FP_ARMS = { LeftUpperArm = 1, LeftLowerArm = 1, LeftHand = 1, RightUpperArm = 1, RightLowerArm = 1, RightHand = 1, ["Left Arm"] = 1, ["Right Arm"] = 1 }
+local FP_BODY = { UpperTorso = 1, LowerTorso = 1, Torso = 1, LeftUpperLeg = 1, LeftLowerLeg = 1, LeftFoot = 1, RightUpperLeg = 1, RightLowerLeg = 1, RightFoot = 1, ["Left Leg"] = 1, ["Right Leg"] = 1 }
+function CAM.fpStep()
+	local ch = player.Character
+	local head = ch and ch:FindFirstChild("Head")
+	local cam = workspace.CurrentCamera
+	local fp = CAM.on and head and cam and car and car.driver and (cam.CFrame.Position - head.Position).Magnitude < 2.5
+	if fp then
+		for _, d in ipairs(ch:GetChildren()) do
+			if d:IsA("BasePart") and (FP_ARMS[d.Name] or (Config.CamShowBody and FP_BODY[d.Name])) then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+		CAM.fpOn = true
+	elseif CAM.fpOn then
+		CAM.fpOn = false
+		if ch then
+			local near = head and cam and (cam.CFrame.Position - head.Position).Magnitude < 2.5
+			for _, d in ipairs(ch:GetChildren()) do
+				if d:IsA("BasePart") and (FP_ARMS[d.Name] or FP_BODY[d.Name]) then
+					d.LocalTransparencyModifier = near and 1 or 0
+				end
+			end
+		end
+	end
+end
+local function ctrlSet(on)
+	pcall(function()
+		if controls == nil then getMove() end
+		if controls then
+			if on then controls:Enable() else controls:Disable() end
+		end
+	end)
+end
+local function ghostChar(ch)
+	if not saved then return end
+	for _, p in ipairs(ch:GetDescendants()) do
+		if p:IsA("BasePart") then
+			if saved.collide[p] == nil then saved.collide[p] = p.CanCollide end
+			p.CanCollide = false
+		end
+	end
+end
+local function endBoard(c)
+	c.board = nil
+	c.boardFrom = nil
+	doorSet(c, 0)
+	ctrlSet(true)
+end
+local function easeIO(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+local function enterCar(c)
+	if not c or c.driver or c.cine then return end
+	local ch, hum, rpart = charParts()
+	if not ch then return end
+	saved = {
+		collide = {},
+		jump = hum:GetStateEnabled(Enum.HumanoidStateType.Jumping),
+		auto = hum.AutoRotate,
+		minZoom = player.CameraMinZoomDistance,
+		maxZoom = player.CameraMaxZoomDistance,
+	}
+	CAM.orig = { min = player.CameraMinZoomDistance, max = player.CameraMaxZoomDistance }
+	hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+	pcall(function() player.CameraMinZoomDistance = 14 end)
+	c.exiting = nil
+	c.doorClose = nil
+	c.driver = true
+	c.boardFrom = rpart.CFrame
+	c.boardT0 = os.clock()
+	if Config.BoardAnim ~= false then
+		hum.Sit = false
+		local cfg = Config.Board or {}
+		local standRel = CFrame.new((cfg.StandX or -4.6) * S, 0, (cfg.StandZ or 1.6) * S)
+		local wp = {}
+		local lp = c.cf:PointToObjectSpace(rpart.Position)
+		if lp.X > -3.8 * S then
+			local zWay = (lp.Z < 0) and (-11.5 * S) or (11 * S)
+			wp[1] = c.cf:PointToWorldSpace(Vector3.new(-7 * S, 0, zWay))
+		end
+		local dist, prev = 0, rpart.Position
+		for _, w in ipairs(wp) do
+			dist = dist + (Vector3.new(w.X - prev.X, 0, w.Z - prev.Z)).Magnitude
+			prev = w
+		end
+		local stand = c.cf:PointToWorldSpace(standRel.Position)
+		dist = dist + Vector3.new(stand.X - prev.X, 0, stand.Z - prev.Z).Magnitude
+		local t0 = os.clock()
+		c.board = {
+			ph = "walk", t0 = t0, tStart = t0, standRel = standRel, wp = wp, i = 1,
+			walkMax = math.clamp(1.0 + dist / math.max(hum.WalkSpeed, 8) * 1.25, 1.5, 6),
+		}
+		ctrlSet(false)
+	else
+		ghostChar(ch)
+		hum.AutoRotate = false
+		hum.Sit = true
+	end
+end
+local function restoreChar()
+	local ch, hum = charParts()
+	if saved then
+		for p, v in pairs(saved.collide) do
+			if p.Parent then p.CanCollide = v end
+		end
+		if hum then
+			pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, saved.jump ~= false) end)
+			pcall(function() hum.AutoRotate = saved.auto ~= false end)
+		end
+		pcall(function() player.CameraMinZoomDistance = saved.minZoom or 0.5 end)
+		pcall(function() player.CameraMaxZoomDistance = saved.maxZoom or 128 end)
+	end
+	CAM.reset()
+	saved = nil
+	if hum then pcall(function() hum.Sit = false end) end
+end
+local function setEngine(c, on)
+	if not c or not c.driver then return end
+	on = on and true or false
+	if on then
+		if c.engineOn or c.ign then return end
+		if Config.Damage.Enabled and ((c.dmg or 0) >= Config.Damage.DeadAt or Config.Damage.noStart(c)) then
+			playSound(Config.SoundStartFail, 0.8)
+			return
+		end
+		c.ign = { t0 = os.clock() }
+		return
+	end
+	if c.ign then return end
+	if not c.engineOn then return end
+	c.engineOn = false
+end
+local function ignStep(c, dt)
+	local I = Config.Ignition
+	local now = os.clock()
+	local ign = c.ign
+	if ign and not c.driver then
+		c.ign = nil
+		ign = nil
+		if c.startSnd and c.startSnd.Parent then pcall(function() c.startSnd:Stop() end) end
+		if c.failSnd and c.failSnd.Parent then pcall(function() c.failSnd:Stop() end) end
+	end
+	c.crankRpm = nil
+	c.shakeA = (c.shakeA or 0) * math.exp(-7 * dt)
+	local offA, onA, stA = math.rad(I.OffAngle), math.rad(I.OnAngle), math.rad(I.StartAngle)
+	local tgt = c.engineOn and onA or offA
+	local reach = 0
+	if ign then
+		local t = now - ign.t0
+		local R, T, C = I.ReachTime, I.TurnTime, I.CrankTime
+		reach = 1
+		tgt = offA
+		if t >= R and t < R + T then
+			if not ign.click then
+				ign.click = true
+				playSound(Config.SoundDial, 0.5, 1.3)
+			end
+			tgt = offA + (stA - offA) * easeIO((t - R) / T)
+		elseif t >= R + T then
+			tgt = stA
+			if not ign.snd then
+				ign.snd = true
+				if Config.SoundStartFail and not c.lastFail and math.random() < (I.FailChance or 0) then
+					ign.fail = true
+					c.lastFail = true
+					c.failSnd = cabinAttach(playSound(Config.SoundStartFail, 0.9))
+				else
+					c.lastFail = false
+					c.startSnd = cabinAttach(playSound(Config.SoundStart, 0.9))
+					c.startT = now
+				end
+			end
+			local k = t - R - T
+			c.crankRpm = 170 + 90 * math.sin(k * 26) + 50 * math.sin(k * 9.3)
+			c.shakeA = math.max(c.shakeA, 0.35)
+			if ign.fail then
+				local fs = c.failSnd
+				if (not fs) or (not fs.Parent) or (k > 0.6 and fs.IsLoaded and not fs.IsPlaying) or (k > 1.5 and not fs.IsLoaded) or k > 5 then
+					c.ign = nil
+				end
+			elseif k >= C then
+				c.ign = nil
+				c.engineOn = true
+				c.rpm = math.max(c.rpm or 0, I.KickRpm)
+				c.kickT = now
+				c.shakeA = I.KickShake
+			end
+		end
+	elseif c.kickT and now - c.kickT < 0.3 then
+		reach = 1
+	end
+	if c.engineOn and math.abs(c.vF or 0) < 3 then
+		c.shakeA = math.max(c.shakeA, 0.12)
+	end
+	if c.shakeA < 0.005 then c.shakeA = 0 end
+	local ir = c.ignReach or 0
+	ir = ir + math.clamp(reach - ir, -dt / 0.25, dt / math.max(I.ReachTime, 0.05))
+	c.ignReach = ir
+	if c.keyW and c.keyW.Parent then
+		local vis = c.driver and 0 or 1
+		if c.keyVis ~= vis then
+			c.keyVis = vis
+			for _, kp in ipairs(c.keyParts) do kp.Transparency = vis end
+		end
+		local a = c.keyAng or 0
+		local na = a + (tgt - a) * (1 - math.exp(-18 * dt))
+		if math.abs(na - a) > 1e-4 or c.keyAng == nil then
+			c.keyAng = na
+			c.keyW.C0 = c.keyBase * CFrame.Angles(na, 0, 0)
+		end
+	end
+end
+local function buildIgnition(c)
+	local I = Config.Ignition
+	local function mk(name, size, color, mat, refl)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size * S
+		p.Color = color
+		p.Material = mat
+		p.Reflectance = refl or 0
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.CastShadow = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Parent = c.model
+		return p
+	end
+	local function weld(p0, p1, cf)
+		local w = Instance.new("Weld")
+		w.Part0 = p0
+		w.Part1 = p1
+		w.C0 = cf
+		w.Parent = p1
+		return w
+	end
+	local blade = mk("IgnitionKeyBlade", Vector3.new(0.2, 0.045, 0.1), Color3.fromRGB(205, 208, 216), Enum.Material.Metal, 0.3)
+	local head = mk("IgnitionKeyHead", Vector3.new(0.05, 0.26, 0.2), Color3.fromRGB(28, 28, 32), Enum.Material.Plastic, 0)
+	blade.Transparency = 1
+	head.Transparency = 1
+	c.keyBase = CFrame.new(I.Pos * S)
+	c.keyW = weld(c.root, blade, c.keyBase)
+	weld(blade, head, CFrame.new(0.17 * S, 0, 0))
+	c.keyParts = { blade, head }
+	c.keyVis = 1
+	c.keyAng = nil
+	c.exh = {}
+	for i, pos in ipairs(I.Exhaust) do
+		local sp = mk("ExhaustEmit", Vector3.new(0.2, 0.2, 0.2), Color3.fromRGB(10, 10, 12), Enum.Material.Plastic, 0)
+		sp.Transparency = 1
+		weld(c.root, sp, CFrame.new(pos * S))
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Rate = 0
+		pe.Enabled = false
+		pe.EmissionDirection = Enum.NormalId.Back
+		pe.Lifetime = NumberRange.new(0.7, 1.4)
+		pe.Speed = NumberRange.new(3, 7)
+		pe.SpreadAngle = Vector2.new(9, 9)
+		pe.Drag = 1.5
+		pe.Acceleration = Vector3.new(0, 1.6, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-40, 40)
+		pe.LightInfluence = 1
+		pe.Color = ColorSequence.new(Color3.fromRGB(190, 190, 190))
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 1) })
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4 * S), NumberSequenceKeypoint.new(1, 2.6 * S) })
+		pe.Parent = sp
+		c.exh[i] = pe
+	end
+	c.exhState = nil
+end
+local function exhaustStep(c)
+	local ex = c.exh
+	if not ex then return end
+	local I = Config.Ignition
+	local now = os.clock()
+	local kick = c.kickT and (now - c.kickT) or 99
+	local rate, state = 0, 1
+	if c.ign and c.ign.snd then
+		rate, state = 12, 3
+	elseif c.engineOn then
+		local thr = c.throttle or 0
+		rate = 5 + thr * 70 + math.clamp(((c.rpm or 0) - 900) / 6000, 0, 1) * 25
+		if kick < 1.6 then
+			rate = rate + (1 - kick / 1.6) * 60
+			state = 3
+		elseif thr > 0.5 then
+			state = 2
+		end
+	end
+	if c.waterOn then rate = 0 end
+	rate = rate * I.SmokeMul
+	rate = math.floor(rate + 0.5)
+	if c.exhRate ~= rate then
+		c.exhRate = rate
+		for _, e in ipairs(ex) do
+			e.Rate = rate
+			e.Enabled = rate > 0
+		end
+	end
+	if c.exhState ~= state then
+		c.exhState = state
+		local col = state == 3 and Color3.fromRGB(70, 70, 74) or (state == 2 and Color3.fromRGB(120, 120, 124) or Color3.fromRGB(190, 190, 190))
+		local cs = ColorSequence.new(col)
+		for _, e in ipairs(ex) do e.Color = cs end
+	end
+	if c.kickT and c.kickEmit ~= c.kickT then
+		c.kickEmit = c.kickT
+		if not c.waterOn then for _, e in ipairs(ex) do e:Emit(math.floor(26 * I.SmokeMul + 0.5)) end end
+	end
+end
+local ANIM = {}
+function ANIM.exitCarNow(c, keepDoor, noTeleport)
+	if not c or not c.driver then return end
+	local ch, hum, rpart = charParts()
+	if c.board then c.board = nil; ctrlSet(true) end
+	c.exiting = nil
+	if not keepDoor then c.doorClose = nil; doorSet(c, 0) end
+	c.driver = false
+	c.boardFrom = nil
+	restoreChar()
+	if rpart and not noTeleport then
+		local out = c.cf * CFrame.new(-5.2 * S, 2.5, 1.0 * S)
+		rpart.CFrame = CFrame.new(out.Position) * CFrame.Angles(0, c.yaw, 0)
+		rpart.AssemblyLinearVelocity = Vector3.zero
+		if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
+	elseif hum then
+		pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+	end
+	setMode("P")
+end
+function ANIM.boardStep(c, B, ch, hum, rpart, seatCF)
+	local cfg = Config.Board or {}
+	local now = os.clock()
+	local t = now - B.t0
+	local seg = ANIM.seg
+	local OA = math.rad(cfg.OpenAngle or 64)
+	if now - B.tStart > 14 then
+		ghostChar(ch)
+		pcall(function() hum.AutoRotate = false; hum.Sit = true end)
+		endBoard(c)
+		return true
+	end
+	local ph = B.ph
+	if ph == "walk" then
+		local stand = c.cf:PointToWorldSpace(B.standRel.Position)
+		local tgt = B.wp[B.i] or stand
+		local pos = rpart.Position
+		local d = Vector3.new(tgt.X - pos.X, 0, tgt.Z - pos.Z).Magnitude
+		local timeout = (now - B.tStart) > B.walkMax
+		if not timeout and d > 1.3 then
+			pcall(function() hum:MoveTo(tgt) end)
+			return false
+		end
+		if not timeout and B.wp[B.i] then
+			B.i = B.i + 1
+			return false
+		end
+		pcall(function() hum.AutoRotate = false end)
+		local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
+		if timeout then
+			rpart.CFrame = CFrame.new(stand.X, stand.Y + h, stand.Z) * rpart.CFrame.Rotation
+		end
+		pcall(function() hum:MoveTo(rpart.Position) end)
+		B.h = h
+		B.gy = rpart.Position.Y - h
+		B.base = rpart.Position
+		B.ph = "open"
+		B.t0 = now
+		B.o0 = rpart.CFrame.Rotation
+		return false
+	elseif ph == "open" then
+		local T = cfg.OpenTime or 1.0
+		local u = math.clamp(t / T, 0, 1)
+		if u >= 0.3 and not B.snd then
+			B.snd = true
+			playSound(Config.SoundDoorOpen, 0.8)
+		end
+		doorSet(c, OA * seg(u, 0.3, 1.0))
+		local off = c.cf:VectorToWorldSpace(Vector3.new((0.25 * seg(u, 0, 0.3) - 0.35 * seg(u, 0.45, 1)) * S, 0, 0.5 * S * seg(u, 0.4, 1)))
+		local pos = B.base + off
+		local face = c.cf.RightVector * Vector3.new(1, 0, 1)
+		local cur = CFrame.new(pos) * B.o0
+		if face.Magnitude > 0.01 then
+			cur = cur:Lerp(CFrame.lookAt(pos, pos + face.Unit), seg(t, 0, 0.3))
+		end
+		rpart.CFrame = cur
+		local v = rpart.AssemblyLinearVelocity
+		rpart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		if u >= 1 then
+			B.ph = "in"
+			B.t0 = now
+			B.p0 = rpart.Position
+			B.o0 = rpart.CFrame.Rotation
+			local gnd = Vector3.new(B.p0.X, B.gy, B.p0.Z)
+			local lk = c.cf.LookVector
+			B.R0l = c.cf:PointToObjectSpace(gnd - lk * (0.3 * S))
+			B.L0l = c.cf:PointToObjectSpace(gnd + lk * (0.3 * S))
+			ghostChar(ch)
+		end
+		return false
+	elseif ph == "in" then
+		local u = t / (cfg.InTime or 2.1)
+		if u >= 0.2 and not hum.Sit then hum.Sit = true end
+		local R = ANIM.inPose(c, B, math.min(u, 1), seatCF)
+		rpart.CFrame = CFrame.new(R.pos) * R.rot
+		rpart.AssemblyLinearVelocity = Vector3.zero
+		rpart.AssemblyAngularVelocity = Vector3.zero
+		if u >= 1 then
+			B.ph = "settle"
+			B.t0 = now
+		end
+		return false
+	elseif ph == "settle" then
+		B.shiftV = nil
+		if t >= (cfg.SettleTime or 0.15) then
+			B.ph = "close"
+			B.t0 = now
+		end
+		return true
+	else
+		local u = t / (cfg.CloseTime or 0.9)
+		if u >= 1 then
+			doorSet(c, 0)
+			playSound(Config.SoundDoorClose, 0.9)
+			B.shiftV = nil
+			endBoard(c)
+			return true
+		end
+		doorSet(c, OA * (1 - seg(u, 0.25, 0.95)))
+		local lean = seg(u, 0, 0.3) * (1 - seg(u, 0.62, 1))
+		B.shiftV = c.cf:VectorToWorldSpace(Vector3.new(-0.35 * S * lean, 0, 0))
+		return true
+	end
+end
+function ANIM.exitStep(c, X, ch, hum, rpart, seatCF)
+	local cfgB = Config.Board or {}
+	local cfgX = Config.Exit or {}
+	local now = os.clock()
+	local t = now - X.t0
+	local seg = ANIM.seg
+	local OA = math.rad(cfgB.OpenAngle or 64)
+	if now - X.tStart > 8 then
+		ANIM.exitCarNow(c)
+		return
+	end
+	rpart.AssemblyLinearVelocity = Vector3.zero
+	rpart.AssemblyAngularVelocity = Vector3.zero
+	if not hum.Sit then hum.Sit = true end
+	if X.ph == "open" then
+		local ot = cfgX.OpenTime or 0.9
+		local u = math.clamp(t / ot, 0, 1)
+		if u >= 0.25 and not X.snd then
+			X.snd = true
+			playSound(Config.SoundDoorOpen, 0.8)
+		end
+		doorSet(c, OA * seg(u, 0.25, 1))
+		rpart.CFrame = seatCF + c.cf:VectorToWorldSpace(Vector3.new(-0.2 * S * seg(u, 0.1, 0.5), 0, 0))
+		if u >= 1 then
+			X.ph = "out"
+			X.t0 = now
+			local st = c.cf:PointToWorldSpace(Vector3.new((cfgB.StandX or -4.6) * S - 0.5 * S, 0, (cfgB.StandZ or 1.6) * S))
+			local gy = st.Y
+			pcall(function()
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				rp.FilterDescendantsInstances = { c.model, ch }
+				local hit = workspace:Raycast(st + Vector3.new(0, 6, 0), Vector3.new(0, -16, 0), rp)
+				if hit then gy = hit.Position.Y end
+			end)
+			local h = (hum.RigType == Enum.HumanoidRigType.R6) and 3 or (hum.HipHeight + rpart.Size.Y / 2)
+			X.standPos = Vector3.new(st.X, gy + h + 0.1, st.Z)
+			X.gnd = Vector3.new(st.X, gy, st.Z)
+			X.r0 = seatCF.Rotation
+			local out = -c.cf.RightVector * Vector3.new(1, 0, 1)
+			if out.Magnitude < 0.01 then out = Vector3.new(-1, 0, 0) end
+			X.outRot = CFrame.lookAt(Vector3.zero, out.Unit).Rotation
+		end
+	else
+		local u = math.clamp(t / (cfgX.OutTime or 2.0), 0, 1)
+		local R = ANIM.outPose(c, X, u, seatCF)
+		rpart.CFrame = CFrame.new(R.pos) * R.rot
+		if u >= 1 then
+			rpart.CFrame = CFrame.new(X.standPos) * X.outRot
+			ANIM.exitCarNow(c, true, true)
+			c.doorClose = { t0 = now + (cfgX.CloseDelay or 0.25) }
+		end
+	end
+end
+function ANIM.doorCloseStep(c)
+	local D = c.doorClose
+	if not D then return end
+	local cfgB = Config.Board or {}
+	local cfgX = Config.Exit or {}
+	local OA = math.rad(cfgB.OpenAngle or 64)
+	local t = os.clock() - D.t0
+	if t < 0 then return end
+	local x = t / (cfgX.CloseTime or 0.4)
+	if x >= 1 then
+		doorSet(c, 0)
+		playSound(Config.SoundDoorClose, 0.9)
+		c.doorClose = nil
+	else
+		doorSet(c, OA * (1 - x * x))
+	end
+end
+local function exitCar(c, instant)
+	if not c or not c.driver then return end
+	if c.exiting then return end
+	local ch, hum, rpart = charParts()
+	if instant or Config.ExitAnim == false or not ch or c.board or c.boardFrom
+		or math.abs(c.vF or 0) > ((Config.Exit and Config.Exit.MaxSpeed) or 3) then
+		ANIM.exitCarNow(c)
+		return
+	end
+	setMode("P", true)
+	c.doorClose = nil
+	local t0 = os.clock()
+	c.exiting = { ph = "open", t0 = t0, tStart = t0 }
+end
+local function addSkid(p0, p1, up)
+	local d = (p1 - p0).Magnitude
+	if d < 0.6 or d > 14 then return end
+	if not skidFolder or not skidFolder.Parent then
+		skidFolder = Instance.new("Folder")
+		skidFolder.Name = "ChargerSkids"
+		skidFolder.Parent = workspace
+		skidList = {}
+		refreshFilter()
+	end
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = PLASTIC
+	part.Color = Color3.fromRGB(14, 14, 16)
+	part.Transparency = 0.2
+	part.Size = Vector3.new(1.2 * S, 0.06, d + 0.15)
+	local fwdV = (p1 - p0).Unit
+	local right = fwdV:Cross(up)
+	if right.Magnitude < 0.01 then part:Destroy() return end
+	part.CFrame = CFrame.fromMatrix((p0 + p1) / 2 + up * 0.05, right.Unit, up, -fwdV)
+	part.Parent = skidFolder
+	skidList[#skidList + 1] = part
+	while #skidList > 200 do
+		local old = table.remove(skidList, 1)
+		if old then old:Destroy() end
+	end
+	task.delay(12, function()
+		if part.Parent then part:Destroy() end
+	end)
+end
+local function tiltOf(c)
+	local cu = c.up
+	return math.clamp(math.sqrt(cu.X * cu.X + cu.Z * cu.Z) / math.max(cu.Y, 0.2), 0, 2.5)
+end
+local function groundRay(base, tilt)
+	local ext = 8.4 * S * tilt
+	local lift = 4.6 * S + ext
+	local res = workspace:Raycast(base + Vector3.new(0, lift, 0), Vector3.new(0, -(lift + 4.5 * S + ext), 0), rp)
+	if res then return res end
+	local hi = 20 * S
+	local r2 = workspace:Raycast(base + Vector3.new(0, hi, 0), Vector3.new(0, -(hi + 14 * S), 0), rp)
+	if r2 and r2.Normal.Y > 0.3 and r2.Position.Y - base.Y < 11 * S then return r2 end
+	return nil
+end
+local function climbable(c, hit)
+	local o = hit.Position - hit.Normal * 0.3 + Vector3.new(0, 8 * S, 0)
+	local t = workspace:Raycast(o, Vector3.new(0, -16 * S, 0), rp)
+	if not t or t.Normal.Y < 0.5 then return false end
+	local fx, fz = -math.sin(c.yaw), -math.cos(c.yaw)
+	local cu = c.up
+	local sl = -(cu.X * fx + cu.Z * fz) / math.max(cu.Y, 0.2)
+	local along = (hit.Position.X - c.pos.X) * fx + (hit.Position.Z - c.pos.Z) * fz
+	local base = c.pos.Y + math.max(math.min(sl, 1.8) * along, 0)
+	return t.Position.Y - base < Config.StepUp * S * 1.2
+end
+local function noseNeed(c, cfY, posN)
+	local lf = cfY.LookVector
+	local cu = c.up
+	local best = nil
+	local tl = tiltOf(c)
+	local rt = Vector3.new(-lf.Z, 0, lf.X)
+	local sl = -(cu.X * lf.X + cu.Z * lf.Z) / math.max(cu.Y, 0.2)
+	local sr = -(cu.X * rt.X + cu.Z * rt.Z) / math.max(cu.Y, 0.2)
+	for _, d in ipairs({ 8.4 * S, -8.4 * S }) do
+		for _, off in ipairs({ 0, 3.2 * S, -3.2 * S }) do
+			local o = Vector3.new(posN.X + lf.X * d + rt.X * off, c.pos.Y, posN.Z + lf.Z * d + rt.Z * off)
+			local bh = groundRay(o, tl)
+			if bh and bh.Normal.Y > 0.3 then
+				local need = bh.Position.Y - 0.7 * S - d * sl - off * sr
+				if not best or need > best then best = need end
+			end
+		end
+	end
+	return best
+end
+local function landFx(c, imp, bottom)
+	if imp < 55 then return end
+	local n = math.clamp(math.floor(imp / 7), 6, 40)
+	for _, pe in ipairs(c.smoke) do
+		pcall(function() pe:Emit(n) end)
+	end
+	if (bottom or imp > 140) and c.root then
+		if not c.fxSpark then
+			local e = Instance.new("ParticleEmitter")
+			e.Name = "LandSparks"
+			e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			e.Rate = 0
+			e.Lifetime = NumberRange.new(0.2, 0.55)
+			e.Speed = NumberRange.new(18, 48)
+			e.SpreadAngle = Vector2.new(60, 60)
+			e.EmissionDirection = Enum.NormalId.Top
+			e.Acceleration = Vector3.new(0, -140, 0)
+			e.Color = ColorSequence.new(Color3.fromRGB(255, 190, 90), Color3.fromRGB(255, 90, 20))
+			e.LightEmission = 1
+			e.LightInfluence = 0
+			e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+			e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+			e.Parent = c.root
+			c.fxSpark = e
+		end
+		pcall(function() c.fxSpark:Emit(math.clamp(math.floor(imp / 5), 8, 45)) end)
+	end
+end
+local function landImpact(c, imp, nrm, yaw)
+	local RJ = Config.RampJump
+	local fl = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local rv = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local aP, aR = c.aP or 0, c.aR or 0
+	local gP = aP
+	if nrm then
+		local ny = math.max(nrm.Y, 0.2)
+		gP = math.atan(-(nrm.X * fl.X + nrm.Z * fl.Z) / ny)
+		local gR = math.atan(-(nrm.X * rv.X + nrm.Z * rv.Z) / ny)
+		c.up = nrm
+		c.rkP = (c.rkP or 0) + math.clamp(aP - gP, -0.5, 0.5)
+		c.rkR = (c.rkR or 0) + math.clamp(aR - gR, -0.4, 0.4)
+	end
+	c.rkPV = (c.rkPV or 0) + math.clamp((c.aPV or 0) * 0.35, -1.5, 1.5)
+	c.rkRV = (c.rkRV or 0) + math.clamp((c.aRV or 0) * 0.35, -1.5, 1.5)
+	local share = math.clamp(0.5 + (gP - aP) * 2.5, 0.08, 0.92)
+	local skew = (share - 0.5) * 2
+	local dv = math.min(imp * 0.16, RJ.LandSus)
+	c.susV = c.susV - dv * 0.6
+	c.rkPV = c.rkPV - skew * imp * 0.012
+	c.landPend = {
+		t = 0.07 + 0.05 * (1 - math.abs(skew)),
+		sv = dv * 0.4,
+		pv = skew * imp * 0.009,
+		snd = imp > 60 and math.clamp(0.25 + imp / 350, 0.3, 0.8) or 0,
+	}
+	if imp > 35 then
+		cabinAttach(playSound(Config.SoundLand, math.clamp(0.45 + imp / 220, 0.5, 1.4), math.clamp(1.1 - imp / 700, 0.7, 1.0)))
+	end
+	landFx(c, imp, imp * 0.16 / 10.5 > 1.3)
+	return 1 - math.clamp((imp - 50) / 900, 0, RJ.LandLoss)
+end
+RAYC.W = { empty = {}, enabled = true, t = 0, list = {}, dirty = true, extra = {}, wc = setmetatable({}, { __mode = "k" }) }
+RAYC.W.wrp = RaycastParams.new()
+RAYC.W.wrp.FilterType = Enum.RaycastFilterType.Exclude
+RAYC.W.wrp.IgnoreWater = false
+RAYC.W.wrp.RespectCanCollide = false
+RAYC.W.plain = { "agua", "\u{E1}gua", "water", "lake", "lago", "ocean", "oceano", "piscina", "swim", "nadar", "river", "pond", "lagoa" }
+RAYC.W.word = { "sea", "mar", "rio" }
+function RAYC.W.hasWord(n, w)
+	local s = " " .. string.gsub(n, "[^%a\128-\255]", " ") .. " "
+	return string.find(s, " " .. w .. " ", 1, true) ~= nil
+end
+function RAYC.W.isWater(inst)
+	local o = inst
+	for _ = 1, 3 do
+		if not o or o == workspace then break end
+		local n = string.lower(o.Name)
+		for _, k in ipairs(RAYC.W.plain) do
+			if string.find(n, k, 1, true) then return true end
+		end
+		for _, k in ipairs(RAYC.W.word) do
+			if RAYC.W.hasWord(n, k) then return true end
+		end
+		o = o.Parent
+	end
+	return false
+end
+function RAYC.W.probe(c, pos)
+	local W = RAYC.W
+	if W.dirty then
+		W.wrp.FilterDescendantsInstances = W.list
+		W.dirty = false
+	end
+	local o = Vector3.new(pos.X, c.pos.Y + 14 * S, pos.Z)
+	local dir = Vector3.new(0, -40 * S, 0)
+	for _ = 1, 5 do
+		local h = workspace:Raycast(o, dir, W.wrp)
+		if not h then return nil end
+		local ins = h.Instance
+		if ins:IsA("Terrain") then
+			if h.Material == Enum.Material.Water then return h.Position.Y end
+			return nil
+		end
+		local wv = W.wc[ins]
+		if wv == nil then
+			wv = RAYC.W.isWater(ins)
+			W.wc[ins] = wv
+		end
+		if wv then return h.Position.Y end
+		if ins.CanCollide then return nil end
+		W.list[#W.list + 1] = ins
+		W.extra[#W.extra + 1] = ins
+		W.wrp.FilterDescendantsInstances = W.list
+	end
+	return nil
+end
+Config.Water = { Time = 0.15, Drop = 0.5, Tilt = 0.4, Lift = 0.95, Shift = 0.9, CoverT = 0.22, CoverBottom = 0.95, Sink = 1.8, PlaneLift = 0.2 }
+function RAYC.W.mk(c, cls)
+	local p = Instance.new(cls)
+	p.Name = "WheelCover"
+	p.Size = Vector3.new(0.2, 0.2, 0.2)
+	p.Material = Enum.Material.SmoothPlastic
+	p.Color = c._body or Config.Tweaks.BodyColor or Config.BodyColor
+	p.Reflectance = 0.12
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = c.model
+	local wd = Instance.new("Weld")
+	wd.Part0 = c.root
+	wd.Part1 = p
+	wd.Parent = p
+	return { p = p, w = wd }
+end
+RAYC.W.ARCH = {
+	front = { z0 = -7.1, dz = 0.2, top = { 2.1395, 2.4280, 2.6180, 2.7540, 2.8510, 2.9165, 2.9545, 2.9670, 2.9670, 2.9545, 2.9165, 2.8510, 2.7540, 2.6180, 2.4280, 2.1395 }, x = { 3.543, 3.544, 3.545, 3.547, 3.548, 3.549, 3.549, 3.548, 3.547, 3.545, 3.544, 3.543, 3.541, 3.540, 3.539, 3.537 } },
+	rear = { z0 = 3.9, dz = 0.2, top = { 1.9780, 2.4090, 2.6660, 2.9175, 3.0365, 3.1225, 3.1815, 3.2160, 3.2270, 3.2270, 3.2160, 3.1815, 3.1225, 3.0365, 2.9175, 2.7575, 2.5370, 2.1930 }, x = { 3.515, 3.525, 3.535, 3.610, 3.613, 3.615, 3.618, 3.621, 3.623, 3.626, 3.629, 3.628, 3.624, 3.620, 3.616, 3.612, 3.608, 3.604 }, th = { 0.35, 0.35, 0.35 } },
+}
+function RAYC.W.cover(c, w)
+	if w.cover then return w.cover end
+	local WC = Config.Water
+	local A = w.front and RAYC.W.ARCH.front or RAYC.W.ARCH.rear
+	local n = #A.top
+	local function th(i) return (A.th and A.th[i]) or WC.CoverT end
+	local cols = {}
+	local i = 1
+	while i <= n do
+		local j = i + 1
+		local e = RAYC.W.mk(c, "Part")
+		if j <= n and th(j) == th(i) then
+			e.z = (A.z0 + (i - 1) * A.dz + A.dz / 2) * S
+			e.x = w.side * (A.x[i] + A.x[j]) / 2 * S
+			e.top = math.max(A.top[i], A.top[j])
+			e.len = (A.dz + 0.23) * S
+			i = i + 2
+		else
+			e.z = (A.z0 + (i - 1) * A.dz) * S
+			e.x = w.side * A.x[i] * S
+			e.top = A.top[i]
+			e.len = 0.23 * S
+			i = i + 1
+		end
+		e.th = th(i - 1)
+		e.hmax = e.top - WC.CoverBottom
+		e.H = e.hmax * S
+		e.p.Size = Vector3.new(e.th * S, e.H, e.len)
+		e.w.C0 = CFrame.new(e.x, (e.top - e.hmax / 2) * S, e.z)
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Brick
+		mesh.Parent = e.p
+		e.mesh = mesh
+		cols[#cols + 1] = e
+	end
+	local m = #cols
+	for k, e in ipairs(cols) do
+		e.mid = math.abs(k - (m + 1) / 2) / (m / 2)
+	end
+	w.cover = cols
+	return cols
+end
+function RAYC.W.sm(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function RAYC.W.fold(c, w, idx, dt, sv)
+	local WC = Config.Water
+	local goal = (c.wheelWet and c.wheelWet[idx]) and 1 or 0
+	if goal ~= (w.goalPrev or 0) then
+		w.goalPrev = goal
+		if idx == 1 then playSound(Config.SoundDial, 0.35, 0.7) end
+	end
+	local r = w.ret or 0
+	if r == 0 and goal == 0 then return end
+	local step = dt / WC.Time
+	r = r + math.clamp(goal - r, -step, step)
+	w.ret = r
+	local sm = RAYC.W.sm
+	local pFold = sm(r / 0.4)
+	local pLift = sm((r - 0.15) / 0.4)
+	local pc = math.clamp((r - 0.45) / 0.55, 0, 1)
+	local sd = w.side
+	local sh = CFrame.new(-sd * WC.Shift * S * pLift, WC.Lift * S * pLift, 0)
+	w.kw.C0 = sh * w.base * CFrame.Angles(0, sv * (1 - pFold), 0) * CFrame.Angles(0, 0, sd * math.rad(90) * pFold)
+	w.covT = (w.covT or 0) - dt
+	if (pc > 0 or w.coverOn) and (w.covT <= 0 or pc <= 0 or pc >= 1) then
+		w.covT = 1 / 30
+		local cols = RAYC.W.cover(c, w)
+		local recolor = pc > 0 and not w.coverOn
+		w.coverOn = pc > 0
+		for _, e in ipairs(cols) do
+			local t = math.clamp(pc * 1.5 - e.mid * 0.5, 0, 1)
+			t = t * t * (3 - 2 * t)
+			t = math.floor(t * 10 + 0.5) / 10
+			if e.tq ~= t or recolor then
+				e.tq = t
+				if recolor and c._body then e.p.Color = c._body end
+				if t < 0.01 then
+					e.p.Transparency = 1
+				else
+					e.p.Transparency = 0
+					e.mesh.Scale = Vector3.new(1, t, 1)
+					e.mesh.Offset = Vector3.new(0, e.H * (1 - t) / 2, 0)
+				end
+			end
+		end
+	end
+end
+function RAYC.W.wave(x, z, t, a)
+	return a * (math.sin(x * 0.33 + t * 1.7) + 0.6 * math.sin(z * 0.27 - t * 1.3 + x * 0.11))
+end
+RAYC.W.TEX = {}
+RAYC.W.TEXN = 96
+function RAYC.W.hash(i, j, k)
+	local s = math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453
+	return s - math.floor(s)
+end
+function RAYC.W.ss(a, b, x)
+	local t = math.clamp((x - a) / (b - a), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+RAYC.W.TEXF = {
+	foam = function(u, v, r)
+		local n = math.noise(u * 2.6 + 7.3, v * 2.6 + 1.9, 0.5) * 0.6 + math.noise(u * 5.5 + 3.1, v * 5.5 + 8.2, 2.5) * 0.3 + math.noise(u * 11 + 1.7, v * 11 + 5.9, 4.1) * 0.12
+		local a = RAYC.W.ss(0, 0.55, (1 - r) + n * 0.55 - 0.12) * RAYC.W.ss(1, 0.7, r) * 0.92
+		return a, 0.88 + 0.12 * n
+	end,
+	mist = function(u, v, r)
+		local n = math.noise(u * 1.6 + 4.2, v * 1.6 + 9.1, 3.3) * 0.6 + math.noise(u * 3.2 + 1.3, v * 3.2 + 6.4, 7.7) * 0.3
+		return RAYC.W.ss(0, 0.9, (1 - r) + n * 0.5) * RAYC.W.ss(1, 0.5, r) * 0.55, 0.97
+	end,
+	ripple = function(u, v, r)
+		local ring = math.exp(-(((r - 0.72) / 0.09) ^ 2))
+		local ring2 = math.exp(-(((r - 0.5) / 0.05) ^ 2)) * 0.45
+		return (ring + ring2) * RAYC.W.ss(1, 0.88, r), 1
+	end,
+	spray = function(u, v, r)
+		local best = 0
+		local gx, gy = u * 4.5, v * 4.5
+		local ci, cj = math.floor(gx), math.floor(gy)
+		for di = -1, 1 do
+			for dj = -1, 1 do
+				local i, j = ci + di, cj + dj
+				local px = i + 0.2 + RAYC.W.hash(i, j, 1) * 0.6
+				local py = j + 0.2 + RAYC.W.hash(i, j, 2) * 0.6
+				local rad = 0.12 + RAYC.W.hash(i, j, 3) * 0.2
+				local d = math.sqrt((gx - px) ^ 2 + (gy - py) ^ 2)
+				local val = RAYC.W.ss(rad, rad * 0.45, d)
+				if val > best then best = val end
+			end
+		end
+		local hz = RAYC.W.ss(1, 0.2, r) * 0.18
+		return math.max(best * RAYC.W.ss(1, 0.6, r), hz), 1
+	end,
+	drop = function(u, v, r)
+		local R = 0.78
+		local body = RAYC.W.ss(R, R - 0.08, r)
+		local rim = RAYC.W.ss(0.35, R, r)
+		local sx, sy = u + 0.28, v + 0.3
+		local spec = RAYC.W.ss(0.26, 0, math.sqrt(sx * sx + sy * sy))
+		return math.clamp(body * (0.4 + 0.5 * rim + 0.6 * spec), 0, 1), 0.82 + 0.18 * spec
+	end,
+	burst = function(u, v, r)
+		local th = math.atan2(v, u)
+		local sp = 0.5 + 0.5 * math.sin(th * 7 + math.noise(u * 2 + 3.3, v * 2 + 1.1, 9.1) * 4)
+		local sp2 = 0.5 + 0.5 * math.sin(th * 13 + 1.7 + math.noise(u * 3 + 6.1, v * 3 + 2.7, 5.3) * 5)
+		local reach = 0.32 + 0.6 * sp ^ 1.6 * (0.6 + 0.4 * sp2)
+		local n = math.noise(u * 6 + 2.2, v * 6 + 4.4, 1.3)
+		local a = RAYC.W.ss(reach, reach * 0.5, r) * (0.85 + 0.4 * n)
+		return math.clamp(a, 0, 1), 0.9 + 0.1 * n
+	end,
+}
+function RAYC.W.texMake(kind)
+	local fn = RAYC.W.TEXF[kind]
+	if not fn then return nil end
+	local N = RAYC.W.TEXN
+	local ok, ei = pcall(function()
+		return game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(N, N) })
+	end)
+	if not ok or not ei then return nil end
+	local buf = buffer.create(N * N * 4)
+	local o = 0
+	for y = 0, N - 1 do
+		for x = 0, N - 1 do
+			local u = (x + 0.5) / N * 2 - 1
+			local v = (y + 0.5) / N * 2 - 1
+			local a, b = fn(u, v, math.sqrt(u * u + v * v))
+			local c8 = math.floor(math.clamp(b, 0, 1) * 255 + 0.5)
+			buffer.writeu8(buf, o, c8)
+			buffer.writeu8(buf, o + 1, c8)
+			buffer.writeu8(buf, o + 2, c8)
+			buffer.writeu8(buf, o + 3, math.floor(math.clamp(a, 0, 1) * 255 + 0.5))
+			o = o + 4
+		end
+	end
+	local wrote = pcall(function() ei:WritePixelsBuffer(Vector2.zero, Vector2.new(N, N), buf) end)
+	if not wrote then
+		local ok2 = pcall(function()
+			local t = table.create(N * N * 4)
+			for i = 0, N * N * 4 - 1 do t[i + 1] = buffer.readu8(buf, i) / 255 end
+			ei:WritePixels(Vector2.zero, Vector2.new(N, N), t)
+		end)
+		if not ok2 then
+			pcall(function() ei:Destroy() end)
+			return nil
+		end
+	end
+	return ei
+end
+function RAYC.W.texProc(pe, kind)
+	if not kind then return false end
+	local T = RAYC.W.TEX
+	if T[kind] == nil then
+		local okT, r = pcall(RAYC.W.texMake, kind)
+		T[kind] = okT and r or false
+	end
+	local ei = T[kind]
+	if not ei then return false end
+	return (pcall(function() pe.TextureContent = Content.fromObject(ei) end))
+end
+function RAYC.W.fxBuild(c)
+	local F = { all = {} }
+	local g = workspace.Gravity
+	local function add(x, z, rot, dir, cfg)
+		local m = RAYC.W.mk(c, "Part")
+		m.p.Name = "WaterFx"
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = cfg.tex or "rbxasset://textures/particles/smoke_main.dds"
+		if cfg.orient then e.Orientation = cfg.orient end
+		e.Rate = 0
+		e.EmissionDirection = dir
+		e.Lifetime = cfg.life
+		e.Speed = cfg.speed
+		e.SpreadAngle = cfg.spread
+		e.Drag = cfg.drag or 0
+		e.Acceleration = cfg.acc or Vector3.zero
+		e.Rotation = NumberRange.new(0, 360)
+		e.RotSpeed = NumberRange.new(-30, 30)
+		e.LightInfluence = 0.5
+		e.Color = ColorSequence.new(Color3.fromRGB(240, 248, 255))
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, cfg.t0), NumberSequenceKeypoint.new(1, 1) })
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, cfg.s0 * S), NumberSequenceKeypoint.new(1, cfg.s1 * S) })
+		e.Parent = m.p
+		local o = { w = m.w, pe = e, x = x, z = z, rot = rot, ek = cfg.ek }
+		F.all[#F.all + 1] = o
+		return o
+	end
+	local bow = { life = NumberRange.new(1.2, 2.0), speed = NumberRange.new(5, 10), spread = Vector2.new(20, 20), drag = 1.6, t0 = 0.4, s0 = 0.5, s1 = 2.4, tex = "rbxassetid://78412385236447", ek = "foam" }
+	local stern = { life = NumberRange.new(1.6, 2.6), speed = NumberRange.new(3, 6), spread = Vector2.new(12, 12), drag = 1.2, t0 = 0.5, s0 = 0.9, s1 = 3.6, tex = "rbxassetid://78412385236447", ek = "foam" }
+		local mist = { life = NumberRange.new(1.2, 2), speed = NumberRange.new(2, 5), spread = Vector2.new(25, 25), drag = 1, t0 = 0.7, s0 = 1.2, s1 = 4.5, tex = "rbxassetid://94828464667334", ek = "mist" }
+		local rip = { life = NumberRange.new(0.9, 1.4), speed = NumberRange.new(0.5, 0.5), spread = Vector2.new(0, 0), t0 = 0.3, s0 = 2, s1 = 16, tex = "rbxassetid://79584576349303", ek = "ripple", orient = Enum.ParticleOrientation.VelocityPerpendicular }
+	local tail = { life = NumberRange.new(0.6, 1.0), speed = NumberRange.new(22, 34), spread = Vector2.new(14, 14), acc = Vector3.new(0, -g * 0.7, 0), t0 = 0.1, s0 = 0.7, s1 = 1.9, tex = "rbxassetid://92308089132693", ek = "spray" }
+	local spl = { life = NumberRange.new(0.7, 1.2), speed = NumberRange.new(18, 32), spread = Vector2.new(60, 60), acc = Vector3.new(0, -g * 0.8, 0), t0 = 0.1, s0 = 0.8, s1 = 2.2, tex = "rbxassetid://86404614759677", ek = "burst" }
+	local tilt = CFrame.Angles(math.rad(50), 0, 0)
+	F.bow = { add(-3.4, -6.2, CFrame.identity, Enum.NormalId.Left, bow), add(3.4, -6.2, CFrame.identity, Enum.NormalId.Right, bow) }
+	F.stern = { add(-2.4, 8.4, CFrame.identity, Enum.NormalId.Back, stern), add(2.4, 8.4, CFrame.identity, Enum.NormalId.Back, stern) }
+	F.tail = { add(-1.7, 10.5, tilt, Enum.NormalId.Top, tail), add(1.7, 10.5, tilt, Enum.NormalId.Top, tail) }
+	F.splash = add(0, -1, CFrame.identity, Enum.NormalId.Top, spl)
+	F.mist = { add(-2.4, 8.4, CFrame.identity, Enum.NormalId.Back, mist), add(2.4, 8.4, CFrame.identity, Enum.NormalId.Back, mist) }
+	F.ripple = add(0, 0, CFrame.identity, Enum.NormalId.Top, rip)
+	local dr = { life = NumberRange.new(0.5, 0.9), speed = NumberRange.new(0.3, 1.5), spread = Vector2.new(35, 35), acc = Vector3.new(0, -g * 0.5, 0), t0 = 0.25, s0 = 0.14, s1 = 0.1, tex = "rbxassetid://111383448207291", ek = "drop" }
+	F.drip = {}
+	for _, p in ipairs({ { -3.5, -4 }, { 3.5, -4 }, { -3.5, 6 }, { 3.5, 6 } }) do
+		local o = add(p[1], p[2], CFrame.identity, Enum.NormalId.Bottom, dr)
+		o.fy = 1.0
+		o.pe.Color = ColorSequence.new(Color3.fromRGB(200, 225, 255))
+		F.drip[#F.drip + 1] = o
+	end
+	task.spawn(function()
+		local CP = game:GetService("ContentProvider")
+		local smoke = "rbxasset://textures/particles/smoke_main.dds"
+		local byUrl = {}
+		local kinds = {}
+		for _, o in ipairs(F.all) do
+			local u = o.pe.Texture
+			if u ~= smoke then
+				byUrl[u] = byUrl[u] or {}
+				table.insert(byUrl[u], o.pe)
+				kinds[u] = o.ek
+			end
+		end
+		for url, pes in pairs(byUrl) do
+			task.spawn(function()
+				for attempt = 1, 3 do
+					pcall(function() CP:PreloadAsync({ pes[1] }) end)
+					local okS, st = pcall(function() return CP:GetAssetFetchStatus(url) end)
+					if not okS or st ~= Enum.AssetFetchStatus.Failure then return end
+					task.wait(attempt * 3)
+					for _, pe in ipairs(pes) do
+						if pe.Parent then
+							pe.Texture = ""
+							pe.Texture = url
+						end
+					end
+				end
+				warn("[WaterFx] textura falhou: " .. tostring(url))
+				for _, pe in ipairs(pes) do
+					if pe.Parent then
+						pe.Texture = smoke
+						RAYC.W.texProc(pe, kinds[url])
+					end
+				end
+			end)
+		end
+	end)
+	return F
+end
+function RAYC.W.rate(o, r)
+	r = math.floor(r * 2 + 0.5) / 2
+	if o.r ~= r then
+		o.r = r
+		o.pe.Rate = r
+	end
+end
+function RAYC.W.fx(c, dt, was, hv)
+	-- VFX de particulas do modo agua removidas (proa, popa, jato, respingo, nevoa, ondas, gotas)
+	local on = c.waterOn
+	local lt = on and 1 or 0
+	c.wLamp = (c.wLamp or 0) + (lt - (c.wLamp or 0)) * (1 - math.exp(-3 * dt))
+	local la = c.wLamp
+	if math.abs(la - (c.wLampA or 0)) > 0.01 then
+		c.wLampA = la
+		local cb = Color3.fromRGB(165, 215, 255)
+		for _, l in ipairs(c.lampList) do
+			local L = l.light
+			if L and L.Parent then
+				l.b0 = l.b0 or L.Brightness
+				l.c0 = l.c0 or L.Color
+				L.Brightness = l.b0 * (1 + 0.9 * la)
+				L.Color = l.c0:Lerp(cb, la)
+			end
+		end
+	end
+end
+function RAYC.W.step(c, dt)
+	local W = RAYC.W
+	if W.enabled and c.wheels and (c.coverN or 0) < 4 then
+		c.coverN = (c.coverN or 0) + 1
+		local w0 = c.wheels[c.coverN]
+		if w0 then RAYC.W.cover(c, w0) end
+	end
+	W.t = W.t - dt
+	if W.t <= 0 then
+		W.t = 0.12
+		W.lt = (W.lt or 0) - 0.12
+		if W.lt <= 0 then
+			W.lt = 4
+			if #W.extra > 300 then W.extra = {} end
+			local nl = table.clone(rp.FilterDescendantsInstances)
+			for _, x in ipairs(W.extra) do nl[#nl + 1] = x end
+			W.list = nl
+			W.dirty = true
+		end
+		c.waterSurf = W.enabled and W.probe(c, c.pos) or nil
+		c.wheelWet = c.wheelWet or {}
+		c.wheelDry = c.wheelDry or {}
+		local cfY = CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+		for i = 1, 4 do
+			local off = c.wheelOff and c.wheelOff[i]
+			local wyi = W.enabled and off and W.probe(c, cfY:PointToWorldSpace(off)) or nil
+			c.wheelWY = c.wheelWY or {}
+			if wyi then
+				c.wheelWet[i] = true
+				c.wheelDry[i] = 0
+				c.wheelWY[i] = wyi
+			else
+				c.wheelDry[i] = (c.wheelDry[i] or 0) + 0.12
+				if c.wheelDry[i] > 0.1 or not W.enabled then c.wheelWet[i] = false end
+				if not c.wheelWet[i] then c.wheelWY[i] = nil end
+			end
+		end
+	end
+	local rm = 0
+	if c.wheels then
+		for i = 1, 4 do
+			local wi = c.wheels[i]
+			if wi and wi.ret and wi.ret > rm then rm = wi.ret end
+		end
+	end
+	c.wRet = rm
+	local wy = c.waterSurf
+	local was = c.waterOn
+	if W.enabled and wy then
+		local h = c.pos.Y - wy
+		if c.waterOn then
+			c.waterOn = h < 7 * S
+		else
+			c.waterOn = h < 3 * S
+		end
+	else
+		c.waterOn = false
+	end
+	local hv = Vector3.new(c.vel.X, 0, c.vel.Z).Magnitude
+	local pt = c.waterOn and math.clamp((hv - 28) / 80, 0, 1) or 0
+	c.plane = (c.plane or 0) + (pt - (c.plane or 0)) * (1 - math.exp(-2.5 * dt))
+	pcall(RAYC.W.fx, c, dt, was, hv)
+end
+local function stepCar(c, dt)
+	ignStep(c, dt)
+	pcall(Config.Damage.vitalStep, c, dt)
+	RAYC.W.step(c, dt)
+	local g = workspace.Gravity
+	local driving = c.driver and not c.boardFrom and not c.exiting
+	local throttle, brakePed, steerIn = 0, 0, 0
+	if driving then
+		local mv = getMove()
+		throttle = c.engineOn and math.clamp(-mv.Z, 0, 1) or 0
+		brakePed = math.clamp(mv.Z, 0, 1)
+		steerIn = math.clamp(mv.X, -1, 1)
+	end
+	c.throttle = throttle
+	c.brakePed = brakePed
+	local want = (driving and (held.brake or held.brakeUi)) and 3 or 0
+	if c.parkPending then want = 3 end
+	if want > c.notch then
+		c.notchT = c.notchT - dt
+		if c.notchT <= 0 then
+			c.notch = c.notch + 1
+			c.notchT = 0.14
+			playSound(Config.SoundDial, 0.5)
+		end
+	else
+		c.notch = want
+		c.notchT = 0
+	end
+	local mode = c.mode
+	local yaw = c.yaw
+	local fwd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local vel = c.vel
+	local vF, vR = vel:Dot(fwd), vel:Dot(right)
+	local grounded = c.grounded
+	local yawRate = 0
+	local maxD = R(34)
+	if mode == "P" and not c.parkPending then
+		vel = Vector3.zero
+		vF, vR = 0, 0
+	else
+		local top = Config.TopSpeed * Config.GearTop[gear] * Config.Damage.speedMul(c) * (c.vTop or 1)
+		local gearAcc = Config.GearAccel[gear]
+		local acc = 0
+		if grounded and not c.parkPending then
+			if mode == "D" and throttle > 0 and brakePed == 0 then
+				if vF < top then
+					local r = math.max(vF, 0) / top
+					acc = Config.Thrust * gearAcc * throttle * math.max(0, 1 - r * r)
+				end
+			elseif mode == "R" and throttle > 0 and brakePed == 0 then
+				if vF > -Config.ReverseTop then
+					local r = math.max(-vF, 0) / Config.ReverseTop
+					acc = -Config.Thrust * 0.5 * throttle * math.max(0, 1 - r * r)
+				end
+			end
+		end
+		acc = acc * (c.vAcc or 1)
+		local resist = 2.5 + 0.00015 * vF * vF
+		if mode == "D" then
+			if throttle == 0 then resist = resist + 6 end
+			if vF > top * 1.03 then
+				resist = resist + Config.EngineBrake * (1 + (vF - top) / math.max(top, 1) * 2)
+			end
+		elseif mode == "R" and throttle == 0 then
+			resist = resist + 6
+		end
+		if not grounded then resist = 0.00015 * vF * vF end
+		if c.waterOn then resist = resist + (5 + 0.0005 * vF * vF) * (1 - 0.6 * (c.plane or 0)) end
+		local sgn = vF > 0 and 1 or -1
+		local dec = math.min(resist * dt, math.abs(vF))
+		vF = vF + acc * dt - sgn * dec
+		if grounded then
+			local n = c.up
+			local gt = Vector3.new(0, -1, 0) + n * n.Y
+			local sa = gt * (g * Config.RollK)
+			local spd0 = math.sqrt(vF * vF + vR * vR)
+			if not (spd0 < 2 and sa.Magnitude < 7) then
+				local sf = sa:Dot(fwd)
+				if throttle > 0 and brakePed == 0 and ((mode == "D" and sf < 0) or (mode == "R" and sf > 0)) then
+					sf = sf * (1 - 0.92 * throttle)
+				end
+				vF = vF + sf * dt
+				vR = vR + sa:Dot(right) * dt
+			end
+		end
+		local bd = (c.notch > 0 and Config.BrakeNotch[c.notch] or 0) + brakePed * Config.BrakePedal
+		if c.parkPending then bd = bd + 95 end
+		if bd > 0 and grounded then
+			local sp = math.sqrt(vF * vF + vR * vR)
+			if sp > 0.001 then
+				local k = math.max(0, sp - bd * dt) / sp
+				vF, vR = vF * k, vR * k
+			end
+			if c.parkPending and sp < 2 then
+				c.mode = "P"
+				c.parkPending = false
+				vF, vR = 0, 0
+				playSound(Config.SoundDial, 0.8, 0.8)
+			end
+		end
+		local k = math.clamp(math.abs(vF) / 170, 0, 1)
+		maxD = R(34 + (6 - 34) * k) * (c.vSteer or 1)
+		c.steer = c.steer + (steerIn - c.steer) * (1 - math.exp(-(steerIn == 0 and 10 or 6) * dt))
+		if grounded then
+			yawRate = -(vF / WHEELBASE) * math.tan(maxD * c.steer)
+			local capMul = 1
+			if c.notch > 0 then
+				yawRate = yawRate * Config.DriftTurn[c.notch]
+				capMul = Config.DriftTurn[c.notch]
+			end
+			local cap = Config.MaxLatAccel * capMul / math.max(math.abs(vF), 1)
+			yawRate = math.clamp(yawRate, -cap, cap)
+			yawRate = yawRate + (c.vPull or 0) * math.clamp(math.abs(vF) / 90, 0, 1) * (vF >= 0 and 1 or -1)
+		end
+		local vw = fwd * vF + right * vR
+		yaw = yaw + yawRate * dt
+		local fwd2 = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+		local right2 = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+		vF, vR = vw:Dot(fwd2), vw:Dot(right2)
+		local grip = (c.notch > 0) and Config.DriftGrip[c.notch] or Config.Grip
+		grip = grip * (c.vGrip or 1)
+		if c.waterOn then grip = grip * 0.35 end
+		if grounded then vR = vR * math.exp(-grip * dt) end
+		fwd, right = fwd2, right2
+		vel = fwd * vF + right * vR
+	end
+	local spd = vel.Magnitude
+	if spd > 0.5 then
+		local dir = vel.Unit
+		local lat = Vector3.new(-dir.Z, 0, dir.X)
+		local reach = 1.0 + spd * dt * 1.5 + 0.6
+		local upR = c.grounded and c.up or Vector3.yAxis
+		local tdir = dir - upR * dir:Dot(upR)
+		tdir = tdir.Magnitude > 0.05 and tdir.Unit or dir
+		for _, off in ipairs({ 0, 2.8 * S, -2.8 * S }) do
+			local o = c.pos + upR * (1.9 * S) + tdir * (8.2 * S - 1.0) + lat * off
+			local hit = workspace:Raycast(o, tdir * reach, rp)
+			if hit and math.abs(hit.Normal.Y) < 0.35 and not climbable(c, hit) then
+				local n = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
+				if n.Magnitude > 0.01 then
+					n = n.Unit
+					local into = vel:Dot(n)
+					if into < 0 then
+						local dmgd = Config.Damage.hit(c, -into, hit.Position, n)
+						vel = vel - n * into * 1.3
+						if not dmgd and -into > 35 then playSound(Config.SoundLand, 0.8, 0.8) end
+						vF, vR = vel:Dot(fwd), vel:Dot(right)
+					end
+				end
+				break
+			end
+		end
+	end
+	local posN = c.pos + Vector3.new(vel.X * dt, 0, vel.Z * dt)
+	do
+		local hv = Vector3.new(vel.X, 0, vel.Z)
+		local hs = hv.Magnitude
+		if hs > 0.5 then
+			local hd = hv / hs
+			local upB = c.grounded and c.up or Vector3.yAxis
+			local fB = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			fB = fB - upB * fB:Dot(upB)
+			fB = fB.Magnitude > 0.05 and fB.Unit or Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			local rB = fB:Cross(upB).Unit
+			local uB = rB:Cross(fB)
+			local cfB = CFrame.fromMatrix(c.pos + uB * (2.3 * S), rB, uB, -fB)
+			local tB = hd - uB * hd:Dot(uB)
+			tB = tB.Magnitude > 0.05 and tB.Unit or hd
+			local hf = math.max(Vector3.new(tB.X, 0, tB.Z).Magnitude, 0.2)
+			local okB, bc = pcall(workspace.Blockcast, workspace, cfB, Vector3.new(6.6 * S, 1.6 * S, 16 * S), tB * ((hs * dt + 0.6) / hf), rp)
+			if okB and bc and math.abs(bc.Normal.Y) < 0.5 then
+				local n = Vector3.new(bc.Normal.X, 0, bc.Normal.Z)
+				if n.Magnitude > 0.01 then
+					n = n.Unit
+					local into = vel:Dot(n)
+					local d0 = hs * dt
+					local allowed = math.min(d0, math.max(bc.Distance - 0.3, 0) * hf)
+					if into < 0 then
+						Config.Damage.hit(c, -into, bc.Position, n)
+						vel = vel - n * into
+						vF, vR = vel:Dot(fwd), vel:Dot(right)
+					end
+					posN = c.pos + hd * allowed + Vector3.new(vel.X, 0, vel.Z) * dt * (1 - allowed / math.max(d0, 1e-4))
+					if bc.Distance < 0.05 then posN = posN + n * 0.3 end
+				end
+			end
+		end
+	end
+	if c.waterOn and not c.engineOn then
+		local td = os.clock()
+		posN = posN + Vector3.new(math.sin(td * 0.21 + 1), 0, math.cos(td * 0.17)) * 1.6 * dt
+		yaw = yaw + math.sin(td * 0.13) * 0.05 * dt
+	end
+	local cfY = CFrame.new(posN) * CFrame.Angles(0, yaw, 0)
+	local hits, pts = {}, {}
+	for i = 1, 4 do
+		local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+		local res = groundRay(Vector3.new(wp.X, c.pos.Y, wp.Z), tiltOf(c))
+		if res then
+			hits[i] = res.Position
+			c.hitMat = c.hitMat or {}
+			c.hitMat[i] = res.Material
+			pts[#pts + 1] = res.Position
+		end
+	end
+	c.hits = hits
+	local targetY, nrm = nil, nil
+	if #pts >= 1 then
+		local sum = 0
+		for _, p in ipairs(pts) do sum = sum + p.Y end
+		targetY = sum / #pts
+		if #pts == 4 then
+			nrm = (hits[2] - hits[3]):Cross(hits[1] - hits[4])
+		elseif #pts == 3 then
+			nrm = (pts[2] - pts[1]):Cross(pts[3] - pts[1])
+		end
+		if nrm and nrm.Magnitude > 1e-4 then
+			nrm = nrm.Unit
+			if nrm.Y < 0 then nrm = -nrm end
+			if nrm.Y < 0.3 then nrm = nil end
+		else
+			nrm = nil
+		end
+	end
+	if c.waterOn and c.waterSurf then
+		local tt = os.clock()
+		local pl = c.plane or 0
+		local amp = (0.07 + 0.05 * pl) * S * (c.engineOn and 1 or 1.8)
+		local wv, hsum = {}, 0
+		for i = 1, 4 do
+			local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+			local h = ((c.wheelWY and c.wheelWY[i]) or c.waterSurf) + RAYC.W.wave(wp.X, wp.Z, tt, amp)
+			wv[i] = Vector3.new(wp.X, h, wp.Z)
+			hsum = hsum + h
+		end
+		targetY = hsum / 4 - Config.Water.Sink * S * (1 - Config.Water.PlaneLift * pl)
+		local nW = (wv[2] - wv[3]):Cross(wv[1] - wv[4])
+		if nW.Magnitude < 1e-4 then
+			nW = Vector3.yAxis
+		else
+			nW = nW.Unit
+			if nW.Y < 0 then nW = -nW end
+		end
+		local flW = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+		local rvW = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+		local hsW = Vector3.new(vel.X, 0, vel.Z).Magnitude
+		local accW = (vF - (c.wPrevVF or vF)) / math.max(dt, 1e-3)
+		c.wPrevVF = vF
+		c.wAcc = (c.wAcc or 0) + (accW - (c.wAcc or 0)) * (1 - math.exp(-4 * dt))
+		local pit = (0.09 * math.sin(math.pi * math.clamp((hsW - 15) / 100, 0, 1)) + 0.03 * pl + math.clamp(c.wAcc * 0.0012, -0.1, 0.1)) * Config.Water.Tilt
+		local rol = math.clamp(yawRate * math.abs(vF) * 0.0009, -0.3, 0.3) * Config.Water.Tilt
+		nrm = (nW - flW * math.tan(pit) - rvW * math.tan(rol)).Unit
+		c.hits = RAYC.W.empty
+	end
+	if targetY and not c.waterOn and (c.wRet or 0) > 0 then
+		targetY = targetY - Config.Water.Drop * S * RAYC.W.sm(c.wRet)
+	end
+	if targetY and c.grounded and not c.waterOn then
+		local nd = noseNeed(c, cfY, posN)
+		if nd and nd > targetY then targetY = nd end
+	end
+	local hsp = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	if targetY and c.grounded then
+		local maxUp = c.pos.Y + Config.StepUp * S + hsp * dt * 3
+		if targetY > maxUp then targetY = maxUp end
+	end
+	local y = c.pos.Y
+	local RJ = Config.RampJump
+	local rjOn = RJ and RJ.Enabled
+	local gA = g * ((rjOn and RJ.GravMul) or 1)
+	if targetY then
+		local allow = 0.4 * S + spd * dt * 0.35
+		local launch
+		if c.grounded then
+			launch = y > targetY + allow
+			if rjOn and not launch and (c.vyG or 0) > RJ.MinVy and (c.landT or 0) < 0.35 then
+				local ballY = y + (c.vyG or 0) * dt - 0.5 * gA * dt * dt
+				launch = ballY > targetY + RJ.Tol * S + spd * dt * 0.08
+			end
+		else
+			launch = y > targetY + allow or (rjOn and c.vy > 0 and y > targetY)
+		end
+		if launch then
+			if c.grounded then
+				if rjOn then
+					c.vy = math.clamp((c.vyG or 0) * RJ.Gain, -RJ.MaxVy, RJ.MaxVy)
+					c.susV = c.susV + math.clamp((c.vyG or 0) * 0.05, 0, 9)
+					c.rkPV = (c.rkPV or 0) + math.clamp((c.vyG or 0) * 0.0035, 0, 0.45)
+				else
+					c.vy = math.clamp(c.vyG or 0, -60, 80)
+				end
+				c.grounded = false
+			end
+			c.vy = c.vy - gA * dt
+			y = y + c.vy * dt
+			if y <= targetY then
+				if c.vy < -18 then
+					local RJ2 = Config.RampJump
+					if RJ2 and RJ2.Enabled then
+						local imp = -c.vy
+						if nrm then
+							imp = math.max(-(Vector3.new(vel.X, c.vy, vel.Z)):Dot(nrm), 0)
+						end
+						vel = vel * landImpact(c, imp, nrm, yaw)
+					else
+						if c.vy < -30 then playSound(Config.SoundLand, 0.6) end
+						c.susV = c.susV + math.clamp(c.vy * 0.25, -25, 0)
+					end
+				end
+				c.vy = 0
+				c.vyG = 0
+				y = targetY
+				c.grounded = true
+				c.landT = 0.5
+			end
+		else
+			if not c.grounded then c.vyG = 0 end
+			c.vyG = (c.vyG or 0) + (math.clamp((targetY - y) / dt, -400, 400) - (c.vyG or 0)) * (1 - math.exp(-18 * dt))
+			y = y + (targetY - y) * (1 - math.exp(-(targetY > y and 80 or 30) * dt))
+			c.vy = 0
+			c.grounded = true
+		end
+		if nrm and c.grounded then
+			c.up = c.up:Lerp(nrm, 1 - math.exp(-((c.landT or 0) > 0 and 18 or math.clamp(10 + hsp * 0.05, 10, 22)) * dt)).Unit
+		end
+		c.landT = math.max((c.landT or 0) - dt, 0)
+	else
+		c.grounded = false
+		c.vy = c.vy - gA * dt
+		y = y + c.vy * dt
+	end
+	if not c.grounded and c.vy <= 0 and not c.waterOn then
+		local nd = noseNeed(c, cfY, posN)
+		if nd and nd > y and nd - y < 4 * S then
+			y = nd
+			if c.vy < -18 and Config.RampJump and Config.RampJump.Enabled then
+				vel = vel * landImpact(c, -c.vy, nil, yaw)
+			else
+				c.susV = c.susV - math.clamp(-c.vy * 0.2, 0, 30)
+			end
+			c.vy = 0
+			c.vyG = 0
+			c.grounded = true
+			c.landT = 0.5
+		end
+	end
+	do
+		local fl = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+		local rv = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+		local cu = c.up
+		local cuY = math.max(cu.Y, 0.2)
+		local curP = math.atan(-(cu.X * fl.X + cu.Z * fl.Z) / cuY)
+		local curR = math.atan(-(cu.X * rv.X + cu.Z * rv.Z) / cuY)
+		if c.grounded then
+			local k = 1 - math.exp(-12 * dt)
+			local d = math.max(dt, 1e-3)
+			c.pRateG = (c.pRateG or 0) + (((curP - (c.prevP or curP)) / d) - (c.pRateG or 0)) * k
+			c.rRateG = (c.rRateG or 0) + (((curR - (c.prevR or curR)) / d) - (c.rRateG or 0)) * k
+			c.prevP, c.prevR = curP, curR
+			c.airInit = false
+			c.airT = 0
+			c.aP, c.aR, c.aPV, c.aRV = nil, nil, nil, nil
+		else
+			if not c.airInit then
+				c.airInit = true
+				c.aP, c.aR = curP, curR
+				c.aPV = math.clamp(c.pRateG or 0, -3, 3)
+				c.aRV = math.clamp(c.rRateG or 0, -3, 3)
+			end
+			local vfa = vel:Dot(fl)
+			local tp = math.atan2(c.vy, math.max(math.abs(vfa), 1)) * (vfa >= 0 and 1 or -1)
+			tp = math.clamp(tp * math.clamp(math.abs(vfa) / 15, 0, 1), -1.1, 1.1)
+			local tr = 0
+			local RJa = Config.RampJump or {}
+			c.airT = (c.airT or 0) + dt
+			tp = tp - (RJa.NoseBias or 0.08) * math.min(c.airT / 1.2, 1)
+			local gh = workspace:Raycast(Vector3.new(posN.X, y, posN.Z), Vector3.new(0, -(RJa.AlignDist or 14) * 1.6 * S, 0), rp)
+			if gh and gh.Normal.Y > 0.3 then
+				local h = y - gh.Position.Y
+				local w = math.clamp(1 - h / ((RJa.AlignDist or 14) * S), 0, 1)
+				w = w * w * (3 - 2 * w)
+				local gn = gh.Normal
+				local gnY = math.max(gn.Y, 0.2)
+				local gP = math.atan(-(gn.X * fl.X + gn.Z * fl.Z) / gnY)
+				local gR = math.atan(-(gn.X * rv.X + gn.Z * rv.Z) / gnY)
+				tp = tp + (gP - tp) * w
+				tr = gR * w
+			end
+			local K = RJa.AirK or 6
+			local Cd = 2 * math.sqrt(K) * (RJa.AirDamp or 0.85)
+			c.aPV = c.aPV + (K * (tp - c.aP) - Cd * c.aPV) * dt
+			c.aRV = c.aRV + (K * (tr - c.aR) - Cd * c.aRV) * dt
+			c.aP = math.clamp(c.aP + c.aPV * dt, -1.3, 1.3)
+			c.aR = math.clamp(c.aR + c.aRV * dt, -1.0, 1.0)
+			c.up = (Vector3.yAxis - fl * math.tan(c.aP) - rv * math.tan(c.aR)).Unit
+		end
+	end
+	if y < workspace.FallenPartsDestroyHeight + 40 then
+		posN = c.lastSafe or c.pos
+		y = posN.Y + 3
+		c.vy = 0
+		vel = Vector3.zero
+	end
+	if c.grounded then
+		c.safeT = (c.safeT or 0) + dt
+		if c.safeT > 1 then c.safeT = 0; c.lastSafe = Vector3.new(posN.X, y, posN.Z) end
+	end
+	c.pos = Vector3.new(posN.X, y, posN.Z)
+	c.yaw = yaw
+	c.vel = vel
+	c.vF = vel:Dot(Vector3.new(-math.sin(yaw), 0, -math.cos(yaw)))
+	c.vR = vel:Dot(Vector3.new(math.cos(yaw), 0, -math.sin(yaw)))
+	c.maxD = maxD
+	c.yawRate = yawRate
+	local accL = (c.vF - (c.prevVF or c.vF)) / math.max(dt, 1e-3)
+	c.prevVF = c.vF
+	c.accS = (c.accS or 0) + (accL - (c.accS or 0)) * (1 - math.exp(-6 * dt))
+	local latA = c.vF * yawRate
+	local tp = math.clamp(c.accS * 0.0006, -0.06, 0.06)
+	local tr = math.clamp(-latA * 0.0005, -0.06, 0.06)
+	local kk = 1 - math.exp(-8 * dt)
+	c.leanP = c.leanP + (tp - c.leanP) * kk
+	c.leanR = c.leanR + (tr - c.leanR) * kk
+	do
+		local sa = -110 * c.susY - 9 * c.susV
+		if c.susY < -1.0 then sa = sa - (c.susY + 1.0) * 420 end
+		c.susV = c.susV + sa * dt
+		c.susY = c.susY + c.susV * dt
+		if c.susY < -1.3 then
+			c.susY = -1.3
+			if c.susV < 0 then c.susV = -c.susV * 0.25 end
+		elseif c.susY > 0.9 then
+			c.susY = 0.9
+			if c.susV > 0 then c.susV = 0 end
+		end
+		c.rkPV = (c.rkPV or 0) + (-60 * (c.rkP or 0) - 7.7 * (c.rkPV or 0)) * dt
+		c.rkP = math.clamp((c.rkP or 0) + c.rkPV * dt, -0.6, 0.6)
+		c.rkRV = (c.rkRV or 0) + (-70 * (c.rkR or 0) - 8 * (c.rkRV or 0)) * dt
+		c.rkR = math.clamp((c.rkR or 0) + c.rkRV * dt, -0.5, 0.5)
+		local lp = c.landPend
+		if lp then
+			lp.t = lp.t - dt
+			if lp.t <= 0 then
+				c.susV = c.susV - lp.sv
+				c.rkPV = c.rkPV + lp.pv
+				if lp.snd > 0 then cabinAttach(playSound(Config.SoundLand, lp.snd, 1.15)) end
+				c.landPend = nil
+			end
+		end
+	end
+end
+local function cabinStep(c, dt)
+	local CB = Config.Cabin
+	if not (CB and CB.Enabled) then return end
+	local g, eq = cabinGet()
+	if not g then return end
+	local io = 0
+	local cam = workspace.CurrentCamera
+	if c.driver and cam and c.cf then
+		local sp = (c.cf * SEAT_REL).Position
+		local d = (cam.CFrame.Position - sp).Magnitude
+		io = math.clamp(1 - (d - CB.CamNear * S) / ((CB.CamFar - CB.CamNear) * S), 0, 1)
+		io = io * io * (3 - 2 * io)
+	end
+	local wp = c.winP or 0
+	local da = math.clamp(math.abs(c.doorAng or 0) / math.rad(35), 0, 1)
+	local op = math.clamp(wp * CB.Window + da * CB.Door, 0, 1)
+	local target = io * (1 - op)
+	local m0 = c.cabinM or 0
+	local m = m0 + (target - m0) * (1 - math.exp(-6 * dt))
+	c.cabinM = m
+	g.Volume = 1 - (1 - CB.Vol) * m
+	eq.HighGain = CB.HighGain * m
+	eq.MidGain = CB.MidGain * m
+	eq.LowGain = CB.LowGain * m
+end
+local function updateWheelFx(w, omega, heat)
+	local k = math.clamp((omega - 14) / 18, 0, 1)
+	local q = math.floor(k * 12 + 0.5) / 12
+	if w.blurQ ~= q then
+		w.blurQ = q
+		for _, p in ipairs(w.spokes) do p.Transparency = q * 0.7 end
+		w.blur.Transparency = 1 - q * 0.6
+	end
+	local hq = math.floor(heat * 10 + 0.5) / 10
+	if w.heatQ ~= hq then
+		w.heatQ = hq
+		local col = Color3.fromRGB(88, 92, 100):Lerp(Color3.fromRGB(255, 96, 24), hq)
+		for _, p in ipairs(w.discs) do p.Color = col end
+		w.glow.Enabled = hq > 0.15
+		w.glow.Brightness = hq * 2.2
+	end
+end
+local EXTRA = {}
+do
+	local DUST = {
+		[Enum.Material.Ground] = Color3.fromRGB(150, 125, 95),
+		[Enum.Material.Sand] = Color3.fromRGB(222, 200, 150),
+		[Enum.Material.Mud] = Color3.fromRGB(95, 72, 52),
+		[Enum.Material.Grass] = Color3.fromRGB(135, 125, 90),
+		[Enum.Material.LeafyGrass] = Color3.fromRGB(135, 125, 90),
+		[Enum.Material.Slate] = Color3.fromRGB(150, 150, 150),
+		[Enum.Material.Limestone] = Color3.fromRGB(205, 195, 175),
+		[Enum.Material.Salt] = Color3.fromRGB(230, 225, 215),
+	}
+	local function build(c)
+		local fx = { dust = {}, spark = {}, part = {}, fire = {} }
+		c.fx = fx
+		for i = 3, 4 do
+			local p = Instance.new("Part")
+			p.Name = "FxEmit"
+			p.Anchored = true
+			p.CanCollide, p.CanQuery, p.CanTouch = false, false, false
+			p.CastShadow = false
+			p.Transparency = 1
+			p.Size = Vector3.new(0.2, 0.2, 0.2)
+			p.Parent = c.model
+			local d = Instance.new("ParticleEmitter")
+			d.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			d.Rate = 0
+			d.Enabled = false
+			d.Lifetime = NumberRange.new(0.6, 1.3)
+			d.Speed = NumberRange.new(2, 7)
+			d.SpreadAngle = Vector2.new(35, 35)
+			d.Acceleration = Vector3.new(0, 2, 0)
+			d.Drag = 1.5
+			d.Rotation = NumberRange.new(0, 360)
+			d.RotSpeed = NumberRange.new(-60, 60)
+			d.LightInfluence = 1
+			d.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) })
+			d.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8 * S), NumberSequenceKeypoint.new(1, 3.2 * S) })
+			d.Parent = p
+			local sp = Instance.new("ParticleEmitter")
+			sp.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			sp.Rate = 0
+			sp.Enabled = false
+			sp.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+			sp.LightEmission = 1
+			sp.LightInfluence = 0
+			sp.Lifetime = NumberRange.new(0.2, 0.45)
+			sp.Speed = NumberRange.new(14, 34)
+			sp.SpreadAngle = Vector2.new(40, 40)
+			sp.Acceleration = Vector3.new(0, -70, 0)
+			sp.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45 * S), NumberSequenceKeypoint.new(1, 0.05 * S) })
+			sp.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+			sp.Parent = p
+			fx.part[#fx.part + 1] = p
+			fx.dust[#fx.dust + 1] = d
+			fx.spark[#fx.spark + 1] = sp
+		end
+		for _, pe in ipairs(c.exh or {}) do
+			local em = pe.Parent
+			if em then
+				local fe = Instance.new("ParticleEmitter")
+				fe.Texture = "rbxasset://textures/particles/fire_main.dds"
+				fe.Rate = 0
+				fe.Enabled = false
+				fe.EmissionDirection = Enum.NormalId.Back
+				fe.Lifetime = NumberRange.new(0.08, 0.2)
+				fe.Speed = NumberRange.new(14, 28)
+				fe.SpreadAngle = Vector2.new(6, 6)
+				fe.LightEmission = 1
+				fe.LightInfluence = 0
+				fe.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 170)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 140, 30)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 40, 10)),
+				})
+				fe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+				fe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7 * S), NumberSequenceKeypoint.new(1, 0.15 * S) })
+				fe.Parent = em
+				fx.fire[#fx.fire + 1] = fe
+			end
+		end
+	end
+	local function burstFire(c, n)
+		for _, fe in ipairs(c.fx.fire) do fe:Emit(n) end
+		playSound("rbxasset://sounds/impact_explosion_03.mp3", 0.22, 1.7)
+	end
+	function EXTRA.step(c, dt)
+		if Config.LiteMode == "super" then return end
+		local fx = c.fx
+		if not fx then
+			if not c.exh then return end
+			build(c)
+			fx = c.fx
+		end
+		local now = os.clock()
+		local speed = math.abs(c.vF or 0)
+		local up = c.up or Vector3.yAxis
+		local slideSpark = c.grounded and speed > 65 and math.abs(c.vR or 0) > 22
+		for k = 1, 2 do
+			local i = k + 2
+			local hit = c.hits and c.hits[i]
+			local d, sp, p = fx.dust[k], fx.spark[k], fx.part[k]
+			if hit and c.grounded then
+				p.CFrame = CFrame.new(hit + up * 0.25)
+				local col = DUST[c.hitMat and c.hitMat[i]]
+				local rate = 0
+				if col and speed > 10 then
+					rate = math.floor(math.clamp((speed - 10) * 0.6, 0, 40) + 0.5)
+					if d:GetAttribute("C") ~= col then
+						d:SetAttribute("C", col)
+						d.Color = ColorSequence.new(col)
+					end
+				end
+				if d.Rate ~= rate then d.Rate = rate end
+				d.Enabled = rate > 0
+				local sr = slideSpark and 35 or 0
+				if sp.Rate ~= sr then sp.Rate = sr end
+				sp.Enabled = sr > 0
+			else
+				if d.Enabled then d.Enabled = false; d.Rate = 0 end
+				if sp.Enabled then sp.Enabled = false; sp.Rate = 0 end
+			end
+		end
+		if c.grounded then
+			if (c._fxAir or 0) > 0.35 then
+				for k = 1, 2 do fx.spark[k]:Emit(14) end
+			end
+			c._fxAir = 0
+		else
+			c._fxAir = (c._fxAir or 0) + dt
+		end
+		if c.engineOn and c.gearKick and c.gearDir == -1 and c._flK ~= c.gearKick then
+			c._flK = c.gearKick
+			if (c.rpm or 0) > 2500 and speed > 20 then
+				burstFire(c, 9)
+				task.delay(0.1, function() if c.fx then for _, fe in ipairs(c.fx.fire) do fe:Emit(6) end end end)
+			end
+		end
+		local thr = c.throttle or 0
+		local prev = c._thrP or 0
+		c._thrP = thr
+		if c.engineOn and prev > 0.7 and thr < 0.15 and speed > 40 and now - (c._flT or 0) > 1.2 then
+			c._flT = now
+			burstFire(c, 7)
+		end
+	end
+end
+local function carVisuals(c, dt)
+	local yaw = c.yaw
+	local f0 = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local up = c.up
+	local fwd = f0 - up * f0:Dot(up)
+	if fwd.Magnitude < 1e-3 then fwd = f0 end
+	fwd = fwd.Unit
+	local right = fwd:Cross(up).Unit
+	local up2 = right:Cross(fwd)
+	local cf = CFrame.fromMatrix(c.pos + up2 * c.susY, right, up2, -fwd) * CFrame.Angles(c.leanP + (c.rkP or 0), 0, c.leanR + (c.rkR or 0))
+	local sa = c.shakeA or 0
+	if sa > 0.005 then
+		local tt = os.clock()
+		cf = cf * CFrame.new(math.sin(tt * 61 + 1) * 0.02 * sa * S, math.sin(tt * 47) * 0.03 * sa * S, 0)
+			* CFrame.Angles(math.cos(tt * 43) * 0.008 * sa, 0, math.sin(tt * 39) * 0.006 * sa)
+	end
+	if (c.flats or 0) > 0 then cf = cf * CFrame.Angles(c.leanP or 0, 0, c.leanR or 0) end
+	c.cf = cf
+	c.root.CFrame = cf
+	local vF = c.vF
+	c.spinF = (c.spinF or 0) - vF * dt / WR
+	local rearLocked = (c.notch >= 2) or c.mode == "P"
+	if not rearLocked then c.spinR = (c.spinR or 0) - (vF + (c.burnV or 0)) * dt / WR end
+	c.spinF = c.spinF % (math.pi * 2)
+	c.spinR = (c.spinR or 0) % (math.pi * 2)
+	local sv = -c.steer * c.maxD
+	local omega0 = math.abs(vF) / WR
+	local brk0 = c.notch > 0 or c.brakePed > 0 or c.parkPending
+	local hr = (brk0 and math.abs(vF) > 12) and math.clamp(math.abs(vF) / 140, 0, 1) or 0
+	c.heat = math.clamp((c.heat or 0) + (hr * 0.9 - (c.heat or 0) * 0.25) * dt, 0, 1)
+	local uy = math.max(cf.UpVector.Y, 0.5)
+	for i, w in ipairs(c.wheels) do
+		local hit = c.hits and c.hits[i]
+		local tgt = -0.55 * S
+		if hit then
+			local nomY = cf:PointToWorldSpace(w.base.Position).Y
+			tgt = (hit.Y + w.base.Position.Y - nomY) / uy
+		end
+		tgt = math.clamp(tgt, -0.6 * S, 1.2 * S)
+		local sv0 = w.sV or 0
+		sv0 = sv0 + (260 * (tgt - (w.sOff or 0)) - 24 * sv0) * dt
+		w.sV = sv0
+		w.sOff = (w.sOff or 0) + sv0 * dt
+		local lift = CFrame.new(0, w.sOff, 0)
+		if w.front then
+			w.kw.C0 = lift * w.base * CFrame.Angles(0, sv, 0)
+			w.tw.C0 = CFrame.Angles(c.spinF, 0, 0)
+			if (w.ret or 0) < 0.3 then updateWheelFx(w, omega0, c.heat) end
+		else
+			w.kw.C0 = lift * w.base
+			w.tw.C0 = CFrame.Angles(c.spinR, 0, 0)
+			if (w.ret or 0) < 0.3 then updateWheelFx(w, rearLocked and 0 or ((math.abs(vF) + (c.burnV or 0)) / WR), c.heat) end
+		end
+		RAYC.W.fold(c, w, i, dt, sv)
+	end
+	c.swW.C0 = c.swBase * CFrame.Angles(c.steer * 2.6, 0, 0)
+	if c.nS then c.nS.C0 = c.nSBase * CFrame.Angles(0, 0, -math.rad(270 * math.clamp(math.abs(c.vF) / 240, 0, 1.03))) end
+	if c.nT then
+		local ta = math.floor((270 * math.clamp((c.rpm or 0) / 8000, 0, 1.03)) * 4 + 0.5) / 4
+		if c._nTq ~= ta then
+			c._nTq = ta
+			c.nT.C0 = c.nTBase * CFrame.Angles(0, 0, -math.rad(ta))
+		end
+	end
+	if c.animate then c.animate(c, dt, c.vel and c.vel.Magnitude or 0) end
+	local braking = c.notch > 0 or c.brakePed > 0 or c.mode == "P" or c.parkPending
+	local ts = braking and 3 or (c.lamps and 2 or 1)
+	if c.tailState ~= ts then
+		c.tailState = ts
+		local col = ts == 3 and RED_HI or (ts == 2 and RED_MID or RED_DIM)
+		for _, t in ipairs(c.tails) do t.Color = col end
+		c.brakeLight.Enabled = ts == 3
+	end
+	local rv = c.mode == "R"
+	if c.revState ~= rv then
+		c.revState = rv
+		for _, p in ipairs(c.revs) do
+			p.Material = rv and NEON or PLASTIC
+			p.Color = rv and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(120, 120, 120)
+			local L = p:FindFirstChild("RevLight")
+			if rv and not L then
+				L = Instance.new("SpotLight")
+				L.Name = "RevLight"
+				L.Face = Enum.NormalId.Back
+				L.Range = 26
+				L.Angle = 75
+				L.Brightness = 2.2
+				L.Color = Color3.fromRGB(255, 255, 255)
+				L.Shadows = false
+				L.Parent = p
+			end
+			if L then L.Enabled = rv end
+		end
+	end
+	local dl = (c.engineOn or c.ign ~= nil) and true or false
+	if c.dashState ~= dl then
+		c.dashState = dl
+		if not c.dashParts then
+			local L = {}
+			for _, p in ipairs(c.model:GetChildren()) do
+				local n = p.Name
+				if n == "GaugeTick" or n == "Needle" or n == "RadioNeedle" then
+					L[#L + 1] = { p = p, m = p.Material }
+				end
+			end
+			c.dashParts = L
+			local plate = c.model:FindFirstChild("ClusterPlate")
+			if plate then
+				local pl = Instance.new("PointLight")
+				pl.Name = "DashLight"
+				pl.Range = 5 * S
+				pl.Brightness = 0.7
+				pl.Color = Color3.fromRGB(255, 225, 170)
+				pl.Shadows = false
+				pl.Parent = plate
+				c.dashLight = pl
+			end
+		end
+		for _, it in ipairs(c.dashParts) do
+			if it.p.Parent then it.p.Material = dl and NEON or it.m end
+		end
+		if c.dashLight then c.dashLight.Enabled = dl end
+	end
+	if c.lampState ~= c.lamps then
+		c.lampState = c.lamps
+		for _, l in ipairs(c.lampObjs) do l.light.Enabled = c.lamps and not l.broken end
+		c._lampChk = 0
+	end
+	-- Brilho dos farois (estilo Charger Toretto): particulas com LightEmission, aparecem no grafico minimo
+	if not c.hGlow then
+		c.hGlow = {}
+		local function mk(em, tex, size, tr, rate, col, minK)
+			local pe = Instance.new("ParticleEmitter")
+			pe.Name = "HeadGlow"
+			pe.Texture = tex
+			pe.Color = ColorSequence.new(col)
+			pe.LightEmission = 1
+			pe.LightInfluence = 0
+			pe.LockedToPart = true
+			pe.Lifetime = NumberRange.new(0.6)
+			pe.Speed = NumberRange.new(0)
+			pe.Rotation = NumberRange.new(0)
+			pe.RotSpeed = NumberRange.new(0)
+			pe.ZOffset = 1
+			pe.Size = NumberSequence.new(size * S)
+			pe.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.2, tr),
+				NumberSequenceKeypoint.new(0.8, tr),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			pe.Rate = 0
+			pe.Enabled = false
+			pe:SetAttribute("BR", rate)
+			pe:SetAttribute("SZ", size)
+			pe:SetAttribute("MK", minK)
+			pe.Parent = em
+			c.hGlow[#c.hGlow + 1] = pe
+		end
+		local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+		local STAR = "rbxasset://textures/particles/sparkles_main.dds"
+		for _, l in ipairs(c.lampObjs or {}) do
+			local em = l.light and l.light.Parent
+			if em and em:IsA("BasePart") then
+				mk(em, SMOKE, 5, 0.86, 14, Color3.fromRGB(255, 238, 205), 0.45)
+				mk(em, SMOKE, 2.4, 0.55, 12, Color3.fromRGB(255, 252, 240), 0.6)
+				mk(em, STAR, 5.5, 0.7, 8, Color3.fromRGB(255, 245, 225), 0)
+			end
+		end
+	end
+	-- Brilho dos farois: fade ao ligar/desligar e intensidade por farol conforme o angulo da camera
+	do
+		local cam = workspace.CurrentCamera
+		local want = (c.lamps == true) and 1 or 0
+		local f0 = c._hgF or 0
+		local f = f0 + math.clamp(want - f0, -dt * 3.3, dt * 3.3)
+		c._hgF = f
+		local on = f > 0.01
+		local day = c._hgDay or 1
+		c._hgQ = c._hgQ or {}
+		for _, pe in ipairs(c.hGlow) do
+			local em = pe.Parent
+			if em then
+				local onp = on and not em:GetAttribute("Broken")
+				if pe.Enabled ~= onp then pe.Enabled = onp end
+				local rt = onp and math.floor((pe:GetAttribute("BR") or 10) * day * f + 0.5) or 0
+				if pe.Rate ~= rt then pe.Rate = rt end
+				if onp and cam and c.cf then
+					local to = cam.CFrame.Position - em.Position
+					local d = to.Magnitude > 0.1 and c.cf.LookVector:Dot(to.Unit) or 0
+					local kk = math.clamp((d - 0.4) / 0.45, 0, 1)
+					local mk0 = pe:GetAttribute("MK") or 0
+					local q = math.floor((mk0 + (1 - mk0) * kk) * f * 20 + 0.5) / 20
+					if c._hgQ[pe] ~= q then
+						c._hgQ[pe] = q
+						pe.Size = NumberSequence.new((pe:GetAttribute("SZ") or 4) * S * q)
+					end
+				end
+			end
+		end
+	end
+	c._lampChk = (c._lampChk or 0) - dt
+	if c._lampChk <= 0 then
+		c._lampChk = 0.4
+		local want = c.lamps == true
+		do
+			local t = game:GetService("Lighting").ClockTime
+			c._hgDay = (t < 6 or t > 18) and 1 or 0.45
+		end
+		for _, l in ipairs(c.lampObjs) do
+			local L = l.light
+			if L and L.Parent then
+				local wl = want and not l.broken
+				if L.Enabled ~= wl then L.Enabled = wl end
+				if L.Range > 60 then L.Range = 60 end
+				if L.Parent:IsA("BasePart") and L.Parent.Parent == nil then L.Parent.Parent = c.model end
+			end
+		end
+		if c.brakeLight and c.brakeLight.Parent then
+			local bw = c.tailState == 3
+			if c.brakeLight.Enabled ~= bw then c.brakeLight.Enabled = bw end
+		end
+		if c._lensOn ~= nil then
+			for _, p in ipairs(c.lens) do
+				local wm = want and MATS.N or MATS.G
+				if p.Parent and p.Material ~= wm then p.Material = wm end
+			end
+		end
+	end
+	local slip = math.abs(c.vR) + ((c.notch >= 2 and math.abs(c.vF) > 25) and math.abs(c.vF) * 0.3 or 0)
+	local sliding = c.grounded and not c.waterOn and (slip > 12 or c.fxSlide == true)
+	for _, pe in ipairs(c.smoke) do
+		local want = sliding and math.floor(45 * (c.smokeMul or 1)) or 0
+		if pe.Rate ~= want then pe.Rate = want end
+		pe.Enabled = sliding
+	end
+	exhaustStep(c)
+	pcall(EXTRA.step, c, dt)
+	for i = 3, 4 do
+		local h = c.hits and c.hits[i]
+		if sliding and h then
+			local last = c.lastSk[i]
+			if not last then
+				c.lastSk[i] = h
+			elseif (h - last).Magnitude >= ((Config.LiteMode == "super") and 14 or 6) then
+				addSkid(last, h, c.up)
+				c.lastSk[i] = h
+			end
+		else
+			c.lastSk[i] = nil
+		end
+	end
+	local topG = Config.TopSpeed * Config.GearTop[gear]
+	local target = 0
+	if c.engineOn then
+		if c.mode == "D" or c.mode == "R" then
+			local lim = (c.mode == "R") and Config.ReverseTop or topG
+			target = 900 + math.clamp(math.abs(vF) / lim, 0, 1) * 6200 + c.throttle * 350
+		else
+			target = 900 + c.throttle * 6500
+		end
+	end
+	local rpmRate = 8
+	if not c.engineOn then
+		rpmRate = 1.3
+		if c.crankRpm then
+			target = c.crankRpm
+			rpmRate = 9
+		end
+	elseif c.rpm < 800 then
+		rpmRate = 2.2
+	elseif c.kickT and os.clock() - c.kickT < 1.4 then
+		rpmRate = 3
+	end
+	if c.cine and c.cine.rpm then target = c.cine.rpm; rpmRate = 14 end
+	c.rpm = c.rpm + (target - c.rpm) * (1 - math.exp(-rpmRate * dt))
+	if not c.engineOn and c.rpm < 25 then c.rpm = 0 end
+	if c.engine then
+		c.engine.PlaybackSpeed = 0.5 + c.rpm / 7000 * 1.2
+		c.engine.Volume = c.engineOn and 0.6 or 0
+	end
+	cabinStep(c, dt)
+	local sn = c.snd
+	if sn then
+		local drv = (c.driver or c.cine) and true or false
+		local on = c.engineOn and true or false
+		local kmh = math.abs(vF)
+		local thr = on and math.clamp(c.throttle or 0, 0, 1) or 0
+		local gr = math.clamp(kmh / math.max(topG, 1), 0, 1.1)
+		local moving = on and (c.mode == "D" or c.mode == "R") and kmh > 3
+		local function sstep(x) x = math.clamp(x, 0, 1); return x * x * (3 - 2 * x) end
+		local runT = moving and (sstep((thr - 0.45) / 0.35) * sstep((kmh / math.max(topG, 1) - 0.5) / 0.25)) or 0
+		local rm0 = c.runMix or 0
+		local fadeT = (runT > rm0) and (Config.RunFadeIn or 0.7) or (Config.RunFadeOut or 1.1)
+		c.runMix = rm0 + (runT - rm0) * (1 - math.exp(-3 / math.max(fadeT, 0.05) * dt))
+		if c.runMix < 0.002 and runT == 0 then c.runMix = 0 end
+		local kv = 1 - math.exp(-12 * dt)
+		local kp = 1 - math.exp(-10 * dt)
+		local st = c.startSnd
+		local ig = 1
+		if st and st.Parent and os.clock() - (c.startT or 0) < 8 then
+			if not st.IsLoaded or st.TimeLength <= 0 then
+				ig = 0
+			elseif st.IsPlaying then
+				local rem = st.TimeLength - st.TimePosition
+				local f = math.clamp(rem / 1.2, 0, 1)
+				ig = 1 - f
+				if f < 1 then st.Volume = 0.9 * f end
+			elseif os.clock() - (c.startT or 0) < 0.5 then
+				ig = 0
+			end
+		end
+		local iv = on and Config.VolIdle * ig * math.clamp(1 - kmh / 12, 0, 1) * (1 + (c.revBoost or 0) * 3) or 0
+		local kk = c.kickT and math.max(0, 1 - (os.clock() - c.kickT)) or 0
+		local ip = 0.95 + thr * 0.3 + kk * 0.35 + (c.revBoost or 0) * 0.7
+		local cv, cp
+		if thr > 0.05 then
+			cv, cp = 0.5, 0.75 + gr * 0.75
+		else
+			cv, cp = 0.3, 0.6 + math.clamp(kmh / Config.TopSpeed, 0, 1) * 0.9
+		end
+		cv = on and cv * math.clamp(kmh / 8, 0, 1) * math.cos(c.runMix * math.pi / 2) or 0
+		local rv = on and Config.VolRun * math.sin(c.runMix * math.pi / 2) * math.clamp(kmh / 10, 0, 1) or 0
+		local rpB = (Config.RunPitchBase and Config.RunPitchBase[gear]) or 0.8
+		local rpS = (Config.RunPitchSpan and Config.RunPitchSpan[gear]) or 0.8
+		local rp = rpB + math.min(gr, 1) * rpS - (1 - c.runMix) * 0.1
+		local sk = 0
+		if drv and c.grounded and not c.waterOn then
+			if sliding then
+				sk = math.clamp(slip / 40, 0.35, 1)
+			elseif (c.notch > 0 or c.brakePed > 0) and kmh > 18 then
+				sk = math.clamp(kmh / 120, 0.2, 0.8)
+			end
+		end
+		local skp = 0.9 + math.clamp(kmh / 200, 0, 1) * 0.3
+		sn.idle.Volume = sn.idle.Volume + (iv - sn.idle.Volume) * (1 - math.exp(-6 * dt))
+		sn.idle.PlaybackSpeed = sn.idle.PlaybackSpeed + (ip - sn.idle.PlaybackSpeed) * kp
+		sn.cruise.Volume = sn.cruise.Volume + (cv - sn.cruise.Volume) * kv
+		sn.cruise.PlaybackSpeed = math.max(0.1, sn.cruise.PlaybackSpeed + (cp - sn.cruise.PlaybackSpeed) * kp)
+		sn.run.Volume = sn.run.Volume + (rv - sn.run.Volume) * kv
+		sn.run.PlaybackSpeed = math.max(0.1, sn.run.PlaybackSpeed + (rp - sn.run.PlaybackSpeed) * kp)
+		sn.skid.Volume = sn.skid.Volume + (0.6 * sk - sn.skid.Volume) * kv
+		sn.skid.PlaybackSpeed = sn.skid.PlaybackSpeed + (skp - sn.skid.PlaybackSpeed) * kp
+	end
+end
+local function holdChar(c)
+	local ch, hum, rpart = charParts()
+	if not ch then return end
+	local seatCF = c.cf * SEAT_REL
+	local B = c.board
+	local XT = c.exiting
+	if XT then
+		local okX, errX = pcall(ANIM.exitStep, c, XT, ch, hum, rpart, seatCF)
+		if not okX then
+			pcall(ANIM.exitCarNow, c)
+		end
+		return
+	end
+	if B then
+		local ok, res = pcall(ANIM.boardStep, c, B, ch, hum, rpart, seatCF)
+		if not ok then
+			ghostChar(ch)
+			pcall(function() hum.AutoRotate = false end)
+			endBoard(c)
+			res = true
+		end
+		if not res then return end
+		rpart.CFrame = seatCF + (B.shiftV or Vector3.zero)
+	elseif c.boardFrom then
+		local e = math.clamp((os.clock() - c.boardT0) / 0.3, 0, 1)
+		e = e * e * (3 - 2 * e)
+		local pos = c.boardFrom.Position:Lerp(seatCF.Position, e) + Vector3.new(0, math.sin(e * math.pi) * 1.0, 0)
+		rpart.CFrame = CFrame.new(pos) * (seatCF - seatCF.Position)
+		if e >= 1 then c.boardFrom = nil end
+	else
+		rpart.CFrame = seatCF
+	end
+	rpart.AssemblyLinearVelocity = Vector3.zero
+	rpart.AssemblyAngularVelocity = Vector3.zero
+	if not hum.Sit then hum.Sit = true end
+	if saved then
+		for p, _ in pairs(saved.collide) do
+			if p.Parent and p.CanCollide then p.CanCollide = false end
+		end
+	end
+end
+local CINE = {}
+function CINE.ss(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function CINE.ground(c, posN, yaw, dt)
+	local cfY = CFrame.new(posN) * CFrame.Angles(0, yaw, 0)
+	local hits, pts = {}, {}
+	for i = 1, 4 do
+		local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+		local res = workspace:Raycast(wp + Vector3.new(0, 3.2 * S, 0), Vector3.new(0, -7.7 * S, 0), rp)
+		if res then
+			hits[i] = res.Position
+			pts[#pts + 1] = res.Position
+		end
+	end
+	c.hits = hits
+	local y = c.pos.Y
+	if #pts >= 1 then
+		local sum = 0
+		for _, p in ipairs(pts) do sum = sum + p.Y end
+		y = y + (sum / #pts - y) * (1 - math.exp(-30 * dt))
+		local nrm
+		if #pts == 4 then
+			nrm = (hits[2] - hits[3]):Cross(hits[1] - hits[4])
+		elseif #pts == 3 then
+			nrm = (pts[2] - pts[1]):Cross(pts[3] - pts[1])
+		end
+		if nrm and nrm.Magnitude > 1e-4 then
+			nrm = nrm.Unit
+			if nrm.Y < 0 then nrm = -nrm end
+			if nrm.Y >= 0.45 then
+				c.up = c.up:Lerp(nrm, 1 - math.exp(-10 * dt)).Unit
+			end
+		end
+	end
+	return y
+end
+function CINE.apply(c, dt, pos, yaw, vel)
+	local y = CINE.ground(c, Vector3.new(pos.X, c.pos.Y, pos.Z), yaw, dt)
+	c.pos = Vector3.new(pos.X, y, pos.Z)
+	c.yaw = yaw
+	c.vel = vel
+	local fwd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	c.vF = vel:Dot(fwd)
+	c.vR = vel:Dot(right)
+	c.grounded = true
+	c.vy, c.vyG = 0, 0
+	c.maxD = R(34)
+	local sa = -150 * c.susY - 14 * c.susV
+	c.susV = c.susV + sa * dt
+	c.susY = math.clamp(c.susY + c.susV * dt, -1.2, 1.2)
+end
+function CINE.lean(c, dt, tp, tr, rate)
+	local kk = 1 - math.exp(-rate * dt)
+	c.leanP = c.leanP + (tp - c.leanP) * kk
+	c.leanR = c.leanR + (tr - c.leanR) * kk
+end
+function CINE.smokeStyle(c, on)
+	if on then
+		if c.smokeOrig then return end
+		c.smokeOrig = {}
+		for _, pe in ipairs(c.smoke) do
+			c.smokeOrig[pe] = { pe.Lifetime, pe.Size, pe.Speed, pe.Acceleration }
+			pe.Lifetime = NumberRange.new(0.9, 1.5)
+			pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2 * S), NumberSequenceKeypoint.new(1, 6 * S) })
+			pe.Speed = NumberRange.new(3, 9)
+			pe.Acceleration = Vector3.new(0, 2.5, 0)
+		end
+	elseif c.smokeOrig then
+		for pe, o in pairs(c.smokeOrig) do
+			if pe.Parent then
+				pe.Lifetime, pe.Size, pe.Speed, pe.Acceleration = o[1], o[2], o[3], o[4]
+			end
+		end
+		c.smokeOrig = nil
+	end
+end
+function CINE.flameSetup(c)
+	if c.flames or not c.exh then return end
+	c.flames = {}
+	for _, ex in ipairs(c.exh) do
+		local host = ex.Parent
+		if host then
+			local fe = Instance.new("ParticleEmitter")
+			fe.Name = "CineFlame"
+			fe.Texture = "rbxasset://textures/particles/fire_main.dds"
+			fe.Rate = 0
+			fe.Enabled = false
+			fe.EmissionDirection = Enum.NormalId.Back
+			fe.Lifetime = NumberRange.new(0.12, 0.26)
+			fe.Speed = NumberRange.new(16, 30)
+			fe.SpreadAngle = Vector2.new(5, 5)
+			fe.LightEmission = 1
+			fe.LightInfluence = 0
+			fe.Rotation = NumberRange.new(0, 360)
+			fe.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 236, 160)),
+				ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 140, 30)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 40, 10)),
+			})
+			fe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+			fe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9 * S), NumberSequenceKeypoint.new(1, 0.1 * S) })
+			fe.Parent = host
+			c.flames[#c.flames + 1] = fe
+		end
+	end
+end
+function CINE.flameRate(c, rate)
+	if not c.flames or c.flameR == rate then return end
+	c.flameR = rate
+	for _, fe in ipairs(c.flames) do
+		fe.Rate = rate
+		fe.Enabled = rate > 0
+	end
+end
+function CINE.flamePop(c, n)
+	if not c.flames then return end
+	for _, fe in ipairs(c.flames) do fe:Emit(n) end
+end
+function CINE.flash(pos)
+	local FX = Config.SpawnFx
+	local base = Instance.new("Part")
+	base.Name = "ChargerFlash"
+	base.Anchored = true
+	base.CanCollide = false
+	base.CanQuery = false
+	base.CanTouch = false
+	base.CastShadow = false
+	base.Transparency = 1
+	base.Size = Vector3.new(1, 1, 1)
+	base.CFrame = CFrame.new(pos + Vector3.new(0, 2.5 * S, 0))
+	base.Parent = workspace
+	Debris:AddItem(base, 4)
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 170, 70)
+	light.Range = 70
+	light.Brightness = 14
+	light.Shadows = false
+	light.Parent = base
+	TweenService:Create(light, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = 0, Range = 20 }):Play()
+	local function emitter(tex, count, life, speed, s0, s1, col, lightEm, trans0)
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = tex
+		pe.Rate = 0
+		pe.Enabled = false
+		pe.Lifetime = life
+		pe.Speed = speed
+		pe.SpreadAngle = Vector2.new(180, 180)
+		pe.Drag = 3
+		pe.LightEmission = lightEm
+		pe.LightInfluence = 0
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-120, 120)
+		pe.Color = col
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, trans0), NumberSequenceKeypoint.new(1, 1) })
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, s0 * S), NumberSequenceKeypoint.new(1, s1 * S) })
+		pe.Parent = base
+		pe:Emit(count)
+	end
+	emitter("rbxasset://textures/particles/fire_main.dds", 30, NumberRange.new(0.35, 0.75), NumberRange.new(18, 46), 3, 9,
+		ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 170)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 130, 30)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 40, 10)),
+		}), 1, 0.05)
+	emitter("rbxasset://textures/particles/smoke_main.dds", 14, NumberRange.new(0.9, 1.8), NumberRange.new(8, 22), 4, 14,
+		ColorSequence.new(Color3.fromRGB(40, 40, 44)), 0, 0.35)
+	local function ball(color, s0, s1, tm)
+		local b = Instance.new("Part")
+		b.Name = "ChargerFlashBall"
+		b.Shape = Enum.PartType.Ball
+		b.Material = Enum.Material.Neon
+		b.Color = color
+		b.Anchored = true
+		b.CanCollide = false
+		b.CanQuery = false
+		b.CanTouch = false
+		b.CastShadow = false
+		b.Transparency = 0.05
+		b.Size = Vector3.new(s0, s0, s0) * S
+		b.CFrame = base.CFrame
+		b.Parent = workspace
+		TweenService:Create(b, TweenInfo.new(tm, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(s1, s1, s1) * S, Transparency = 1 }):Play()
+		Debris:AddItem(b, tm + 0.2)
+	end
+	ball(Color3.fromRGB(255, 190, 90), 4, 26, 0.32)
+	ball(Color3.fromRGB(255, 255, 240), 2, 12, 0.18)
+	pcall(function()
+		local s = Instance.new("Sound")
+		s.SoundId = FX.SoundFlash or "rbxasset://sounds/impact_explosion_03.mp3"
+		s.Volume = FX.SoundFlashVol or 1.2
+		s.PlaybackSpeed = 1.25
+		s.RollOffMinDistance = 60
+		s.RollOffMaxDistance = 700
+		s.Parent = base
+		s:Play()
+	end)
+end
+function CINE.destroy()
+	if not car then return end
+	local c = car
+	if c.driver then pcall(ANIM.exitCarNow, c) end
+	pcall(function() c.model:Destroy() end)
+	car = nil
+	refreshFilter()
+end
+function CINE.buildIn(F, psiF, sg, dist, T, FX)
+	local N = 180
+	local dtS = T / N
+	local slip0 = R(FX.InSlip0 or 60)
+	local slipPk = R(FX.InSlipPeak or 76)
+	local slipEnd = R(FX.InSlipEnd or 50)
+	local arc = R(FX.InArc or 100)
+	local wag = R(FX.InWag or 6)
+	local phi1 = psiF - sg * slipEnd
+	local phi0 = phi1 - sg * arc
+	local rel, psi, phi, spd, slp = {}, {}, {}, {}, {}
+	local acc = Vector3.zero
+	local prevV = nil
+	for i = 0, N do
+		local u = i / N
+		local ph = phi0 + sg * arc * (1 - (1 - u) * (1 - u))
+		local sl = slip0 + (slipPk - slip0) * CINE.ss(u / 0.25)
+			+ (slipEnd - slipPk) * CINE.ss((u - 0.5) / 0.5)
+			+ wag * math.sin(math.pi * math.clamp((u - 0.55) / 0.45, 0, 1)) ^ 2
+		local s = (1 - u ^ 1.5) ^ 1.4
+		local v = Vector3.new(-math.sin(ph) * s, 0, -math.cos(ph) * s)
+		if prevV then acc = acc + (prevV + v) * 0.5 * dtS end
+		prevV = v
+		rel[i] = acc
+		phi[i], psi[i], spd[i], slp[i] = ph, ph + sg * sl, s, sl
+	end
+	local tot = rel[N]
+	local len = Vector3.new(tot.X, 0, tot.Z).Magnitude
+	if len < 1e-4 then return nil end
+	local k = dist / len
+	local A = Vector3.new(F.X - tot.X * k, 0, F.Z - tot.Z * k)
+	local pos = {}
+	for i = 0, N do
+		pos[i] = Vector3.new(A.X + rel[i].X * k, 0, A.Z + rel[i].Z * k)
+		spd[i] = spd[i] * k
+	end
+	return { N = N, sg = sg, pos = pos, psi = psi, phi = phi, spd = spd, slp = slp }
+end
+function CINE.pathClear(P, Fy)
+	local N = P.N
+	local step = math.max(1, math.floor(N / 36))
+	local hs = RAYC.HS
+	local hw = RAYC.HW
+	local prevG, prevP = nil, nil
+	local i = 0
+	while true do
+		local p = P.pos[i]
+		local g = workspace:Raycast(p + Vector3.new(0, 50, 0), Vector3.new(0, -140, 0), rp)
+		if not g or math.abs(g.Position.Y - Fy) > 16 then return false end
+		local gp = Vector3.new(p.X, g.Position.Y, p.Z)
+		if prevG then
+			local seg = Vector3.new(gp.X - prevG.X, 0, gp.Z - prevG.Z)
+			local sl = seg.Magnitude
+			if math.abs(gp.Y - prevG.Y) > sl * 1.5 + 1 then return false end
+			if sl > 1e-3 then
+				local u = seg.Unit
+				local side = Vector3.new(-u.Z, 0, u.X)
+				for _, off in ipairs({ 0, -hw, hw }) do
+					for _, hh in ipairs(hs) do
+						local a = prevG + side * off + Vector3.new(0, hh, 0)
+						local b = gp + side * off + Vector3.new(0, hh, 0)
+						if RAYC.wallHit(a, b - a) then return false end
+					end
+				end
+			end
+		end
+		prevG = gp
+		if i >= N then break end
+		i = math.min(i + step, N)
+	end
+	return true
+end
+function CINE.startIn(c)
+	local FX = Config.SpawnFx
+	if type(FX) ~= "table" or FX.Enabled == false then return false end
+	local F = c.pos
+	local psiF = c.yaw
+	local T = FX.InTime or 2.4
+	local first = FX.InSide
+	if first ~= 1 and first ~= -1 then first = (math.random() < 0.5) and 1 or -1 end
+	refreshFilter()
+	local P = nil
+	for _, k in ipairs({ 1, 0.8, 0.62, 0.48, 0.36, 0.26, 0.18 }) do
+		for _, sg in ipairs({ first, -first }) do
+			local cand = CINE.buildIn(F, psiF, sg, (FX.InDist or 120) * k, T, FX)
+			if cand and CINE.pathClear(cand, F.Y) then
+				P = cand
+				break
+			end
+		end
+		if P then break end
+	end
+	if not P then return false end
+	local A = P.pos[0]
+	local ga = workspace:Raycast(A + Vector3.new(0, 60, 0), Vector3.new(0, -200, 0), rp)
+	local ay = ga and ga.Position.Y or F.Y
+	local ph0, sp0 = P.phi[0], P.spd[0]
+	c.cine = { kind = "in", t = 0, T = T, P = P, sg = P.sg, F = F, psiF = psiF, rpm = 4200 }
+	c.pos = Vector3.new(A.X, ay, A.Z)
+	c.yaw = P.psi[0]
+	c.vel = Vector3.new(-math.sin(ph0) * sp0, 0, -math.cos(ph0) * sp0)
+	c.vF = c.vel:Dot(Vector3.new(-math.sin(c.yaw), 0, -math.cos(c.yaw)))
+	c.vR = c.vel:Dot(Vector3.new(math.cos(c.yaw), 0, -math.sin(c.yaw)))
+	c.mode = "D"
+	c.engineOn = true
+	c.ign = nil
+	c.rpm = 4200
+	c.throttle = 1
+	c.brakePed = 0
+	c.notch = 0
+	c.steer = 0
+	c.lastSk = {}
+	c.smokeMul = (Config.LiteMode == "super") and 0.6 or 1.5
+	c.cf = CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+	c.root.CFrame = c.cf
+	CINE.smokeStyle(c, true)
+	return true
+end
+function CINE.lookIn(c, X, dt)
+	local now = os.clock()
+	if not X.rayAt or now - X.rayAt > 0.04 then
+		X.rayAt = now
+		local vel = c.vel or Vector3.zero
+		local sp = Vector3.new(vel.X, 0, vel.Z).Magnitude
+		local tgt = 1
+		if sp > 1 then
+			local dir = Vector3.new(vel.X, 0, vel.Z).Unit
+			local L = math.max(30, sp * 0.8)
+			local d = RAYC.sweep(c.pos + dir * RAYC.HL, dir, L)
+			if d < L then tgt = math.clamp((d - 4) / (L - 4), 0.1, 1) end
+		end
+		X.advT = tgt
+	end
+	local a = X.adv or 1
+	a = a + ((X.advT or 1) - a) * (1 - math.exp(-9 * dt))
+	X.adv = a
+	if a < 0.2 then
+		X.blocked = (X.blocked or 0) + dt
+	else
+		X.blocked = 0
+	end
+	return a
+end
+function CINE.stepIn(c, X, dt)
+	local adv = CINE.lookIn(c, X, dt)
+	if (X.blocked or 0) > 1.2 then
+		CINE.finishIn(c)
+		return
+	end
+	X.t = X.t + dt * adv
+	local P = X.P
+	local N = P.N
+	local u = math.clamp(X.t / X.T, 0, 1)
+	local fi = u * N
+	local i0 = math.min(math.floor(fi), N - 1)
+	local f = fi - i0
+	local pos = P.pos[i0]:Lerp(P.pos[i0 + 1], f)
+	local psi = P.psi[i0] + (P.psi[i0 + 1] - P.psi[i0]) * f
+	local phi = P.phi[i0] + (P.phi[i0 + 1] - P.phi[i0]) * f
+	local sp = P.spd[i0] + (P.spd[i0 + 1] - P.spd[i0]) * f
+	local sl = P.slp[i0] + (P.slp[i0 + 1] - P.slp[i0]) * f
+	local oldVel = c.vel
+	local vel = Vector3.new(-math.sin(phi) * sp, 0, -math.cos(phi) * sp)
+	CINE.apply(c, dt, pos, psi, vel)
+	local fwd = Vector3.new(-math.sin(psi), 0, -math.cos(psi))
+	local right = Vector3.new(math.cos(psi), 0, -math.sin(psi))
+	local acc = (vel - oldVel) / math.max(dt, 1e-3)
+	local kA = 1 - math.exp(-6 * dt)
+	X.aL = (X.aL or 0) + (acc:Dot(fwd) - (X.aL or 0)) * kA
+	X.aR = (X.aR or 0) + (acc:Dot(right) - (X.aR or 0)) * kA
+	CINE.lean(c, dt, math.clamp(X.aL * 0.0007, -0.09, 0.09), math.clamp(X.aR * 0.0005, -0.08, 0.08), 8)
+	local st = math.clamp(X.sg * sl / R(34), -1, 1)
+	c.steer = c.steer + (st - c.steer) * (1 - math.exp(-12 * dt))
+	c.throttle = (u < 0.15) and 1 or ((u < 0.6) and 0.4 or 0)
+	c.brakePed = (u > 0.12) and 0.8 or 0
+	X.rpm = 1600 + 3000 * (1 - u)
+	c.shakeA = 0
+	if not X.kick and u > 0.94 then
+		X.kick = true
+		c.susV = c.susV - 7
+	end
+	if X.t >= X.T then CINE.finishIn(c) end
+end
+function CINE.finishIn(c)
+	local X = c.cine
+	c.cine = nil
+	if X then
+		c.pos = Vector3.new(X.F.X, c.pos.Y, X.F.Z)
+		c.yaw = X.psiF
+	end
+	c.vel = Vector3.zero
+	c.vF, c.vR = 0, 0
+	c.mode = "P"
+	c.engineOn = false
+	c.throttle, c.brakePed, c.notch = 0, 0, 0
+	c.fxSlide, c.smokeMul, c.burnV, c.revBoost = nil, nil, nil, nil
+	c.lamps = Config.HeadlightsOnStart == true
+	c.lastSk = {}
+	pcall(CINE.smokeStyle, c, false)
+end
+function CINE.startOut(c)
+	local FX = Config.SpawnFx
+	if type(FX) ~= "table" or FX.Enabled == false or FX.OutEnabled == false then return false end
+	if not c or c.cine or not c.model or not c.model.Parent or not c.exh then return false end
+	if c.driver then pcall(ANIM.exitCarNow, c) end
+	c.doorClose = nil
+	pcall(doorSet, c, 0)
+	refreshFilter()
+	local yaw = c.yaw
+	local fwd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local want = FX.OutDist or 420
+	local clear = want
+	local dW = RAYC.sweep(c.pos, fwd, want + RAYC.HL + 20)
+	clear = math.min(clear, dW - RAYC.HL - 18)
+	for d = 25, want, 25 do
+		local g = workspace:Raycast(c.pos + fwd * d + Vector3.new(0, 40, 0), Vector3.new(0, -140, 0), rp)
+		if not g then
+			clear = math.min(clear, d - 25)
+			break
+		end
+	end
+	clear = math.max(clear, 0)
+	local v0 = math.max(c.vF or 0, 0)
+	local tRev = (v0 < 8) and (FX.OutRevTime or 1.0) or 0
+	local Tl = FX.OutRunTime or 2.4
+	local Vend, V1 = FX.OutSpeed or 235, 45
+	local E = V1 * (Tl - 0.12 * (1 - math.exp(-Tl / 0.12))) + (Vend - V1) * (Tl - 0.9 * (1 - math.exp(-Tl / 0.9)))
+	c.cine = {
+		kind = "out", t = 0, tRev = tRev, Tl = Tl, Vend = Vend, V1 = V1,
+		vk = math.clamp(clear / E, 0.4, 1), clear = clear, noRun = clear < 30, v0 = v0,
+		dist = 0, p0 = c.pos, fwd = fwd, yaw = yaw, sg = (math.random() < 0.5) and 1 or -1,
+		rpm = 1800, burnV = 0,
+	}
+	c.mode = "D"
+	c.engineOn = true
+	c.ign = nil
+	c.notch, c.brakePed, c.throttle = 0, 0, 0
+	c.parkPending = false
+	c.lastSk = {}
+	CINE.smokeStyle(c, true)
+	CINE.flameSetup(c)
+	return true
+end
+function CINE.stepOut(c, X, dt)
+	X.t = X.t + dt
+	local t = X.t
+	local tau = t - X.tRev
+	if X.noRun and tau >= 0 then
+		CINE.finishOut(c)
+		return
+	end
+	local yaw = X.yaw
+	local v = 0
+	local rpm, thr, tp, tr, rate = 1800, 0, 0, 0, 0
+	if tau < 0 then
+		local r = t / math.max(X.tRev, 0.01)
+		if r < 0.33 then
+			thr = 0.7 * math.sin(math.pi * r / 0.33)
+		elseif r < 0.66 then
+			thr = math.sin(math.pi * (r - 0.33) / 0.33)
+		else
+			thr = 1
+		end
+		rpm = 1800 + thr * 5600 + ((r >= 0.66) and math.sin(t * 70) * 300 or 0)
+		local stage = (r < 0.33) and 1 or ((r < 0.66) and 2 or 3)
+		if X.stage ~= stage then
+			if X.stage then CINE.flamePop(c, 7) end
+			X.stage = stage
+		end
+		X.burnV = (r > 0.55) and 150 * CINE.ss((r - 0.55) / 0.35) or 0
+		c.fxSlide = r > 0.6
+		c.shakeA = 0.5 + thr * 1.3
+		c.revBoost = thr
+		tr = 0.02 * thr * X.sg
+	else
+		if not X.launched then
+			X.launched = true
+			c.susV = c.susV - 11
+			CINE.flamePop(c, 16)
+		end
+		local f = X.V1 * (1 - math.exp(-tau / 0.12)) + (X.Vend - X.V1) * (1 - math.exp(-tau / 0.9))
+		v = math.min(X.Vend * X.vk, X.v0 + f * X.vk)
+		X.dist = X.dist + v * dt
+		yaw = X.yaw + X.sg * 0.055 * math.exp(-tau / 0.45) * math.sin(tau * 10)
+		thr = 1
+		rpm = 3600 + 4000 * ((tau % 0.7) / 0.7) ^ 0.8
+		X.burnV = 150 * math.exp(-tau / 0.7)
+		c.fxSlide = tau < 1.0
+		c.shakeA = 0.35 + 2.0 * math.exp(-tau / 0.45)
+		c.revBoost = math.exp(-tau / 0.15)
+		tp = 0.08 * math.exp(-tau / 1.2) + 0.09 * math.exp(-tau / 0.4) * math.sin(tau * 9)
+		tr = 0.015 * X.sg * math.exp(-tau / 0.6) * math.sin(tau * 7)
+		rate = (Config.LiteMode == "super") and 0 or ((tau < 1.6) and 60 or 25)
+	end
+	CINE.apply(c, dt, X.p0 + X.fwd * X.dist, yaw, X.fwd * v)
+	CINE.lean(c, dt, tp, tr, 18)
+	c.steer = c.steer + (0 - c.steer) * (1 - math.exp(-6 * dt))
+	c.throttle = thr
+	c.brakePed = 0
+	c.smokeMul = (Config.LiteMode == "super") and 0.6 or 1.4
+	c.burnV = X.burnV
+	X.rpm = rpm
+	CINE.flameRate(c, rate)
+	if tau >= 0 then
+		local now = os.clock()
+		if not X.rayAt or now - X.rayAt > 0.04 then
+			X.rayAt = now
+			local hd = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+			local look = math.max(60, v * 0.6)
+			local d = RAYC.sweep(c.pos, hd, look + RAYC.HL)
+			if d < look + RAYC.HL then
+				X.clear = math.min(X.clear, X.dist + d - RAYC.HL - 6 - v * 0.06)
+			end
+		end
+	end
+	if tau >= 0 and (X.dist >= X.clear - 1 or tau >= X.Tl + 0.5) then
+		CINE.finishOut(c)
+	end
+end
+function CINE.finishOut(c)
+	local pos = c.pos
+	pcall(CINE.flash, pos)
+	if car == c then
+		CINE.destroy()
+	else
+		pcall(function() c.model:Destroy() end)
+	end
+end
+function CINE.step(c, dt)
+	local X = c.cine
+	if not X then return end
+	if X.kind == "in" then
+		CINE.stepIn(c, X, dt)
+	else
+		CINE.stepOut(c, X, dt)
+	end
+end
+function CINE.abort(c)
+	local X = c.cine
+	if not X then return end
+	if X.kind == "in" then
+		CINE.finishIn(c)
+	else
+		if car == c then
+			CINE.destroy()
+		else
+			pcall(function() c.model:Destroy() end)
+		end
+	end
+end
+local function despawnCar()
+	if not car then return end
+	local c = car
+	if c.cine then
+		if c.cine.kind == "in" then CINE.destroy() end
+		return
+	end
+	if CINE.startOut(c) then return end
+	CINE.destroy()
+end
+local function spawnCar()
+	local ch, hum, rpart = charParts()
+	if not ch then return end
+	if car then CINE.destroy() end
+	local c = buildCar()
+	local look = camera and camera.CFrame.LookVector or rpart.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.05 then flat = Vector3.new(0, 0, -1) end
+	flat = flat.Unit
+	local origin = rpart.Position + flat * Config.SpawnDistance * S
+	refreshFilter()
+	local res = workspace:Raycast(origin + Vector3.new(0, 60, 0), Vector3.new(0, -200, 0), rp)
+	local gy = res and res.Position.Y or (rpart.Position.Y - 3)
+	c.pos = Vector3.new(origin.X, gy, origin.Z)
+	c.yaw = math.atan2(-flat.X, -flat.Z)
+	c.vel = Vector3.zero
+	c.vy = 0
+	c.vyG = 0
+	c.up = Vector3.yAxis
+	c.grounded = true
+	c.mode = "P"
+	c.parkPending = false
+	c.notch, c.notchT = 0, 0
+	c.steer = 0
+	c.leanP, c.leanR = 0, 0
+	c.rkP, c.rkPV, c.rkR, c.rkRV, c.landPend = 0, 0, 0, 0, nil
+	c.susY, c.susV = 0, 0
+	c.rpm = 0
+	c.vF, c.vR = 0, 0
+	c.maxD = R(34)
+	c.throttle, c.brakePed = 0, 0
+	c.lamps = Config.HeadlightsOnStart == true
+	c.lampObjs = c.lampList
+	c.lastSk = {}
+	c.hits = {}
+	c.lastSafe = c.pos + Vector3.new(0, 3, 0)
+	c.cf = CFrame.new(c.pos)
+	c.driver = false
+	car = c
+	c.root.CFrame = CFrame.new(c.pos)
+	c.model.Parent = workspace
+	buildIgnition(c)
+	pcall(HOOD.T.fill, c)
+	task.defer(function()
+		pcall(Config.Damage.collect, c)
+		pcall(Config.Damage.collectLoose, c)
+		pcall(Config.Damage.points, c)
+	end)
+	if not Config._sndPre then
+		Config._sndPre = true
+		task.spawn(function()
+			local list = {}
+			for _, id in ipairs({ Config.SoundLand, "rbxasset://sounds/impact_explosion_03.mp3" }) do
+				if id then
+					local s = Instance.new("Sound")
+					s.SoundId = id
+					list[#list + 1] = s
+				end
+			end
+			pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+			for _, s in ipairs(list) do s:Destroy() end
+		end)
+	end
+	refreshFilter()
+	do
+		local pos0, yaw0 = c.pos, c.yaw
+		local okIn, started = pcall(CINE.startIn, c)
+		if not okIn or not started then
+			c.cine = nil
+			c.pos, c.yaw = pos0, yaw0
+			c.vel = Vector3.zero
+			c.mode, c.engineOn, c.throttle, c.lamps = "P", false, 0, Config.HeadlightsOnStart == true
+			c.smokeMul = nil
+			pcall(CINE.smokeStyle, c, false)
+			c.root.CFrame = CFrame.new(pos0)
+		end
+	end
+	if Config.EngineSoundId then
+		pcall(function()
+			local s = Instance.new("Sound")
+			s.SoundId = Config.EngineSoundId
+			s.Looped = true
+			s.Volume = 0
+			s.RollOffMaxDistance = 120
+			cabinAttach(s)
+			s.Parent = c.root
+			s:Play()
+			c.engine = s
+		end)
+	end
+	pcall(function()
+		local function loop(id)
+			local sd = Instance.new("Sound")
+			sd.SoundId = id
+			sd.Looped = true
+			sd.Volume = 0
+			sd.RollOffMinDistance = 30
+			sd.RollOffMaxDistance = 200
+			cabinAttach(sd)
+			sd.Parent = c.root
+			sd:Play()
+			return sd
+		end
+		c.snd = {
+			idle = loop(Config.SoundIdle),
+			cruise = loop(Config.SoundDrive),
+			run = loop(Config.SoundRun),
+			skid = loop(Config.SoundSkid),
+		}
+	end)
+	playSound(Config.SoundEquip, 0.6)
+end
+local ACC = Color3.fromRGB(80, 170, 255)
+local WHITE = Color3.fromRGB(240, 244, 250)
+local HUDRED = Color3.fromRGB(255, 70, 70)
+local GREEN = Color3.fromRGB(90, 235, 130)
+local AMBER = Color3.fromRGB(255, 190, 70)
+local PANEL = Color3.fromRGB(10, 14, 20)
+local METALC = Color3.fromRGB(150, 160, 172)
+local DIMC = Color3.fromRGB(40, 52, 66)
+local FONT = Enum.Font.GothamBold
+local gui = Instance.new("ScreenGui")
+gui.Name = "ChargerHUD"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 50
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+parentGui(gui)
+local function frame(parent, x, y, w, h, color, transp, corner)
+	local f = Instance.new("Frame")
+	f.BorderSizePixel = 0
+	f.Position = UDim2.fromOffset(x, y)
+	f.Size = UDim2.fromOffset(w, h)
+	f.BackgroundColor3 = color or PANEL
+	f.BackgroundTransparency = transp or 0
+	if corner then
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, corner)
+		c.Parent = f
+	end
+	f.Parent = parent
+	return f
+end
+local function stroke(o, th, color, tr)
+	local s = Instance.new("UIStroke")
+	s.Thickness = th
+	s.Color = color
+	s.Transparency = tr or 0
+	s.Parent = o
+	return s
+end
+local function label(parent, txt, size, color, x, y, w, h, align)
+	local t = Instance.new("TextLabel")
+	t.BackgroundTransparency = 1
+	t.Position = UDim2.fromOffset(x, y)
+	t.Size = UDim2.fromOffset(w, h)
+	t.Text = txt
+	t.TextSize = size
+	t.TextColor3 = color
+	t.Font = FONT
+	t.TextXAlignment = align or Enum.TextXAlignment.Center
+	t.TextYAlignment = Enum.TextYAlignment.Center
+	t.Parent = parent
+	return t
+end
+local function button(parent, txt, size, x, y, w, h, color, textColor)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.BorderSizePixel = 0
+	b.Position = UDim2.fromOffset(x, y)
+	b.Size = UDim2.fromOffset(w, h)
+	b.BackgroundColor3 = color or PANEL
+	b.BackgroundTransparency = 0.12
+	b.Text = txt
+	b.TextSize = size
+	b.TextColor3 = textColor or WHITE
+	b.Font = FONT
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = b
+	stroke(b, 1.5, ACC, 0.35)
+	b.Parent = parent
+	return b
+end
+local function isPress(i)
+	return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+end
+local scalers = {}
+local function addScale(f, mult)
+	local u = Instance.new("UIScale")
+	u.Parent = f
+	scalers[#scalers + 1] = { u = u, m = mult or 1 }
+end
+local function updateScale()
+	local vp = camera and camera.ViewportSize or Vector2.new(800, 380)
+	local s = math.clamp(math.min(vp.X / 820, vp.Y / 380), 0.75, 1.25)
+	for _, e in ipairs(scalers) do e.u.Scale = s * e.m end
+end
+local levers = {}
+local function makeLever(parent, x, y, w, h, title, labels, onPick)
+	local n = #labels
+	local L = { n = n, idx = 1 }
+	local rootF = frame(parent, x, y, w, h, PANEL, 1)
+	label(rootF, title, 9, METALC, 0, 0, w, 12)
+	local top, bot = 36, h - 20
+	local step = (bot - top) / (n - 1)
+	local function yOf(i) return top + (i - 1) * step end
+	local bez = frame(rootF, 3, top - 20, 24, (bot - top) + 40, Color3.fromRGB(30, 38, 48), 0, 12)
+	stroke(bez, 2, METALC, 0.2)
+	frame(rootF, 10, top - 12, 10, (bot - top) + 24, Color3.fromRGB(4, 6, 8), 0, 5)
+	L.dots, L.lbls = {}, {}
+	for i = 1, n do
+		L.dots[i] = frame(rootF, 12, yOf(i) - 3, 6, 6, DIMC, 0, 3)
+		L.lbls[i] = label(rootF, labels[i], 13, WHITE, 30, yOf(i) - 8, 24, 16, Enum.TextXAlignment.Left)
+	end
+	local knob = frame(rootF, 0, 0, 26, 26, METALC, 0, 13)
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.fromOffset(15, yOf(1))
+	knob.ZIndex = 5
+	stroke(knob, 2, Color3.fromRGB(18, 20, 24), 0)
+	local ktxt = label(knob, labels[1], 12, Color3.fromRGB(10, 14, 20), 0, 0, 26, 26)
+	ktxt.ZIndex = 6
+	local curY, goal = yOf(1), yOf(1)
+	local dragging, dragInput, lastPick = false, nil, nil
+	local zone = Instance.new("TextButton")
+	zone.BackgroundTransparency = 1
+	zone.Text = ""
+	zone.AutoButtonColor = false
+	zone.Position = UDim2.fromOffset(0, 12)
+	zone.Size = UDim2.fromOffset(w, h - 12)
+	zone.ZIndex = 8
+	zone.Parent = rootF
+	local function pointer(input)
+		local inset = gui.IgnoreGuiInset and GuiService:GetGuiInset().Y or 0
+		local sc = rootF.AbsoluteSize.Y / h
+		if sc <= 0 then sc = 1 end
+		local yy = (input.Position.Y + inset - rootF.AbsolutePosition.Y) / sc
+		return (yy - top) / step + 1
+	end
+	local function drag(input)
+		local v = math.clamp(pointer(input), 1, n)
+		goal = yOf(1) + (v - 1) * step
+		local r = math.floor(v + 0.5)
+		if r ~= lastPick then
+			lastPick = r
+			onPick(r)
+		end
+	end
+	track(zone.InputBegan:Connect(function(i)
+		if not isPress(i) then return end
+		dragging = true
+		dragInput = i
+		lastPick = nil
+		drag(i)
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i == dragInput or i.UserInputType == Enum.UserInputType.MouseMovement) then drag(i) end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if dragging and (i == dragInput or isPress(i)) then
+			dragging = false
+			dragInput = nil
+			goal = yOf(L.idx)
+		end
+	end))
+	function L.set(idx)
+		if idx == L.idx and not L.force then
+			if not dragging then goal = yOf(idx) end
+			return
+		end
+		L.idx = idx
+		if not dragging then goal = yOf(idx) end
+		for i = 1, n do
+			L.dots[i].BackgroundColor3 = (i == idx) and ACC or DIMC
+			L.lbls[i].TextColor3 = (i == idx) and ACC or WHITE
+		end
+		ktxt.Text = labels[idx]
+	end
+	function L.tick()
+		curY = curY + (goal - curY) * 0.35
+		knob.Position = UDim2.fromOffset(15, curY)
+	end
+	L.root = rootF
+	function L.isDragging() return dragging end
+	L.idx = 0
+	L.set(1)
+	levers[#levers + 1] = L
+	return L
+end
+local leftF = frame(gui, 0, 0, 120, 114, PANEL, 1)
+leftF.AnchorPoint = Vector2.new(0, 0.5)
+leftF.Position = UDim2.new(0, 10, 0.5, -20)
+addScale(leftF)
+local HX = { anim = {} }
+do
+	function HX.line(parent, x1, y1, x2, y2, th, col)
+		local dx, dy = x2 - x1, y2 - y1
+		local len = math.sqrt(dx * dx + dy * dy)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
+		f.Size = UDim2.fromOffset(len + th * 0.6, th)
+		f.Rotation = math.deg(math.atan2(dy, dx))
+		f.BackgroundColor3 = col
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = f
+		f.Parent = parent
+		return f
+	end
+	function HX.circ(parent, x, y, d, col, tr)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(d, d)
+		f.BackgroundColor3 = col
+		f.BackgroundTransparency = tr or 0
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = f
+		f.Parent = parent
+		return f
+	end
+	function HX.bez(p0, p1, p2, p3, n)
+		local pts = {}
+		for i = 0, n do
+			local t = i / n
+			local u = 1 - t
+			pts[#pts + 1] = {
+				u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+				u * u * u * p0[2] + 3 * u * u * t * p1[2] + 3 * u * t * t * p2[2] + t * t * t * p3[2],
+			}
+		end
+		return pts
+	end
+	function HX.shell(parent, x, y, w, h, caption)
+		local b = Instance.new("TextButton")
+		b.AutoButtonColor = false
+		b.BorderSizePixel = 0
+		b.Text = ""
+		b.ClipsDescendants = true
+		b.Position = UDim2.fromOffset(x, y)
+		b.Size = UDim2.fromOffset(w, h)
+		b.BackgroundTransparency = 1
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0, 11)
+		cr.Parent = b
+		local st = stroke(b, 1.6, METALC, 1)
+		local sc = Instance.new("UIScale")
+		sc.Parent = b
+		local ic = Instance.new("Frame")
+		ic.BackgroundTransparency = 1
+		ic.BorderSizePixel = 0
+		ic.Size = UDim2.fromOffset(w, caption and (h - 14) or h)
+		ic.ZIndex = 3
+		ic.Parent = b
+		if caption then
+			local lb = label(b, caption, 9, METALC, 0, h - 15, w, 12)
+			lb.ZIndex = 3
+		end
+		b.Parent = parent
+		local T = { b = b, ic = ic, st = st, active = false }
+		local hover = false
+		local function paint(scale)
+			TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Quad), { Scale = scale }):Play()
+		end
+		function T.setActive(on)
+			T.active = on and true or false
+			paint(1)
+		end
+		track(b.MouseEnter:Connect(function()
+			hover = true
+			paint(1.06)
+		end))
+		track(b.MouseLeave:Connect(function()
+			hover = false
+			paint(1)
+		end))
+		track(b.InputBegan:Connect(function(i)
+			if isPress(i) then paint(0.92) end
+		end))
+		track(b.InputEnded:Connect(function(i)
+			if isPress(i) then paint(hover and 1.06 or 1) end
+		end))
+		return T
+	end
+end
+local enterT = HX.shell(leftF, 0, 76, 118, 40)
+local enterBtn = enterT.b
+enterBtn.Visible = false
+do
+	local ic = enterT.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 26, 9, 36, 9, 2.6, OUT)
+	HX.line(ic, 36, 9, 36, 31, 2.6, OUT)
+	HX.line(ic, 36, 31, 26, 31, 2.6, OUT)
+	local ag = Instance.new("Frame")
+	ag.BackgroundTransparency = 1
+	ag.BorderSizePixel = 0
+	ag.Size = UDim2.fromOffset(118, 40)
+	ag.Parent = ic
+	local al = {
+		HX.line(ag, 8, 20, 28, 20, 2.8, GREEN),
+		HX.line(ag, 21, 13, 28, 20, 2.8, GREEN),
+		HX.line(ag, 28, 20, 21, 27, 2.8, GREEN),
+	}
+	label(ic, "ENTRAR", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	local chs = stroke(chip, 1.6, GREEN, 0)
+	label(chip, "F", 11, GREEN, 0, 0, 16, 16)
+	HX.anim[#HX.anim + 1] = function(t)
+		local p = (t * 0.9) % 1
+		ag.Position = UDim2.fromOffset(p * 10 - 4, 0)
+		local tr = 0
+		if p > 0.65 then tr = (p - 0.65) / 0.35 elseif p < 0.15 then tr = (0.15 - p) / 0.15 end
+		for _, l in ipairs(al) do l.BackgroundTransparency = tr end
+		chs.Transparency = 0.15 + 0.4 * (0.5 + 0.5 * math.sin(t * 5))
+	end
+end
+do
+	local hb = HX.shell(leftF, 0, 76, 118, 40)
+	HX.hoodBtn = hb.b
+	hb.b.Visible = false
+	local ic = hb.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 8, 27, 34, 27, 2.6, OUT)
+	HX.line(ic, 34, 27, 34, 17, 2.6, OUT)
+	HX.line(ic, 34, 17, 12, 8, 2.6, GREEN)
+	label(ic, "CAP\u{D4}", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	stroke(chip, 1.6, GREEN, 0)
+	label(chip, "G", 11, GREEN, 0, 0, 16, 16)
+end
+do
+	local tb = HX.shell(leftF, 0, 76, 118, 40)
+	HX.trunkBtn = tb.b
+	tb.b.Visible = false
+	local ic = tb.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 8, 27, 34, 27, 2.6, OUT)
+	HX.line(ic, 8, 27, 8, 17, 2.6, OUT)
+	HX.line(ic, 8, 17, 30, 8, 2.6, GREEN)
+	label(ic, "MALA", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	stroke(chip, 1.6, GREEN, 0)
+	label(chip, "H", 11, GREEN, 0, 0, 16, 16)
+end
+function HX.nearZone(c)
+	local _, _, rpart = charParts()
+	if not rpart or not c or not c.root then return nil end
+	local lp = c.root.CFrame:PointToObjectSpace(rpart.Position) / S
+	if lp.X >= -11.5 and lp.X <= -2.4 and lp.Z >= -6 and lp.Z <= 8 then return "door" end
+	if lp.Z <= -8.6 and lp.Z >= -19 and math.abs(lp.X) <= 5.5 then return "front" end
+	if lp.Z >= 8.6 and lp.Z <= 19 and math.abs(lp.X) <= 5.5 then return "rear" end
+	return nil
+end
+function HX.toggleHood(c)
+	if not c or c.driver then return end
+	c.hoodT = (c.hoodT == 1) and 0 or 1
+	playSound(c.hoodT == 1 and Config.SoundDoorOpen or Config.SoundDoorClose, 0.6)
+end
+function HX.toggleTrunk(c)
+	if not c or c.driver then return end
+	c.trunkT = (c.trunkT == 1) and 0 or 1
+	playSound(c.trunkT == 1 and Config.SoundDoorOpen or Config.SoundDoorClose, 0.6)
+end
+local K = { alive = true }
+do
+	local KEYDIR = "CHARGER_SCRIPT"
+	local keyTpl, keyAxis, keyTried = nil, Vector3.zAxis, false
+	local keyTool = nil
+	local function keyPath(name)
+		pcall(function()
+			if makefolder and isfolder then
+				if not isfolder(KEYDIR) then makefolder(KEYDIR) end
+				if not isfolder(KEYDIR .. "/modelos") then makefolder(KEYDIR .. "/modelos") end
+			end
+		end)
+		return KEYDIR .. "/modelos/" .. name
+	end
+	local function fromDisk(id)
+		assert(writefile and readfile and isfile and getcustomasset)
+		local path = keyPath(tostring(id) .. ".rbxm")
+		for tentativa = 1, 2 do
+			if not isfile(path) then
+				local data = game:HttpGet("https://assetdelivery.roblox.com/v1/asset/?id=" .. tostring(id))
+				assert(type(data) == "string" and #data > 100)
+				writefile(path, data)
+			end
+			local okO, objs = pcall(function() return game:GetObjects(getcustomasset(path)) end)
+			if okO and type(objs) == "table" and objs[1] then return objs[1] end
+			if delfile then pcall(delfile, path) end
+			if tentativa == 2 then error(0) end
+		end
+	end
+	local function fetchModel(id)
+		local lastErr = "desconhecido"
+		for attempt = 1, 3 do
+			local okD, m = pcall(fromDisk, id)
+			if okD and m then return m end
+			if not okD then lastErr = tostring(m) end
+			local okG, objs = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(id)) end)
+			if okG and type(objs) == "table" and objs[1] then return objs[1] end
+			if not okG then lastErr = tostring(objs) end
+			if attempt < 3 then task.wait(1) end
+		end
+		return nil, lastErr
+	end
+	local function fallbackKey()
+		local L = Config.KeyLength
+		local h = Instance.new("Part")
+		h.Name = "Handle"
+		h.Size = Vector3.new(0.22, 0.22, L)
+		h.Material = Enum.Material.Neon
+		h.Color = ACC
+		h.Anchored = false
+		h.CanCollide = false
+		h.CanQuery = false
+		h.CanTouch = false
+		h.Massless = true
+		local function piece(size, off, shape)
+			local q = Instance.new("Part")
+			q.Size = size
+			q.Shape = shape or Enum.PartType.Block
+			q.Material = Enum.Material.Neon
+			q.Color = ACC
+			q.CanCollide = false
+			q.CanQuery = false
+			q.CanTouch = false
+			q.Massless = true
+			q.CFrame = h.CFrame * CFrame.new(off)
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = h
+			w.Part1 = q
+			w.Parent = q
+			q.Parent = h
+		end
+		piece(Vector3.new(0.7, 0.7, 0.7), Vector3.new(0, 0, -L / 2), Enum.PartType.Ball)
+		piece(Vector3.new(0.5, 0.2, 0.2), Vector3.new(0.3, 0, L / 2 - 0.1))
+		piece(Vector3.new(0.4, 0.2, 0.2), Vector3.new(0.25, 0, L / 2 - 0.4))
+		keyAxis = Vector3.zAxis
+		return h
+	end
+	local function loadTemplate()
+		if keyTried then return keyTpl end
+		keyTried = true
+		local id = Config.KeyAccessoryId
+		if id then
+			local model, err = fetchModel(id)
+			if model then
+				local h
+				if model:IsA("BasePart") then
+					h = model
+				else
+					h = model:FindFirstChild("Handle", true) or model:FindFirstChildWhichIsA("BasePart", true)
+				end
+				if h then
+					local c = h:Clone()
+					pcall(function() model:Destroy() end)
+					for _, d in ipairs(c:GetDescendants()) do
+						if d:IsA("Attachment") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Script")
+							or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Motor6D") or d:IsA("Sound")
+							or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke")
+							or d:IsA("Sparkles") or d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") or d:IsA("Highlight") then
+							d:Destroy()
+						end
+					end
+					c.Name = "Handle"
+					c.Anchored = false
+					c.CanCollide = false
+					c.CanQuery = false
+					c.CanTouch = false
+					c.Massless = true
+					c.CastShadow = true
+					local sz = c.Size
+					local f = Config.KeyLength / math.max(math.max(sz.X, sz.Y, sz.Z), 0.01)
+					c.Size = sz * f
+					local sm = c:FindFirstChildOfClass("SpecialMesh")
+					if sm then sm.Scale = sm.Scale * f end
+					local ns = c.Size
+					if ns.X >= ns.Y and ns.X >= ns.Z then
+						keyAxis = Vector3.xAxis
+					elseif ns.Y >= ns.Z then
+						keyAxis = Vector3.yAxis
+					else
+						keyAxis = Vector3.zAxis
+					end
+					keyTpl = c
+					return c
+				end
+				pcall(function() model:Destroy() end)
+			else
+			end
+		end
+		keyTpl = fallbackKey()
+		return keyTpl
+	end
+	local slotBtn = Instance.new("TextButton")
+	slotBtn.Name = "Slot_ChaveDoCharger"
+	slotBtn.AutoButtonColor = false
+	slotBtn.BorderSizePixel = 0
+	slotBtn.BackgroundTransparency = 1
+	slotBtn.Text = ""
+	slotBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	slotBtn.Position = UDim2.fromOffset(28, 28)
+	slotBtn.Size = UDim2.fromOffset(52, 52)
+	do
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 14)
+		c.Parent = slotBtn
+	end
+	local slotStroke = stroke(slotBtn, 2.5, ACC, 0.1)
+	slotBtn.Parent = leftF
+	local slotIcon = Instance.new("TextLabel")
+	slotIcon.BackgroundTransparency = 1
+	slotIcon.Size = UDim2.fromScale(1, 1)
+	slotIcon.Text = Config.KeyIcon
+	slotIcon.TextSize = 26
+	slotIcon.Parent = slotBtn
+	if Config.KeyAccessoryId then
+		local img = Instance.new("ImageLabel")
+		img.Name = "KeyThumb"
+		img.BackgroundTransparency = 1
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.fromScale(0.5, 0.5)
+		img.Size = UDim2.new(1, -10, 1, -10)
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Visible = false
+		img.Image = "rbxthumb://type=Asset&id=" .. tostring(Config.KeyAccessoryId) .. "&w=150&h=150"
+		img.Parent = slotBtn
+		task.spawn(function()
+			for _ = 1, 24 do
+				if not (K.alive and img.Parent) then return end
+				if img.IsLoaded then
+					img.Visible = true
+					slotIcon.Visible = false
+					return
+				end
+				task.wait(0.25)
+			end
+		end)
+	end
+	label(leftF, "CHAVE  (M)", 9, METALC, 0, 56, 56, 12)
+	local keyLast = 0
+	local function keyUse()
+		local ch = charParts()
+		if not ch then return end
+		if car and car.driver then
+			return
+		end
+		if os.clock() - keyLast < Config.KeyCooldown then return end
+		keyLast = os.clock()
+		pcall(function()
+			TweenService:Create(slotBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true),
+				{ Size = UDim2.fromOffset(60, 60) }):Play()
+		end)
+		if car then despawnCar() else spawnCar() end
+	end
+	local function setupKey()
+		local ch, hum = charParts()
+		if not ch then return end
+		local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 10)
+		if not backpack then return end
+		for _, v in ipairs(backpack:GetChildren()) do
+			if v.Name == Config.KeyToolName then pcall(function() v:Destroy() end) end
+		end
+		local old = ch:FindFirstChild(Config.KeyToolName)
+		if old then pcall(function() old:Destroy() end) end
+		if keyTool then pcall(function() keyTool:Destroy() end) end
+		local tpl = loadTemplate()
+		if not tpl then return end
+		local tool = Instance.new("Tool")
+		tool.Name = Config.KeyToolName
+		tool.ToolTip = "Chama o Charger"
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		local handle = tpl:Clone()
+		handle.Name = "Handle"
+		handle.Parent = tool
+		local rot = CFrame.new()
+		if keyAxis == Vector3.xAxis then
+			rot = CFrame.Angles(0, math.rad(90), 0)
+		elseif keyAxis == Vector3.yAxis then
+			rot = CFrame.Angles(math.rad(90), 0, 0)
+		end
+		local e = Config.KeyRotation
+		tool.Grip = CFrame.new(Config.KeyGrip) * rot * CFrame.Angles(math.rad(e.X), math.rad(e.Y), math.rad(e.Z))
+		tool.Activated:Connect(keyUse)
+		tool.Equipped:Connect(function()
+			K.keyOn = true
+			slotStroke.Color = WHITE
+			playSound(Config.SoundKeyEquip, 0.5)
+			if not (car and car.driver) then
+			end
+		end)
+		tool.Unequipped:Connect(function()
+			K.keyOn = false
+			slotStroke.Color = ACC
+		end)
+		pcall(function() tool.Parent = backpack end)
+		keyTool = tool
+	end
+	track(slotBtn.Activated:Connect(function()
+		local ch, hum = charParts()
+		if not (ch and hum and keyTool) then return end
+		pcall(function()
+			if keyTool.Parent == ch then hum:UnequipTools() else hum:EquipTool(keyTool) end
+		end)
+	end))
+	track(player.CharacterAdded:Connect(function()
+		task.wait(0.8)
+		if K.alive and keyTpl then setupKey() end
+	end))
+	task.spawn(function()
+		pcall(loadTemplate)
+		if K.alive then setupKey() end
+		while K.alive do
+			task.wait(1)
+			local bp, ch = player:FindFirstChildOfClass("Backpack"), player.Character
+			if keyTool and bp and ch and keyTool.Parent ~= bp and keyTool.Parent ~= ch then
+				pcall(function() keyTool.Parent = bp end)
+			end
+		end
+	end)
+	function K.destroy()
+		K.alive = false
+		if keyTool then pcall(function() keyTool:Destroy() end) end
+	end
+end
+local gaugeF = frame(gui, 0, 0, 284, 140, PANEL, 1)
+gaugeF.AnchorPoint = Vector2.new(0, 0)
+gaugeF.Position = UDim2.new(0, 10, 0, 56)
+addScale(gaugeF, 0.55)
+local CLU = { D = 140 }
+local FACEC = Color3.fromRGB(9, 11, 15)
+local CHROME = Color3.fromRGB(168, 176, 188)
+local function dial(cx, vmax, majorStep, minorStep, labelDiv, redFrom, caption)
+	local D = CLU.D
+	local R = D / 2
+	local face = frame(gaugeF, cx - R, 0, D, D, FACEC, 0, R)
+	local st = stroke(face, 3, CHROME, 0.1)
+	local inner = frame(face, 8, 8, D - 16, D - 16, FACEC, 1, R - 8)
+	stroke(inner, 1, ACC, 0.65)
+	local nMinor = math.floor(vmax / minorStep + 0.5)
+	for i = 0, nMinor do
+		local v = i * minorStep
+		local a = -135 + 270 * v / vmax
+		local major = math.abs(v / majorStep - math.floor(v / majorStep + 0.5)) < 1e-6
+		local red = redFrom and v >= redFrom
+		local len = major and 11 or 6
+		local rr = R - 5 - len / 2
+		local t = frame(gaugeF, 0, 0, major and 2.5 or 1.5, len, red and HUDRED or WHITE, 0)
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.fromOffset(cx + math.sin(math.rad(a)) * rr, R - math.cos(math.rad(a)) * rr)
+		t.Rotation = a
+		t.ZIndex = 2
+		if major then
+			local lr = R - 27
+			local l = label(gaugeF, tostring(math.floor(v / labelDiv + 0.5)), 10, red and HUDRED or WHITE, cx + math.sin(math.rad(a)) * lr - 14, R - math.cos(math.rad(a)) * lr - 7, 28, 14)
+			l.ZIndex = 2
+		end
+	end
+	local cap = label(gaugeF, caption, 8, METALC, cx - 35, R + 24, 70, 10)
+	cap.ZIndex = 2
+	local nc = frame(gaugeF, cx - R, 0, D, D, PANEL, 1)
+	nc.ZIndex = 4
+	nc.Rotation = -135
+	local nd = frame(nc, R - 1.5, 9, 3, R - 9, HUDRED, 0, 1)
+	nd.ZIndex = 4
+	local tl = frame(nc, R - 1.5, R, 3, 16, HUDRED, 0, 1)
+	tl.ZIndex = 4
+	local hb = frame(gaugeF, cx - 8, R - 8, 16, 16, CHROME, 0, 8)
+	hb.ZIndex = 5
+	local hb2 = frame(hb, 4, 4, 8, 8, FACEC, 0, 4)
+	hb2.ZIndex = 5
+	return nc, st
+end
+local needleT, tachStroke = dial(70, 8000, 1000, 500, 1000, 6500, "RPM x1000")
+local needleC = dial(214, 280, 40, 10, 1, nil, "KM/H")
+local rightF = frame(gui, 0, 0, 206, 176, PANEL, 1)
+rightF.AnchorPoint = Vector2.new(1, 1)
+rightF.Position = UDim2.new(1, -8, 1, -12)
+addScale(rightF)
+local shifter
+do
+	local GW, GH = 118, 176
+	local GLX = { 18, 46, 74, 102 }
+	local GTOP, GMID, GBOT = 40, 92, 144
+	local GSLOTS = {
+		{ id = "P", lane = 1, y = GTOP, txt = "P", col = HUDRED },
+		{ id = "N", lane = 1, y = GMID, txt = "N", col = WHITE },
+		{ id = "R", lane = 1, y = GBOT, txt = "R", col = AMBER },
+		{ id = 1, lane = 2, y = GTOP, txt = "1", col = GREEN },
+		{ id = 2, lane = 2, y = GBOT, txt = "2", col = GREEN },
+		{ id = 3, lane = 3, y = GTOP, txt = "3", col = GREEN },
+		{ id = 4, lane = 3, y = GBOT, txt = "4", col = GREEN },
+		{ id = 5, lane = 4, y = GTOP, txt = "5", col = GREEN },
+	}
+	local function slotIndexOf(mode, g)
+		if mode == "D" then
+			for i, s in ipairs(GSLOTS) do
+				if s.id == g then return i end
+			end
+		end
+		for i, s in ipairs(GSLOTS) do
+			if s.id == mode then return i end
+		end
+		return 1
+	end
+	local function pick(s)
+		if s.id == "P" or s.id == "N" or s.id == "R" then
+			setMode(s.id)
+		elseif setMode("D") then
+			setGear(s.id)
+		end
+	end
+	local rootF = frame(rightF, 0, 0, GW, GH, PANEL, 1)
+	label(rootF, "CAMBIO", 9, METALC, 0, 0, GW, 12)
+	local function groove(x, y, w, h, col, z)
+		local g = frame(rootF, x, y, w, h, col, 0, math.min(w, h) / 2)
+		g.ZIndex = z
+		return g
+	end
+	local RIM = Color3.fromRGB(78, 90, 106)
+	local DEEP = Color3.fromRGB(5, 7, 10)
+	for i = 1, 4 do
+		local bot = (i == 4) and GMID or GBOT
+		groove(GLX[i] - 9, GTOP - 9, 18, bot - GTOP + 18, RIM, 1)
+	end
+	groove(GLX[1] - 9, GMID - 9, GLX[4] - GLX[1] + 18, 18, RIM, 1)
+	for i = 1, 4 do
+		local bot = (i == 4) and GMID or GBOT
+		groove(GLX[i] - 7, GTOP - 7, 14, bot - GTOP + 14, DEEP, 2)
+	end
+	groove(GLX[1] - 7, GMID - 7, GLX[4] - GLX[1] + 14, 14, DEEP, 2)
+	local rt = label(rootF, "R/T", 11, HUDRED, 88, GBOT - 8, 28, 16)
+	rt.ZIndex = 3
+	local dots, lbls = {}, {}
+	for i, s in ipairs(GSLOTS) do
+		local x = GLX[s.lane]
+		local d = HX.circ(rootF, x, s.y, 7, DIMC, 0)
+		d.ZIndex = 3
+		dots[i] = d
+		local ly, lx, lw = s.y - 22, x - 12, 24
+		if s.y == GTOP then
+			ly = s.y - 26
+		elseif s.y == GBOT then
+			ly = s.y + 15
+		end
+		if s.id == "N" then
+			lx, lw = x + 9, 10
+		end
+		local lb = label(rootF, s.txt, 11, s.col, lx, ly, lw, 12)
+		lb.ZIndex = 3
+		lb.TextTransparency = 0.45
+		lbls[i] = lb
+	end
+	local knob = Instance.new("Frame")
+	knob.BorderSizePixel = 0
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Size = UDim2.fromOffset(28, 28)
+	knob.Position = UDim2.fromOffset(GLX[1], GTOP)
+	knob.BackgroundColor3 = Color3.fromRGB(235, 240, 246)
+	knob.ZIndex = 6
+	do
+		local kc = Instance.new("UICorner")
+		kc.CornerRadius = UDim.new(1, 0)
+		kc.Parent = knob
+		local kg = Instance.new("UIGradient")
+		kg.Rotation = 45
+		kg.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(120, 132, 148))
+		kg.Parent = knob
+		stroke(knob, 2, Color3.fromRGB(14, 17, 22), 0)
+	end
+	knob.Parent = rootF
+	local ks = Instance.new("UIScale")
+	ks.Parent = knob
+	local ring = Instance.new("Frame")
+	ring.BackgroundTransparency = 1
+	ring.BorderSizePixel = 0
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.5)
+	ring.Size = UDim2.fromScale(1.3, 1.3)
+	do
+		local rc = Instance.new("UICorner")
+		rc.CornerRadius = UDim.new(1, 0)
+		rc.Parent = ring
+	end
+	local ringStroke = stroke(ring, 2, HUDRED, 0.5)
+	ring.Parent = knob
+	local hl = HX.circ(knob, 9, 8, 7, WHITE, 0.55)
+	hl.ZIndex = 7
+	local ktxt = label(knob, "P", 14, Color3.fromRGB(10, 14, 20), 0, 0, 28, 28)
+	ktxt.ZIndex = 8
+	local curX, curY = GLX[1], GTOP
+	local gx, gy = curX, curY
+	local dragging, dragInput, lastPick = false, nil, nil
+	local shownIdx = nil
+	local tilt, lastX = 0, curX
+	local L = { idx = 1 }
+	local function laneNear(x)
+		local best, bd = 1, 1e9
+		for i = 1, 4 do
+			local d = math.abs(x - GLX[i])
+			if d < bd then best, bd = i, d end
+		end
+		return best, bd
+	end
+	local function maxYOf(l)
+		return l == 4 and GMID or GBOT
+	end
+	local function pointer(input)
+		local inset = gui.IgnoreGuiInset and GuiService:GetGuiInset().Y or 0
+		local sc = rootF.AbsoluteSize.Y / GH
+		if sc <= 0 then sc = 1 end
+		return (input.Position.X - rootF.AbsolutePosition.X) / sc, (input.Position.Y + inset - rootF.AbsolutePosition.Y) / sc
+	end
+	local function toState()
+		local s = GSLOTS[L.idx]
+		gx, gy = GLX[s.lane], s.y
+	end
+	local function project(px, py)
+		local bx, by, bd
+		local function try(ax, ay, cx, cy)
+			local dx, dy = cx - ax, cy - ay
+			local t = math.clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1)
+			local x, y = ax + dx * t, ay + dy * t
+			local d = (x - px) ^ 2 + (y - py) ^ 2
+			if not bd or d < bd then bx, by, bd = x, y, d end
+		end
+		local nearMid = math.abs(gy - GMID)
+		if nearMid <= 10 then
+			try(GLX[1], GMID, GLX[4], GMID)
+		end
+		for i = 1, 4 do
+			local dxk = math.abs(gx - GLX[i])
+			if dxk <= 0.5 or (nearMid <= 1.5 and dxk <= 10) then
+				try(GLX[i], GTOP, GLX[i], maxYOf(i))
+			end
+		end
+		if not bd then
+			try(GLX[1], GMID, GLX[4], GMID)
+		end
+		return bx, by
+	end
+	local function drag(input)
+		local px, py = pointer(input)
+		gx, gy = project(px, py)
+		curX, curY = gx, gy
+		local bi, bd = nil, 1e9
+		for i, s in ipairs(GSLOTS) do
+			local d = math.sqrt((gx - GLX[s.lane]) ^ 2 + (gy - s.y) ^ 2)
+			if d < bd then bi, bd = i, d end
+		end
+		if bi and bd <= 11 and bi ~= lastPick then
+			lastPick = bi
+			pick(GSLOTS[bi])
+		end
+	end
+	local zone = Instance.new("TextButton")
+	zone.BackgroundTransparency = 1
+	zone.Text = ""
+	zone.AutoButtonColor = false
+	zone.Position = UDim2.fromOffset(0, 12)
+	zone.Size = UDim2.fromOffset(GW, GH - 12)
+	zone.ZIndex = 9
+	zone.Parent = rootF
+	local function grow(v)
+		TweenService:Create(ks, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { Scale = v }):Play()
+	end
+	track(zone.InputBegan:Connect(function(i)
+		if not isPress(i) then return end
+		dragging = true
+		dragInput = i
+		lastPick = nil
+		toState()
+		grow(1.15)
+		drag(i)
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i == dragInput or i.UserInputType == Enum.UserInputType.MouseMovement) then drag(i) end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if dragging and (i == dragInput or isPress(i)) then
+			dragging = false
+			dragInput = nil
+			grow(1)
+			toState()
+		end
+	end))
+	function L.isDragging()
+		return dragging
+	end
+	function L.setState(mode, g)
+		local idx = slotIndexOf(mode, g)
+		L.idx = idx
+		if not dragging then toState() end
+		if idx ~= shownIdx then
+			shownIdx = idx
+			local s = GSLOTS[idx]
+			ktxt.Text = s.txt
+			ringStroke.Color = s.col
+			for i, d in ipairs(dots) do
+				d.BackgroundColor3 = (i == idx) and GSLOTS[i].col or DIMC
+			end
+			for i, lb in ipairs(lbls) do
+				lb.TextTransparency = (i == idx) and 0 or 0.45
+			end
+		end
+	end
+	function L.tick(t)
+		if dragging then
+			curX, curY = gx, gy
+		elseif math.abs(curX - gx) > 1.5 then
+			if math.abs(curY - GMID) > 2 then
+				curY = curY + (GMID - curY) * 0.4
+			else
+				curY = curY + (GMID - curY) * 0.5
+				curX = curX + (gx - curX) * 0.3
+			end
+		else
+			curX = gx
+			curY = curY + (gy - curY) * 0.4
+		end
+		knob.Position = UDim2.fromOffset(curX, curY)
+		tilt = tilt + (math.clamp((curX - lastX) * 3, -18, 18) - tilt) * 0.4
+		lastX = curX
+		knob.Rotation = tilt
+		ringStroke.Transparency = 0.45 + 0.3 * math.sin(t * 5)
+		local pr = 1.28 + 0.14 * math.sin(t * 5)
+		ring.Size = UDim2.fromScale(pr, pr)
+	end
+	L.root = rootF
+	L.setState("P", 5)
+	shifter = L
+end
+local gearLever = shifter
+local PEDIDLE = Color3.fromRGB(122, 43, 43)
+local PEDH = 96
+local brakeBtn = Instance.new("TextButton")
+brakeBtn.AutoButtonColor = false
+brakeBtn.BorderSizePixel = 0
+brakeBtn.AnchorPoint = Vector2.new(0.5, 1)
+brakeBtn.Position = UDim2.fromOffset(166, 172)
+brakeBtn.Size = UDim2.fromOffset(52, PEDH)
+brakeBtn.BackgroundTransparency = 0
+brakeBtn.BackgroundColor3 = Color3.fromRGB(19, 23, 29)
+brakeBtn.ClipsDescendants = true
+brakeBtn.Text = ""
+local pedalStroke
+do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 12)
+	c.Parent = brakeBtn
+	pedalStroke = stroke(brakeBtn, 3, PEDIDLE, 0)
+end
+brakeBtn.Parent = rightF
+local ribs = {}
+do
+	local function build()
+		local CHB = Color3.fromRGB(201, 210, 221)
+		local DKB = Color3.fromRGB(11, 13, 17)
+		local GRB = Color3.fromRGB(123, 134, 150)
+		local rod = frame(brakeBtn, 23, 12, 6, 26, GRB, 0, 2)
+		HX.circ(brakeBtn, 26, 9, 12, CHB, 0)
+		HX.circ(brakeBtn, 26, 9, 5, DKB, 0)
+		local padG = Instance.new("Frame")
+		padG.BackgroundTransparency = 1
+		padG.BorderSizePixel = 0
+		padG.Size = UDim2.fromScale(1, 1)
+		padG.Parent = brakeBtn
+		local rim = frame(padG, 6, 38, 40, 54, CHB, 0, 6)
+		frame(padG, 9, 41, 34, 48, DKB, 0, 4)
+		for i = 1, 5 do
+			ribs[i] = frame(padG, 12, 47 + 9 * (i - 1), 28, 4, CHB, 0, 2)
+		end
+		local heat = 0
+		function HX.brakeFx(c, dt)
+			local want = (c.notch > 0 or (c.brakePed or 0) > 0 or held.brakeUi) and 1 or 0
+			heat = heat + (want - heat) * math.min(1, dt * 10)
+			padG.Position = UDim2.fromOffset(0, 5 * heat)
+			rod.Size = UDim2.fromOffset(6, 26 + 5 * heat)
+			rim.BackgroundColor3 = CHB:Lerp(HUDRED, heat)
+			local n = math.max(math.floor(heat * 5 + 0.5), math.min(5, c.notch * 2))
+			for i = 1, 5 do
+				ribs[i].BackgroundColor3 = ((6 - i) <= n) and HUDRED or CHB
+			end
+		end
+	end
+	build()
+end
+label(rightF, "FREIO (B)", 9, METALC, 128, 60, 76, 12)
+track(brakeBtn.InputBegan:Connect(function(i)
+	if isPress(i) then held.brakeUi = true end
+end))
+track(brakeBtn.InputEnded:Connect(function(i)
+	if isPress(i) then held.brakeUi = false end
+end))
+track(brakeBtn.MouseLeave:Connect(function() held.brakeUi = false end))
+HX.waterBtn = { Visible = false }
+function HX.waterFx() end
+local quickF = frame(gui, 0, 0, 322, 60, PANEL, 1)
+quickF.AnchorPoint = Vector2.new(0.5, 0)
+quickF.Position = UDim2.new(0.5, 0, 0, 6)
+addScale(quickF)
+local camT = HX.shell(quickF, 0, 0, 58, 60, "CAMERA  (V)")
+local lampT = HX.shell(quickF, 66, 0, 58, 60, "LUZ  (L)")
+local exitT = HX.shell(quickF, 132, 0, 58, 60, "SAIR  (F)")
+local engT = HX.shell(quickF, 198, 0, 58, 60, "MOTOR  (Y)")
+local camBtn, lampBtn, exitBtn, engBtn = camT.b, lampT.b, exitT.b, engT.b
+local winT = HX.shell(quickF, 264, 0, 58, 60, "VIDROS  (U)")
+local winBtn = winT.b
+do
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local ic = winT.ic
+	local ol = {
+		HX.line(ic, 18, 10, 40, 10, 2.4, OFFC),
+		HX.line(ic, 40, 10, 46, 32, 2.4, OFFC),
+		HX.line(ic, 46, 32, 12, 32, 2.4, OFFC),
+		HX.line(ic, 12, 32, 18, 10, 2.4, OFFC),
+	}
+	-- vidro: so contorno (sem fundo) + linha do vidro que desce + brilhos
+	local edge = HX.line(ic, 18, 10, 40, 10, 2.4, ACC)
+	local shine = {
+		HX.line(ic, 22, 17, 30, 17, 1.8, OFFC),
+		HX.line(ic, 24, 23, 36, 23, 1.8, OFFC),
+	}
+	local lastOn = nil
+	function K.setWin(p)
+		local y = 10 + 22 * p
+		local t = 22 * p / 22
+		local xl, xr = 18 - 6 * t, 40 + 6 * t
+		edge.Position = UDim2.fromOffset((xl + xr) / 2, y)
+		edge.Size = UDim2.fromOffset(xr - xl, 2.4)
+		edge.Visible = p < 0.97
+		for i, f in ipairs(shine) do
+			f.Visible = p < (i == 1 and 0.25 or 0.5)
+		end
+		local on = p > 0.02
+		if on == lastOn then return end
+		lastOn = on
+		winT.setActive(on)
+		for _, f in ipairs(ol) do f.BackgroundColor3 = on and ACC or OFFC end
+		for _, f in ipairs(shine) do f.BackgroundColor3 = on and ACC or OFFC end
+		edge.BackgroundColor3 = on and ACC or OFFC
+	end
+end
+do
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local ic = engT.ic
+	local cx, cy, r = 29, 24, 11
+	local ls = {}
+	local prev
+	for i = 0, 12 do
+		local a = math.rad(35 + (290 * i / 12))
+		local x, y = cx + r * math.sin(a), cy - r * math.cos(a)
+		if prev then ls[#ls + 1] = HX.line(ic, prev[1], prev[2], x, y, 2.8, OFFC) end
+		prev = { x, y }
+	end
+	ls[#ls + 1] = HX.line(ic, cx, cy - 15, cx, cy - 3, 2.8, OFFC)
+	local engOn = false
+	function HX.setEngine(on)
+		engOn = on and true or false
+	end
+	HX.anim[#HX.anim + 1] = function(t)
+		local col, tr
+		if engOn then
+			col = Color3.fromRGB(90, 235, 130)
+			tr = 0.15 * (0.5 + 0.5 * math.sin(t * 4))
+		else
+			col = (math.floor(t * 1.6) % 2 == 0) and HUDRED or OFFC
+			tr = 0
+		end
+		for _, f in ipairs(ls) do
+			f.BackgroundColor3 = col
+			f.BackgroundTransparency = tr
+		end
+	end
+end
+track(engBtn.Activated:Connect(function()
+	if car and car.driver then setEngine(car, not car.engineOn) end
+end))
+do
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local ic = camT.ic
+	local parts = {}
+	local function shp(x, y, w, h, rad, ring)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Size = UDim2.fromOffset(w, h)
+		f.BackgroundColor3 = OFFC
+		f.BackgroundTransparency = ring and 1 or 0
+		local c = Instance.new("UICorner")
+		c.CornerRadius = rad
+		c.Parent = f
+		if ring then
+			local st = Instance.new("UIStroke")
+			st.Thickness = 2.4
+			st.Color = OFFC
+			st.Parent = f
+			parts[#parts + 1] = { st = st }
+		else
+			parts[#parts + 1] = { f = f }
+		end
+		f.Parent = ic
+		return f
+	end
+	shp(29, 11, 14, 6, UDim.new(0.3, 0))
+	shp(29, 25, 36, 24, UDim.new(0.22, 0), true)
+	shp(29, 25, 16, 16, UDim.new(0.5, 0), true)
+	local dot = shp(29, 25, 6, 6, UDim.new(0.5, 0))
+	local rec = HX.circ(ic, 46, 13, 6, HUDRED, 0)
+	rec.Visible = false
+	local camOn = false
+	HX.anim[#HX.anim + 1] = function(t)
+		if not camOn then return end
+		local d = 6 + 3 * (0.5 + 0.5 * math.sin(t * 6))
+		dot.Size = UDim2.fromOffset(d, d)
+		rec.Visible = math.floor(t * 2) % 2 == 0
+	end
+	function hudApi.camSet(on)
+		camOn = on and true or false
+		local col = camOn and ACC or OFFC
+		for _, p in ipairs(parts) do
+			if p.st then p.st.Color = col else p.f.BackgroundColor3 = col end
+		end
+		camT.setActive(camOn)
+		if not camOn then
+			dot.Size = UDim2.fromOffset(6, 6)
+			rec.Visible = false
+		end
+	end
+end
+track(camBtn.Activated:Connect(function()
+	if car and car.driver then CAM.toggle() end
+end))
+do
+	local OFFC = Color3.fromRGB(150, 162, 176)
+	local LAMPC = Color3.fromRGB(255, 226, 130)
+	local ic = lampT.ic
+	local k, ox, oy = 0.62, -7.6, -14.6
+	local lens, ribL, beams = {}, {}, {}
+	local glow = HX.circ(ic, 41, 22, 34, LAMPC, 1)
+	local function seg(list, a, b, th)
+		local x1, y1 = ox + a[1] * k, oy + a[2] * k
+		local x2, y2 = ox + b[1] * k, oy + b[2] * k
+		list[#list + 1] = HX.line(ic, x1, y1, x2, y2, th, OFFC)
+	end
+	local path = { { 54, 30 }, { 64, 30 } }
+	local c1 = HX.bez({ 64, 30 }, { 92, 30 }, { 102, 48 }, { 102, 60 }, 8)
+	local c2 = HX.bez({ 102, 60 }, { 102, 72 }, { 92, 90 }, { 64, 90 }, 8)
+	for i = 2, #c1 do path[#path + 1] = c1[i] end
+	for i = 2, #c2 do path[#path + 1] = c2[i] end
+	path[#path + 1] = { 54, 90 }
+	path[#path + 1] = { 54, 30 }
+	for i = 1, #path - 1 do seg(lens, path[i], path[i + 1], 2.4) end
+	for _, r in ipairs({ { 66, 40, 80 }, { 78, 36, 84 }, { 90, 44, 76 } }) do
+		seg(ribL, { r[1], r[2] }, { r[1], r[3] }, 1.8)
+	end
+	for _, y in ipairs({ 36, 50, 64, 78 }) do
+		seg(beams, { 44, y }, { 16, y + 7 }, 2.4)
+	end
+	local lampOn = false
+	HX.anim[#HX.anim + 1] = function(t)
+		if not lampOn then return end
+		for i, f in ipairs(beams) do
+			f.BackgroundTransparency = 0.05 + 0.5 * (0.5 + 0.5 * math.sin(t * 8 - i * 1.2))
+		end
+		glow.BackgroundTransparency = 0.78 + 0.12 * math.sin(t * 4)
+	end
+	local lampLast = nil
+	function K.setLamp(on)
+		on = on and true or false
+		if on == lampLast then return end
+		lampLast = on
+		lampOn = on
+		lampT.setActive(on)
+		for _, f in ipairs(lens) do f.BackgroundColor3 = on and ACC or OFFC end
+		for _, f in ipairs(ribL) do
+			f.BackgroundColor3 = on and ACC or OFFC
+			f.BackgroundTransparency = on and 0 or 0.6
+		end
+		for _, f in ipairs(beams) do
+			f.BackgroundColor3 = on and LAMPC or OFFC
+			f.BackgroundTransparency = on and 0.1 or 0.65
+		end
+		if not on then glow.BackgroundTransparency = 1 end
+	end
+	K.setLamp(false)
+end
+do
+	local OUT = Color3.fromRGB(205, 214, 226)
+	local ic = exitT.ic
+	local function seg(g, a, b, th, col)
+		return HX.line(g, 0.46 * a[1] - 4.6, 0.46 * a[2] - 6, 0.46 * b[1] - 4.6, 0.46 * b[2] - 6, th, col)
+	end
+	seg(ic, { 62, 24 }, { 34, 24 }, 2.8, OUT)
+	seg(ic, { 34, 24 }, { 34, 100 }, 2.8, OUT)
+	seg(ic, { 34, 100 }, { 62, 100 }, 2.8, OUT)
+	local ag = Instance.new("Frame")
+	ag.BackgroundTransparency = 1
+	ag.BorderSizePixel = 0
+	ag.Size = UDim2.fromOffset(58, 46)
+	ag.Parent = ic
+	local al = {
+		seg(ag, { 52, 62 }, { 112, 62 }, 3, HUDRED),
+		seg(ag, { 94, 44 }, { 112, 62 }, 3, HUDRED),
+		seg(ag, { 112, 62 }, { 94, 80 }, 3, HUDRED),
+	}
+	HX.anim[#HX.anim + 1] = function(t)
+		local p = (t * 0.9) % 1
+		ag.Position = UDim2.fromOffset(p * 9 - 3, 0)
+		local tr = 0
+		if p > 0.65 then tr = (p - 0.65) / 0.35 elseif p < 0.15 then tr = (0.15 - p) / 0.15 end
+		for _, l in ipairs(al) do l.BackgroundTransparency = tr end
+	end
+end
+track(enterBtn.Activated:Connect(function()
+	if car and not car.driver then enterCar(car) end
+end))
+track(HX.hoodBtn.Activated:Connect(function()
+	if car then HX.toggleHood(car) end
+end))
+track(HX.trunkBtn.Activated:Connect(function()
+	if car then HX.toggleTrunk(car) end
+end))
+track(exitBtn.Activated:Connect(function()
+	if car and car.driver then exitCar(car) end
+end))
+track(lampBtn.Activated:Connect(function()
+	if car then car.lamps = not car.lamps end
+end))
+track(winBtn.Activated:Connect(function()
+	if car and car.driver then car.winT = (car.winT == 1) and 0 or 1 end
+end))
+do
+	local function build()
+		local ORIG = (Config.Tweaks and Config.Tweaks.BodyColor) or Config.BodyColor
+		local YELLOW = Color3.fromRGB(245, 197, 0)
+		local STRIPE = Color3.fromRGB(12, 12, 14)
+		local themes = {
+			{ body = ORIG, stripes = false },
+			{ body = YELLOW, stripes = true },
+		}
+		local cur = 1
+		local THEME_FILE = "CHARGER_SCRIPT/tema.txt"
+		local function saveTheme(n)
+			pcall(function()
+				if not writefile then return end
+				if makefolder and isfolder and not isfolder("CHARGER_SCRIPT") then makefolder("CHARGER_SCRIPT") end
+				writefile(THEME_FILE, tostring(n))
+			end)
+		end
+		local function loadTheme()
+			local okR, v = pcall(function()
+				if isfile and readfile and isfile(THEME_FILE) then return tonumber(readfile(THEME_FILE)) end
+			end)
+			if okR and v and themes[v] then return v end
+			return 1
+		end
+		cur = loadTheme()
+		Config.Tweaks.BodyColor = themes[cur].body
+		local function clearStripes(c)
+			if c._stripeF then
+				pcall(function() c._stripeF:Destroy() end)
+				c._stripeF = nil
+			end
+		end
+		local STRIPE_W = 0.5
+		local STRIPE_X = 0.4
+		local STRIPE_T = 0.03
+		local STRIPE_LIFT = 0.018
+		local STRIPE_STEP = 0.2
+		local STRIPE_Z0, STRIPE_Z1 = -10.1, 10.1
+		local function addStripes(c)
+			clearStripes(c)
+			local root, model = c.root, c.model
+			if not (root and root.Parent and model and model.Parent) then return end
+			if (c.hoodA or 0) > 0.01 or (c.hoodT or 0) > 0 or (c.trunkA or 0) > 0.01 or (c.trunkT or 0) > 0 then return end
+			if os.clock() < (c._stripeNext or 0) then return end
+			local folder = Instance.new("Folder")
+			folder.Name = "ThemeStripes"
+			folder.Parent = model
+			c._stripeF = folder
+			local saved = {}
+			for _, p in ipairs(model:GetDescendants()) do
+				if p:IsA("BasePart") then
+					saved[#saved + 1] = { p, p.CanQuery }
+					p.CanQuery = true
+				end
+			end
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Include
+			rp.FilterDescendantsInstances = { model }
+			local cf = root.CFrame
+			local up = cf.UpVector
+			local body = c._body
+			local function probe(sx, z)
+				local o = cf:PointToWorldSpace(Vector3.new(sx * S, 14 * S, z * S))
+				local r = workspace:Raycast(o, -up * 20 * S, rp)
+				if r and r.Instance.Color == body and r.Instance.Transparency < 0.5 and r.Normal:Dot(up) > 0.5 then
+					return r
+				end
+				return nil
+			end
+			local function mk(r)
+				return { r = r, l = cf:PointToObjectSpace(r.Position) }
+			end
+			local function edge(sx, zIn, zOut)
+				for _ = 1, 7 do
+					local zm = (zIn + zOut) / 2
+					if probe(sx, zm) then zIn = zm else zOut = zm end
+				end
+				return probe(sx, zIn)
+			end
+			local made = {}
+			local ok, err = pcall(function()
+				for _, sx in ipairs({ -STRIPE_X, STRIPE_X }) do
+					local seq = {}
+					local pz, pe
+					local z = STRIPE_Z0
+					while z <= STRIPE_Z1 do
+						local h = probe(sx, z)
+						local en = h and mk(h) or false
+						if pz ~= nil then
+							if en and not pe then
+								local eh = edge(sx, z, pz)
+								if eh then seq[#seq + 1] = mk(eh) end
+							elseif pe and not en then
+								local eh = edge(sx, pz, z)
+								if eh then seq[#seq + 1] = mk(eh) end
+							end
+						end
+						seq[#seq + 1] = en
+						pz, pe = z, en
+						z = z + STRIPE_STEP
+					end
+					for i = 1, #seq - 1 do
+						local a, b = seq[i], seq[i + 1]
+						if a and b then
+							local d = b.r.Position - a.r.Position
+							local len = d.Magnitude
+							local dy = math.abs(a.l.Y - b.l.Y)
+							local dz = math.abs(a.l.Z - b.l.Z)
+							if len > 0.004 * S and dy < 0.5 * S and dy <= 0.9 * dz + 0.01 * S then
+								local t = d / len
+								local nn = a.r.Normal + b.r.Normal
+								local upv = nn - t * nn:Dot(t)
+								if upv.Magnitude < 0.01 then upv = up - t * up:Dot(t) end
+								upv = upv.Unit
+								local rightv = upv:Cross(t).Unit
+								upv = t:Cross(rightv).Unit
+								local pos = (a.r.Position + b.r.Position) / 2 + upv * (STRIPE_LIFT * S)
+								made[#made + 1] = { pos = pos, x = rightv, y = upv, z = t, len = len, part = a.r.Instance }
+							end
+						end
+					end
+				end
+			end)
+			for _, e in ipairs(saved) do
+				pcall(function() e[1].CanQuery = e[2] end)
+			end
+			if not ok or #made == 0 then
+				warn("[Charger] faixas Camaro: nada gerado (" .. tostring(err) .. ")")
+				clearStripes(c)
+				c._stripeNext = os.clock() + 3
+				return
+			end
+			for _, m in ipairs(made) do
+				local st = Instance.new("Part")
+				st.Name = "ThemeStripe"
+				st.Size = Vector3.new(STRIPE_W * S, STRIPE_T * S, m.len + 0.03 * S)
+				st.Color = STRIPE
+				st.Material = Enum.Material.SmoothPlastic
+				st.Reflectance = 0.12
+				st.Anchored = false
+				st.CanCollide = false
+				st.CanQuery = false
+				st.CanTouch = false
+				st.Massless = true
+				st.CastShadow = false
+				st.CFrame = CFrame.fromMatrix(m.pos, m.x, m.y, m.z)
+				st.Parent = folder
+				local w = Instance.new("Weld")
+				w.Part0 = m.part
+				w.Part1 = st
+				w.C0 = m.part.CFrame:ToObjectSpace(st.CFrame)
+				w.Parent = st
+			end
+		end
+		local bar = frame(gui, 0, 0, 200, 60, PANEL, 1)
+		bar.AnchorPoint = Vector2.new(0.5, 0)
+		bar.Position = UDim2.new(0.5, 0, 0, 6)
+		bar.Visible = false
+		addScale(bar)
+		HX.themeF = bar
+		local btns = {}
+		local function paintBtns()
+			for i, T in ipairs(btns) do
+				T.st.Transparency = (i == cur) and 0 or 1
+				T.st.Color = ACC
+			end
+		end
+		local function setTheme(n)
+			cur = n
+			saveTheme(n)
+			Config.Tweaks.BodyColor = themes[n].body
+			if car and car.apply then pcall(car.apply, Config.Tweaks) end
+			if car then
+				car._stripeNext = nil
+				if themes[n].stripes then pcall(addStripes, car) else clearStripes(car) end
+			end
+			paintBtns()
+		end
+		local function swatch(T, col, stripes)
+			local sw = frame(T.ic, 18, 8, 60, 30, col, 0, 8)
+			stroke(sw, 1.4, Color3.fromRGB(46, 55, 68), 0)
+			if stripes then
+				frame(sw, 0, 9, 60, 4, STRIPE, 0)
+				frame(sw, 0, 17, 60, 4, STRIPE, 0)
+			end
+		end
+		local t1 = HX.shell(bar, 0, 0, 96, 60, "1  ORIGINAL")
+		local t2 = HX.shell(bar, 104, 0, 96, 60, "2  CAMARO")
+		btns[1], btns[2] = t1, t2
+		swatch(t1, ORIG, false)
+		swatch(t2, YELLOW, true)
+		track(t1.b.Activated:Connect(function() setTheme(1) end))
+		track(t2.b.Activated:Connect(function() setTheme(2) end))
+		paintBtns()
+		task.spawn(function()
+			while K.alive do
+				task.wait(0.6)
+				local c = car
+				if c and c.model and c.model.Parent and c.root and c.root.Parent then
+					local th = themes[cur]
+					if c._body ~= th.body then pcall(c.apply, Config.Tweaks) end
+					if th.stripes and not c._stripeF then
+						pcall(addStripes, c)
+					elseif not th.stripes and c._stripeF then
+						clearStripes(c)
+					end
+				end
+			end
+		end)
+	end
+	build()
+end
+updateScale()
+track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
+-- painel de vida do carro (só aparece sentado): barra + vista de cima do carro com as zonas amassadas
+do
+	local W, H = 84, 124
+	local sF = frame(gui, 0, 0, W, H, PANEL, 1, 0)
+	sF.AnchorPoint = Vector2.new(1, 0)
+	sF.Position = UDim2.new(1, -8, 0, 8)
+	sF.Visible = false
+	addScale(sF, 0.9)
+	HX.statusF = sF
+	local function soft(l)
+		l.TextStrokeTransparency = 0.4
+		l.TextStrokeColor3 = Color3.new(0, 0, 0)
+		return l
+	end
+	soft(label(sF, "VIDA", 9, METALC, 0, 0, W, 12))
+	local barBg = frame(sF, 8, 13, W - 16, 6, Color3.fromRGB(28, 34, 42), 0, 3)
+	local barFill = frame(barBg, 0, 0, W - 16, 6, GREEN, 0, 3)
+	local pct = soft(label(sF, "100%", 11, WHITE, 8, 20, 36, 14, Enum.TextXAlignment.Left))
+	local stateL = soft(label(sF, "PERFEITO", 8, GREEN, 36, 20, W - 44, 14, Enum.TextXAlignment.Right))
+	local VW, VH = 44, 76
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = UDim2.fromOffset(VW, VH)
+	vp.Position = UDim2.fromOffset((W - VW) // 2, 35)
+	vp.BackgroundTransparency = 1
+	vp.Ambient = Color3.fromRGB(175, 175, 180)
+	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.3, -1, -0.4)
+	vp.Parent = sF
+	local vcam = Instance.new("Camera")
+	vcam.FieldOfView = 30
+	vcam.CFrame = CFrame.lookAt(Vector3.new(0, 44 * S, 0), Vector3.zero, Vector3.new(0, 0, -1))
+	vcam.Parent = vp
+	vp.CurrentCamera = vcam
+	local lineL = soft(label(sF, "", 8, WHITE, 0, 35 + VH + 1, W, 11))
+	local marks = {}
+	local function mcol(v)
+		if v >= 70 then return HUDRED end
+		if v >= 35 then return AMBER end
+		return Color3.fromRGB(255, 225, 120)
+	end
+	local vm, vSrc, vSig, vT = nil, nil, nil, 0
+	local function rebuild(c)
+		if vm then vm:Destroy() vm = nil end
+		local ok, m = pcall(function() return c.model:Clone() end)
+		if not (ok and m) then return end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("Light") or d:IsA("ParticleEmitter") or d:IsA("SurfaceGui") or d:IsA("Sound") or d:IsA("BaseScript") then
+				d:Destroy()
+			elseif d:IsA("BasePart") then
+				d.CastShadow = false
+				if d.Size.Magnitude < 1.2 * S then d:Destroy() end
+			end
+		end
+		pcall(function() m:PivotTo(CFrame.new()) end)
+		m.Parent = vp
+		vm = m
+	end
+	function HX.statusUpdate(c, dt)
+		local dmg = c.dmg or 0
+		local D = Config.Damage
+		local worst, worstV = nil, 0
+		for _, pt in ipairs(D.points(c)) do
+			local v = D.vval(c, pt.id)
+			if v > worstV then worst, worstV = pt, v end
+			local m = marks[pt.id]
+			if v >= 12 then
+				if not m then
+					m = frame(sF, 0, 0, pt.tire and 5 or 7, pt.tire and 10 or 7, AMBER, 0, pt.tire and 2 or 4)
+					m.Position = UDim2.fromOffset(math.floor(W / 2 + pt.x * 3.3 - m.Size.X.Offset / 2), math.floor(35 + VH / 2 + pt.z * 3.3 - m.Size.Y.Offset / 2))
+					marks[pt.id] = m
+				end
+				m.Visible = true
+				m.BackgroundColor3 = mcol(v)
+			elseif m then
+				m.Visible = false
+			end
+		end
+		local life = math.clamp(100 - math.max(dmg, worstV), 0, 100)
+		local msg, mc = "", WHITE
+		if (c.fuelLvl or 1) <= 0 then
+			msg, mc = "SEM COMBUSTIVEL", HUDRED
+		elseif (c.engTemp or 0) > 70 then
+			msg, mc = "SUPERAQUECENDO", HUDRED
+		elseif worst and worstV >= 12 then
+			local tail = worstV >= 100 and (worst.tire and " furado" or " quebrado") or (worstV >= 35 and " danificado" or " avariado")
+			msg, mc = worst.name .. tail, mcol(worstV)
+		end
+		lineL.Text = msg
+		lineL.TextColor3 = mc
+		local lc = (life > 60 and GREEN) or (life > 30 and AMBER) or HUDRED
+		barFill.Size = UDim2.fromOffset(math.floor((W - 16) * life / 100 + 0.5), 6)
+		barFill.BackgroundColor3 = lc
+		pct.Text = math.floor(life + 0.5) .. "%"
+		local st
+		if life <= 0 then
+			st = (os.clock() % 1 < 0.5) and "MORTO" or ""
+		else
+			st = (life >= 80 and "PERFEITO") or (life >= 55 and "BOM") or (life >= 30 and "DANO") or "CRÍTICO"
+		end
+		stateL.Text = st
+		stateL.TextColor3 = lc
+		local now = os.clock()
+		if now - vT > 1.5 then
+			vT = now
+			local sig = Config.Damage.dentCount(c) .. ":" .. tostring(c._body)
+			if c.model ~= vSrc or sig ~= vSig or not vm then
+				vSrc, vSig = c.model, sig
+				rebuild(c)
+			end
+		end
+	end
+	updateScale()
+end
+local HUDC = {}
+local function updateHud(dt)
+	local c = car
+	local seated = c ~= nil and c.driver and not c.boardFrom and not c.exiting
+	gaugeF.Visible = seated
+	rightF.Visible = seated
+	quickF.Visible = seated
+	if HX.statusF then HX.statusF.Visible = seated and true or false end
+	if HX.themeF then HX.themeF.Visible = (K.keyOn and not seated) and true or false end
+	HX.waterBtn.Visible = not not seated
+	local zone = nil
+	if c and not c.driver and not c.boardFrom and not c.exiting then zone = HX.nearZone(c) end
+	enterBtn.Visible = zone == "door"
+	HX.hoodBtn.Visible = zone == "front"
+	HX.trunkBtn.Visible = zone == "rear"
+	local nowT = os.clock()
+	for _, f in ipairs(HX.anim) do f(nowT) end
+	if not seated then return end
+	local kmh = math.abs(c.vF)
+	local ns = math.floor((-135 + math.clamp(kmh / 280, 0, 1.02) * 270) * 4 + 0.5) / 4
+	if HUDC.ns ~= ns then
+		HUDC.ns = ns
+		needleC.Rotation = ns
+	end
+	local nt = math.floor((-135 + math.clamp(c.rpm / 8000, 0, 1.03) * 270) * 4 + 0.5) / 4
+	if HUDC.nt ~= nt then
+		HUDC.nt = nt
+		needleT.Rotation = nt
+	end
+	local red = c.rpm >= 6500
+	if HUDC.red ~= red then
+		HUDC.red = red
+		tachStroke.Color = red and HUDRED or Color3.fromRGB(168, 176, 188)
+	end
+	local shown = c.parkPending and "P" or c.mode
+	shifter.setState(shown, gear)
+	shifter.tick(nowT)
+	pedalStroke.Color = (c.notch > 0) and HUDRED or PEDIDLE
+	HX.brakeFx(c, dt)
+	HX.waterFx(c)
+	HX.setEngine(c.engineOn or c.ign ~= nil)
+	K.setLamp(c.lamps)
+	K.setWin(c.winP or 0)
+	if HX.statusUpdate then pcall(HX.statusUpdate, c, dt) end
+end
+track(UIS.InputBegan:Connect(function(input)
+	if UIS:GetFocusedTextBox() then return end
+	local k = input.KeyCode
+	if k == Enum.KeyCode.M then
+		if car then despawnCar() else spawnCar() end
+	elseif k == Enum.KeyCode.F then
+		if car then
+			if car.driver then
+				exitCar(car)
+			else
+				if HX.nearZone(car) == "door" then enterCar(car) end
+			end
+		end
+	elseif k == Enum.KeyCode.G then
+		if car and not car.driver and HX.nearZone(car) == "front" then HX.toggleHood(car) end
+	elseif k == Enum.KeyCode.H then
+		if car and not car.driver and HX.nearZone(car) == "rear" then HX.toggleTrunk(car) end
+	elseif car and car.setShell and (k == Enum.KeyCode.One or k == Enum.KeyCode.Two or k == Enum.KeyCode.Three or k == Enum.KeyCode.Four) then
+		local n = (k == Enum.KeyCode.One and 1) or (k == Enum.KeyCode.Two and 2) or (k == Enum.KeyCode.Three and 3) or 4
+		Config.ShellStyle = n
+		car.setShell(n)
+	elseif car and car.driver then
+		if k == Enum.KeyCode.P then
+			if car.mode == "P" and not car.parkPending then setMode("N") else setMode("P") end
+		elseif k == Enum.KeyCode.R then
+			setMode("R")
+		elseif k == Enum.KeyCode.N then
+			setMode("N")
+		elseif k == Enum.KeyCode.Z then
+			local i = modeIndex(car.parkPending and "P" or car.mode)
+			if i > 1 then setMode(MODES[i - 1]) end
+		elseif k == Enum.KeyCode.X then
+			local i = modeIndex(car.parkPending and "P" or car.mode)
+			if i < #MODES then setMode(MODES[i + 1]) end
+		elseif k == Enum.KeyCode.E then
+			held.shiftKey = true
+			setGear(gear + 1)
+		elseif k == Enum.KeyCode.Q then
+			held.shiftKey = true
+			setGear(gear - 1)
+		elseif k == Enum.KeyCode.Y then
+			setEngine(car, not car.engineOn)
+		elseif k == Enum.KeyCode.L then
+			car.lamps = not car.lamps
+		elseif k == Enum.KeyCode.U then
+			car.winT = (car.winT == 1) and 0 or 1
+		elseif k == Config.CamKey then
+			CAM.toggle()
+		elseif k == Enum.KeyCode.B or k == Enum.KeyCode.Space then
+			held.brake = true
+		end
+	end
+end))
+track(UIS.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Space then
+		held.brake = false
+	end
+	if input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.Q then
+		held.shiftKey = false
+	end
+end))
+track(player.CharacterAdded:Connect(function()
+	if car and car.driver then
+		car.driver = false
+		car.boardFrom = nil
+		car.board = nil
+		car.exiting = nil
+		car.doorClose = nil
+		doorSet(car, 0)
+		ctrlSet(true)
+		saved = nil
+		CAM.reset()
+		setMode("P", true)
+	end
+end))
+local ARMS = { on = false, w = 0, lean = 0, J = nil, waist = nil, ang = {}, key = nil, shT = nil }
+local GRIP_A = math.rad(62)
+local GRIP_PERIOD = 2.0
+function ARMS.isJoint(d)
+	return d:IsA("Motor6D") or d:IsA("AnimationConstraint")
+end
+function ARMS.armSide(name)
+	local n = name:lower():gsub("[%s_]", "")
+	if not (n:find("upperarm") or n == "rightarm" or n == "leftarm" or n:find("shoulder")) then return nil end
+	if n:find("^right") then return "right" end
+	if n:find("^left") then return "left" end
+	return nil
+end
+local function armRotFromTo(a, b)
+	a, b = a.Unit, b.Unit
+	local axis = a:Cross(b)
+	local dp = a:Dot(b)
+	if axis.Magnitude < 1e-5 then
+		if dp > 0 then return CFrame.new() end
+		local perp = math.abs(a.X) < 0.9 and Vector3.xAxis or Vector3.yAxis
+		return CFrame.fromAxisAngle(a:Cross(perp).Unit, math.pi)
+	end
+	return CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(dp, -1, 1)))
+end
+local function armJoints(ch)
+	local J = { right = { extra = {} }, left = { extra = {} } }
+	local names = { right = { "RightUpperArm", "Right Arm" }, left = { "LeftUpperArm", "Left Arm" } }
+	local motors = {}
+	for _, d in ipairs(ch:GetDescendants()) do
+		if ARMS.isJoint(d) and d.Part0 and d.Part1 then
+			motors[#motors + 1] = d
+			for side, list in pairs(names) do
+				if d.Part1.Name == list[1] or d.Part1.Name == list[2] then
+					J[side].shoulder = J[side].shoulder or d
+				end
+			end
+		end
+	end
+	-- fallback: rig com nomes diferentes
+	for _, d in ipairs(motors) do
+		local side = ARMS.armSide(d.Part1.Name) or ARMS.armSide(d.Name)
+		if side and not J[side].shoulder then
+			local nm = d.Part1.Name:lower()
+			if not (nm:find("lower") or nm:find("hand")) then J[side].shoulder = d end
+		end
+	end
+	for _, j in pairs(J) do
+		local cur = j.shoulder
+		for _ = 1, 2 do
+			if not cur then break end
+			local nxt
+			for _, m in ipairs(motors) do
+				if m ~= cur and m.Part0 == cur.Part1 and not m.Part1:IsA("Accessory") then
+					local nm = m.Part1.Name:lower()
+					if nm:find("arm") or nm:find("hand") or nm:find("elbow") or nm:find("wrist") then nxt = m break end
+				end
+			end
+			if not nxt then break end
+			table.insert(j.extra, nxt)
+			if not j.elbow then j.elbow = nxt else j.hand = nxt end
+			cur = nxt
+		end
+	end
+	return J
+end
+local function armChain(j)
+	local sh = j.shoulder
+	if not (sh and sh.Parent and sh.Part0 and sh.Part1) then return nil end
+	local function rot(cf) return cf - cf.Position end
+	local elbow, hand = j.elbow, j.hand
+	if elbow and not (elbow.Parent and elbow.Part0 == sh.Part1 and elbow.Part1) then elbow = nil end
+	if hand and not (elbow and hand.Parent and hand.Part0 == elbow.Part1 and hand.Part1) then hand = nil end
+	local rrSh = rot(sh.C0) * rot(sh.C1):Inverse()
+	local v1 = elbow and (elbow.C0.Position - sh.C1.Position) or Vector3.new(0, -1, 0)
+	if v1.Magnitude < 1e-3 then v1 = Vector3.new(0, -1, 0) end
+	local k = { sh = sh, elbow = elbow, rrSh = rrSh, d0 = rrSh * v1, L1 = sh.Part1.Size.Y * 0.95 }
+	if elbow then
+		k.L1 = (elbow.C0.Position - sh.C1.Position).Magnitude
+		k.L2 = elbow.Part1.Size.Y * 0.9
+		local v2 = Vector3.new(0, -1, 0)
+		if hand then
+			local hv = hand.C0.Position - elbow.C1.Position
+			if hv.Magnitude > 1e-3 then v2 = hv end
+			k.L2 = hv.Magnitude + hand.Part1.Size.Y * 0.4
+		end
+		k.rrEl = rot(elbow.C0) * rot(elbow.C1):Inverse()
+		k.d2 = k.rrEl * v2
+	end
+	k.reach = (k.L2 and (k.L1 + k.L2) or k.L1) * 0.97
+	return k
+end
+local function solveArm(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyBack, ez)
+	local sh, elbow = k.sh, k.elbow
+	local P = p0n * sh.C0.Position
+	local toT = tgt - P
+	local dist = toT.Magnitude
+	if dist < 0.05 then return end
+	local dirT = toT / dist
+	local uW, lW = dirT, nil
+	if k.L2 then
+		local L1, L2 = k.L1, k.L2
+		local d = math.min(dist, (L1 + L2) * 0.999)
+		local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+		local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+		local pole = bodyRight * (0.45 * sgn) - bodyUp + bodyBack * 0.2
+		pole = pole - dirT * pole:Dot(dirT)
+		pole = pole.Magnitude > 1e-3 and pole.Unit or -bodyUp
+		local E = P + dirT * a + pole * h
+		uW = (E - P).Unit
+		local lv = (P + dirT * d) - E
+		lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+	end
+	local R = armRotFromTo(k.d0, p0n:VectorToObjectSpace(uW))
+	local CF1 = CFrame.new(sh.C0.Position) * R * k.rrSh * CFrame.new(-sh.C1.Position)
+	local B = sh.C0:Inverse() * CF1 * sh.C1
+	sh.Transform = sh.Transform:Lerp(B, ez)
+	if elbow and lW and k.d2 then
+		local upperCF = p0n * CF1
+		local R2 = armRotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+		local CF2 = CFrame.new(elbow.C0.Position) * R2 * k.rrEl * CFrame.new(-elbow.C1.Position)
+		local eb = elbow.C0:Inverse() * CF2 * elbow.C1
+		elbow.Transform = CFrame.new():Lerp(eb, ez)
+	end
+end
+function ARMS.say(msg, col)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] " .. msg, Color = col or Color3.fromRGB(255, 120, 80) })
+	end)
+	pcall(function()
+		local TCS = game:GetService("TextChatService")
+		local ch = TCS:FindFirstChild("TextChannels") and TCS.TextChannels:FindFirstChild("RBXGeneral")
+		if ch then ch:DisplaySystemMessage("[Charger] " .. msg) end
+	end)
+end
+local function armWarn(...)
+	local parts = {}
+	for i, v in ipairs({ ... }) do parts[i] = tostring(v) end
+	local msg = table.concat(parts, " ")
+	ARMS.warnSeen = ARMS.warnSeen or {}
+	if not ARMS.warnSeen[msg] then
+		ARMS.warnSeen[msg] = true
+		ARMS.say("ERRO: " .. msg)
+	end
+	ARMS.warned = true
+end
+local function releaseArms()
+	if not ARMS.on then return end
+	ARMS.on = false
+	ARMS.w = 0
+	ARMS.ang = {}
+	ARMS.key = nil
+	ARMS.shT = nil
+	ARMS.shUntil, ARMS.shRaw = nil, 0
+	ARMS.wb = 0
+	if ARMS.lean > 0 then
+		ARMS.lean = 0
+		if ARMS.waist and ARMS.waist.Parent then ARMS.waist.Transform = CFrame.new() end
+	end
+	local J = ARMS.J
+	ARMS.J = nil
+	ARMS.waist = nil
+	if not J then return end
+	for _, side in pairs(J) do
+		if side.shoulder and side.shoulder.Parent then side.shoulder.Transform = CFrame.new() end
+		for _, m in ipairs(side.extra) do
+			if m.Parent then m.Transform = CFrame.new() end
+		end
+	end
+end
+local function driveArms(c, dt)
+	local ch, hum, rpart = charParts()
+	if not (ch and c.driver) then
+		releaseArms()
+		return
+	end
+	if c.boardFrom or c.exiting then return end
+	if not ARMS.J or not ARMS.J.right.shoulder or not ARMS.J.right.shoulder.Parent then
+		ARMS.J = armJoints(ch)
+		ARMS.waist = nil
+		ARMS.lean = 0
+	end
+	local J = ARMS.J
+	local chR, chL = armChain(J.right), armChain(J.left)
+	if not (chR and chL) then
+		local dbg = {}
+		for _, d in ipairs(ch:GetDescendants()) do
+			if ARMS.isJoint(d) and d.Part0 and d.Part1 then dbg[#dbg + 1] = d.ClassName:sub(1, 1) .. ":" .. d.Part1.Name end
+		end
+		armWarn("juntas dos bracos nao encontradas - rig: " .. table.concat(dbg, ", "))
+		return
+	end
+	local ck = ARMS.chk
+	if ck and ARMS.on and ck.sh.Parent then
+		local d = (ck.sh.Transform.Position - ck.tf.Position).Magnitude + (ck.sh.Transform.LookVector - ck.tf.LookVector).Magnitude
+		if d > 0.01 then ARMS.ovr = (ARMS.ovr or 0) + 1 else ARMS.keep = (ARMS.keep or 0) + 1 end
+	end
+	ARMS.on = true
+	ARMS.w = math.min(1, ARMS.w + dt * 4)
+	local ez = ARMS.w * ARMS.w * (3 - 2 * ARMS.w)
+	local seatW = c.cf * SEAT_REL
+	local rootInv = rpart.CFrame:Inverse()
+	local function pw(part) return seatW * (rootInv * part.CFrame) end
+	local bodyRight, bodyUp, bodyBack = seatW.RightVector, seatW.UpVector, -seatW.LookVector
+	local baseCF = c.cf * c.swBase
+	local rim = 0.62 * S
+	local off = ((c.steer * 2.6 + GRIP_PERIOD / 2) % GRIP_PERIOD) - GRIP_PERIOD / 2
+	local grips = {}
+	for _, sd in ipairs({ "right", "left" }) do
+		local sgn = sd == "right" and 1 or -1
+		local tA = sgn * GRIP_A + off
+		local cur = ARMS.ang[sd] or tA
+		cur = cur + (tA - cur) * math.min(1, dt * 16)
+		ARMS.ang[sd] = cur
+		grips[sd] = baseCF * Vector3.new(0, rim * math.cos(cur), rim * math.sin(cur))
+	end
+	local now = os.clock()
+	local daL = 0
+	do
+		local DA = Config.DriveAnim
+		local dA = c._da
+		if not dA then
+			dA = { rev = 0 }
+			c._da = dA
+		end
+		local function ss(x) x = math.clamp(x, 0, 1) return x * x * (3 - 2 * x) end
+		if DA and DA.Enabled ~= false then
+			local vF = c.vF or 0
+			local revWant = 0
+			if DA.RevLook ~= false and c.mode == "R" and c.engineOn and (vF < -1.5 or (c.throttle or 0) > 0.05) then
+				revWant = 1
+			end
+			dA.rev = dA.rev + math.clamp(revWant - dA.rev, -dt * 3, dt * 3)
+			c.revLook = ss(dA.rev)
+			if dA.rev > 0.001 then
+				local rp = seatW * Vector3.new(3.1 * S - 1.2, 0.9, 1.0)
+				grips.right = grips.right:Lerp(rp, ss(dA.rev))
+			end
+			c.lampHandOn = ARMS.w >= 0.5
+			if ARMS.w < 0.5 or dA.lampSeen == nil then
+				dA.lampSeen = c.lamps
+				dA.lampT0 = nil
+			elseif dA.lampSeen ~= c.lamps then
+				dA.lampSeen = c.lamps
+				dA.lampT0 = now
+			end
+			if dA.lampT0 then
+				local p = (now - dA.lampT0) / (DA.LampTime or 0.9)
+				if p >= 1 then
+					dA.lampT0 = nil
+				else
+					local w
+					if p < 0.3 then w = ss(p / 0.3) elseif p < 0.7 then w = 1 else w = 1 - ss((p - 0.7) / 0.3) end
+					local sw = c.cf * ((DA.LampSwitch or Vector3.new(-2.9, 3.3, -0.95)) * S)
+					local kn = c.lampKnob
+					local kx = kn and kn.x or (c.lamps and 1 or 0)
+					sw = sw - c.cf.LookVector * (kx * 0.3 * S)
+					grips.left = grips.left:Lerp(sw, ss(w))
+					daL = w
+				end
+			end
+		else
+			c.revLook = 0
+			c.lampHandOn = false
+		end
+	end
+	local key = tostring(c.mode) .. gear
+	if ARMS.key == nil then ARMS.key = key end
+	if ARMS.key ~= key then
+		ARMS.key = key
+		ARMS.shUntil = now + Config.ShiftHoldTime
+	end
+	local leverHeld = (shifter and shifter.isDragging and shifter.isDragging()) or (gearLever and gearLever.isDragging and gearLever.isDragging())
+	if held.shiftKey or leverHeld then
+		ARMS.shUntil = math.max(ARMS.shUntil or 0, now + 0.2)
+	end
+	local want = 0
+	if (ARMS.shUntil or 0) > now then
+		want = 1
+	elseif Config.RestHandOnShifter and c.mode ~= "P" and math.abs(c.steer) < 0.12 then
+		want = 0.85
+	end
+	local rate = want > (ARMS.shRaw or 0) and 6.5 or 5
+	ARMS.shRaw = (ARMS.shRaw or 0) + math.clamp(want - (ARMS.shRaw or 0), -rate * dt, rate * dt)
+	local sb = ARMS.shRaw * ARMS.shRaw * (3 - 2 * ARMS.shRaw)
+	if sb > 0.001 and c.shiftW then
+		local kn = c.cf * (c.shiftW.C0 * CFrame.new(c.shiftKn))
+		local push = 0
+		if c.gearKick then
+			local e = now - c.gearKick
+			if e < 0.35 then push = math.sin(e / 0.35 * math.pi) * 0.12 * S * (c.gearDir or 1) end
+		end
+		local gp = kn.Position + c.cf.LookVector * push + c.cf.UpVector * 0.05 * S
+		grips.right = grips.right:Lerp(gp, sb)
+	end
+	local crankK
+	for _, kk in ipairs(c.crank or {}) do
+		if kk.sd < 0 then crankK = kk break end
+	end
+	local wWant = (crankK and (c.winP or 0) ~= (c.winT or 0)) and 1 or 0
+	ARMS.wb = (ARMS.wb or 0) + (wWant - (ARMS.wb or 0)) * math.min(1, dt * 7)
+	if wWant == 0 and ARMS.wb < 0.003 then ARMS.wb = 0 end
+	local wbs = ARMS.wb * ARMS.wb * (3 - 2 * ARMS.wb)
+	if wbs > 0.001 and crankK then
+		local knob = c.cf * (c.doorW and c.doorW.C0 or CFrame.new()) * crankK.w.C0 * Vector3.new(crankK.sd * -0.07 * S, 0, 0.33 * S)
+		grips.left = grips.left:Lerp(knob, wbs)
+	end
+	local ir = c.ignReach or 0
+	if ir > 0.001 and c.keyBase then
+		local irs = ir * ir * (3 - 2 * ir)
+		local hp = c.cf * (c.keyBase * CFrame.Angles(c.keyAng or 0, 0, 0) * CFrame.new(0.2 * S, 0, 0)).Position
+		grips.right = grips.right:Lerp(hp, irs)
+	end
+	for _, side in pairs(J) do
+		for _, m in ipairs(side.extra) do
+			if m.Parent then m.Transform = CFrame.new() end
+		end
+	end
+	local sr = chR.sh
+	local waist = ARMS.waist
+	if waist == nil or (waist and (not waist.Parent or waist.Part1 ~= sr.Part0)) then
+		waist = false
+		local scope = sr.Part0:FindFirstAncestorOfClass("Model") or sr.Part0.Parent
+		for _, d in ipairs(scope:GetDescendants()) do
+			if ARMS.isJoint(d) and d.Part1 == sr.Part0 and d.Part0 then waist = d break end
+		end
+		ARMS.waist = waist
+	end
+	local prevLean = ARMS.lean
+	local spin = nil
+	if waist and waist.Parent and waist.Part0 then
+		local lowerCF = pw(waist.Part0)
+		local Wp = lowerCF * waist.C0.Position
+		spin = function(th)
+			return CFrame.new(Wp) * CFrame.fromAxisAngle(bodyRight, -th) * CFrame.new(-Wp)
+		end
+		local p0u = spin(prevLean):Inverse() * pw(sr.Part0)
+		local need = 0
+		for i = 0, 10 do
+			local th = i * 0.05
+			need = th
+			if ((spin(th) * p0u) * sr.C0.Position - grips.right).Magnitude <= chR.reach then break end
+		end
+		local lw = math.max(wbs, daL)
+		if lw > 0.001 then
+			local sl = chL.sh
+			local p0l = spin(prevLean):Inverse() * pw(sl.Part0)
+			local needL = 0
+			for i = 0, 14 do
+				local th = i * 0.05
+				needL = th
+				if ((spin(th) * p0l) * sl.C0.Position - grips.left).Magnitude <= chL.reach then break end
+			end
+			need = math.max(need, needL * lw)
+		end
+		local lean = prevLean + (need * ez - prevLean) * math.min(1, dt * 10)
+		if lean > 0.002 then
+			local a0 = lowerCF:VectorToObjectSpace(bodyRight)
+			local aC = (waist.C0 - waist.C0.Position):Inverse() * a0
+			waist.Transform = CFrame.fromAxisAngle(aC, -lean)
+		end
+		ARMS.lean = lean
+	end
+	local function p0nOf(sh)
+		local p0w = pw(sh.Part0)
+		if spin then return spin(ARMS.lean) * (spin(prevLean):Inverse() * p0w) end
+		return p0w
+	end
+	solveArm(chR, p0nOf(chR.sh), grips.right, 1, bodyRight, bodyUp, bodyBack, ez)
+	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
+	ARMS.chk = { sh = chR.sh, tf = chR.sh.Transform }
+end
+-- ferramentas na mao: pose certa (cabeca pra cima, face pra frente) e animacao do boneco + item ao usar
+do
+	local T = HOOD.T
+	local rad, cos, sin = math.rad, math.cos, math.sin
+	local function V(x, y, z) return Vector3.new(x, y, z) end
+	-- kf = { tempo, posicao da mao (fracao do alcance do braco: x direita, y cima, z -frente), inclinacao da ferramenta (graus, 0 = cabeca pra cima, 90 = pra frente), giro no proprio eixo (graus) }
+	local SPEC = {
+		["Martelo"] = {
+			kind = "hammer", g = V(0, 0, 0.275), th = 25, len = 0.62, impact = 0.36,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 25, 0 },
+				{ 0.20, V(0.18, 0.85, -0.15), -65, 0 },
+				{ 0.36, V(0.10, 0.00, -0.96), 38, 0, "in" },
+				{ 0.45, V(0.10, 0.04, -0.90), 30, 0 },
+				{ 0.62, V(0.22, 0.10, -0.75), 25, 0 },
+			},
+		},
+		["Chave inglesa"] = {
+			kind = "wrench", g = V(0, 0, 0.275), th = 20, len = 0.66, impact = 0.40,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 20, 0 },
+				{ 0.16, V(0.10, -0.18, -0.92), 100, -35 },
+				{ 0.28, V(0.10, -0.18, -0.92), 100, 35 },
+				{ 0.40, V(0.10, -0.22, -0.92), 100, -25 },
+				{ 0.50, V(0.10, -0.20, -0.90), 100, 20 },
+				{ 0.66, V(0.22, 0.10, -0.75), 20, 0 },
+			},
+		},
+		["Chave de fenda"] = {
+			kind = "driver", g = V(0, 0, 0.2), th = 70, len = 0.60, impact = 0.34,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 70, 0 },
+				{ 0.16, V(0.06, -0.10, -0.90), 95, 0 },
+				{ 0.34, V(0.06, -0.12, -0.95), 95, 200 },
+				{ 0.46, V(0.06, -0.12, -0.95), 95, 330 },
+				{ 0.60, V(0.22, 0.10, -0.75), 70, 360 },
+			},
+		},
+	}
+	local active = {}
+	-- orientacao da ferramenta no espaco do boneco (frente = -Z, cima = +Y); eixo longo da ferramenta = Z, cabeca em -Z
+	local function toolRot(kind, th, roll)
+		local t = rad(th)
+		local c, s = cos(t), sin(t)
+		local Z = V(0, -c, s)
+		local X, Y
+		if kind == "wrench" then
+			Y = V(0, s, c)
+			X = Y:Cross(Z)
+		else
+			X = V(0, -s, -c)
+			Y = Z:Cross(X)
+		end
+		return CFrame.fromMatrix(Vector3.zero, X, Y, Z) * CFrame.Angles(0, 0, rad(roll))
+	end
+	local function sample(kf, t)
+		local n = #kf
+		if t <= kf[1][1] then return kf[1][2], kf[1][3], kf[1][4] end
+		for i = 1, n - 1 do
+			local a, b = kf[i], kf[i + 1]
+			if t <= b[1] then
+				local u = (t - a[1]) / (b[1] - a[1])
+				local e = (b[5] == "in") and u * u or u * u * (3 - 2 * u)
+				return a[2]:Lerp(b[2], e), a[3] + (b[3] - a[3]) * e, a[4] + (b[4] - a[4]) * e
+			end
+		end
+		local l = kf[n]
+		return l[2], l[3], l[4]
+	end
+	-- mantem a ferramenta na orientacao desejada (relativa ao boneco), com o ponto de pegada na palma.
+	-- escreve direto na solda RightGrip (C1); se o jogo sobrescrever, cai pro tool.Grip e testa os dois sentidos
+	local function angBetween(a, b) return math.acos(math.clamp(a:Dot(b), -1, 1)) end
+	local function sameCF(a, b)
+		return (a.Position - b.Position).Magnitude < 0.002 and (a.LookVector - b.LookVector).Magnitude < 0.01 and (a.UpVector - b.UpVector).Magnitude < 0.01
+	end
+	local function applyGrip(tool, st, ch, rpart, th, roll)
+		local spec = st.spec
+		local handle = tool:FindFirstChild("Handle")
+		if not handle then return end
+		local w = st.w
+		if not (w and w.Parent and w.Part1 == handle) then
+			w = nil
+			st.w = nil
+			if os.clock() - (st.wT or 0) > 0.3 then
+				st.wT = os.clock()
+				local f = ch:FindFirstChild("RightGrip", true)
+				if f and f.Part1 == handle and f.Part0 then
+					w = f
+					st.w = f
+					st.lastC1 = nil
+				end
+			end
+		end
+		local attach
+		if w then
+			attach = w.Part0.CFrame * w.C0
+		else
+			local hand = ch:FindFirstChild("RightHand") or ch:FindFirstChild("Right Arm")
+			local att = hand and hand:FindFirstChild("RightGripAttachment")
+			if not att then return end
+			attach = hand.CFrame * att.CFrame
+		end
+		local rrot = rpart.CFrame.Rotation
+		local wrot = rrot * toolRot(spec.kind, th, roll)
+		-- Grip no sentido da solda: handle = attach * Grip^-1
+		local g1 = CFrame.new(spec.g) * (wrot:Inverse() * attach.Rotation)
+		if w and not st.viaProp then
+			if st.lastC1 and not sameCF(w.C1, st.lastC1) then
+				st.viaProp = true
+			else
+				w.C1 = g1
+				st.lastC1 = g1
+				return
+			end
+		end
+		-- caminho pelo tool.Grip (com deteccao do sentido pela posicao real do cabo)
+		if st.lt and (st.n or 0) >= 4 and not st.off then
+			local exp = st.lrr * toolRot(spec.kind, st.lt, st.lr)
+			local act = handle.CFrame
+			local err = math.max(angBetween(exp.LookVector, act.LookVector), angBetween(exp.UpVector, act.UpVector))
+			st.bad = (err > 0.6) and ((st.bad or 0) + 1) or 0
+			if st.bad >= 4 then
+				st.bad = 0
+				st.n = 0
+				st.flips = (st.flips or 0) + 1
+				if st.flips <= 2 then
+					st.mode = 3 - (st.mode or 1)
+				else
+					st.off = true
+				end
+			end
+		end
+		if st.off then return end
+		local g
+		if (st.mode or 1) == 1 then
+			g = g1
+		else
+			g = attach:Inverse() * (CFrame.new(attach.Position) * wrot * CFrame.new(-spec.g))
+		end
+		tool.Grip = g
+		st.lt, st.lr, st.lrr = th, roll, rrot
+		st.n = (st.n or 0) + 1
+	end
+	local function driveRight(st, ch, rpart, pos, ez)
+		local J = st.J
+		if not (J and J.right.shoulder and J.right.shoulder.Parent) then
+			J = armJoints(ch)
+			st.J, st.k, st.waist = J, nil, nil
+		end
+		if not J.right.shoulder then return end
+		local k = st.k
+		if not (k and k.sh.Parent) then
+			k = armChain(J.right)
+			st.k = k
+		end
+		if not k then return end
+		local sh = k.sh
+		local p0 = sh.Part0.CFrame
+		local rcf = rpart.CFrame
+		local P = p0 * sh.C0.Position
+		local tgt = P + rcf:VectorToWorldSpace(pos * k.reach)
+		solveArm(k, p0, tgt, 1, rcf.RightVector, rcf.UpVector, -rcf.LookVector, ez)
+		local hw = J.right.hand
+		if hw and hw.Parent then hw.Transform = hw.Transform:Lerp(CFrame.new(), ez) end
+		local waist = st.waist
+		if waist == nil then
+			waist = false
+			for _, d in ipairs(ch:GetDescendants()) do
+				if ARMS.isJoint(d) and d.Part0 and d.Part1 == sh.Part0 then waist = d break end
+			end
+			st.waist = waist
+		end
+		if waist and waist.Parent then
+			local cr = waist.C0.Rotation
+			if (cr.RightVector - Vector3.xAxis).Magnitude < 0.02 and (cr.UpVector - Vector3.yAxis).Magnitude < 0.02 then
+				local fwd = math.clamp((-pos.Z - 0.5) / 0.45, 0, 1)
+				local up = math.clamp((pos.Y - 0.3) / 0.5, 0, 1)
+				waist.Transform = CFrame.Angles((-0.2 * fwd + 0.1 * up) * ez, 0, 0)
+			end
+		end
+	end
+	local function stepTool(tool, st, ch, hum, rpart, dt)
+		local spec = st.spec
+		local th, roll = spec.th, 0
+		local u = st.use
+		if u then
+			local el = os.clock() - u.t0
+			if el >= spec.len or (car and car.driver) then
+				st.use = nil
+				if st.waist and st.waist.Parent then st.waist.Transform = CFrame.new() end
+			else
+				local pos
+				pos, th, roll = sample(spec.kf, el)
+				local wgt = math.clamp(math.min(el / 0.12, (spec.len - el) / 0.14), 0, 1)
+				local ez = wgt * wgt * (3 - 2 * wgt)
+				if u.face and el < 0.3 and hum.MoveDirection.Magnitude < 0.1 then
+					local cur = rpart.CFrame.LookVector
+					cur = Vector3.new(cur.X, 0, cur.Z)
+					if cur.Magnitude > 0.01 then
+						local nl = cur.Unit:Lerp(u.face, 1 - math.exp(-dt * 16))
+						if nl.Magnitude > 0.01 then
+							rpart.CFrame = CFrame.lookAt(rpart.Position, rpart.Position + nl.Unit)
+							rpart.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+				end
+				pcall(driveRight, st, ch, rpart, pos, ez)
+			end
+		end
+		applyGrip(tool, st, ch, rpart, th, roll)
+	end
+	function T.hold(tool, nm)
+		local spec = SPEC[nm]
+		if not spec then return end
+		active[tool] = { nm = nm, spec = spec }
+		tool.AncestryChanged:Connect(function()
+			if not tool:IsDescendantOf(game) then active[tool] = nil end
+		end)
+	end
+	-- chamada ao clicar com a ferramenta: devolve o instante do impacto (s) ou nil se nao tiver animacao
+	function T.playUse(tool, nm)
+		local st = active[tool]
+		if not (st and tool.Parent) then return nil end
+		local ch, _hum, rpart = charParts()
+		if not (ch and rpart and tool.Parent == ch) then return nil end
+		local face
+		local c = T.car
+		if c and c.model and c.model.Parent and c.root then
+			local tp, dist = T.carNear(c, rpart)
+			if dist <= Config.ToolFx.Reach * S then
+				local wp = c.root.CFrame:PointToWorldSpace(tp)
+				local d = Vector3.new(wp.X - rpart.Position.X, 0, wp.Z - rpart.Position.Z)
+				if d.Magnitude > 0.5 then face = d.Unit end
+			end
+		end
+		st.use = { t0 = os.clock(), face = face }
+		return st.spec.impact
+	end
+	track(RunService.Stepped:Connect(function(_, dt)
+		if T.dead or not next(active) then return end
+		dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
+		local ch, hum, rpart = charParts()
+		if not (ch and rpart) then return end
+		for tool, st in pairs(active) do
+			if not tool.Parent then
+				active[tool] = nil
+			elseif tool.Parent == ch then
+				local ok = pcall(stepTool, tool, st, ch, hum, rpart, dt)
+				if not ok then st.use = nil end
+			end
+		end
+	end))
+end
+ANIM.L = { J = nil, AJ = nil, ank = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, lw = { R = 0, L = 0 }, ap = {}, lp = {}, ik = 0 }
+ANIM.P = {
+	RestHand = Vector3.new(-3.0, 3.6, 2.3),
+	RoofL = Vector3.new(-2.9, 3.9, 0.4),
+	FloorR = Vector3.new(-1.25, 1.25, 0.15),
+	FloorL = Vector3.new(-1.95, 1.25, 0.25),
+	ApexR = Vector3.new(-3.3, 2.4, 1.4),
+	ApexL = Vector3.new(-3.0, 2.6, 0.8),
+	DangleL = Vector3.new(-3.2, 1.7, 1.3),
+}
+function ANIM.limbRot(cf) return cf - cf.Position end
+function ANIM.seg(t, a, b)
+	local x = math.clamp((t - a) / (b - a), 0, 1)
+	return x * x * (3 - 2 * x)
+end
+function ANIM.mild(x)
+	x = math.clamp(x, 0, 1)
+	return x + (x * x * (3 - 2 * x) - x) * 0.55
+end
+function ANIM.bez(a, b, c, u)
+	local i = 1 - u
+	return a * (i * i) + b * (2 * i * u) + c * (u * u)
+end
+function ANIM.arc(a, m, b, v)
+	return ANIM.bez(a, m * 2 - (a + b) * 0.5, b, v)
+end
+function ANIM.limbJoints(ch)
+	local map = {
+		ls = { "LeftUpperArm", "Left Arm" }, rh = { "RightUpperLeg", "Right Leg" },
+		lh = { "LeftUpperLeg", "Left Leg" }, rk = { "RightLowerLeg" }, lk = { "LeftLowerLeg" },
+		waist = { "UpperTorso" }, neck = { "Head" },
+	}
+	local J = {}
+	for _, d in ipairs(ch:GetDescendants()) do
+		if ARMS.isJoint(d) and d.Part0 and d.Part1 then
+			for key, names in pairs(map) do
+				if not J[key] then
+					for _, n in ipairs(names) do
+						if d.Part1.Name == n then J[key] = d end
+					end
+				end
+			end
+		end
+	end
+	return J
+end
+function ANIM.limbRelease()
+	local L = ANIM.L
+	local J = L.J
+	if J then
+		for key, m in pairs(J) do
+			if m.Parent and (L.jw[key] or 0) > 0 then m.Transform = CFrame.new() end
+		end
+	end
+	L.cur, L.jw, L.aw, L.lw, L.ap, L.lp, L.ik = {}, {}, { R = 0, L = 0 }, { R = 0, L = 0 }, {}, {}, 0
+end
+function ANIM.doorHandleW(c)
+	local X = c.doorX or CFrame.new()
+	return c.cf:PointToWorldSpace(X:PointToWorldSpace(Vector3.new(-3.75 * S, 2.45 * S, 1.2 * S)))
+end
+function ANIM.wheelGrip(c, sd)
+	local base = c.swBase and (c.cf * c.swBase) or (c.cf * CFrame.new(-1.55 * S, 3.0 * S, -0.85 * S))
+	local a = (sd == "right") and GRIP_A or -GRIP_A
+	local rim = 0.62 * S
+	return base * Vector3.new(0, rim * math.cos(a), rim * math.sin(a))
+end
+function ANIM.solveLeg(k, p0n, tgt, sgn, bodyRight, bodyUp, bodyFront, ez, footRotW, kneeOut)
+	local hip, knee, ankle = k.sh, k.elbow, k.ankle
+	local P = p0n * hip.C0.Position
+	local L1, L2 = k.L1, k.L2
+	local lat = (tgt - P):Dot(bodyRight) * sgn
+	if lat < -0.1 then tgt = tgt + bodyRight * sgn * (-0.1 - lat) end
+	local toT = tgt - P
+	local dist = toT.Magnitude
+	if dist < 0.05 then return end
+	local dirT = toT / dist
+	local d = math.clamp(dist, (L1 + L2) * 0.55, (L1 + L2) * 0.985)
+	local a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+	local h = math.sqrt(math.max(L1 * L1 - a * a, 0))
+	local pole = bodyFront + bodyRight * (kneeOut * sgn) + bodyUp * 0.15
+	local pp = pole - dirT * pole:Dot(dirT)
+	if pp.Magnitude < 0.25 then
+		pole = bodyUp + bodyRight * (0.3 * sgn)
+		pp = pole - dirT * pole:Dot(dirT)
+	end
+	pole = pp.Magnitude > 1e-3 and pp.Unit or bodyFront
+	local E = P + dirT * a + pole * h
+	local uW = (E - P).Unit
+	local lv = (P + dirT * d) - E
+	local lW = lv.Magnitude > 1e-3 and lv.Unit or uW
+	local uL = p0n:VectorToObjectSpace(uW)
+	local Ru = armRotFromTo(k.d0, uL)
+	local f0 = Ru * (k.rrSh * Vector3.new(0, 0, -1))
+	f0 = f0 - uL * f0:Dot(uL)
+	local pl = p0n:VectorToObjectSpace(pole)
+	pl = pl - uL * pl:Dot(uL)
+	if f0.Magnitude > 1e-3 and pl.Magnitude > 1e-3 then
+		local roll = math.atan2(uL:Dot(f0:Cross(pl)), f0:Dot(pl))
+		Ru = CFrame.fromAxisAngle(uL, roll) * Ru
+	end
+	local CF1 = CFrame.new(hip.C0.Position) * Ru * k.rrSh * CFrame.new(-hip.C1.Position)
+	hip.Transform = hip.Transform:Lerp(hip.C0:Inverse() * CF1 * hip.C1, ez)
+	local upperCF = p0n * CF1
+	local R2 = armRotFromTo(k.d2, upperCF:VectorToObjectSpace(lW))
+	local CF2 = CFrame.new(knee.C0.Position) * R2 * k.rrEl * CFrame.new(-knee.C1.Position)
+	knee.Transform = CFrame.new():Lerp(knee.C0:Inverse() * CF2 * knee.C1, ez)
+	if ankle and ankle.Parent and footRotW then
+		local lowerCF = upperCF * CF2
+		local function rot(cf) return cf - cf.Position end
+		local T = rot(ankle.C0):Inverse() * rot(lowerCF):Inverse() * footRotW * rot(ankle.C1)
+		ankle.Transform = CFrame.new():Lerp(T, ez)
+	end
+end
+function ANIM.inPose(c, B, u, seatCF)
+	local seg, P = ANIM.seg, ANIM.P
+	local pT = seatCF.Position
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
+	local function cv(x, y, z) return c.cf:VectorToWorldSpace(Vector3.new(x, y, z) * S) end
+	local R = {}
+	local kA = B.p0:Lerp(pT, 0.42) + cv(0, -0.45, 0)
+	local kB = pT + cv(-0.5, 0.85, 0.2)
+	if u < 0.28 then R.pos = B.p0:Lerp(kA, ANIM.mild(u / 0.28))
+	elseif u < 0.58 then R.pos = kA:Lerp(kB, ANIM.mild((u - 0.28) / 0.3))
+	elseif u < 0.8 then R.pos = kB:Lerp(pT, ANIM.mild((u - 0.58) / 0.22))
+	else R.pos = pT end
+	R.rot = B.o0:Lerp(seatCF.Rotation, seg(u, 0.25, 0.75))
+	local env = seg(u, 0, 0.22) * (1 - seg(u, 0.5, 0.82))
+	R.waist = Vector3.new(-42 * env, 0, 0)
+	R.neck = Vector3.new(26 * env, 0, 0)
+	local R0 = c.cf:PointToWorldSpace(B.R0l)
+	local L0 = c.cf:PointToWorldSpace(B.L0l)
+	local fR, fL = cl(P.FloorR), cl(P.FloorL)
+	local carRot = c.cf.Rotation
+	local posL = ANIM.arc(L0, cl(P.ApexL), fL, seg(u, 0.1, 0.55))
+	local posR = ANIM.arc(R0, cl(P.ApexR), fR, seg(u, 0.32, 0.85))
+	R.legL = { pos = posL, rot = B.o0:Lerp(carRot, seg(u, 0.1, 0.55)), w = 1 }
+	R.legR = { pos = posR, rot = B.o0:Lerp(carRot, seg(u, 0.32, 0.85)), w = 1 }
+	local RP, roofL, handle = cl(P.RestHand), cl(P.RoofL), ANIM.doorHandleW(c)
+	R.armR = { pos = RP:Lerp(ANIM.wheelGrip(c, "right"), seg(u, 0.5, 0.85)), w = 1 }
+	local lp
+	if u < 0.25 then lp = handle:Lerp(roofL, seg(u, 0, 0.25))
+	elseif u < 0.8 then lp = roofL
+	else lp = roofL:Lerp(handle, seg(u, 0.8, 1)) end
+	R.armL = { pos = lp, w = 1 }
+	return R
+end
+function ANIM.outPose(c, X, u, seatCF)
+	local seg, P = ANIM.seg, ANIM.P
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
+	local function cv(x, y, z) return c.cf:VectorToWorldSpace(Vector3.new(x, y, z) * S) end
+	local pT = seatCF.Position + cv(-0.2, 0, 0)
+	local stand = X.standPos
+	local kM = pT:Lerp(stand, 0.55) + cv(0, 0.2, 0)
+	local R = {}
+	if u < 0.45 then R.pos = pT:Lerp(kM, ANIM.mild(u / 0.45)) else R.pos = kM:Lerp(stand, ANIM.mild((u - 0.45) / 0.55)) end
+	R.rot = X.r0:Lerp(X.outRot, seg(u, 0, 0.5))
+	local env = seg(u, 0.08, 0.4) * (1 - seg(u, 0.62, 0.95))
+	R.waist = Vector3.new(-36 * env, 0, 0)
+	R.neck = Vector3.new(22 * env, 0, 0)
+	local lk = c.cf.LookVector
+	local GR = X.gnd + lk * (0.3 * S)
+	local GL = X.gnd - lk * (0.3 * S)
+	local carRot = c.cf.Rotation
+	R.legL = { pos = ANIM.arc(cl(P.FloorL), cl(P.ApexL), GL, seg(u, 0.05, 0.42)), rot = carRot:Lerp(X.outRot, seg(u, 0.2, 0.45)), w = 1 }
+	R.legR = { pos = ANIM.arc(cl(P.FloorR), cl(P.ApexR), GR, seg(u, 0.3, 0.78)), rot = carRot:Lerp(X.outRot, seg(u, 0.5, 0.78)), w = 1 }
+	R.armR = { pos = ANIM.wheelGrip(c, "right"):Lerp(cl(P.RestHand), seg(u, 0.25, 0.55)), w = 1 - seg(u, 0.75, 0.95) }
+	R.armL = { pos = ANIM.doorHandleW(c):Lerp(cl(P.RoofL), seg(u, 0, 0.3)), w = 1 - seg(u, 0.55, 0.8) }
+	return R
+end
+function ANIM.limbTargets(c, now, rpart)
+	local B, X, D = c.board, c.exiting, c.doorClose
+	local cfgB, cfgX = Config.Board or {}, Config.Exit or {}
+	local V3, seg, P = Vector3.new, ANIM.seg, ANIM.P
+	local tgt, arms, legs = {}, {}, {}
+	local seatCF = c.cf * SEAT_REL
+	local function cl(v) return c.cf:PointToWorldSpace(v * S) end
+	if B and B.ph ~= "walk" then
+		local t = now - B.t0
+		if B.ph == "open" then
+			local u = math.clamp(t / (cfgB.OpenTime or 1.0), 0, 1)
+			tgt.waist = V3(-14 * seg(u, 0, 0.3), 0, 0)
+			arms.L = { pos = ANIM.doorHandleW(c), w = seg(u, 0, 0.3) }
+			arms.R = { pos = cl(P.RestHand), w = seg(u, 0.1, 0.4) }
+		else
+			local u = 1
+			if B.ph == "in" then u = math.clamp(t / (cfgB.InTime or 2.1), 0, 1) end
+			local R = ANIM.inPose(c, B, u, seatCF)
+			legs.R, legs.L = R.legR, R.legL
+			if B.ph == "in" then
+				tgt.waist, tgt.neck = R.waist, R.neck
+				arms.R, arms.L = R.armR, R.armL
+			else
+				arms.R = { pos = ANIM.wheelGrip(c, "right"), w = 1 }
+				if B.ph == "close" then
+					local cu = math.clamp(t / (cfgB.CloseTime or 0.9), 0, 1)
+					local lean = seg(cu, 0, 0.3) * (1 - seg(cu, 0.62, 1))
+					tgt.waist = V3(-8 * lean, 0, 22 * lean)
+					tgt.neck = V3(6 * lean, 24 * lean, 0)
+					arms.L = { pos = ANIM.doorHandleW(c), w = seg(cu, 0, 0.2) * (1 - seg(cu, 0.85, 1)) }
+				end
+			end
+		end
+	elseif X then
+		local t = now - X.t0
+		if X.ph == "open" then
+			local u = math.clamp(t / (cfgX.OpenTime or 0.9), 0, 1)
+			tgt.waist = V3(-3 * seg(u, 0, 0.5), 0, 16 * seg(u, 0.1, 0.6))
+			tgt.neck = V3(0, 18 * seg(u, 0.1, 0.6), 0)
+			arms.R = { pos = ANIM.wheelGrip(c, "right"), w = 1 }
+			arms.L = { pos = ANIM.doorHandleW(c), w = seg(u, 0, 0.3) }
+			local rot = c.cf.Rotation
+			legs.R = { pos = cl(P.FloorR), rot = rot, w = 1 }
+			legs.L = { pos = cl(P.FloorL), rot = rot, w = 1 }
+		else
+			local u = math.clamp(t / (cfgX.OutTime or 2.0), 0, 1)
+			local R = ANIM.outPose(c, X, u, seatCF)
+			tgt.waist, tgt.neck = R.waist, R.neck
+			arms.R, arms.L, legs.R, legs.L = R.armR, R.armL, R.legR, R.legL
+		end
+	elseif D then
+		local tau = now - D.t0
+		local CT = cfgX.CloseTime or 0.8
+		local env = seg(tau, -0.35, 0.05) * (1 - seg(tau, CT * 0.75, CT + 0.1))
+		local handle = ANIM.doorHandleW(c)
+		if rpart and (handle - rpart.Position).Magnitude < 7 * S then
+			arms.R = { pos = handle, w = env }
+			tgt.waist = V3(-6, -22 * env, 0)
+		end
+	elseif c.driver and not c.boardFrom and (c.revLook or 0) > 0.02 then
+		local yaw = (Config.DriveAnim and Config.DriveAnim.RevLookYaw) or 75
+		tgt.neck = V3(0, -yaw * c.revLook, 0)
+	end
+	return tgt, arms, legs
+end
+function ANIM.limbStep(c, dt)
+	if Config.LimbAnim == false then return end
+	local ch, hum, rpart = charParts()
+	local now = os.clock()
+	local L = ANIM.L
+	local tgt, arms, legs = {}, {}, {}
+	if ch then tgt, arms, legs = ANIM.limbTargets(c, now, rpart) end
+	local any = next(tgt) ~= nil or next(arms) ~= nil or next(legs) ~= nil
+	if not any and not L.J then return end
+	if not ch then L.J, L.AJ, L.ank, L.ch = nil, nil, nil, nil return end
+	if L.ch ~= ch or not L.J then
+		L.ch = ch
+		L.J = ANIM.limbJoints(ch)
+		L.AJ = armJoints(ch)
+		L.ank = nil
+		L.cur, L.jw, L.aw, L.lw, L.ap, L.lp = {}, {}, { R = 0, L = 0 }, { R = 0, L = 0 }, {}, {}
+	end
+	local active = false
+	local k = math.min(1, dt * 12)
+	for key, m in pairs(L.J) do
+		if m.Parent and m.Part0 and m.Part1 then
+			local want = tgt[key]
+			local jw = L.jw[key] or 0
+			jw = jw + ((want and 1 or 0) - jw) * math.min(1, dt * 8)
+			if not want and jw < 0.01 then jw = 0 end
+			L.jw[key] = jw
+			if want then
+				L.cur[key] = (L.cur[key] or want):Lerp(want, k)
+			end
+			local cur = L.cur[key]
+			if jw > 0 and cur then
+				active = true
+				local c0 = ANIM.limbRot(m.C0)
+				local T = c0:Inverse() * CFrame.Angles(math.rad(cur.X), math.rad(cur.Y), math.rad(cur.Z)) * c0
+				local e = jw * jw * (3 - 2 * jw)
+				m.Transform = m.Transform:Lerp(T, e)
+			end
+		end
+	end
+	local sk = rpart.CFrame
+	local bR, bU, bB, bF = sk.RightVector, sk.UpVector, -sk.LookVector, sk.LookVector
+	local J = L.J
+	local waist = J.waist
+	local upper
+	if waist and waist.Parent and waist.Part0 and waist.Part1 then
+		upper = waist.Part0.CFrame * waist.C0 * waist.Transform * waist.C1:Inverse()
+	end
+	for _, s in ipairs({ { "R", "right", 1 }, { "L", "left", -1 } }) do
+		local key, name, sgn = s[1], s[2], s[3]
+		local want = arms[key]
+		if want then L.ap[key] = want.pos end
+		local wt = want and want.w or 0
+		local w0 = L.aw[key] or 0
+		w0 = w0 + (wt - w0) * math.min(1, dt * 10)
+		if wt <= 0 and w0 < 0.01 then w0 = 0 end
+		L.aw[key] = w0
+		if w0 > 0 and L.ap[key] and L.AJ and L.AJ[name] then
+			local chn = armChain(L.AJ[name])
+			if chn then
+				active = true
+				local p0 = chn.sh.Part0.CFrame
+				if upper and chn.sh.Part0 == waist.Part1 then p0 = upper end
+				solveArm(chn, p0, L.ap[key], sgn, bR, bU, bB, w0 * w0 * (3 - 2 * w0))
+			end
+		end
+	end
+	if J.rh and J.rk and J.lh and J.lk then
+		if not L.ank then
+			L.ank = {}
+			for _, d in ipairs(ch:GetDescendants()) do
+				if ARMS.isJoint(d) and d.Part0 and d.Part1 then
+					if d.Part1.Name == "RightFoot" then L.ank.R = d
+					elseif d.Part1.Name == "LeftFoot" then L.ank.L = d end
+				end
+			end
+		end
+		for _, s in ipairs({ { "R", J.rh, J.rk, 1 }, { "L", J.lh, J.lk, -1 } }) do
+			local key, hip, knee, sgn = s[1], s[2], s[3], s[4]
+			local want = legs[key]
+			if want then L.lp[key] = want end
+			local wt = want and want.w or 0
+			local w0 = L.lw[key] or 0
+			w0 = w0 + (wt - w0) * math.min(1, dt * 10)
+			if wt <= 0 and w0 < 0.01 then w0 = 0 end
+			L.lw[key] = w0
+			local ank = L.ank[key]
+			if w0 > 0 and L.lp[key] and ank and ank.Parent and hip.Parent and knee.Parent then
+				local kk = armChain({ shoulder = hip, elbow = knee, hand = ank })
+				if kk and kk.elbow and kk.L2 then
+					kk.ankle = ank
+					active = true
+					local lift = ank.Part1.Size.Y * 0.5 + 0.05
+					local p = L.lp[key].pos + Vector3.yAxis * lift
+					ANIM.solveLeg(kk, hip.Part0.CFrame, p, sgn, bR, bU, bF, w0 * w0 * (3 - 2 * w0), L.lp[key].rot, 0.3)
+				end
+			end
+		end
+	end
+	if not active and not any then
+		L.J = nil
+		ANIM.limbRelease()
+	end
+end
+track(player.CharacterAdded:Connect(function()
+	ANIM.L.J, ANIM.L.AJ, ANIM.L.ch = nil, nil, nil
+	ANIM.L.cur, ANIM.L.jw, ANIM.L.ik = {}, {}, 0
+end))
+track(player.CharacterAdded:Connect(function()
+	ARMS.on = false
+	ARMS.w = 0
+	ARMS.lean = 0
+	ARMS.J = nil
+	ARMS.waist = nil
+	ARMS.ang = {}
+	ARMS.shUntil, ARMS.shRaw = nil, 0
+	ARMS.warned = nil
+end))
+do
+	local LITE_NAMES = { off = "LITE DESATIVADO (visual completo)", lite = "MODO LITE ATIVADO", super = "MODO SUPER LITE ATIVADO" }
+	local function say(msg)
+		local ok = pcall(function()
+			game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] " .. msg, Color = Color3.fromRGB(80, 170, 255) })
+		end)
+		pcall(function()
+			local TCS = game:GetService("TextChatService")
+			local ch = TCS:FindFirstChild("TextChannels") and TCS.TextChannels:FindFirstChild("RBXGeneral")
+			if ch then ch:DisplaySystemMessage("[Charger] " .. msg) end
+		end)
+	end
+	local lastCmd, lastT = nil, 0
+	local function liteCmd(text)
+		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "-4" then
+			local ch, hum = charParts()
+			local J = ARMS.J
+			local function f(j) return j and "ok" or "NAO" end
+			local n = 0
+			for _ in pairs(ANIM.L.J or {}) do n = n + 1 end
+			local blue = Color3.fromRGB(80, 170, 255)
+			ARMS.say("rig=" .. (hum and tostring(hum.RigType) or "?") .. " | Animate=" .. ((ch and ch:FindFirstChild("Animate")) and "sim" or "nao") .. " | carro=" .. tostring(car ~= nil) .. " | motorista=" .. tostring(car ~= nil and car.driver ~= nil), blue)
+			ARMS.say("ARMS.on=" .. tostring(ARMS.on) .. " | ombroD=" .. f(J and J.right.shoulder) .. " ombroE=" .. f(J and J.left.shoulder) .. " cotoveloD=" .. f(J and J.right.elbow) .. " | juntasLimb=" .. n, blue)
+			ARMS.say("sobrescrito pelo jogo=" .. tostring(ARMS.ovr or 0) .. " | quadros mantidos=" .. tostring(ARMS.keep or 0), blue)
+			return
+		end
+		local mode = (text == "-1" and "off") or (text == "-2" and "lite") or (text == "-3" and "super") or nil
+		if not mode then return end
+		local now = os.clock()
+		if lastCmd == text and now - lastT < 0.6 then return end
+		lastCmd, lastT = text, now
+		Config.LiteMode = mode
+		LITE = mode ~= "off"
+		carTpl = nil
+		if car and not car.driver and not car.cine then
+			CINE.destroy()
+			spawnCar()
+			say(LITE_NAMES[mode] .. " - carro reconstruido.")
+		elseif car then
+			say(LITE_NAMES[mode] .. " - vale a partir do proximo spawn.")
+		else
+			say(LITE_NAMES[mode] .. ".")
+		end
+	end
+	track(player.Chatted:Connect(liteCmd))
+	pcall(function()
+		local TCS = game:GetService("TextChatService")
+		track(TCS.MessageReceived:Connect(function(m)
+			if m.TextSource and m.TextSource.UserId == player.UserId then liteCmd(m.Text) end
+		end))
+	end)
+	task.delay(3, function()
+		local mname = (Config.LiteMode == "super" and "3 (SUPER LITE)") or (Config.LiteMode == "lite" and "2 (LITE)") or "1 (COMPLETO)"
+		say("Modo atual: " .. mname .. ". Digite no chat para trocar:")
+		say("-1 = COMPLETO: todos os detalhes do carro, sombras e fumaca/derrapagem normais.")
+		say("-2 = LITE: tira detalhes pequenos (parafusos e furos dos discos). Visual quase igual, um pouco mais leve.")
+		say("-3 = SUPER LITE: tira mais detalhes (frisos, logos, desenhos dos pneus/rodas), sem sombra nas pecas, menos fumaca, sem fumaca de escapamento, menos marcas de pneu. Para celular fraco.")
+		say("O carro e reconstruido ao trocar. Dica: -4 mostra diagnostico dos bracos.")
+	end)
+end
+-- Pre-carregamento de sons e texturas, com caixa de aviso e barra de progresso
+do
+	local list, seen = {}, {}
+	local function add(v)
+		if type(v) == "string" and v:find("^rbxasset") and not seen[v] then
+			seen[v] = true
+			list[#list + 1] = v
+		end
+	end
+	for k, v in pairs(Config) do
+		if type(v) == "string" and tostring(k):find("Sound") then add(v) end
+		if type(v) == "table" then
+			for k2, v2 in pairs(v) do
+				if type(v2) == "string" and tostring(k2):find("Sound") then add(v2) end
+			end
+		end
+	end
+	add("rbxasset://textures/particles/smoke_main.dds")
+	add("rbxasset://textures/particles/sparkles_main.dds")
+	add("rbxasset://textures/particles/fire_main.dds")
+	local total = #list
+	if total > 0 then
+		local box = Instance.new("Frame")
+		box.Name = "PreloadBox"
+		box.AnchorPoint = Vector2.new(0.5, 0)
+		box.Position = UDim2.new(0.5, 0, 0, 70)
+		box.Size = UDim2.fromOffset(290, 62)
+		box.BackgroundColor3 = PANEL
+		box.BackgroundTransparency = 0.12
+		box.BorderSizePixel = 0
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(0, 10)
+		bc.Parent = box
+		local bs = Instance.new("UIStroke")
+		bs.Color = AMBER
+		bs.Thickness = 1.5
+		bs.Parent = box
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Position = UDim2.fromOffset(10, 6)
+		lbl.Size = UDim2.new(1, -20, 0, 28)
+		lbl.Font = FONT
+		lbl.TextSize = 15
+		lbl.TextColor3 = Color3.fromRGB(235, 235, 235)
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Text = "Charger: carregando recursos 0/" .. total
+		lbl.Parent = box
+		local barBg = Instance.new("Frame")
+		barBg.Position = UDim2.fromOffset(10, 40)
+		barBg.Size = UDim2.new(1, -20, 0, 8)
+		barBg.BackgroundColor3 = DIMC
+		barBg.BorderSizePixel = 0
+		local bgc = Instance.new("UICorner")
+		bgc.CornerRadius = UDim.new(1, 0)
+		bgc.Parent = barBg
+		barBg.Parent = box
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.fromScale(0, 1)
+		bar.BackgroundColor3 = AMBER
+		bar.BorderSizePixel = 0
+		local brc = Instance.new("UICorner")
+		brc.CornerRadius = UDim.new(1, 0)
+		brc.Parent = bar
+		bar.Parent = barBg
+		box.Parent = gui
+		task.spawn(function()
+			local done = 0
+			pcall(function()
+				game:GetService("ContentProvider"):PreloadAsync(list, function()
+					done = done + 1
+					if box.Parent then
+						lbl.Text = "Charger: carregando recursos " .. math.min(done, total) .. "/" .. total
+						bar.Size = UDim2.fromScale(math.clamp(done / total, 0, 1), 1)
+					end
+				end)
+			end)
+			if box.Parent then
+				lbl.Text = "Charger: tudo carregado!"
+				bar.Size = UDim2.fromScale(1, 1)
+				bar.BackgroundColor3 = GREEN
+				task.wait(1.5)
+				pcall(function()
+					TweenService:Create(box, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(lbl, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
+					TweenService:Create(bs, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+					TweenService:Create(barBg, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(bar, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+				end)
+				task.wait(0.6)
+				box:Destroy()
+			end
+		end)
+	end
+end
+local STEP_ID = "ChargerStep"
+pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
+RunService:BindToRenderStep(STEP_ID, Enum.RenderPriority.Camera.Value - 2, function(dt)
+	dt = math.clamp(dt, 1 / 240, 0.05)
+	local c = car
+	if c and c.model.Parent then
+		filterT = filterT - dt
+		if filterT <= 0 then
+			filterT = 0.5
+			refreshFilter()
+		end
+		if c.cine then
+			local okC = pcall(CINE.step, c, dt)
+			if not okC then pcall(CINE.abort, c) end
+		else
+			stepCar(c, dt)
+		end
+		if c.model.Parent then
+			carVisuals(c, dt)
+			if c.doorClose then pcall(ANIM.doorCloseStep, c) end
+			if c.driver then
+				holdChar(c)
+			end
+		end
+	else
+		if c then car = nil end
+	end
+	local okH, errH = pcall(updateHud, dt)
+	if not okH and not HUDC.warned then
+		HUDC.warned = true
+	end
 end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if RebindingAbility then
-        if input.KeyCode ~= Enum.KeyCode.Unknown then
-            CurrentKeybinds[RebindingAbility] = input.KeyCode
-            UpdateKeybind(RebindingAbility)
-            if KeybindCurrentTexts[RebindingAbility] then 
-                KeybindCurrentTexts[RebindingAbility].Text = input.KeyCode.Name 
-            end
-            RebindingAbility = nil
-            SaveConfig()
-        end
-        return
-    end
+track(RunService.Stepped:Connect(function(_, dt)
+	dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
+	local c = car
+	if c and c.model and c.model.Parent then
+		local okL, errL = pcall(ANIM.limbStep, c, dt)
+		if not okL then armWarn("limb:", errL) end
+		if c.driver or ARMS.on then
+			local okA, errA = pcall(driveArms, c, dt)
+			if not okA then armWarn(errA) end
+		end
+	elseif ARMS.on then
+		pcall(releaseArms)
+	end
+end))
+local FP_ID = "ChargerFirstPerson"
+pcall(function() RunService:UnbindFromRenderStep(FP_ID) end)
+RunService:BindToRenderStep(FP_ID, Enum.RenderPriority.Camera.Value + 1, function()
+	pcall(CAM.fpStep)
 end)
-      
-local function SetupCharacter(character)
-    ResetSandi()
-    ResetOptical()
-    CleanupSandiSounds()
-    Character = character
-    HRP = character:WaitForChild("HumanoidRootPart")
-    Humanoid = character:WaitForChild("Humanoid")
-    State.LastHealth = Humanoid.Health
-    Humanoid.Died:Connect(function() Falar("morte", true) end)
-    Humanoid.StateChanged:Connect(function(_, novo)
-        if novo == Enum.HumanoidStateType.Landed and State.LastVelocityY < -55 then
-            Falar("queda")
-        end
-    end)
-    task.delay(1.5, function() Falar("boot") end)
-    BuildUI()
-    BindAllKeybinds()
-    InitWalkEffect()
-    InitDirectionalMovement()
-    
-    task.delay(2, function()
-        if Character and Character.Parent then
-            if currentSet == 1 then
-                AplicarSet(SET_1)
-            elseif currentSet == 2 then
-                AplicarSet(SET_2)
-            else
-                AplicarSet(SET_3)
-            end
-        end
-    end)
+genv[CLEANUP_KEY] = function()
+	pcall(function() RunService:UnbindFromRenderStep(STEP_ID) end)
+	pcall(function() RunService:UnbindFromRenderStep(FP_ID) end)
+	pcall(CAM.reset)
+	pcall(releaseArms)
+	pcall(ANIM.limbRelease)
+	pcall(CINE.destroy)
+	pcall(HOOD.T.cleanup)
+	pcall(K.destroy)
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	pcall(function() gui:Destroy() end)
+	pcall(function() if skidFolder then skidFolder:Destroy() end end)
+	genv[CLEANUP_KEY] = nil
 end
-
-local function HandleChat(message)
-    local msg = message:lower():gsub("%s+", "")
-    if msg == "-settings" then
-        local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-        if gui then
-            local menu = gui:FindFirstChild("SettingsMenu")
-            if menu then
-                local newState = not menu.Visible
-                
-                if newState then
-                    menu.Visible = true
-                    menu.Size = UDim2.new(0, 0, 0, 0)
-                    menu.BackgroundTransparency = 1
-                    TweenService:Create(menu, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(0, 340, 0, 480),
-                        BackgroundTransparency = 0
-                    }):Play()
-                    
-                else
-                    local closeTween = TweenService:Create(menu, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                        Size = UDim2.new(0, 0, 0, 0),
-                        BackgroundTransparency = 1
-                    })
-                    closeTween:Play()
-                    
-                    closeTween.Completed:Connect(function()
-                        menu.Visible = false
-                    end)
-                end
-            end
-        end
-    end
+end, debug.traceback)
+if not __ok then
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", { Text = "[Charger] ERRO FATAL: " .. tostring(__err), Color = Color3.fromRGB(255, 80, 80) })
+	end)
+	warn("[Charger] ERRO FATAL: " .. tostring(__err))
 end
-
-local ultimoChatTexto, ultimoChatTempo = "", 0
-local function OnChat(message)
-    if type(message) ~= "string" then return end
-    local agora = os.clock()
-    -- evita rodar 2x quando Chatted e TextChatService disparam juntos
-    if message == ultimoChatTexto and agora - ultimoChatTempo < 0.6 then return end
-    ultimoChatTexto, ultimoChatTempo = message, agora
-    HandleChat(message)
-end
-
-Player.Chatted:Connect(OnChat)
-pcall(function()
-    local TextChatService = game:GetService("TextChatService")
-    TextChatService.SendingMessage:Connect(function(m)
-        OnChat(m.Text)
-    end)
-    TextChatService.MessageReceived:Connect(function(m)
-        if m.TextSource and m.TextSource.UserId == Player.UserId then
-            OnChat(m.Text)
-        end
-    end)
-end)
-
-local function CyberSendNotification(title: string, text: string, duration: number?, imageId: string?)
-    duration = duration or 4.8
-    
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then 
-        gui = Create("ScreenGui", {Name = "CyberRebuilt", Parent = Player.PlayerGui, IgnoreGuiInset = true})
-    end
-
-    local notif = Create("Frame", {
-        Name = "CyberNotification",
-        Size = UDim2.new(0, 0, 0, 0),
-        Position = UDim2.new(1, -340, 0, 70),
-        BackgroundColor3 = Color3.fromRGB(6, 6, 12),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 999,
-        Parent = gui
-    })
-
-    Create("UICorner", {CornerRadius = UDim.new(0, 16), Parent = notif})
-
-    local strokeOuter = Create("UIStroke", {Color = Colors.SANDI_TINT, Thickness = 4, Transparency = 1, Parent = notif})
-    local strokeInner = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 2, Transparency = 1, Parent = notif})
-    
-    local glow = Create("UIStroke", {
-        Color = Colors.LIGHT_GREEN,
-        Thickness = 12,
-        Transparency = 0.8,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        Parent = notif
-    })
-
-    local image = Create("ImageLabel", {
-        Size = UDim2.new(0, 78, 0, 78),
-        Position = UDim2.new(0, 16, 0.5, -39),
-        BackgroundTransparency = 1,
-        Image = imageId or "rbxassetid://11540569225",
-        ImageTransparency = 1,
-        ZIndex = 1000,
-        Parent = notif
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = image})
-
-    local titleLabel = Create("TextLabel", {
-        Size = UDim2.new(1, -110, 0, 32),
-        Position = UDim2.new(0, 106, 0, 18),
-        BackgroundTransparency = 1,
-        Text = title:upper(),
-        TextColor3 = Colors.SANDI_TINT,
-        Font = Enum.Font.SciFi,
-        TextSize = 23,
-        TextStrokeTransparency = 0.4,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTransparency = 1,
-        ZIndex = 1000,
-        Parent = notif
-    })
-
-    local descLabel = Create("TextLabel", {
-        Size = UDim2.new(1, -110, 0, 44),
-        Position = UDim2.new(0, 106, 0, 48),
-        BackgroundTransparency = 1,
-        Text = text,
-        TextColor3 = Color3.fromRGB(180, 255, 205),
-        Font = Enum.Font.Code,
-        TextSize = 15.5,
-        TextWrapped = true,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTransparency = 1,
-        ZIndex = 1000,
-        Parent = notif
-    })
-
-    local creditLabel = Create("TextLabel", {
-        Size = UDim2.new(1, -110, 0, 18),
-        Position = UDim2.new(0, 106, 1, -24),
-        BackgroundTransparency = 1,
-        Text = "Script By Mini discord.gg/86Mmpe94cH",
-        TextColor3 = Color3.fromRGB(100, 255, 180),
-        Font = Enum.Font.Code,
-        TextSize = 13,
-        TextTransparency = 1,
-        TextStrokeTransparency = 0.7,
-        ZIndex = 1000,
-        Parent = notif
-    })
-
-    task.spawn(function()
-        TweenService:Create(notif, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 325, 0, 128),
-            BackgroundTransparency = 0.08
-        }):Play()
-
-        TweenService:Create(strokeOuter, TweenInfo.new(0.5), {Transparency = 0.25}):Play()
-        TweenService:Create(strokeInner, TweenInfo.new(0.55), {Transparency = 0.6}):Play()
-
-        task.spawn(function()
-            while notif.Parent do
-                TweenService:Create(glow, TweenInfo.new(1.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.55}):Play()
-                task.wait(1.3)
-                TweenService:Create(glow, TweenInfo.new(1.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.82}):Play()
-                task.wait(1.3)
-            end
-        end)
-
-        task.wait(0.18)
-        TweenService:Create(image, TweenInfo.new(0.45), {ImageTransparency = 0.08}):Play()
-        TweenService:Create(titleLabel, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
-        TweenService:Create(descLabel, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
-        TweenService:Create(creditLabel, TweenInfo.new(0.6), {TextTransparency = 0.3}):Play()
-    end)
-
-    task.delay(duration, function()
-        if not notif or not notif.Parent then return end
-
-        TweenService:Create(notif, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            Position = UDim2.new(1, 60, 0, 70),
-            BackgroundTransparency = 1
-        }):Play()
-
-        TweenService:Create(glow, TweenInfo.new(0.4), {Transparency = 1}):Play()
-        TweenService:Create(image, TweenInfo.new(0.4), {ImageTransparency = 1}):Play()
-        TweenService:Create(titleLabel, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
-        TweenService:Create(descLabel, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
-        TweenService:Create(creditLabel, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
-
-        task.delay(0.65, function()
-            if notif and notif.Parent then notif:Destroy() end
-        end)
-    end)
-end
-
-local function Init()
-    local savedConfig = LoadConfig()
-    ApplyConfig(savedConfig)
-    
-    if Player.Character then 
-        SetupCharacter(Player.Character)
-        
-        if currentSet == 1 then
-            AplicarSet(SET_1)
-        elseif currentSet == 2 then
-            AplicarSet(SET_2)
-        else
-            AplicarSet(SET_3)
-        end
-    end
-    
-    Player.CharacterAdded:Connect(SetupCharacter)
-end
-
-task.delay(1.2, function()
-    CyberSendNotification(
-        "CYBER REBUILT 2077", 
-        "NEURAL INTERFACE ONLINE\nSANDEVISTAN SYSTEM LOADED",
-        5.5
-    )
-end)
-
-Init()

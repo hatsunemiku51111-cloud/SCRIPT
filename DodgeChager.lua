@@ -2375,7 +2375,7 @@ local PARTS = {
 {"HeaderFlange","c",0.04,0.36,0.36,-1.42,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
 {"HeaderStub","c",0.32,0.22,0.22,-1.6,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
 {"HeaderPipe","c",0.29,0.22,0.22,-1.65,2.495,-4.7,0,0,90,"C","M",0.6,0,"blower"},
-{"Collector","b",0.3,0.3,2.4,-1.65,2.2,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"Collector","c",2.4,0.34,0.34,-1.65,2.2,-5.45,0,90,0,"C","M",0.6,0,"blower"},
 {"Head","b",0.7,0.5,2.5,1.05,2.75,-5.3,0,0,0,"C","M",0.55,0,"blower"},
 {"ValveCover","b",0.6,0.2,2.35,1.05,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
 {"CoverFin","b",0.5,0.05,0.07,1.05,3.225,-6.3,0,0,0,"C","M",0.7,0,"blower"},
@@ -2398,7 +2398,7 @@ local PARTS = {
 {"HeaderFlange","c",0.04,0.36,0.36,1.42,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
 {"HeaderStub","c",0.32,0.22,0.22,1.6,2.75,-4.7,0,0,0,"C","M",0.6,0,"blower"},
 {"HeaderPipe","c",0.29,0.22,0.22,1.65,2.495,-4.7,0,0,90,"C","M",0.6,0,"blower"},
-{"Collector","b",0.3,0.3,2.4,1.65,2.2,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"Collector","c",2.4,0.34,0.34,1.65,2.2,-5.45,0,90,0,"C","M",0.6,0,"blower"},
 {"RearBracket","b",1,0.2,0.1,0,3.4,-3.92,0,0,0,"D","M",0.4,0,"blower"},
 {"RadSupport","b",3.9,1.5,0.1,0,2.65,-9.43,0,0,0,"K","P",0,0,""},
 {"RadCore","b",3.2,1.05,0.2,0,2.55,-9.2,0,0,0,"D","M",0.3,0,""},
@@ -2417,8 +2417,8 @@ local PARTS = {
 {"RadFin","b",0.03,1.05,0.04,1,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
 {"RadFin","b",0.03,1.05,0.04,1.2,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
 {"RadFin","b",0.03,1.05,0.04,1.4,2.55,-9.32,0,0,0,"K","M",0.2,0,""},
-{"RadTank","b",0.3,1.15,0.36,-1.75,2.55,-9.15,0,0,0,"K","P",0,0,""},
-{"RadTank","b",0.3,1.15,0.36,1.75,2.55,-9.15,0,0,0,"K","P",0,0,""},
+{"RadTank","c",1.15,0.34,0.34,-1.75,2.55,-9.15,0,0,90,"K","P",0,0,""},
+{"RadTank","c",1.15,0.34,0.34,1.75,2.55,-9.15,0,0,90,"K","P",0,0,""},
 {"RadCap","c",0.16,0.2,0.2,1.75,3.2,-9.15,0,0,90,"C","M",0.8,0,""},
 {"Shroud","b",3.2,0.1,0.28,0,3.1,-8.84,0,0,0,"K","P",0,0,""},
 {"Shroud","b",3.2,0.1,0.28,0,2,-8.84,0,0,0,"K","P",0,0,""},
@@ -2431,13 +2431,13 @@ local PARTS = {
 {"FanBladeS","b",0.2,0.9,0.03,0,0,0,0,0,135,"D","M",0.6,0,"spin8"},
 {"HoseUp","c",2.15,0.2,0.2,-1.05,2.9,-8.025,0,90,0,"K","P",0,0,""},
 {"HoseLow","c",2.15,0.2,0.2,1.05,2.2,-8.025,0,90,0,"K","P",0,0,""},
-{"StrutTower","b",0.5,0.8,0.5,-1.7,2.3,-7.9,0,0,0,"D","M",0.3,0,""},
+{"StrutTower","c",0.8,0.5,0.5,-1.7,2.3,-7.9,0,0,90,"D","M",0.3,0,""},
 {"StrutCap","c",0.1,0.44,0.44,-1.7,2.75,-7.9,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,-1.83,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,-1.57,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,-1.57,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,-1.83,2.84,-7.77,0,0,90,"C","M",0.8,0,""},
-{"StrutTower","b",0.5,0.8,0.5,1.7,2.3,-7.9,0,0,0,"D","M",0.3,0,""},
+{"StrutTower","c",0.8,0.5,0.5,1.7,2.3,-7.9,0,0,90,"D","M",0.3,0,""},
 {"StrutCap","c",0.1,0.44,0.44,1.7,2.75,-7.9,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,1.57,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
 {"StrutBolt","c",0.08,0.08,0.08,1.83,2.84,-8.03,0,0,90,"C","M",0.8,0,""},
@@ -2461,16 +2461,50 @@ local PARTS = {
 {"PlugBoot","c",0.12,0.1,0.1,-1.46,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
 {"PlugBoot","c",0.12,0.1,0.1,-1.46,2.95,-4.33,0,0,0,"K","P",0,0,"blower"},
 {"PlugWire","b",0.03,0.03,1.5,-1.55,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
-{"CoverRail","b",0.06,0.07,2.35,-1.38,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
-{"CoverRail","b",0.06,0.07,2.35,-0.72,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverRail","c",2.35,0.2,0.2,-1.35,3.1,-5.3,0,90,0,"C","M",0.7,0,"blower"},
+{"CoverRail","c",2.35,0.2,0.2,-0.75,3.1,-5.3,0,90,0,"C","M",0.7,0,"blower"},
 {"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-5.83,0,0,0,"K","P",0,0,"blower"},
 {"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
 {"PlugBoot","c",0.12,0.1,0.1,1.46,2.95,-4.33,0,0,0,"K","P",0,0,"blower"},
 {"PlugWire","b",0.03,0.03,1.5,1.55,2.95,-5.08,0,0,0,"K","P",0,0,"blower"},
-{"CoverRail","b",0.06,0.07,2.35,1.38,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
-{"CoverRail","b",0.06,0.07,2.35,0.72,3.1,-5.3,0,0,0,"C","M",0.7,0,"blower"},
+{"CoverRail","c",2.35,0.2,0.2,1.35,3.1,-5.3,0,90,0,"C","M",0.7,0,"blower"},
+{"CoverRail","c",2.35,0.2,0.2,0.75,3.1,-5.3,0,90,0,"C","M",0.7,0,"blower"},
 {"Coil","b",0.2,0.3,0.2,-0.3,2.55,-3.9,0,0,0,"R","P",0,0,"blower"},
 {"Dipstick","b",0.05,0.5,0.05,0.4,2.6,-3.975,0,0,0,"C","M",0.6,0,"blower"},
+{"BlowerLobe","c",2.34,0.62,0.62,-0.33,3.98,-5.3,0,90,0,"C","M",0.8,0,"blower"},
+{"BlowerLobe","c",2.34,0.62,0.62,0.33,3.98,-5.3,0,90,0,"C","M",0.8,0,"blower"},
+{"BlowerBoss","c",0.12,0.95,0.95,0,3.72,-6.5,0,90,0,"C2","M",0.9,0,"blower"},
+{"BlowerBoss","c",0.12,0.95,0.95,0,3.72,-4.1,0,90,0,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,-0.66,4.14,-6.25,0,0,90,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,-0.66,4.14,-5.3,0,0,90,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,-0.66,4.14,-4.35,0,0,90,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,0.66,4.14,-6.25,0,0,90,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,0.66,4.14,-5.3,0,0,90,"C2","M",0.9,0,"blower"},
+{"BlowerBolt","c",0.08,0.1,0.1,0.66,4.14,-4.35,0,0,90,"C2","M",0.9,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,-1.7,2.72,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,-1.7,2.72,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,-1.7,2.72,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,1.7,2.72,-6.2,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,1.7,2.72,-5.45,0,0,0,"C","M",0.6,0,"blower"},
+{"HeaderElbow","s",0.27,0.27,0.27,1.7,2.72,-4.7,0,0,0,"C","M",0.6,0,"blower"},
+{"OilFilter","c",0.55,0.34,0.34,0.95,2.2,-3.9,0,0,90,"A","M",0.3,0,"blower"},
+{"OilFilterCap","c",0.06,0.26,0.26,0.95,2.5,-3.9,0,0,90,"D","M",0.4,0,"blower"},
+{"FrontCover","b",1.3,0.8,0.06,0,2.55,-6.64,0,0,0,"H","M",0.5,0,"blower"},
+{"StrutBase","c",0.12,0.62,0.62,-1.7,2.02,-7.9,0,0,90,"D","M",0.3,0,""},
+{"StrutNut","c",0.14,0.14,0.14,-1.7,2.87,-7.9,0,0,90,"C2","M",0.9,0,""},
+{"StrutBase","c",0.12,0.62,0.62,1.7,2.02,-7.9,0,0,90,"D","M",0.3,0,""},
+{"StrutNut","c",0.14,0.14,0.14,1.7,2.87,-7.9,0,0,90,"C2","M",0.9,0,""},
+{"HoseClamp","c",0.1,0.26,0.26,-1.05,2.9,-9,0,90,0,"C","M",0.8,0,""},
+{"HoseClamp","c",0.1,0.26,0.26,1.05,2.2,-9,0,90,0,"C","M",0.8,0,""},
+{"HoseClamp","c",0.1,0.26,0.26,-1.05,2.9,-7.1,0,90,0,"C","M",0.8,0,""},
+{"HoseClamp","c",0.1,0.26,0.26,1.05,2.2,-7.1,0,90,0,"C","M",0.8,0,""},
+{"FirePad","b",3.6,1.45,0.05,0,2.7,-3.7,0,0,0,"D","F",0,0,""},
+{"CowlPlenum","b",2.6,0.25,0.4,0,3.2,-3.9,0,0,0,"K","P",0,0,""},
+{"CowlSlat","b",2.4,0.03,0.05,0,3.335,-4.05,0,0,0,"D","P",0,0,""},
+{"CowlSlat","b",2.4,0.03,0.05,0,3.335,-3.93,0,0,0,"D","P",0,0,""},
+{"CowlSlat","b",2.4,0.03,0.05,0,3.335,-3.81,0,0,0,"D","P",0,0,""},
+{"WireLoom","c",1.7,0.08,0.08,-1.86,3,-5,0,90,0,"K","P",0,0,""},
+{"WireLoom","c",1.7,0.08,0.08,1.86,3,-5,0,90,0,"K","P",0,0,""},
 {"ExhPipe","c",7.5,0.2,0.2,-0.8,1,-0.5,0,90,0,"S","M",0.3,0,""},
 {"ExhPipe","c",7.5,0.2,0.2,0.8,1,-0.5,0,90,0,"S","M",0.3,0,""},
 {"DriveShaft","c",5,0.16,0.16,0,1,-1.5,0,90,0,"D","M",0.2,0,""},
@@ -2484,7 +2518,7 @@ local COLS = {
 	PL = Color3.fromRGB(235, 235, 235), C2 = Color3.fromRGB(238, 241, 247), S = Color3.fromRGB(160, 166, 176),
 	BK = Color3.fromRGB(6, 6, 8), WB = Color3.fromRGB(255, 238, 200),
 }
-local MATS = { P = Enum.Material.SmoothPlastic, M = Enum.Material.Metal, N = Enum.Material.Neon, G = Enum.Material.Glass }
+local MATS = { P = Enum.Material.SmoothPlastic, M = Enum.Material.Metal, N = Enum.Material.Neon, G = Enum.Material.Glass, F = Enum.Material.Fabric }
 if Config.CheapGlass then MATS.G = Enum.Material.SmoothPlastic end
 local SHAPES = { b = "block", c = "cyl", s = "ball", w = "wedge" }
 local CAR_NAME = "1970_Dodge_Charger_RTChargerToretto"
@@ -2495,6 +2529,7 @@ local LITE_SKIP2 = {
 	TreadLug = true, TreadOutRib = true, SpokeRidge = true, ForkRidge = true, Lug = true,
 	CaliperBolt = true, CaliperLogo = true, EmblemH = true, EmblemV = true,
 	DoorTrim = true, PlugBoot = true, PlugWire = true,
+	BlowerBolt = true, HoseClamp = true, StrutNut = true, CowlSlat = true, OilFilterCap = true,
 }
 local TIRE_PARTS = {}
 for _, n in ipairs({
@@ -2592,7 +2627,7 @@ function HOOD.build(c, bodyColor)
 	local model = c.model
 	local old = model:FindFirstChild("HoodRoot")
 	if old then
-		if old:GetAttribute("V") == 4 then
+		if old:GetAttribute("V") == 5 then
 			c.hoodW = old:FindFirstChildOfClass("Weld")
 			return
 		end
@@ -2616,7 +2651,7 @@ function HOOD.build(c, bodyColor)
 	end
 	local dr = Instance.new("Part")
 	dr.Name = "HoodRoot"
-	dr:SetAttribute("V", 4)
+	dr:SetAttribute("V", 5)
 	dr.Size = Vector3.new(0.2, 0.2, 0.2) * S
 	dr.Transparency = 1
 	dr.Anchored = false
@@ -2704,6 +2739,22 @@ function HOOD.build(c, bodyColor)
 	put("HoodRib", 0.08, 0.18, 2.9, 1.3, 3.51, -5.3, 0, 0, 0, BLK, PL, 0)
 	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -8.1, 0, 0, 0, BLK, PL, 0)
 	put("HoodBrace", 5.7, 0.18, 0.15, 0, 3.51, -7.0, 0, 0, 0, BLK, PL, 0)
+	-- V5: parte de baixo do capo com nervuras arredondadas, manta isolante e presilhas
+	if Config.LiteMode ~= "super" then
+		local RIBC = Color3.fromRGB(46, 47, 53)
+		for _, sd in ipairs({ -1, 1 }) do
+			put("HoodRibTube", 4.6, 0.13, 0.13, sd * 2.5, 3.42, -6.2, 0, 90, 0, RIBC, PL, 0, true)
+			put("HoodRibTube", 2.9, 0.13, 0.13, sd * 1.3, 3.42, -5.3, 0, 90, 0, RIBC, PL, 0, true)
+		end
+		put("HoodBraceTube", 5.6, 0.13, 0.13, 0, 3.42, -8.1, 0, 0, 0, RIBC, PL, 0, true)
+		put("HoodBraceTube", 5.6, 0.13, 0.13, 0, 3.42, -7.0, 0, 0, 0, RIBC, PL, 0, true)
+		put("HoodInsul", 3.9, 0.05, 1.45, 0, 3.425, -7.75, 0, 0, 0, Color3.fromRGB(38, 39, 44), Enum.Material.Fabric, 0)
+		for _, cx in ipairs({ -1.7, 0, 1.7 }) do
+			for _, cz in ipairs({ -8.3, -7.2 }) do
+				put("HoodClip", 0.03, 0.14, 0.14, cx, 3.385, cz, 0, 0, 90, BLK, PL, 0, true)
+			end
+		end
+	end
 	for _, sd in ipairs({ -1, 1 }) do
 				put("HoodPin", 0.3, 0.1, 0.1, sd * 2.4, TOP + 0.15, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
 		put("HoodPinCap", 0.04, 0.2, 0.2, sd * 2.4, TOP + 0.31, -8.9, 0, 0, 90, CHR, MT, 0.5, true)
@@ -4697,7 +4748,7 @@ local function buildCarRaw()
 	attachLogic(car, COLS.B)
 	return car
 end
-local CACHE_VER = "v65i"
+local CACHE_VER = "v66a"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
 local function newPlate()
@@ -4905,14 +4956,14 @@ function RAYC.wallHit(o, d)
 	if h and math.abs(h.Normal.Y) < 0.35 then return h end
 	return nil
 end
-function RAYC.sweep(origin, dir, len)
+function RAYC.sweep(origin, dir, len, light)
 	local u = Vector3.new(dir.X, 0, dir.Z)
 	if u.Magnitude < 1e-4 then return len end
 	u = u.Unit
 	local side = Vector3.new(-u.Z, 0, u.X)
 	local best = len
 	local hw = RAYC.HW
-	for _, off in ipairs({ 0, -hw, hw, -hw * 0.5, hw * 0.5 }) do
+	for _, off in ipairs(light and { 0, -hw, hw } or { 0, -hw, hw, -hw * 0.5, hw * 0.5 }) do
 		for _, hh in ipairs(RAYC.HS) do
 			local h = RAYC.wallHit(origin + side * off + Vector3.new(0, hh, 0), u * len)
 			if h and h.Distance < best then best = h.Distance end
@@ -5530,6 +5581,41 @@ local function exitCar(c, instant)
 	c.doorClose = nil
 	local t0 = os.clock()
 	c.exiting = { ph = "open", t0 = t0, tStart = t0 }
+end
+function RAYC.skidTrail(c, i)
+	c.skidTr = c.skidTr or {}
+	local tr = c.skidTr[i]
+	if tr and tr.Parent then return tr end
+	local off = c.wheelOff and c.wheelOff[i]
+	if not (off and c.root and c.root.Parent) then return nil end
+	local nm = "SkidTrail" .. i
+	tr = c.root:FindFirstChild(nm)
+	if not tr then
+		local hw = 0.6 * S
+		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+		a0.Name, a1.Name = nm .. "A", nm .. "B"
+		a0.Position = Vector3.new(off.X - hw, 0.06, off.Z)
+		a1.Position = Vector3.new(off.X + hw, 0.06, off.Z)
+		a0.Parent, a1.Parent = c.root, c.root
+		tr = Instance.new("Trail")
+		tr.Name = nm
+		tr.Attachment0, tr.Attachment1 = a0, a1
+		tr.FaceCamera = false
+		tr.Lifetime = (Config.LiteMode == "super") and 3 or 6
+		tr.MinLength = 0.5
+		tr.LightEmission = 0
+		tr.LightInfluence = 1
+		tr.Color = ColorSequence.new(Color3.fromRGB(12, 12, 14))
+		tr.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(0.7, 0.45),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		tr.Enabled = false
+		tr.Parent = c.root
+	end
+	c.skidTr[i] = tr
+	return tr
 end
 local function addSkid(p0, p1, up)
 	local d = (p1 - p0).Magnitude
@@ -6158,8 +6244,9 @@ function AUTO.cancel(c, silent)
 end
 -- Varre o chão numa direção. Sem wantEnd: devolve (distância do 1º problema, tipo).
 -- Com wantEnd: devolve (badD, tipo, altura do obstáculo, onde o chão volta, altura desse chão).
-function AUTO.scan(c, dir, len, wantEnd)
-	local step = 5 * S
+function AUTO.scan(c, dir, len, wantEnd, coarse)
+	local step = (coarse and 10 or 5) * S
+	local tall = 0
 	local o = c.pos
 	local lastGood = o.Y
 	local upO, dnO = 30 * S, 60 * S
@@ -6183,7 +6270,8 @@ function AUTO.scan(c, dir, len, wantEnd)
 			end
 		else
 			isBad = true
-			local t = workspace:Raycast(Vector3.new(x, lastGood + 400, z), Vector3.new(0, -(400 + dnO), 0), rp)
+			tall = tall + 1
+			local t = (tall <= 2) and workspace:Raycast(Vector3.new(x, lastGood + 400, z), Vector3.new(0, -(400 + dnO), 0), rp) or nil
 			if t and t.Position.Y > lastGood + upO then
 				k, gy = "rise", t.Position.Y
 			else
@@ -6219,7 +6307,7 @@ function AUTO.scan(c, dir, len, wantEnd)
 	end
 	if not wantEnd then
 		local lim = badD or len
-		local wd = RAYC.sweep(Vector3.new(o.X, o.Y, o.Z), dir, lim)
+		local wd = RAYC.sweep(Vector3.new(o.X, o.Y, o.Z), dir, lim, coarse)
 		if wd < lim then badD, kind = wd, "wall" end
 		return badD, kind
 	end
@@ -6241,11 +6329,11 @@ function AUTO.plan(c, a, yawT, dist, T)
 	end
 	local bestA, bestS, bestCost
 	local full = Cl.Look * S
-	for _, deg in ipairs({ 10, 20, 32, 45, 60, 75, 90, 110, 135, 160 }) do
+	for _, deg in ipairs({ 15, 35, 60, 90, 130, 160 }) do
 		if bestCost and bestCost <= deg then break end
 		for _, sg in ipairs({ 1, -1 }) do
 			local ang = math.rad(deg) * sg
-			local bd = AUTO.scan(c, AUTO.dirOf(yawT + ang), full)
+			local bd = AUTO.scan(c, AUTO.dirOf(yawT + ang), full, nil, true)
 			if not bd then
 				local cost = deg + ((a.side ~= 0 and sg ~= a.side) and 45 or 0)
 				if not bestCost or cost < bestCost then bestCost, bestA, bestS = cost, ang, sg end
@@ -6344,7 +6432,7 @@ function AUTO.update(c, dt)
 		return 0, 0, 0
 	end
 	c.mode = "D"
-	if now - a.lastPlan > 0.25 then
+	if now - a.lastPlan > ((a.side == 0) and 0.5 or 0.4) then
 		a.lastPlan = now
 		AUTO.plan(c, a, yawT, dist, T)
 		if a.phase ~= "drive" then return 0, 1, 0 end
@@ -6537,6 +6625,7 @@ local function stepCar(c, dt)
 				local n = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
 				if n.Magnitude > 0.01 then
 					n = n.Unit
+					c.scrapeT, c.scrapeP, c.scrapeN, c.scrapeM, c.scrapeS = os.clock(), hit.Position, n, hit.Material, spd
 					local into = vel:Dot(n)
 					if into < 0 then
 						local dmgd = Config.Damage.hit(c, -into, hit.Position, n)
@@ -6570,6 +6659,7 @@ local function stepCar(c, dt)
 				local n = Vector3.new(bc.Normal.X, 0, bc.Normal.Z)
 				if n.Magnitude > 0.01 then
 					n = n.Unit
+					c.scrapeT, c.scrapeP, c.scrapeN, c.scrapeM, c.scrapeS = os.clock(), bc.Position, n, bc.Material, hs
 					local into = vel:Dot(n)
 					local d0 = hs * dt
 					local allowed = math.min(d0, math.max(bc.Distance - 0.3, 0) * hf)
@@ -6900,6 +6990,11 @@ do
 		[Enum.Material.Slate] = Color3.fromRGB(150, 150, 150),
 		[Enum.Material.Limestone] = Color3.fromRGB(205, 195, 175),
 		[Enum.Material.Salt] = Color3.fromRGB(230, 225, 215),
+		[Enum.Material.Pebble] = Color3.fromRGB(165, 155, 140),
+		[Enum.Material.Rock] = Color3.fromRGB(150, 145, 140),
+		[Enum.Material.Sandstone] = Color3.fromRGB(200, 165, 120),
+		[Enum.Material.Basalt] = Color3.fromRGB(110, 108, 105),
+		[Enum.Material.Snow] = Color3.fromRGB(240, 245, 250),
 	}
 	local function build(c)
 		local fx = { dust = {}, spark = {}, part = {}, fire = {} }
@@ -6995,8 +7090,12 @@ do
 				p.CFrame = CFrame.new(hit + up * 0.25)
 				local col = DUST[c.hitMat and c.hitMat[i]]
 				local rate = 0
-				if col and speed > 10 then
-					rate = math.floor(math.clamp((speed - 10) * 0.6, 0, 40) + 0.5)
+				local spin = (c.throttle or 0) > 0.8 and speed > 3 and speed < 50
+				if col and (speed > 10 or spin) then
+					local base = math.clamp((speed - 10) * 0.6, 0, 40)
+					if spin then base = math.max(base, 24) end
+					if math.abs(c.vR or 0) > 10 or c.fxSlide == true then base = base * 1.6 end
+					rate = math.floor(math.clamp(base, 0, 64) + 0.5)
 					if d:GetAttribute("C") ~= col then
 						d:SetAttribute("C", col)
 						d.Color = ColorSequence.new(col)
@@ -7014,7 +7113,15 @@ do
 		end
 		if c.grounded then
 			if (c._fxAir or 0) > 0.35 then
-				for k = 1, 2 do fx.spark[k]:Emit(14) end
+				for k = 1, 2 do
+					local col = DUST[c.hitMat and c.hitMat[k + 2]]
+					if col then
+						fx.dust[k].Color = ColorSequence.new(col)
+						fx.dust[k]:Emit(math.clamp(math.floor(c._fxAir * 24), 6, 22))
+					else
+						fx.spark[k]:Emit(14)
+					end
+				end
 			end
 			c._fxAir = 0
 		else
@@ -7033,6 +7140,123 @@ do
 		if c.engineOn and prev > 0.7 and thr < 0.15 and speed > 40 and now - (c._flT or 0) > 1.2 then
 			c._flT = now
 			burstFire(c, 7)
+		end
+	end
+end
+do
+	local SOFT = {
+		[Enum.Material.Grass] = true, [Enum.Material.LeafyGrass] = true, [Enum.Material.Sand] = true,
+		[Enum.Material.Mud] = true, [Enum.Material.Snow] = true, [Enum.Material.Ground] = true,
+		[Enum.Material.Water] = true,
+	}
+	local function mk(c, name)
+		local old = c.model:FindFirstChild(name)
+		if old then old:Destroy() end
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		p.CanCollide, p.CanQuery, p.CanTouch = false, false, false
+		p.CastShadow = false
+		p.Transparency = 1
+		p.Size = Vector3.new(0.2, 0.2, 0.2)
+		p.CFrame = CFrame.new(0, -500, 0)
+		p.Parent = c.model
+		return p
+	end
+	local function build(c)
+		local fx = { wp = {}, sw = {}, bu = {}, wetP = {} }
+		c.fx2 = fx
+		local sp = mk(c, "Fx2Scrape")
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		e.Rate = 0
+		e.Enabled = false
+		e.EmissionDirection = Enum.NormalId.Front
+		e.Color = ColorSequence.new(Color3.fromRGB(255, 200, 90), Color3.fromRGB(255, 110, 30))
+		e.LightEmission = 1
+		e.LightInfluence = 0
+		e.Lifetime = NumberRange.new(0.2, 0.45)
+		e.Speed = NumberRange.new(10, 30)
+		e.SpreadAngle = Vector2.new(28, 28)
+		e.Acceleration = Vector3.new(0, -70, 0)
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35 * S), NumberSequenceKeypoint.new(1, 0.03 * S) })
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+		e.Parent = sp
+		fx.scrapeP, fx.scrapeE = sp, e
+		for i = 1, 4 do
+			local p = mk(c, "Fx2Water" .. i)
+			local w = Instance.new("ParticleEmitter")
+			w.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			w.Rate = 0
+			w.Enabled = false
+			w.EmissionDirection = Enum.NormalId.Top
+			w.Color = ColorSequence.new(Color3.fromRGB(235, 245, 255))
+			w.LightInfluence = 0.6
+			w.Lifetime = NumberRange.new(0.5, 0.9)
+			w.Speed = NumberRange.new(8, 16)
+			w.SpreadAngle = Vector2.new(35, 35)
+			w.Acceleration = Vector3.new(0, -45, 0)
+			w.Drag = 0.5
+			w.Rotation = NumberRange.new(0, 360)
+			w.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 1) })
+			w.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5 * S), NumberSequenceKeypoint.new(1, 2.2 * S) })
+			w.Parent = p
+			local b = w:Clone()
+			b.Name = "Burst"
+			b.Lifetime = NumberRange.new(0.6, 1.1)
+			b.Speed = NumberRange.new(16, 30)
+			b.SpreadAngle = Vector2.new(55, 55)
+			b.Acceleration = Vector3.new(0, -70, 0)
+			b.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8 * S), NumberSequenceKeypoint.new(1, 3 * S) })
+			b.Parent = p
+			fx.wp[i], fx.sw[i], fx.bu[i] = p, w, b
+		end
+	end
+	function EXTRA.fx2(c, dt)
+		if Config.LiteMode == "super" then return end
+		if not (c.model and c.model.Parent and c.root) then return end
+		local fx = c.fx2
+		if not fx then
+			build(c)
+			fx = c.fx2
+		end
+		local now = os.clock()
+		-- faiscas de raspada na lataria
+		local sE = fx.scrapeE
+		local t = c.scrapeT
+		if t and now - t < 0.12 and (c.scrapeS or 0) > 20 and c.scrapeP and not SOFT[c.scrapeM] then
+			local n = c.scrapeN or Vector3.yAxis
+			fx.scrapeP.CFrame = CFrame.lookAt(c.scrapeP + n * 0.2, c.scrapeP + n)
+			local rate = math.floor(math.clamp(c.scrapeS * 0.9, 12, 70) + 0.5)
+			if sE.Rate ~= rate then sE.Rate = rate end
+			sE.Enabled = true
+		elseif sE.Enabled then
+			sE.Enabled = false
+			sE.Rate = 0
+		end
+		-- respingos de agua nas rodas
+		local v = c.vel
+		local hv = v and math.sqrt(v.X * v.X + v.Z * v.Z) or math.abs(c.vF or 0)
+		local wet, wyT = c.wheelWet, c.wheelWY
+		local cfY = CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+		for i = 1, 4 do
+			local sw, bu, p = fx.sw[i], fx.bu[i], fx.wp[i]
+			local wy = wet and wet[i] and wyT and wyT[i]
+			local on = wy and math.abs(wy - c.pos.Y) < 4 * S and c.wheelOff and c.wheelOff[i] and true or false
+			if on then
+				local wp = cfY:PointToWorldSpace(c.wheelOff[i])
+				p.CFrame = CFrame.new(wp.X, wy + 0.15, wp.Z)
+				local rate = math.floor(math.clamp((hv - 8) * 0.9, 0, 48) + 0.5)
+				if sw.Rate ~= rate then sw.Rate = rate end
+				sw.Enabled = rate > 0
+				if not fx.wetP[i] and hv > 15 then
+					bu:Emit(math.clamp(math.floor(hv * 0.35), 8, 34))
+				end
+			elseif sw.Enabled then
+				sw.Enabled = false
+				sw.Rate = 0
+			end
+			fx.wetP[i] = on
 		end
 	end
 end
@@ -7274,18 +7498,14 @@ local function carVisuals(c, dt)
 	end
 	exhaustStep(c)
 	pcall(EXTRA.step, c, dt)
+	pcall(EXTRA.fx2, c, dt)
+	-- marcas de pneu: Trail preso nas rodas traseiras (sem criar Parts)
 	for i = 3, 4 do
 		local h = c.hits and c.hits[i]
-		if sliding and h then
-			local last = c.lastSk[i]
-			if not last then
-				c.lastSk[i] = h
-			elseif (h - last).Magnitude >= ((Config.LiteMode == "super") and 14 or 6) then
-				addSkid(last, h, c.up)
-				c.lastSk[i] = h
-			end
-		else
-			c.lastSk[i] = nil
+		local tr = RAYC.skidTrail(c, i)
+		if tr then
+			local on = (sliding and h) and true or false
+			if tr.Enabled ~= on then tr.Enabled = on end
 		end
 	end
 	local topG = Config.TopSpeed * Config.GearTop[gear]

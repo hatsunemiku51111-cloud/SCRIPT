@@ -142,6 +142,38 @@ local Config = {
 	Lite = nil,
 	LiteMode = "off",
 }
+Config.Damage = {
+	Enabled = true,
+	MinSpeed = 70,     -- batida abaixo disso (stud/s contra a parede) NÃO dá dano
+	FatalSpeed = 240,  -- batida nessa velocidade destrói o carro de uma vez
+	Curve = 1.3,       -- >1 = batidas médias machucam pouco, só as muito fortes pesam
+	Cooldown = 0.4,    -- segundos entre danos (evita contar a mesma batida 2x)
+	SmokeAt = 30,      -- % de dano em que começa a sair fumaça do capô
+	DeadAt = 100,      -- % de dano em que o motor morre e não liga mais
+	TopLoss = 0.5,     -- perda máxima de velocidade final antes de morrer (50%)
+	Dents = true,      -- batida forte amassa a lataria perto do impacto
+	Vital = true,      -- dano nos pontos vitais (motor, radiador, bateria, direcao, tanque, pneus)
+	VitalMul = 1.3,    -- multiplicador do dano nos pontos vitais
+	Break = true,      -- batida forte entorta, quebra e derruba farois, lanternas, retrovisores, placa etc
+}
+Config.ToolFx = {
+	Reach = 9,          -- distância máxima (studs * escala) do jogador até a lataria pra usar a ferramenta
+	Cooldown = 0.7,     -- tempo entre usos
+	HammerRadius = 5,   -- área desamassada por golpe
+	HammerFix = 0.4,    -- quanto do amassado some por golpe (0 a 1)
+	WrenchRepair = 25,  -- % de dano do motor que a chave inglesa tira por uso
+	HotwireLeft = 15,   -- a chave de fenda deixa o motor morto com (100 - isso)% de dano
+}
+Config.Call = {
+	Enabled = true,
+	MinDist = 90,       -- (studs * escala) acima disso a chave CHAMA o carro em vez de guarda-lo
+	StopDist = 20,      -- o carro para a essa distancia de voce
+	Cruise = 150,       -- velocidade de cruzeiro quando o chao esta livre
+	AccelMul = 1.8,     -- multiplicador de aceleracao do piloto automatico
+	Look = 80,          -- ate onde o carro "enxerga" pra calcular a rota limpa
+	DetourMax = 160,    -- desvio maximo (graus) aceito pra contornar obstaculos
+	GiveUp = 60,        -- segundos ate desistir
+}
 Config.UserTweaks = {
 	SeatHeight = 1.35,
 	TopSpeed = 230,
@@ -280,6 +312,575 @@ local function playSound(id, vol, pitch)
 		snd = s
 	end)
 	return snd
+end
+function Config.Damage.speedMul(c)
+	local D = Config.Damage
+	if not D.Enabled then return 1 end
+	local k = math.clamp(((c.dmg or 0) - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	return 1 - D.TopLoss * k
+end
+function Config.Damage.smoke(c)
+	local D = Config.Damage
+	local d = c.dmg or 0
+	if not (c.root and c.root.Parent) then return end
+	if d < D.SmokeAt then
+		if c.dmgSmoke and c.dmgSmoke.Parent then c.dmgSmoke.Rate = 0 end
+		return
+	end
+	local pe = c.dmgSmoke
+	if not (pe and pe.Parent) then
+		local at = Instance.new("Attachment")
+		at.Name = "DamageSmoke"
+		at.Position = Vector3.new(0, 3.7 * S, -5.2 * S)
+		at.Parent = c.root
+		pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Lifetime = NumberRange.new(1.2, 2.2)
+		pe.Speed = NumberRange.new(5, 9)
+		pe.SpreadAngle = Vector2.new(12, 12)
+		pe.Acceleration = Vector3.new(0, 5, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-30, 30)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2 * S), NumberSequenceKeypoint.new(1, 4.5 * S) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(0.7, 0.7), NumberSequenceKeypoint.new(1, 1) })
+		pe.Parent = at
+		c.dmgSmoke = pe
+	end
+	local k = math.clamp((d - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	pe.Rate = 5 + 30 * k
+	local g = math.floor(190 - 150 * k)
+	pe.Color = ColorSequence.new(Color3.fromRGB(g, g, g))
+end
+-- retorna true se a batida foi forte o bastante pra causar dano
+function Config.Damage.hit(c, imp, point, nrm)
+	local D = Config.Damage
+	if not D.Enabled or c.cine or imp < D.MinSpeed then return false end
+	local now = os.clock()
+	if now - (c.dmgT or 0) < D.Cooldown then return false end
+	c.dmgT = now
+	local sev = math.clamp((imp - D.MinSpeed) / math.max(D.FatalSpeed - D.MinSpeed, 1), 0, 1)
+	local base = 100 * sev ^ D.Curve
+	if D.Vital and point and c.root and c.root.Parent then
+		pcall(D.vitalHit, c, c.root.CFrame:PointToObjectSpace(point), base, sev)
+		c.dmg = math.min(100, c.dmg or 0)
+	else
+		c.dmg = math.min(100, (c.dmg or 0) + base)
+	end
+	c.shakeA = math.max(c.shakeA or 0, 0.4 + 1.6 * sev)
+	playSound(Config.SoundLand, 0.7 + 0.5 * sev, 0.75 - 0.25 * sev)
+	playSound("rbxasset://sounds/impact_explosion_03.mp3", 0.15 + 0.5 * sev, 1.5 - 0.5 * sev)
+	pcall(function()
+		local at = Instance.new("Attachment")
+		at.Parent = workspace.Terrain
+		if nrm and nrm.Magnitude > 0.01 then
+			at.WorldCFrame = CFrame.lookAt(point, point + nrm) * CFrame.Angles(-math.pi / 2, 0, 0)
+		else
+			at.WorldPosition = point
+		end
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+		pe.LightEmission = 1
+		pe.Lifetime = NumberRange.new(0.25, 0.6)
+		pe.Speed = NumberRange.new(15, 45)
+		pe.SpreadAngle = Vector2.new(60, 60)
+		pe.Acceleration = Vector3.new(0, -70, 0)
+		pe.Size = NumberSequence.new(0.35 * S, 0)
+		pe.Rate = 0
+		pe.Parent = at
+		pe:Emit(math.floor(10 + 30 * sev))
+		Debris:AddItem(at, 1.5)
+	end)
+	if D.Dents then pcall(D.dent, c, point, nrm, sev) end
+	if D.Break then task.delay(0.05, function() pcall(D.loose, c, point, nrm, sev) end) end
+	if c.dmg >= D.DeadAt then
+		c.engineOn = false
+		c.throttle = 0
+	end
+	Config.Damage.smoke(c)
+	return true
+end
+Config.Damage.Panels = {
+	Body = true, Side = true, Door = true, ArchUp = true, ArchSkin = true, ArchSkinWedge = true, SideEndWedge = true,
+	BackDeckWedge = true, DoorArchWedge = true, FlareSkin = true, DoorSkin = true, ShoulderRidge = true, LowerBead = true,
+	Cowl = true, TrunkDeck = true, FrontLip = true, FrontLipFill = true, Bumper = true, BumperTopRoll = true,
+	BumperLowRoll = true, TailPanel = true, ExhLip = true,
+}
+function Config.Damage.isPanel(nm)
+	if Config.Damage.Panels[nm] then return true end
+	return (nm:find("^SideCap") or nm:find("^BodyCap") or nm:find("^ArchUpCap") or nm:find("^ArchSkinCap")
+		or nm:find("^RBumper") or nm:find("^BumperEnd") or nm:find("^Grille") or nm:find("^Hood") or nm:find("^Valance")) ~= nil
+end
+-- lista as chapas que podem amassar (só as presas direto no carro ou no capô)
+function Config.Damage.collect(c)
+	if c.dents then return c.dents end
+	local list = {}
+	c.dents = list
+	pcall(function()
+		for _, p in ipairs(c.model:GetDescendants()) do
+			if p:IsA("BasePart") and p ~= c.root and p.Name ~= "HoodRoot" and Config.Damage.isPanel(p.Name) then
+				local w = p:FindFirstChildOfClass("Weld")
+				local base = w and w.Part0
+				if w and w.Part1 == p and base and (base == c.root or base.Name == "HoodRoot") then
+					local zp = c.root.CFrame:PointToObjectSpace((base.CFrame * w.C0).Position)
+					local zx, zz = zp.X / S, zp.Z / S
+					local row = (zz < -7.6 and 1) or (zz < -3.3 and 2) or (zz < 4.2 and 3) or (zz < 8.0 and 4) or 5
+					local col = (zx < -1.9 and 1) or (zx > 1.9 and 3) or 2
+					list[#list + 1] = { p = p, w = w, base = base, c0 = w.C0, col0 = p.Color, off = Vector3.zero, rot = Vector3.zero, zone = (row - 1) * 3 + col }
+				end
+			end
+		end
+	end)
+	return list
+end
+function Config.Damage.setDent(d, off, rot)
+	d.off, d.rot = off, rot
+	local pos = d.c0.Position
+	d.w.C0 = CFrame.new(pos + off) * CFrame.Angles(rot.X, rot.Y, rot.Z) * (d.c0 - pos)
+end
+-- empurra as chapas perto do impacto pra dentro do carro (n = normal da parede apontando pro carro)
+function Config.Damage.dent(c, point, nrm, sev)
+	local D = Config.Damage
+	if not (D.Dents and nrm and c.root and c.root.Parent) then return end
+	local list = D.collect(c)
+	local rc = c.root.CFrame
+	local lp = rc:PointToObjectSpace(point)
+	local nL = rc:VectorToObjectSpace(nrm)
+	nL = Vector3.new(nL.X, 0, nL.Z)
+	if nL.Magnitude < 0.01 then return end
+	nL = nL.Unit
+	local depth = (0.3 + 2.2 * sev) * S
+	local radius = (2.6 + 4.2 * sev) * S
+	local maxOff = 3.4 * S
+	local rng = Random.new()
+	for _, d in ipairs(list) do
+		if d.p.Parent and d.base.Parent then
+			local ctr = rc:PointToObjectSpace((d.base.CFrame * d.c0).Position)
+			local dist = (ctr - lp).Magnitude
+			if dist < radius then
+				local f = 1 - (dist / radius) ^ 2
+				local vBase = d.base.CFrame:VectorToObjectSpace(rc:VectorToWorldSpace(nL * depth * f))
+				local off = d.off + vBase
+				if off.Magnitude > maxOff then off = off.Unit * maxOff end
+				local k = 0.16 * sev * f
+				local rot = d.rot + Vector3.new(rng:NextNumber(-k, k), rng:NextNumber(-k, k), rng:NextNumber(-k, k))
+				D.setDent(d, off, rot)
+				d.p.Color = d.p.Color:Lerp(Color3.fromRGB(58, 58, 64), 0.25 * f * (0.4 + sev))
+			end
+		end
+	end
+end
+function Config.Damage.dentCount(c)
+	local n = 0
+	for _, d in ipairs(c.dents or {}) do
+		if d.off.Magnitude > 0.001 or d.rot.Magnitude > 0.001 then n = n + 1 end
+	end
+	for _, e in ipairs(c.loose or {}) do
+		if e.gone or e.hp < e.hp0 then n = n + 1 end
+	end
+	return n
+end
+-- desamassa chapas perto do ponto lp (espaço local do carro); devolve quantas foram mexidas
+function Config.Damage.fix(c, lp, radius, amt)
+	local D = Config.Damage
+	if not ((c.dents or c.loose) and c.root and c.root.Parent) then return 0 end
+	local rc = c.root.CFrame
+	local n = pcall(D.restore, c, lp, radius * 1.4, amt) and (c.restoredN or 0) or 0
+	for _, d in ipairs(c.dents or {}) do
+		if d.p.Parent and d.base.Parent and (d.off.Magnitude > 0.001 or d.rot.Magnitude > 0.001) then
+			local dist = (rc:PointToObjectSpace((d.base.CFrame * d.c0).Position) - lp).Magnitude
+			if dist < radius then
+				local f = 1 - dist / radius
+				local k = 1 - math.clamp(amt * (0.5 + f), 0, 1)
+				local off, rot = d.off * k, d.rot * k
+				if off.Magnitude < 0.02 * S and rot.Magnitude < 0.01 then
+					off, rot = Vector3.zero, Vector3.zero
+					d.p.Color = d.col0
+				else
+					d.p.Color = d.p.Color:Lerp(d.col0, 0.5)
+				end
+				D.setDent(d, off, rot)
+				n = n + 1
+			end
+		end
+	end
+	return n
+end
+Config.Damage.Loose = {
+	HeadLens = { hp = 0.6, glass = true }, HeadBezel = { hp = 1.2 }, HeadCup = { hp = 2.0 },
+	HeadReflector = { hp = 2.0 }, HeadReflectorStep = { hp = 2.0 }, HeadBulb = { hp = 1.6 },
+	AmberLamp = { hp = 0.6, glass = true }, AmberRing = { hp = 1.2 },
+	MarkF = { hp = 0.7, glass = true }, MarkR = { hp = 0.7, glass = true },
+	FenderBadge = { hp = 0.8 }, GrilleBadge = { hp = 0.8 },
+	MirrorGlass = { hp = 0.6, glass = true }, MirrorHead = { hp = 1.2 }, MirrorArm = { hp = 1.8 },
+	TailLens = { hp = 0.7, glass = true }, TailLensLow = { hp = 0.7, glass = true },
+	TailLensEdge = { hp = 0.5 }, TailRib = { hp = 0.5 }, TailLowTrim = { hp = 0.9 },
+	TailFrameTop = { hp = 1.4 }, TailFrameBot = { hp = 1.4 }, TailFrameEnd = { hp = 1.4 },
+	RevLamp = { hp = 0.7, glass = true },
+	Plate = { hp = 1.0 }, PlateBack = { hp = 1.0 }, PlatePanel = { hp = 1.4 }, ExhTip = { hp = 2.6 },
+	Windshield = { hp = 3.4, glass = true }, RearGlass = { hp = 3.4, glass = true }, QuarterGlass = { hp = 3.0, glass = true },
+}
+function Config.Damage.collectLoose(c)
+	if c.loose then return c.loose end
+	local D = Config.Damage
+	local list = {}
+	c.loose = list
+	pcall(function()
+		for _, p in ipairs(c.model:GetDescendants()) do
+			if p:IsA("BasePart") and p ~= c.root then
+				local spec = D.Loose[(p.Name:gsub("%d+$", ""))]
+				local w = spec and p:FindFirstChildOfClass("Weld")
+				if w and w.Part1 == p and w.Part0 == c.root then
+					local e = {
+						p = p, w = w, c0 = w.C0, hp = spec.hp, hp0 = spec.hp, glass = spec.glass == true,
+						off = Vector3.zero, rot = Vector3.zero, col0 = p.Color, mat0 = p.Material, tr0 = p.Transparency,
+					}
+					for _, L in ipairs({ c.lens, c.tails, c.revs, c.glow }) do
+						if table.find(L, p) then e.list = L end
+					end
+					if p.Name == "HeadLens" and math.abs(math.abs(w.C0.X) / S - 2.34) < 0.1 then
+						for _, l in ipairs(c.lampList or {}) do
+							local em = l.light and l.light.Parent
+							if em and em:IsA("BasePart") and c.root.CFrame:PointToObjectSpace(em.Position).X * w.C0.X > 0 then
+								e.lamp = l
+							end
+						end
+					end
+					list[#list + 1] = e
+				end
+			end
+		end
+	end)
+	return list
+end
+function Config.Damage.shards(wp, col, size, vel)
+	local rng = Random.new()
+	local n = math.clamp(math.floor(size.Magnitude / S * 2) + 3, 3, 8)
+	for _ = 1, n do
+		local s = Instance.new("Part")
+		local k = rng:NextNumber(0.5, 1.4)
+		s.Size = Vector3.new(0.24 * k, 0.03, 0.18 * k) * S
+		s.Color = col
+		s.Material = Enum.Material.Glass
+		s.Transparency = 0.25
+		s.CanTouch = false
+		s.CanQuery = false
+		s.CastShadow = false
+		local sp = size * 0.35
+		s.CFrame = CFrame.new(wp + Vector3.new(rng:NextNumber(-1, 1) * sp.X, rng:NextNumber(-1, 1) * sp.Y, rng:NextNumber(-1, 1) * sp.Z))
+			* CFrame.Angles(rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28))
+		s.Parent = workspace
+		s.AssemblyLinearVelocity = (vel or Vector3.zero) * 0.25 + Vector3.new(rng:NextNumber(-12, 12), rng:NextNumber(6, 18), rng:NextNumber(-12, 12))
+		s.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-12, 12), rng:NextNumber(-12, 12), rng:NextNumber(-12, 12))
+		Debris:AddItem(s, 5)
+	end
+end
+function Config.Damage.breakOff(c, e, nrm, sev)
+	local D = Config.Damage
+	local p = e.p
+	if e.gone or not p.Parent then return end
+	e.gone = true
+	if e.list then
+		local i = table.find(e.list, p)
+		if i then table.remove(e.list, i) end
+	end
+	if e.lamp then
+		e.lamp.broken = true
+		pcall(function()
+			e.lamp.light.Enabled = false
+			e.lamp.light.Parent:SetAttribute("Broken", true)
+		end)
+	end
+	local rc = c.root.CFrame
+	if e.glass then
+		D.shards(p.Position, e.col0, p.Size, c.vel)
+		p.Parent = nil
+		return
+	end
+	local rng = Random.new()
+	local side = e.c0.X > 0.3 * S and 1 or (e.c0.X < -0.3 * S and -1 or (rng:NextNumber() < 0.5 and -1 or 1))
+	e.w.Enabled = false
+	p.Parent = workspace
+	p.Anchored = false
+	p.CanCollide = true
+	p.CanTouch = false
+	p.Massless = false
+	p.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.7, 0.25)
+	local v = (c.vel or Vector3.zero) * 0.3 + rc.RightVector * side * (6 + 10 * sev) + Vector3.new(0, 16 + 14 * sev, 0)
+		+ (nrm or Vector3.zero) * (3 + 6 * sev) + Vector3.new(rng:NextNumber(-3, 3), 0, rng:NextNumber(-3, 3))
+	p.AssemblyLinearVelocity = v
+	p.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-10, 10), rng:NextNumber(-10, 10), rng:NextNumber(-10, 10))
+	task.delay(120, function()
+		if e.gone and p.Parent == workspace then p:Destroy() end
+	end)
+end
+function Config.Damage.loose(c, point, nrm, sev)
+	local D = Config.Damage
+	if not (D.Break and nrm and c.root and c.root.Parent) then return end
+	local list = D.collectLoose(c)
+	local rc = c.root.CFrame
+	local lp = rc:PointToObjectSpace(point)
+	local nL = rc:VectorToObjectSpace(nrm)
+	nL = Vector3.new(nL.X, 0, nL.Z)
+	if nL.Magnitude < 0.01 then return end
+	nL = nL.Unit
+	local radius = (3.6 + 4.6 * sev) * S
+	local rng = Random.new()
+	for _, e in ipairs(list) do
+		if not e.gone and e.p.Parent then
+			local q = e.c0.Position - lp
+			local dist = Vector3.new(q.X, q.Y * 0.5, q.Z).Magnitude
+			if dist < radius then
+				local f = 1 - (dist / radius) ^ 2
+				e.hp = e.hp - (0.5 + 2.6 * sev) * f
+				if e.hp <= 0 then
+					D.breakOff(c, e, nrm, sev)
+				elseif not e.glass then
+					local off = e.off + nL * (0.15 + 0.7 * sev) * f * S
+					if off.Magnitude > 1.2 * S then off = off.Unit * 1.2 * S end
+					local k = (0.1 + 0.5 * (1 - e.hp / e.hp0)) * f
+					D.setDent(e, off, e.rot + Vector3.new(rng:NextNumber(-k, k), rng:NextNumber(-k, k), rng:NextNumber(-k, k)))
+					if not e.list then
+						e.p.Color = e.p.Color:Lerp(Color3.fromRGB(50, 50, 55), 0.2 * f)
+					end
+				end
+			end
+		end
+	end
+end
+function Config.Damage.restore(c, lp, radius, amt)
+	local D = Config.Damage
+	c.restoredN = 0
+	if not (c.loose and c.model and c.model.Parent) then return end
+	local cand = {}
+	for _, e in ipairs(c.loose) do
+		local q = e.c0.Position - lp
+		local dist = Vector3.new(q.X, q.Y * 0.5, q.Z).Magnitude
+		if dist < radius then
+			if e.gone then
+				if e.glass or e.p.Parent == workspace then cand[#cand + 1] = { e = e, d = dist } end
+			elseif e.hp < e.hp0 or e.off.Magnitude > 0.001 or e.rot.Magnitude > 0.001 then
+				local k = 1 - math.clamp(amt * 1.5, 0, 1)
+				local off, rot = e.off * k, e.rot * k
+				if off.Magnitude < 0.02 * S and rot.Magnitude < 0.01 then
+					off, rot = Vector3.zero, Vector3.zero
+					e.hp = e.hp0
+					if not e.list then e.p.Color = e.col0 end
+				end
+				D.setDent(e, off, rot)
+				c.restoredN = c.restoredN + 1
+			end
+		end
+	end
+	table.sort(cand, function(a, b) return a.d < b.d end)
+	for i = 1, math.min(#cand, 2) do
+		local e = cand[i].e
+		local p = e.p
+		p.AssemblyLinearVelocity = Vector3.zero
+		p.AssemblyAngularVelocity = Vector3.zero
+		p.CanCollide = false
+		p.Massless = true
+		p.CustomPhysicalProperties = nil
+		p.Color = e.col0
+		p.Material = e.mat0
+		p.Transparency = e.tr0
+		p.Parent = c.model
+		e.w.Enabled = true
+		e.gone = false
+		e.hp = e.hp0
+		D.setDent(e, Vector3.zero, Vector3.zero)
+		if e.list then e.list[#e.list + 1] = p end
+		if e.lamp then
+			e.lamp.broken = false
+			pcall(function() e.lamp.light.Parent:SetAttribute("Broken", nil) end)
+		end
+		c.tailState = nil
+		c.revState = nil
+		c.restoredN = c.restoredN + 1
+	end
+end
+Config.Damage.Vitals = {
+	{ id = "motor", name = "Motor", x = 0, z = -5.3, w = 1.0, hood = true },
+	{ id = "rad", name = "Radiador", x = 0, z = -9.2, w = 1.5, hood = true },
+	{ id = "bat", name = "Bateria", x = 1.57, z = -8.4, w = 1.0, hood = true },
+	{ id = "dir", name = "Direcao", x = -0.9, z = -7.0, w = 0.9, hood = true },
+	{ id = "tank", name = "Tanque", x = 0, z = 7.0, w = 1.2 },
+}
+function Config.Damage.vd(c)
+	if not c.vd then c.vd = { rad = 0, bat = 0, dir = 0, tank = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0 } end
+	return c.vd
+end
+function Config.Damage.vval(c, id)
+	if id == "motor" then return c.dmg or 0 end
+	return Config.Damage.vd(c)[id] or 0
+end
+function Config.Damage.vset(c, id, v)
+	v = math.clamp(v, 0, 100)
+	if id == "motor" then c.dmg = v else Config.Damage.vd(c)[id] = v end
+end
+function Config.Damage.points(c)
+	if c.vpts then return c.vpts end
+	local list = {}
+	for _, v in ipairs(Config.Damage.Vitals) do
+		list[#list + 1] = { id = v.id, name = v.name, x = v.x, z = v.z, w = v.w, hood = v.hood }
+	end
+	for i, w in ipairs(c.wheels or {}) do
+		local x, z = w.base.Position.X / S, w.base.Position.Z / S
+		list[#list + 1] = { id = "t" .. i, name = (z < 0 and "Pneu diant." or "Pneu tras.") .. (x < 0 and " esq." or " dir."), x = x, z = z, w = 1.6, tire = true, idx = i }
+	end
+	c.vpts = list
+	return list
+end
+function Config.Damage.worstNear(c, tp, maxd)
+	local best, bv = nil, 0
+	for _, p in ipairs(Config.Damage.points(c)) do
+		local v = Config.Damage.vval(c, p.id)
+		local dx, dz = p.x * S - tp.X, p.z * S - tp.Z
+		if v > bv and math.sqrt(dx * dx + dz * dz) <= maxd then best, bv = p, v end
+	end
+	return best
+end
+function Config.Damage.noStart(c)
+	local vd = c.vd
+	return vd ~= nil and (vd.bat >= 100 or (c.fuelLvl or 1) <= 0)
+end
+function Config.Damage.vitalHit(c, lp, base, sev)
+	local D = Config.Damage
+	local R = (6 + 7 * sev) * S
+	for _, p in ipairs(D.points(c)) do
+		local dx, dz = lp.X - p.x * S, lp.Z - p.z * S
+		local f = math.max(0, 1 - (math.sqrt(dx * dx + dz * dz) / R) ^ 2)
+		local add = base * p.w * f * D.VitalMul
+		if p.id == "motor" then add = add + base * 0.12 end
+		if add > 0 then
+			D.vset(c, p.id, D.vval(c, p.id) + add)
+			if p.id == "dir" and add > 1 and not c.pullDir then c.pullDir = math.random() < 0.5 and -1 or 1 end
+		end
+	end
+end
+function Config.Damage.emitter(c, key, pos, build)
+	local pe = c[key]
+	if pe and pe.Parent then return pe end
+	local at = Instance.new("Attachment")
+	at.Position = pos
+	at.Parent = c.root
+	pe = Instance.new("ParticleEmitter")
+	build(pe)
+	pe.Rate = 0
+	pe.Parent = at
+	c[key] = pe
+	return pe
+end
+function Config.Damage.vitalStep(c, dt)
+	local D = Config.Damage
+	if not (D.Enabled and D.Vital and c.root and c.root.Parent) then return end
+	local vd = D.vd(c)
+	local mot = c.dmg or 0
+	local flats, slow, pull, tp, tr = 0, 0, 0, 0, 0
+	for i, w in ipairs(c.wheels) do
+		local t = vd["t" .. i] or 0
+		local bx, bz = w.base.Position.X, w.base.Position.Z
+		if t >= 100 then
+			flats = flats + 1
+			pull = pull + (bx < 0 and 1 or -1)
+			tp = tp + (bz < 0 and -0.035 or 0.035)
+			tr = tr + (bx < 0 and 0.05 or -0.05)
+			if math.abs(c.vF or 0) > 20 and c.cf then
+				w.spk = (w.spk or 0) - dt
+				if w.spk <= 0 then
+					w.spk = 0.12
+					D.sparks(c.cf:PointToWorldSpace(w.base.Position) - Vector3.new(0, 1.1 * S, 0), nil, 2)
+				end
+			end
+		elseif t >= 50 then
+			slow = slow + 1
+		end
+	end
+	c.flats = flats
+	local k = math.min(1, dt * 6)
+	c.leanP = (c.leanP or 0) + (math.clamp(tp, -0.07, 0.07) - (c.leanP or 0)) * k
+	c.leanR = (c.leanR or 0) + (math.clamp(tr, -0.07, 0.07) - (c.leanR or 0)) * k
+	if flats > 0 and math.abs(c.vF or 0) > 20 then
+		c.shakeA = math.max(c.shakeA or 0, 0.25 + 0.25 * math.clamp(math.abs(c.vF) / 200, 0, 1))
+	end
+	local dirK = vd.dir / 100
+	c.vSteer = 1 - 0.55 * dirK
+	c.vPull = (c.pullDir or 1) * 0.3 * dirK + pull * 0.1
+	c.vGrip = math.clamp(1 - 0.15 * slow - 0.25 * flats, 0.35, 1)
+	c.vTop = math.max(0.4, 1 - 0.2 * flats - 0.06 * slow)
+	c.vAcc = 1 - 0.5 * math.clamp((mot - D.SmokeAt) / math.max(D.DeadAt - D.SmokeAt, 1), 0, 1)
+	local radK = vd.rad / 100
+	if radK >= 0.2 and c.engineOn then
+		c.engTemp = math.min(100, (c.engTemp or 0) + radK * (0.35 + 0.65 * (c.throttle or 0)) * 9 * dt)
+	else
+		c.engTemp = math.max(0, (c.engTemp or 0) - 5 * dt)
+	end
+	if c.engTemp > 70 and c.engineOn then
+		c.dmg = math.min(100, mot + (c.engTemp - 70) / 30 * 2.5 * dt)
+	end
+	local tankK = vd.tank / 100
+	if tankK >= 0.6 and c.engineOn then
+		c.fuelLvl = math.max(0, (c.fuelLvl or 1) - dt * (0.02 + 0.06 * (tankK - 0.6) / 0.4))
+	end
+	if c.engineOn and ((c.dmg or 0) >= D.DeadAt or (c.fuelLvl or 1) <= 0) then
+		c.engineOn = false
+		c.throttle = 0
+	end
+	if vd.bat >= 100 then c.lamps = false end
+	local steam = D.emitter(c, "vSteam", Vector3.new(0, 3.4 * S, -8.6 * S), function(pe)
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(235, 240, 245))
+		pe.Lifetime = NumberRange.new(0.8, 1.4)
+		pe.Speed = NumberRange.new(6, 12)
+		pe.SpreadAngle = Vector2.new(20, 20)
+		pe.Acceleration = Vector3.new(0, 8, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8 * S), NumberSequenceKeypoint.new(1, 3 * S) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1) })
+		pe.LightEmission = 0.2
+	end)
+	local sr = radK >= 0.2 and math.floor(6 + 40 * radK + 0.5) or 0
+	if steam.Rate ~= sr then steam.Rate = sr end
+	local leak = D.emitter(c, "vLeak", Vector3.new(0, 1.0 * S, 7 * S), function(pe)
+		pe.Color = ColorSequence.new(Color3.fromRGB(70, 52, 22))
+		pe.Lifetime = NumberRange.new(0.5, 0.8)
+		pe.Speed = NumberRange.new(2, 6)
+		pe.SpreadAngle = Vector2.new(40, 40)
+		pe.Acceleration = Vector3.new(0, -60, 0)
+		pe.Size = NumberSequence.new(0.25 * S)
+		pe.Transparency = NumberSequence.new(0.15)
+	end)
+	local lr = (tankK >= 0.3 and (c.fuelLvl or 1) > 0) and math.floor(6 + 24 * tankK + 0.5) or 0
+	if leak.Rate ~= lr then leak.Rate = lr end
+	c.smokeT = (c.smokeT or 0) - dt
+	if c.smokeT <= 0 then
+		c.smokeT = 0.5
+		D.smoke(c)
+	end
+end
+function Config.Damage.sparks(point, nrm, count)
+	pcall(function()
+		local at = Instance.new("Attachment")
+		at.Parent = workspace.Terrain
+		if nrm and nrm.Magnitude > 0.01 then
+			at.WorldCFrame = CFrame.lookAt(point, point + nrm) * CFrame.Angles(-math.pi / 2, 0, 0)
+		else
+			at.WorldPosition = point
+		end
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80))
+		pe.LightEmission = 1
+		pe.Lifetime = NumberRange.new(0.25, 0.6)
+		pe.Speed = NumberRange.new(10, 30)
+		pe.SpreadAngle = Vector2.new(70, 70)
+		pe.Acceleration = Vector3.new(0, -60, 0)
+		pe.Size = NumberSequence.new(0.3 * S, 0)
+		pe.Rate = 0
+		pe.Parent = at
+		pe:Emit(count or 12)
+		Debris:AddItem(at, 1.5)
+	end)
 end
 local cabinGrp, cabinEQ = nil, nil
 local function cabinGet()
@@ -2124,10 +2725,1167 @@ function HOOD.step(c, dt)
 	c.hoodA = cur
 	c.hoodW.C0 = HOOD.hinge * CFrame.Angles(cur, 0, 0) * HOOD.hingeInv
 end
+do
+	local T = {
+		open = math.rad(70),
+		box = { loc = "trunk", tool = nil, have = { ["Martelo"] = true, ["Chave inglesa"] = true, ["Chave de fenda"] = true } },
+		order = { "Martelo", "Chave inglesa", "Chave de fenda" },
+	}
+	HOOD.T = T
+	T.hinge = CFrame.new(0, 3.9 * S, 6.12 * S)
+	T.hingeInv = T.hinge:Inverse()
+	local CF, V3 = CFrame.new, Vector3.new
+	local RED = Color3.fromRGB(196, 32, 36)
+	local DRED = Color3.fromRGB(150, 22, 26)
+	local STEEL = Color3.fromRGB(190, 194, 202)
+	local DK = Color3.fromRGB(22, 22, 26)
+	local WOOD = Color3.fromRGB(150, 102, 58)
+	local YEL = Color3.fromRGB(238, 190, 30)
+	local MT = Enum.Material.Metal
+	local PL = Enum.Material.SmoothPlastic
+	local WD = Enum.Material.Wood
+	local function sp(nm, sx, sy, sz, off, col, mat)
+		return { nm = nm, size = V3(sx, sy, sz), off = off, col = col, mat = mat }
+	end
+	T.LIFT = CF(0, -0.10, 0)
+	T.OPEN = math.rad(108)
+	T.HING = CF(0, 0.265, -0.44)
+	T.HINGINV = T.HING:Inverse()
+	do
+		local function build()
+			local CHR = Color3.fromRGB(216, 219, 226)
+			local RUB = Color3.fromRGB(26, 26, 30)
+			local ORG = Color3.fromRGB(232, 112, 28)
+			local MSTL = Color3.fromRGB(104, 108, 117)
+			local AZ = CFrame.Angles(0, math.rad(90), 0)
+			local AY = CFrame.Angles(0, 0, math.rad(90))
+			local function bl(nm, sx, sy, sz, off, col, mat, tr)
+				return { nm = nm, size = V3(sx, sy, sz), off = off, col = col, mat = mat, tr = tr }
+			end
+			local function cyl(nm, len, dia, off, col, mat)
+				return { nm = nm, size = V3(len, dia, dia), off = off, col = col, mat = mat, shape = Enum.PartType.Cylinder }
+			end
+			local function ball(nm, d, off, col, mat)
+				return { nm = nm, size = V3(d, d, d), off = off, col = col, mat = mat, shape = Enum.PartType.Ball }
+			end
+			local function seg(nm, p1, p2, dia, col, mat)
+				-- cilindro ligando dois pontos 3D
+				local d = p2 - p1
+				local len = d.Magnitude
+				d = d.Unit
+				local z = d:Cross(V3(0, 1, 0)).Unit
+				local y = z:Cross(d)
+				return cyl(nm, len + dia * 0.4, dia, CFrame.fromMatrix((p1 + p2) / 2, d, y, z), col, mat)
+			end
+			local body, lid = {}, {}
+			local function add(l, s) l[#l + 1] = s end
+			-- corpo: bandeja com cantos arredondados e borda enrolada
+			add(body, bl("Floor", 1.8, 0.05, 0.74, CF(0, -0.225, 0), RED, MT))
+			add(body, bl("FloorW", 1.68, 0.049, 0.86, CF(0, -0.2255, 0), RED, MT))
+			add(body, bl("Lining", 1.7, 0.02, 0.76, CF(0, -0.2, 0), DK, PL))
+			add(body, bl("WallF", 1.68, 0.45, 0.05, CF(0, 0.025, 0.405), RED, MT))
+			add(body, bl("WallB", 1.68, 0.45, 0.05, CF(0, 0.025, -0.405), RED, MT))
+			add(body, bl("WallL", 0.05, 0.45, 0.74, CF(-0.875, 0.025, 0), RED, MT))
+			add(body, bl("WallR", 0.05, 0.45, 0.74, CF(0.875, 0.025, 0), RED, MT))
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					add(body, cyl("Corner", 0.5, 0.12, CF(sx * 0.84, 0, sz * 0.37) * AY, RED, MT))
+					add(body, ball("CornerCap", 0.13, CF(sx * 0.84, 0.245, sz * 0.37), CHR, MT))
+					add(body, ball("CornerFoot", 0.13, CF(sx * 0.84, -0.245, sz * 0.37), RUB, PL))
+				end
+				add(body, cyl("RimSide", 0.74, 0.07, CF(sx * 0.87, 0.25, 0) * AZ, CHR, MT))
+				add(body, cyl("Hinge", 0.22, 0.07, CF(sx * 0.5, 0.265, -0.44), CHR, MT))
+				add(body, bl("LatchPlate", 0.2, 0.1, 0.02, CF(sx * 0.55, 0.15, 0.44), CHR, MT))
+				add(body, ball("LatchPin", 0.05, CF(sx * 0.55, 0.215, 0.45), MSTL, MT))
+			end
+			for _, sz in ipairs({ -1, 1 }) do
+				add(body, cyl("RimFront", 1.68, 0.07, CF(0, 0.25, sz * 0.4), CHR, MT))
+			end
+			add(body, bl("Badge", 0.3, 0.1, 0.015, CF(0, 0.02, 0.4375), CHR, MT))
+			add(body, bl("BadgeIn", 0.26, 0.06, 0.02, CF(0, 0.02, 0.4385), DK, PL))
+			-- tampa (gira na dobradiça)
+			add(lid, bl("LidTop", 1.8, 0.04, 0.74, CF(0, 0.43, 0), DRED, MT))
+			add(lid, bl("LidTopW", 1.68, 0.039, 0.86, CF(0, 0.4305, 0), DRED, MT))
+			add(lid, bl("LidSkirtF", 1.68, 0.165, 0.04, CF(0, 0.3675, 0.41), DRED, MT))
+			add(lid, bl("LidSkirtB", 1.68, 0.165, 0.04, CF(0, 0.3675, -0.41), DRED, MT))
+			add(lid, bl("LidSkirtL", 0.04, 0.165, 0.74, CF(-0.88, 0.3675, 0), DRED, MT))
+			add(lid, bl("LidSkirtR", 0.04, 0.165, 0.74, CF(0.88, 0.3675, 0), DRED, MT))
+			add(lid, bl("LidLiner", 1.64, 0.02, 0.7, CF(0, 0.4, 0), DK, PL))
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					add(lid, cyl("LidCorner", 0.165, 0.12, CF(sx * 0.84, 0.3675, sz * 0.37) * AY, DRED, MT))
+					add(lid, ball("LidCap", 0.12, CF(sx * 0.84, 0.39, sz * 0.37), DRED, MT))
+				end
+				add(lid, cyl("LidRimSide", 0.74, 0.08, CF(sx * 0.86, 0.41, 0) * AZ, DRED, MT))
+				add(lid, cyl("HandlePost", 0.09, 0.05, CF(sx * 0.32, 0.495, 0) * AY, STEEL, MT))
+				add(lid, ball("GripEnd", 0.075, CF(sx * 0.4, 0.53, 0), RUB, PL))
+				add(lid, bl("LatchTab", 0.14, 0.14, 0.02, CF(sx * 0.55, 0.29, 0.44), CHR, MT))
+			end
+			for _, sz in ipairs({ -1, 1 }) do
+				add(lid, cyl("LidRimFront", 1.68, 0.08, CF(0, 0.41, sz * 0.39), DRED, MT))
+			end
+			add(lid, cyl("Grip", 0.8, 0.075, CF(0, 0.53, 0), RUB, PL))
+			for _, s in ipairs(lid) do s.lid = true end
+			T.boxBody, T.boxLid, T.boxClosed = body, lid, {}
+			for _, s in ipairs(body) do T.boxClosed[#T.boxClosed + 1] = s end
+			for _, s in ipairs(lid) do T.boxClosed[#T.boxClosed + 1] = s end
+
+			-- martelo de unha: cabo, cabeça com face e garra bipartida curva
+			local hammer = {
+				bl("Handle", 0.1, 0.1, 0.3, CF(), WOOD, WD, 1),
+				cyl("Shaft", 0.82, 0.085, CF(0, 0, 0.01) * AZ, WOOD, WD),
+				cyl("Grip", 0.3, 0.11, CF(0, 0, 0.22) * AZ, RUB, PL),
+				ball("GripCap", 0.12, CF(0, 0, 0.37), RUB, PL),
+				cyl("GripTop", 0.02, 0.118, CF(0, 0, 0.07) * AZ, STEEL, MT),
+				cyl("Collar", 0.06, 0.105, CF(0, 0, -0.355) * AZ, STEEL, MT),
+				cyl("Cheek", 0.15, 0.13, CF(0, 0, -0.4), STEEL, MT),
+				cyl("Neck", 0.08, 0.11, CF(0.115, 0, -0.4), STEEL, MT),
+				cyl("Poll", 0.09, 0.125, CF(0.2, 0, -0.4), STEEL, MT),
+				cyl("Face", 0.02, 0.13, CF(0.255, 0, -0.4), CHR, MT),
+			}
+			do
+				local path = {
+					{ -0.085, -0.4, 0.075, 0.022 },
+					{ -0.17, -0.404, 0.066, 0.027 },
+					{ -0.24, -0.388, 0.056, 0.033 },
+					{ -0.292, -0.35, 0.046, 0.04 },
+					{ -0.318, -0.3, 0.036, 0.046 },
+				}
+				for _, sy in ipairs({ -1, 1 }) do
+					for i = 1, #path do
+						local p = path[i]
+						local pt = V3(p[1], sy * p[4], p[2])
+						hammer[#hammer + 1] = ball("ClawJoint", p[3], CF(pt), STEEL, MT)
+						if i < #path then
+							local q = path[i + 1]
+							hammer[#hammer + 1] = seg("Claw", pt, V3(q[1], sy * q[4], q[2]), (p[3] + q[3]) / 2, STEEL, MT)
+						end
+					end
+				end
+			end
+			-- chave inglesa (ajustável): silhueta chapada feita de cunhas (triângulos), bordas arredondadas por cilindros,
+			-- cabo afunilado com painel e furo, cabeça inclinada 15°, mandíbula fixa e móvel, rosca sem-fim com janela
+			local function tri(nm, a, b, c, th, col, mat)
+				local ab, ac, bc = b - a, c - a, c - b
+				local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+				if abd > acd and abd > bcd then
+					c, a = a, c
+				elseif acd > bcd and acd > abd then
+					a, b = b, a
+				end
+				ab, ac, bc = b - a, c - a, c - b
+				local rc = ac:Cross(ab)
+				if rc.Magnitude < 1e-6 or bc.Magnitude < 1e-6 then return {} end
+				local right = rc.Unit
+				local up = bc:Cross(right).Unit
+				local back = bc.Unit
+				local h = math.max(math.abs(ab:Dot(up)), 0.001)
+				local w1 = math.max(math.abs(ab:Dot(back)), 0.001)
+				local w2 = math.max(math.abs(ac:Dot(back)), 0.001)
+				return {
+					{ nm = nm, size = V3(th, h, w1), off = CFrame.fromMatrix((a + b) / 2, right, up, back), col = col, mat = mat, wedge = true },
+					{ nm = nm, size = V3(th, h, w2), off = CFrame.fromMatrix((a + c) / 2, -right, up, -back), col = col, mat = mat, wedge = true },
+				}
+			end
+			-- polígono convexo no plano XZ (pts = {x, z}), espessura th no eixo Y, em frame opcional
+			local function poly(list, nm, pts, th, col, mat, frame)
+				frame = frame or CF()
+				local P = {}
+				for i, q in ipairs(pts) do P[i] = frame * V3(q[1], 0, q[2]) end
+				for i = 2, #P - 1 do
+					for _, w in ipairs(tri(nm, P[1], P[i], P[i + 1], th, col, mat)) do list[#list + 1] = w end
+				end
+			end
+			local HF = CF(0, 0, -0.12) * CFrame.Angles(0, math.rad(15), 0)
+			local WT, HT = 0.046, 0.06
+			local PAN = Color3.fromRGB(166, 171, 180)
+			local TZ = 0.5 -- centro da ponta redonda do cabo (cabo mais longo)
+			local wrench = { bl("Handle", 0.1, 0.05, 0.3, CF(), STEEL, MT, 1) }
+			local function wa(s) wrench[#wrench + 1] = s end
+			-- cabo: lâmina afunilada + bordas redondas + ponta redonda com furo
+			poly(wrench, "Shank", { { -0.056, -0.04 }, { 0.056, -0.04 }, { 0.042, TZ }, { -0.042, TZ } }, WT, STEEL, MT)
+			wa(seg("RailL", V3(-0.056, 0, -0.03), V3(-0.042, 0, TZ), 0.054, STEEL, MT))
+			wa(seg("RailR", V3(0.056, 0, -0.03), V3(0.042, 0, TZ), 0.054, STEEL, MT))
+			wa(cyl("Tail", 0.054, 0.138, CF(0, 0, TZ) * AY, STEEL, MT))
+			wa(cyl("TailRing", 0.056, 0.092, CF(0, 0, TZ) * AY, PAN, MT))
+			wa(cyl("TailHole", 0.058, 0.056, CF(0, 0, TZ) * AY, MSTL, MT))
+			poly(wrench, "Panel", { { -0.034, 0.02 }, { 0.034, 0.02 }, { 0.026, TZ - 0.09 }, { -0.026, TZ - 0.09 } }, WT + 0.005, PAN, MT)
+			-- pescoço: disco de ligação entre cabo e cabeça
+			wa(cyl("Joint", 0.058, 0.17, HF * CF(0, 0, 0.045) * AY, STEEL, MT))
+			-- cabeça com JANELA VAZADA (x 0.05..0.12, z -0.10..0.0), montada em 4 peças em volta
+			poly(wrench, "Head", { { -0.075, 0.075 }, { 0.05, 0.075 }, { 0.05, -0.17 }, { -0.135, -0.17 }, { -0.135, 0.0 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadTop", { { 0.05, 0.075 }, { 0.075, 0.075 }, { 0.135, 0.0 }, { 0.05, 0.0 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadSide", { { 0.12, 0.0 }, { 0.135, 0.0 }, { 0.135, -0.17 }, { 0.12, -0.17 } }, HT, STEEL, MT, HF)
+			poly(wrench, "HeadBot", { { 0.05, -0.1 }, { 0.12, -0.1 }, { 0.12, -0.17 }, { 0.05, -0.17 } }, HT, STEEL, MT, HF)
+			-- mandíbulas menores: fixa (um pouco mais longa) e móvel
+			poly(wrench, "JawFixed", { { -0.135, -0.17 }, { -0.057, -0.17 }, { -0.057, -0.285 }, { -0.115, -0.27 } }, HT, STEEL, MT, HF)
+			poly(wrench, "JawMoving", { { 0.057, -0.17 }, { 0.135, -0.17 }, { 0.12, -0.255 }, { 0.057, -0.27 } }, HT, CHR, MT, HF)
+			-- rosca sem-fim de verdade: cremalheira fina atrás, eixo, núcleo e espiras (sem bloco preto)
+			local WX, WZ = 0.085, -0.05
+			wa(bl("Rack", 0.07, 0.016, 0.1, HF * CF(WX, 0, WZ), MSTL, MT))
+			wa(cyl("WormAxle", 0.112, 0.016, HF * CF(WX, 0, WZ) * AZ, DK, MT))
+			wa(cyl("WormCore", 0.096, 0.046, HF * CF(WX, 0, WZ) * AZ, MSTL, MT))
+			for k = -4, 4 do
+				wa(cyl("WormThread", 0.0085, 0.07, HF * CF(WX, 0, WZ + k * 0.0115) * CFrame.Angles(0, math.rad(14), 0) * AZ, STEEL, MT))
+			end
+			wa(cyl("WormCapA", 0.01, 0.052, HF * CF(WX, 0, WZ - 0.054) * AZ, CHR, MT))
+			wa(cyl("WormCapB", 0.01, 0.052, HF * CF(WX, 0, WZ + 0.054) * AZ, CHR, MT))
+			-- tamanho das ferramentas: martelo e chave inglesa ampliados (peças, posições e pegada)
+			local KBIG = 1.25
+			local function scaleParts(list, k)
+				for _, sp_ in ipairs(list) do
+					sp_.size = sp_.size * k
+					local pos = sp_.off.Position
+					sp_.off = CFrame.new(pos * k) * (sp_.off - pos)
+				end
+			end
+			scaleParts(hammer, KBIG)
+			scaleParts(wrench, KBIG)
+			-- ferramentas: eixo longo em Z, cabeça/ponta em -Z, "Handle" invisível no centro
+			T.tools = {
+				["Martelo"] = {
+					key = Enum.KeyCode.Q, ui = Vector2.new(-130, 30), grip = V3(0, 0, 0.2 * KBIG),
+					parts = hammer,
+				},
+				["Chave inglesa"] = {
+					key = Enum.KeyCode.R, ui = Vector2.new(0, 30), grip = V3(0, 0, 0.22 * KBIG),
+					parts = wrench,
+				},
+				["Chave de fenda"] = {
+					key = Enum.KeyCode.T, ui = Vector2.new(130, 30), grip = V3(0, 0, 0.2),
+					parts = {
+						bl("Handle", 0.1, 0.1, 0.3, CF(), ORG, PL, 1),
+						cyl("Grip", 0.36, 0.14, CF(0, 0, 0.2) * AZ, ORG, PL),
+						ball("GripCap", 0.14, CF(0, 0, 0.38), ORG, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.14) * AZ, DK, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.2) * AZ, DK, PL),
+						cyl("Ring", 0.025, 0.148, CF(0, 0, 0.26) * AZ, DK, PL),
+						cyl("Ferrule", 0.07, 0.085, CF(0, 0, -0.015) * AZ, CHR, MT),
+						cyl("Shaft", 0.5, 0.045, CF(0, 0, -0.3) * AZ, STEEL, MT),
+						bl("Tip", 0.055, 0.02, 0.07, CF(0, 0, -0.57), MSTL, MT),
+					},
+				},
+			}
+			T.place = {
+				["Martelo"] = CF(-0.15, -0.109, -0.1) * CFrame.Angles(0, math.rad(268), 0),
+				["Chave inglesa"] = CF(0.26, -0.159, 0.15) * CFrame.Angles(0, math.rad(-91), 0),
+				["Chave de fenda"] = CF(0.35, -0.11, -0.3) * CFrame.Angles(0, math.rad(92), 0) * CFrame.Angles(math.rad(-6), 0, 0),
+			}
+		end
+		build()
+	end
+	function T.anim(dur, fn, done)
+		local t0 = os.clock()
+		local con
+		local finished = false
+		con = RunService.Heartbeat:Connect(function()
+			local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+			local ok = pcall(fn, a)
+			if a >= 1 or not ok then
+				con:Disconnect()
+				if not finished then
+					finished = true
+					if done then pcall(done) end
+				end
+			end
+		end)
+		return function()
+			finished = true
+			con:Disconnect()
+		end
+	end
+	local STRUT_A = { x = 3.16, y = 2.5, z = 8.0 }
+	local STRUT_B = { x = 3.16, y = 3.6, z = 7.7 }
+	function T.bindStruts(c)
+		local m = c.model
+		local list = {}
+		for _, sd in ipairs({ -1, 1 }) do
+			local tag = sd < 0 and "L" or "R"
+			local o = m:FindFirstChild("TrunkStrutOut" .. tag)
+			local r = m:FindFirstChild("TrunkStrutRod" .. tag)
+			if o and r then
+				local ow = o:FindFirstChildOfClass("Weld")
+				local rw = r:FindFirstChildOfClass("Weld")
+				if ow and rw then
+					list[#list + 1] = { sd = sd, o = o, ow = ow, r = r, rw = rw }
+				end
+			end
+		end
+		c.trunkStruts = list
+	end
+	function T.strutUpdate(c, W)
+		local list = c.trunkStruts
+		if not list then return end
+		for _, st in ipairs(list) do
+			local a = V3(st.sd * STRUT_A.x, STRUT_A.y, STRUT_A.z) * S
+			local b = W * (V3(st.sd * STRUT_B.x, STRUT_B.y, STRUT_B.z) * S)
+			local v = b - a
+			local d = v.Magnitude
+			if d > 0.01 then
+				local dir = v / d
+				local lb = d * 0.5 + 0.25 * S
+				local lr = math.max(d - lb + 0.4 * S, 0.3 * S)
+				st.o.Size = V3(lb, 0.17 * S, 0.17 * S)
+				local rot = CFrame.lookAt(V3(0, 0, 0), dir, V3(1, 0, 0)) * CFrame.Angles(0, math.pi / 2, 0)
+				st.ow.C0 = CFrame.new(a + dir * (lb / 2)) * rot
+				st.r.Size = V3(lr, 0.09 * S, 0.09 * S)
+				st.rw.C0 = CFrame.new(b - dir * (lr / 2)) * rot
+			end
+		end
+	end
+	function T.build(c)
+		local model = c.model
+		local stale = model:FindFirstChild("TrunkItems")
+		if stale then stale:Destroy() end
+		local old = model:FindFirstChild("TrunkRoot")
+		if old then
+			c.trunkW = old:FindFirstChildOfClass("Weld")
+			T.bindStruts(c)
+			T.strutUpdate(c, CFrame.new())
+			return
+		end
+		local dr = Instance.new("Part")
+		dr.Name = "TrunkRoot"
+		dr:SetAttribute("V", 1)
+		dr.Size = V3(0.2, 0.2, 0.2) * S
+		dr.Transparency = 1
+		dr.Anchored = false
+		dr.CanCollide = false
+		dr.CanQuery = false
+		dr.CanTouch = false
+		dr.Massless = true
+		dr.CastShadow = false
+		dr.Parent = model
+		local dw = Instance.new("Weld")
+		dw.Part0 = c.root
+		dw.Part1 = dr
+		dw.C0 = CFrame.new()
+		dw.Parent = dr
+		c.trunkW = dw
+		local deckC0, deckPart
+		local HW, ZW, ZE = 3.3, 7.44, 9.385
+		local th_ = math.rad(6.4188)
+		local c_, s_ = math.cos(th_), math.sin(th_)
+		local function lidLow(z)
+			local dy = -0.11
+			local dz = (z - 8 - dy * s_) / c_
+			return 3.6819 + dy * c_ - dz * s_
+		end
+		local function topAt(z)
+			return lidLow(z) - 0.05
+		end
+		for _, p in ipairs(model:GetChildren()) do
+			if p:IsA("BasePart") then
+				local w = p:FindFirstChildOfClass("Weld")
+				if w and w.Part0 == c.root and w.Part1 == p then
+					local pos = w.C0.Position
+					local x, z = pos.X / S, pos.Z / S
+					local nm = p.Name
+					if nm == "Body" and math.abs(x) < 0.01 and z > 6.25 and z < 9.35 then
+						p:Destroy()
+					elseif nm == "RearFrameBot" then
+						p.Size = V3(4.0 * S, p.Size.Y, p.Size.Z)
+						w.C0 = CFrame.new(0, -0.12 * S, 0) * w.C0
+					elseif nm == "TrunkDeck" then
+						p.Size = V3(4.06 * S, p.Size.Y, p.Size.Z)
+						w.Part0 = dr
+						deckC0 = w.C0
+						deckPart = p
+					elseif nm == "BodyCap" and math.abs(x) < 0.01 and z > 6.05 and z < 9.95 then
+						w.Part0 = dr
+						p.Size = V3((z > 7.45 and 2 * (HW + 0.04) or 4.06) * S, p.Size.Y, p.Size.Z)
+					elseif (nm == "Side" or nm == "SideCap") and z > 7.45 and z < 9.35 and math.abs(x) > 2.5 then
+						local wd = p.Size.X / S
+						local outer = math.abs(x) + wd / 2
+						local nw = outer - HW
+						if nw > 0.04 then
+							local sg = x < 0 and -1 or 1
+							p.Size = V3(nw * S, p.Size.Y, p.Size.Z)
+							w.C0 = CFrame.new(sg * (outer + HW) / 2 * S, pos.Y, pos.Z) * (w.C0 - w.C0.Position)
+						end
+					end
+				end
+			end
+		end
+		local function put(nm, sx, sy, sz, px, py, pz, col, mat, base, shape, rx, ry, rz)
+			local p = Instance.new("Part")
+			p.Name = nm
+			if shape then p.Shape = shape end
+			p.Size = V3(sx, sy, sz) * S
+			p.Color = col
+			p.Material = mat
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			p.Parent = model
+			local w = Instance.new("Weld")
+			w.Part0 = base
+			w.Part1 = p
+			w.C0 = CFrame.new(px * S, py * S, pz * S) * CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+			w.Parent = p
+			return p
+		end
+		local FAB = Enum.Material.Fabric
+		local LINER = Color3.fromRGB(32, 32, 37)
+		put("TrunkFloorBlock", 4.0, 0.55, 3.17, 0, 1.225, 7.8, Color3.fromRGB(14, 14, 17), PL, c.root)
+		put("TrunkCarpet", 3.96, 0.03, 3.13, 0, 1.515, 7.8, Color3.fromRGB(44, 44, 50), FAB, c.root)
+		for _, sd in ipairs({ -1, 1 }) do
+			put("TrunkFloorBlockW", 1.4, 0.55, 2.0, sd * 2.6, 1.225, 8.4, Color3.fromRGB(14, 14, 17), PL, c.root)
+			put("TrunkCarpetW", 1.4, 0.03, 1.97, sd * 2.6, 1.515, 8.4, Color3.fromRGB(44, 44, 50), FAB, c.root)
+		end
+		local nTop = topAt(7.42)
+		local wsegs = { { 7.42, 8.4 }, { 8.4, 9.385 } }
+		for _, sd in ipairs({ -1, 1 }) do
+			put("TrunkLiner", 0.05, nTop - 1.5, 7.42 - 6.215, sd * 1.975, (nTop + 1.5) / 2, (6.215 + 7.42) / 2, LINER, FAB, c.root)
+			for _, sg in ipairs(wsegs) do
+				local tp = topAt(sg[2])
+				put("TrunkLiner", 0.05, tp - 1.5, sg[2] - sg[1], sd * 3.275, (tp + 1.5) / 2, (sg[1] + sg[2]) / 2, LINER, FAB, c.root)
+			end
+			put("TrunkLinerWF", 1.4, nTop - 1.5, 0.05, sd * 2.6, (nTop + 1.5) / 2, 7.41, LINER, FAB, c.root)
+			local bTop = topAt(9.385)
+			put("TrunkLinerBW", 1.4, bTop - 1.5, 0.05, sd * 2.6, (bTop + 1.5) / 2, 9.36, LINER, FAB, c.root)
+		end
+		local fTop = topAt(6.24)
+		put("TrunkLinerF", 3.9, fTop - 1.5, 0.05, 0, (fTop + 1.5) / 2, 6.24, LINER, FAB, c.root)
+		local bTop2 = topAt(9.385)
+		put("TrunkLinerB", 3.9, bTop2 - 1.5, 0.05, 0, (bTop2 + 1.5) / 2, 9.36, LINER, FAB, c.root)
+		if not LITE then
+			local k = 0.676
+			local WD, DIA, RIM_IN, TIRE_OUT = 1.55, 2.9, 0.19, 0.30
+			local h = WD / 2
+			local rimD = DIA - 0.52
+			local rimR = rimD / 2
+			local hr = h - RIM_IN
+			local CHR = Color3.fromRGB(205, 209, 217)
+			local CHR2 = Color3.fromRGB(240, 243, 248)
+			local STEEL = Color3.fromRGB(172, 178, 186)
+			local TIREC = Color3.fromRGB(10, 10, 12)
+			local RIBC = Color3.fromRGB(30, 30, 33)
+			local LUGC = Color3.fromRGB(44, 44, 49)
+			local CYL = Enum.PartType.Cylinder
+			local F = CFrame.new(-2.2 * S, (1.535 + 0.775 * k) * S, 8.4 * S) * CFrame.Angles(0, 0, math.rad(90))
+			local function wp(nm, sx, sy, sz, lx, ly, lz, rx, ry, rz, col, mat, shape, rf)
+				local p = Instance.new("Part")
+				p.Name = nm
+				if shape then p.Shape = shape end
+				p.Size = V3(sx, sy, sz) * k * S
+				p.Color = col
+				p.Material = mat
+				p.Reflectance = rf or 0
+				p.Anchored = false
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.Massless = true
+				p.CastShadow = false
+				p.Parent = model
+				local w = Instance.new("Weld")
+				w.Part0 = c.root
+				w.Part1 = p
+				w.C0 = F * CFrame.new(lx * k * S, ly * k * S, lz * k * S) * CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+				w.Parent = p
+				return p
+			end
+			local function cx(nm, dd, th, face, col, mat, rf)
+				return wp(nm, th, dd, dd, hr + face - th / 2, 0, 0, 0, 0, 0, col, mat, CYL, rf)
+			end
+			local function bx(nm, th, wd, len, y, z, face, rxd, col, mat, rf)
+				return wp(nm, th, wd, len, hr + face - th / 2, y, z, rxd, 0, 0, col, mat, nil, rf)
+			end
+			local function segm(nm, th, wd, y0, z0, y1, z1, face, col, mat, rf)
+				local dy, dz = y1 - y0, z1 - z0
+				local len = math.sqrt(dy * dy + dz * dz)
+				return bx(nm, th, wd, len, (y0 + y1) / 2, (z0 + z1) / 2, face, math.deg(math.atan2(-dy, dz)), col, mat, rf)
+			end
+			local function pol(r, deg)
+				local a = math.rad(deg)
+				return r * math.cos(a), r * math.sin(a)
+			end
+			local function ring(nm, rad, radial, from, face, n, col, mat, rf, hb)
+				local th = face - from
+				local arc = 2 * math.pi * rad / n * 1.07
+				for i = 0, n - 1 do
+					local a = i * 360 / n
+					local ar = math.rad(a)
+					wp(nm, th, radial, arc, (hb or hr) + from + th / 2, rad * math.cos(ar), rad * math.sin(ar), a, 0, 0, col, mat, nil, rf)
+				end
+			end
+			wp("Tire", WD - 0.36, DIA, DIA, 0, 0, 0, 0, 0, 0, TIREC, PL, CYL, 0)
+			wp("SideWall", 0.18, DIA - 0.18, DIA - 0.18, -(h - 0.09), 0, 0, 0, 0, 0, TIREC, PL, CYL, 0)
+			ring("SideWallOut", DIA / 2 - 0.105, 0.17, TIRE_OUT - 0.18, TIRE_OUT, 36, TIREC, PL, 0, h)
+			local tw_ = WD - 0.36
+			local gap = tw_ * 0.07
+			local ribW = (tw_ - 3 * gap) / 4
+			local sp_ = ribW + gap
+			for ri = 0, 3 do
+				wp("TreadRib", ribW, DIA + 0.05, DIA + 0.05, (ri - 1.5) * sp_, 0, 0, 0, 0, 0, RIBC, PL, CYL, 0)
+			end
+			local x0, x1 = -0.18, TIRE_OUT - 0.18
+			local Rt = DIA / 2 + 0.035
+			ring("TreadOutBase", DIA / 2 - 0.095, 0.19, x0, x1, 32, TIREC, PL, 0, h)
+			for i = 0, 23 do
+				local a = i * 15 + 7.5
+				local ar = math.rad(a)
+				wp("TreadLug", (x1 - x0) * 0.8, 0.045, 0.14, h + (x0 + x1) / 2, Rt * math.cos(ar), Rt * math.sin(ar), a, 0, 0, LUGC, PL, nil, 0)
+			end
+			cx("WheelFloor", rimD - 0.06, 0.1, 0.06, Color3.fromRGB(16, 16, 19), MT, 0.25)
+			ring("RimLip", rimR + 0.01, 0.17, 0.04, 0.33, 30, CHR, MT, 0.9)
+			ring("RimStep", rimR - 0.16, 0.09, 0.04, 0.17, 26, STEEL, MT, 0.8)
+			for i = 0, 19 do
+				local ba = math.rad(i * 18 + 9)
+				local br = rimR + 0.01
+				wp("LipBolt", 0.05, 0.08, 0.08, hr + 0.38 - 0.025, br * math.cos(ba), br * math.sin(ba), 0, 0, 0, Color3.fromRGB(110, 115, 122), MT, CYL, 0.6)
+			end
+			cx("BrakeDisc", (rimR - 0.23) * 2, 0.06, 0.11, Color3.fromRGB(88, 92, 100), MT, 0.5)
+			cx("DiscHat", 0.8, 0.1, 0.16, Color3.fromRGB(28, 28, 32), MT, 0.3)
+			for i = 0, 4 do
+				local t0 = i * 72
+				local ry0, rz0 = pol(0.18, t0)
+				local ry1, rz1 = pol(0.60, t0)
+				segm("SpokeRoot", 0.2, 0.34, ry0, rz0, ry1, rz1, 0.28, CHR, MT, 0.9)
+				local qy0, qz0 = pol(0.2, t0)
+				local qy1, qz1 = pol(0.58, t0)
+				segm("SpokeRidge", 0.05, 0.14, qy0, qz0, qy1, qz1, 0.33, CHR2, MT, 1)
+				for _, sg in ipairs({ -1, 1 }) do
+					local ay, az = pol(0.52, t0)
+					local by, bz = pol(rimR - 0.1, t0 + sg * 15)
+					segm("SpokeFork", 0.2, 0.2, ay, az, by, bz, 0.28, CHR, MT, 0.9)
+					local cy2, cz2 = pol(0.56, t0)
+					local dy2, dz2 = pol(rimR - 0.2, t0 + sg * 14.5)
+					segm("ForkRidge", 0.05, 0.08, cy2, cz2, dy2, dz2, 0.33, CHR2, MT, 1)
+				end
+				local la = math.rad(i * 72 + 36)
+				wp("Lug", 0.08, 0.09, 0.09, hr + 0.34 - 0.04, 0.33 * math.cos(la), 0.33 * math.sin(la), 0, 0, 0, Color3.fromRGB(150, 155, 162), MT, CYL, 0.7)
+			end
+			cx("HubPlate", 0.52, 0.1, 0.22, CHR, MT, 0.9)
+			cx("HubRing", 0.5, 0.1, 0.34, CHR, MT, 1)
+			cx("HubCap", 0.38, 0.08, 0.39, Color3.fromRGB(13, 13, 16), PL, 0.1)
+			cx("EmblemRed", 0.26, 0.04, 0.43, Color3.fromRGB(190, 20, 24), PL, 0)
+			bx("EmblemH", 0.03, 0.03, 0.2, 0, 0, 0.47, 0, CHR, MT, 0.8)
+			bx("EmblemV", 0.03, 0.2, 0.03, 0, 0, 0.47, 0, CHR, MT, 0.8)
+		end
+		if deckC0 then
+			local ln = Instance.new("Part")
+			ln.Name = "TrunkLidLiner"
+			ln.Size = V3(3.9, 0.03, 3.7) * S
+			ln.Color = Color3.fromRGB(26, 26, 30)
+			ln.Material = PL
+			ln.Anchored = false
+			ln.CanCollide = false
+			ln.CanQuery = false
+			ln.CanTouch = false
+			ln.Massless = true
+			ln.CastShadow = false
+			ln.Parent = model
+			local lw = Instance.new("Weld")
+			lw.Part0 = dr
+			lw.Part1 = ln
+			lw.C0 = deckC0 * CFrame.new(0, -0.085 * S, 0)
+			lw.Parent = ln
+			for _, sd in ipairs({ -1, 1 }) do
+				local lw2 = ln:Clone()
+				lw2.Name = "TrunkLidLinerW"
+				lw2.Size = V3(1.38, 0.03, 2.35) * S
+				local lww = lw2:FindFirstChildOfClass("Weld")
+				lww.Part0 = dr
+				lww.Part1 = lw2
+				lww.C0 = deckC0 * CFrame.new(sd * 2.6 * S, -0.085 * S, 0.675 * S)
+				lw2.Parent = model
+				if deckPart then
+					local dw2 = deckPart:Clone()
+					dw2.Name = "TrunkDeckW"
+					dw2.Size = V3(1.44 * S, deckPart.Size.Y, 2.534 * S)
+					local dww = dw2:FindFirstChildOfClass("Weld")
+					dww.Part0 = dr
+					dww.Part1 = dw2
+					dww.C0 = deckC0 * CFrame.new(sd * 2.62 * S, 0, 0.683 * S)
+					dw2.Parent = model
+				end
+			end
+			for _, sd in ipairs({ -1, 1 }) do
+				local h = Instance.new("Part")
+				h.Name = "TrunkHinge"
+				h.Size = V3(0.3, 0.12, 0.5) * S
+				h.Color = Color3.fromRGB(12, 12, 14)
+				h.Material = PL
+				h.Anchored = false
+				h.CanCollide = false
+				h.CanQuery = false
+				h.CanTouch = false
+				h.Massless = true
+				h.CastShadow = false
+				h.Parent = model
+				local hw = Instance.new("Weld")
+				hw.Part0 = dr
+				hw.Part1 = h
+				hw.C0 = deckC0 * CFrame.new(sd * 1.7 * S, -0.15 * S, -1.7 * S)
+				hw.Parent = h
+			end
+		end
+		local DKS = Color3.fromRGB(46, 47, 53)
+		local CHRS = Color3.fromRGB(205, 209, 217)
+		local MNT = Color3.fromRGB(22, 22, 26)
+		for _, sd in ipairs({ -1, 1 }) do
+			local tag = sd < 0 and "L" or "R"
+			put("TrunkStrutMountB", 0.08, 0.3, 0.3, sd * 3.21, STRUT_A.y, STRUT_A.z, MNT, PL, c.root)
+			put("TrunkStrutMountL", 0.08, 0.2, 0.28, sd * 3.21, STRUT_B.y, STRUT_B.z, MNT, PL, dr)
+			put("TrunkStrutOut" .. tag, 1.25, 0.17, 0.17, sd * STRUT_A.x, STRUT_A.y, STRUT_A.z, DKS, MT, c.root, Enum.PartType.Cylinder)
+			put("TrunkStrutRod" .. tag, 0.5, 0.09, 0.09, sd * STRUT_A.x, STRUT_A.y, STRUT_A.z, CHRS, MT, c.root, Enum.PartType.Cylinder)
+		end
+		T.bindStruts(c)
+		T.strutUpdate(c, CFrame.new())
+	end
+	function T.sync(c)
+		local rec = c.trunkRec
+		if not rec then return end
+		local on = (c.trunkA or 0) > T.open * 0.85 and not c.driver
+		rec.on = on
+		rec.openLid(on)
+		rec.updatePrompts()
+	end
+	function T.step(c, dt)
+		local w = c.trunkW
+		if not w then return end
+		local tg = c.trunkT or 0
+		if c.driver and tg > 0 then
+			tg = 0
+			c.trunkT = 0
+		end
+		if tg > 0 and not c.trunkRec then T.fill(c) end
+		local ta = tg * T.open
+		local cur = c.trunkA or 0
+		if cur == ta then return end
+		cur = cur + (ta - cur) * (1 - math.exp(-5 * dt))
+		if math.abs(ta - cur) < 0.002 then cur = ta end
+		c.trunkA = cur
+		w.C0 = T.hinge * CFrame.Angles(-cur, 0, 0) * T.hingeInv
+		T.strutUpdate(c, w.C0)
+		T.sync(c)
+	end
+	function T.prompt(host, action, key, ui, hold, cb)
+		local pp = Instance.new("ProximityPrompt")
+		pp.ActionText = action
+		pp.ObjectText = "Caixa de ferramentas"
+		pp.KeyboardKeyCode = key
+		pp.HoldDuration = hold
+		pp.MaxActivationDistance = 9
+		pp.RequiresLineOfSight = false
+		pp.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		pp.UIOffset = ui
+		pp.Enabled = false
+		pp.Parent = host
+		track(pp.Triggered:Connect(function() cb() end))
+		return pp
+	end
+	function T.makeBox(parent, base, rel, kind, c)
+		local B = T.box
+		local rec = { kind = kind, car = c, prompts = {}, tools = {}, lid = {}, rel = rel, lidA = 0, lidWant = false, on = false }
+		local m = Instance.new("Model")
+		m.Name = "ToolBoxItem"
+		m.Parent = parent
+		rec.model = m
+		local function put(s, cf)
+			local p = Instance.new(s.wedge and "WedgePart" or "Part")
+			p.Name = s.nm
+			if s.shape then p.Shape = s.shape end
+			p.Size = s.size
+			p.Color = s.col
+			p.Material = s.mat
+			if s.tr then p.Transparency = s.tr end
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			p.Parent = m
+			local w = Instance.new("Weld")
+			w.Part0 = base
+			w.Part1 = p
+			w.C0 = rel * T.LIFT * cf
+			w.Parent = p
+			return p, w
+		end
+		function rec.setLid(a)
+			rec.lidA = a
+			local rot = T.HING * CFrame.Angles(-a, 0, 0) * T.HINGINV
+			for _, e in ipairs(rec.lid) do e.w.C0 = rel * T.LIFT * rot * e.off end
+			rec.updatePrompts()
+		end
+		function rec.updatePrompts()
+			local en = rec.on and rec.lidA > T.OPEN * 0.8
+			for _, pp in ipairs(rec.prompts) do
+				if pp.Parent and pp.Enabled ~= en then pp.Enabled = en end
+			end
+		end
+		function rec.openLid(want)
+			if rec.lidWant == want then return end
+			rec.lidWant = want
+			if rec.cancelLid then
+				rec.cancelLid()
+				rec.cancelLid = nil
+			end
+			local from, to = rec.lidA, want and T.OPEN or 0
+			local style = want and Enum.EasingStyle.Back or Enum.EasingStyle.Quad
+			rec.cancelLid = T.anim(want and 0.6 or 0.35, function(a)
+				local e = TweenService:GetValue(a, style, Enum.EasingDirection.Out)
+				rec.setLid(from + (to - from) * e)
+			end)
+		end
+		function rec.addTool(nm, animate)
+			local d = T.tools[nm]
+			if not d or rec.tools[nm] then return end
+			local list, ws, base0 = {}, {}, {}
+			for i, s in ipairs(d.parts) do
+				local p, w = put(s, T.place[nm] * s.off)
+				list[i], ws[i], base0[i] = p, w, w.C0
+			end
+			rec.tools[nm] = list
+			local pp = T.prompt(list[1], "Pegar " .. string.lower(nm), d.key, d.ui, 0.25, function() T.takeTool(rec, nm) end)
+			pp.Enabled = false
+			local keep = {}
+			for _, q in ipairs(rec.prompts) do
+				if q.Parent then keep[#keep + 1] = q end
+			end
+			keep[#keep + 1] = pp
+			rec.prompts = keep
+			if animate then
+				for i, w in ipairs(ws) do w.C0 = CF(0, 0.5, 0) * base0[i] end
+				T.anim(0.22, function(a)
+					local e = TweenService:GetValue(a, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					for i, w in ipairs(ws) do w.C0 = CF(0, 0.5 * (1 - e), 0) * base0[i] end
+				end)
+			end
+			rec.updatePrompts()
+		end
+		for i, s in ipairs(T.boxBody) do
+			local p = put(s, s.off)
+			if i == 1 then rec.base = p end
+		end
+		for _, s in ipairs(T.boxLid) do
+			local _p, w = put(s, s.off)
+			rec.lid[#rec.lid + 1] = { w = w, off = s.off }
+		end
+		local bp = T.prompt(rec.base, "Pegar caixa inteira", Enum.KeyCode.E, Vector2.new(0, -60), 0.4, function() T.takeBox(rec) end)
+		bp.Enabled = false
+		rec.prompts[#rec.prompts + 1] = bp
+		for _, nm in ipairs(T.order) do
+			if B.have[nm] then rec.addTool(nm, false) end
+		end
+		if kind == "world" then
+			rec.on = true
+			rec.openLid(true)
+		end
+		return rec
+	end
+	function T.buildTool(name, parts, grip, tip)
+		local tool = Instance.new("Tool")
+		tool.Name = name
+		tool.ToolTip = tip or name
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		tool.GripPos = grip or V3()
+		tool:SetAttribute("ChargerTool", true)
+		local handle
+		local inv = parts[1].off:Inverse()
+		for i, s in ipairs(parts) do
+			local p = Instance.new(s.wedge and "WedgePart" or "Part")
+			p.Name = (i == 1) and "Handle" or s.nm
+			if s.shape then p.Shape = s.shape end
+			p.Size = s.size
+			p.Color = s.col
+			p.Material = s.mat
+			if s.tr then p.Transparency = s.tr end
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Massless = true
+			p.CastShadow = false
+			if i == 1 then
+				handle = p
+			else
+				local w = Instance.new("Weld")
+				w.Part0 = handle
+				w.Part1 = p
+				w.C0 = inv * s.off
+				w.Parent = p
+			end
+			p.Parent = tool
+		end
+		return tool
+	end
+	function T.give(tool)
+		local ch, hum = charParts()
+		local bp = player:FindFirstChildOfClass("Backpack")
+		if bp then
+			tool.Parent = bp
+			if hum then pcall(function() hum:EquipTool(tool) end) end
+		elseif ch then
+			tool.Parent = ch
+		end
+	end
+	function T.giveBox()
+		local B = T.box
+		local tool = T.buildTool("Caixa de Ferramentas", T.boxClosed, V3(0, 0.755, 0), "Clique: mire no porta-malas aberto para guardar, ou mire no chão para colocar")
+		B.tool = tool
+		track(tool.Activated:Connect(function() T.placeBox(tool) end))
+		track(tool.AncestryChanged:Connect(function()
+			if B.tool == tool and not tool:IsDescendantOf(game) then
+				B.tool = nil
+				B.loc = "trunk"
+			end
+		end))
+		T.give(tool)
+	end
+	function T.takeTool(rec, nm)
+		local B = T.box
+		if not B.have[nm] then return end
+		B.have[nm] = nil
+		local list = rec.tools[nm]
+		rec.tools[nm] = nil
+		local d = T.tools[nm]
+		local function finish()
+			if list then
+				for _, p in ipairs(list) do pcall(function() p:Destroy() end) end
+			end
+			if T.dead then return end
+			local tips = {
+				["Martelo"] = "Martelo - clique na lataria amassada pra desamassar. Perto da caixa aberta, guarda",
+				["Chave inglesa"] = "Chave inglesa - com o capô aberto, clique na frente do carro pra reparar o motor",
+				["Chave de fenda"] = "Chave de fenda - com o capô aberto, faz uma gambiarra se o motor morreu",
+			}
+			local tool = T.buildTool(nm, d.parts, d.grip, tips[nm] or nm)
+			if T.hold then pcall(T.hold, tool, nm) end
+			track(tool.Activated:Connect(function()
+				if not T.returnTool(tool, nm) then T.use(tool, nm) end
+			end))
+			T.give(tool)
+		end
+		if not list then
+			finish()
+			return
+		end
+		local keep = {}
+		for _, q in ipairs(rec.prompts) do
+			if q.Parent == list[1] then q.Enabled = false else keep[#keep + 1] = q end
+		end
+		rec.prompts = keep
+		local ws, base0 = {}, {}
+		for i, p in ipairs(list) do
+			local w = p:FindFirstChildOfClass("Weld")
+			ws[i], base0[i] = w, w and w.C0
+		end
+		T.anim(0.18, function(a)
+			local e = TweenService:GetValue(a, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			for i, w in ipairs(ws) do
+				if w then w.C0 = CF(0, 0.55 * e, 0) * base0[i] end
+			end
+		end, finish)
+	end
+	function T.returnTool(tool, nm)
+		local B = T.box
+		if B.have[nm] or not tool.Parent then return end
+		local ch, hum, rpart = charParts()
+		if not rpart then return end
+		local rec
+		local c = T.car
+		if c and c.trunkRec and c.model and c.model.Parent and c.root and not c.driver and (c.trunkA or 0) > T.open * 0.85 then
+			local rear = c.root.CFrame:PointToWorldSpace(V3(0, 2.5 * S, 11 * S))
+			if (rear - rpart.Position).Magnitude < 10 * S then rec = c.trunkRec end
+		end
+		if not rec and B.loc == "world" and T.worldRec and T.worldRec.base and T.worldRec.base.Parent then
+			if (T.worldRec.base.Position - rpart.Position).Magnitude < 10 then rec = T.worldRec end
+		end
+		if not rec or rec.lidA < T.OPEN * 0.6 then return end
+		B.have[nm] = true
+		tool:Destroy()
+		rec.addTool(nm, true)
+		return true
+	end
+	function T.say(msg)
+		pcall(function()
+			local g = T.toastGui
+			if not (g and g.Parent) then
+				g = Instance.new("ScreenGui")
+				g.Name = "ChargerToast"
+				g.ResetOnSpawn = false
+				g.IgnoreGuiInset = true
+				g.DisplayOrder = 60
+				local l = Instance.new("TextLabel")
+				l.Name = "L"
+				l.AnchorPoint = Vector2.new(0.5, 1)
+				l.Position = UDim2.fromScale(0.5, 0.8)
+				l.Size = UDim2.fromOffset(380, 38)
+				l.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+				l.BackgroundTransparency = 0.2
+				l.TextColor3 = Color3.fromRGB(240, 240, 245)
+				l.Font = Enum.Font.GothamMedium
+				l.TextSize = 15
+				l.TextWrapped = true
+				local cr = Instance.new("UICorner")
+				cr.CornerRadius = UDim.new(0, 10)
+				cr.Parent = l
+				l.Parent = g
+				parentGui(g)
+				T.toastGui = g
+			end
+			local l = g:FindFirstChild("L")
+			l.Text = msg
+			l.Visible = true
+			local t0 = os.clock()
+			T.toastT = t0
+			task.delay(2.4, function()
+				if T.toastT == t0 and l.Parent then l.Visible = false end
+			end)
+		end)
+	end
+	-- ponto da lataria mais perto do jogador (espaço local do carro) e a distância até ele
+	function T.carNear(c, rpart)
+		local lp = c.root.CFrame:PointToObjectSpace(rpart.Position)
+		local cx, cz = math.clamp(lp.X, -3.7 * S, 3.7 * S), math.clamp(lp.Z, -10.2 * S, 10.2 * S)
+		local dist = math.sqrt((lp.X - cx) ^ 2 + (lp.Z - cz) ^ 2)
+		return V3(cx, 2.4 * S, cz), dist
+	end
+	-- função de cada ferramenta ao clicar (fora da caixa de ferramentas)
+	function T.use(tool, nm)
+		local F = Config.ToolFx
+		if T.dead or not tool.Parent then return end
+		local now = os.clock()
+		if now - (T.useT or 0) < F.Cooldown then return end
+		T.useT = now
+		local _ch, _hum, rpart = charParts()
+		local c = T.car
+		local impactT = 0.14
+		local okPU, impPU = false, nil
+		if T.playUse then okPU, impPU = pcall(T.playUse, tool, nm) end
+		if okPU and impPU then
+			impactT = impPU
+		else
+			pcall(function()
+				local g0 = tool.Grip
+				T.anim(0.32, function(a)
+					local sn = math.sin(a * math.pi)
+					if nm == "Martelo" then
+						tool.Grip = g0 * CFrame.Angles(-1.15 * sn, 0, 0)
+					elseif nm == "Chave inglesa" then
+						tool.Grip = g0 * CFrame.Angles(-0.75 * sn, 0, 0.5 * sn)
+					else
+						tool.Grip = g0 * CFrame.Angles(0, 0, 2.2 * sn)
+					end
+				end, function() pcall(function() tool.Grip = g0 end) end)
+			end)
+		end
+		task.delay(impactT, function()
+			if T.dead or not rpart then return end
+			if not (c and c.model and c.model.Parent and c.root) then
+				T.say("Nenhum carro por perto")
+				return
+			end
+			local D = Config.Damage
+			local tp, dist = T.carNear(c, rpart)
+			if dist > F.Reach * S then
+				T.say("Chegue mais perto do carro")
+				return
+			end
+			local wp = c.root.CFrame:PointToWorldSpace(tp)
+			if nm == "Martelo" then
+				local fixed = D.fix(c, tp, F.HammerRadius * S, F.HammerFix)
+				playSound(Config.SoundLand, 0.55, fixed > 0 and 1.8 or 1.4)
+				if fixed > 0 then
+					D.sparks(wp, nil, 8)
+					T.say(D.dentCount(c) > 0 and "Desamassando... continue batendo" or "Lataria desamassada!")
+				else
+					T.say(D.dentCount(c) > 0 and "Sem amassado aqui, procure em volta" or "A lataria não tem amassados")
+				end
+				return
+			end
+			if c.driver then
+				T.say("Saia do carro primeiro")
+				return
+			end
+			local dmg = c.dmg or 0
+			if nm == "Chave inglesa" then
+				local pt = D.worstNear(c, tp, 7 * S)
+				if not pt then
+					playSound(Config.SoundDial, 0.4, 1.2)
+					local far = D.worstNear(c, tp, 1e9)
+					T.say(far and ("Chegue perto: " .. far.name .. " danificado") or "O carro está em ótimo estado")
+					return
+				end
+				if pt.hood and not ((c.hoodA or 0) > HOOD.open * 0.6) then
+					T.say("Abra o capô pra mexer em: " .. pt.name)
+					return
+				end
+				D.vset(c, pt.id, D.vval(c, pt.id) - (pt.tire and 100 or F.WrenchRepair))
+				if pt.id == "tank" and D.vval(c, "tank") < 60 then c.fuelLvl = 1 end
+				if pt.id == "rad" then c.engTemp = 0 end
+				for i = 0, 2 do
+					task.delay(i * 0.12, function() playSound(Config.SoundDial, 0.45, 1.5 + i * 0.12) end)
+				end
+				D.smoke(c)
+				T.say(string.format("%s reparado, dano restante: %d%%", pt.name, math.floor(D.vval(c, pt.id) + 0.5)))
+			else
+				if not (tp.Z < -2 * S and (c.hoodA or 0) > HOOD.open * 0.6) then
+					T.say("Abra o capô e fique na frente do carro")
+					return
+				end
+				if dmg >= D.DeadAt then
+					c.dmg = D.DeadAt - F.HotwireLeft
+					playSound(Config.SoundDial, 0.6, 0.9)
+					D.sparks(wp, nil, 14)
+					D.smoke(c)
+					T.say("Gambiarra feita: o motor volta a ligar, mas fraco")
+				elseif dmg > 0 then
+					playSound(Config.SoundDial, 0.4, 1.3)
+					T.say("Só a chave inglesa conserta isso de vez")
+				else
+					playSound(Config.SoundDial, 0.4, 1.3)
+					T.say("Não há nada pra ajustar no motor")
+				end
+			end
+		end)
+	end
+	function T.takeBox(rec)
+		local B = T.box
+		if B.loc == "carried" then return end
+		B.loc = "carried"
+		if rec.kind == "trunk" and rec.car then
+			local c = rec.car
+			c.trunkRec = nil
+			if c.trunkItems then
+				c.trunkItems:Destroy()
+				c.trunkItems = nil
+			end
+		elseif rec.folder then
+			rec.folder:Destroy()
+			if T.worldRec == rec then T.worldRec = nil end
+		end
+		T.giveBox()
+	end
+	function T.aim(ex)
+		local cam = workspace.CurrentCamera
+		if not cam then return nil end
+		local loc
+		if UIS.TouchEnabled and not UIS.MouseEnabled then
+			loc = cam.ViewportSize / 2
+		else
+			loc = UIS:GetMouseLocation()
+		end
+		local ray = cam:ViewportPointToRay(loc.X, loc.Y)
+		local prm = RaycastParams.new()
+		prm.FilterType = Enum.RaycastFilterType.Exclude
+		prm.FilterDescendantsInstances = ex
+		return workspace:Raycast(ray.Origin, ray.Direction * 300, prm)
+	end
+	function T.placeBox(tool)
+		local B = T.box
+		if B.tool ~= tool then return end
+		local ch, hum, rpart = charParts()
+		if not rpart then return end
+		local c = T.car
+		-- guarda no porta-malas só se você estiver mirando nele
+		if c and c.model and c.model.Parent and c.root and not c.driver and (c.trunkA or 0) > T.open * 0.85 then
+			local h1 = T.aim({ ch })
+			if h1 and h1.Instance:IsDescendantOf(c.model) then
+				local tp = c.root.CFrame:PointToWorldSpace(V3(0.9 * S, 1.53 * S, 7.8 * S))
+				if (h1.Position - tp).Magnitude < 5 * S and (tp - rpart.Position).Magnitude < 16 * S then
+					B.tool = nil
+					B.loc = "trunk"
+					tool:Destroy()
+					T.fill(c)
+					return
+				end
+			end
+		end
+		-- no chão: onde você está mirando (ou à frente, se não houver mira válida)
+		local ex = { ch }
+		if c and c.model then ex[#ex + 1] = c.model end
+		local look = rpart.CFrame.LookVector
+		local fwd = V3(look.X, 0, look.Z)
+		if fwd.Magnitude < 0.05 then fwd = V3(0, 0, -1) end
+		fwd = fwd.Unit
+		local pos
+		local hit = T.aim(ex)
+		if hit then
+			local flat = V3(hit.Position.X - rpart.Position.X, 0, hit.Position.Z - rpart.Position.Z)
+			if flat.Magnitude >= 2.5 then
+				fwd = flat.Unit
+				if flat.Magnitude <= 14 then
+					pos = hit.Position
+				else
+					local p2 = rpart.Position + fwd * 14
+					local prm = RaycastParams.new()
+					prm.FilterType = Enum.RaycastFilterType.Exclude
+					prm.FilterDescendantsInstances = ex
+					local h2 = workspace:Raycast(p2 + V3(0, 10, 0), V3(0, -30, 0), prm)
+					pos = h2 and h2.Position or nil
+				end
+			end
+		end
+		if not pos then
+			local prm = RaycastParams.new()
+			prm.FilterType = Enum.RaycastFilterType.Exclude
+			prm.FilterDescendantsInstances = ex
+			local from = rpart.Position + fwd * 3.5 + V3(0, 1, 0)
+			local h3 = workspace:Raycast(from, V3(0, -14, 0), prm)
+			pos = h3 and h3.Position or (rpart.Position + fwd * 3.5 - V3(0, 2.8, 0))
+		end
+		pos = pos + V3(0, 0.36, 0)
+		B.tool = nil
+		B.loc = "world"
+		tool:Destroy()
+		local f = Instance.new("Folder")
+		f.Name = "ChargerToolbox"
+		f.Parent = workspace
+		local a = Instance.new("Part")
+		a.Name = "Anchor"
+		a.Size = V3(0.2, 0.2, 0.2)
+		a.Transparency = 1
+		a.Anchored = true
+		a.CanCollide = false
+		a.CanQuery = false
+		a.CanTouch = false
+		a.CFrame = CFrame.lookAt(pos, pos + fwd)
+		a.Parent = f
+		local rec = T.makeBox(f, a, CF(), "world", nil)
+		rec.folder = f
+		T.worldRec = rec
+	end
+	function T.fill(c)
+		local B = T.box
+		T.car = c
+		if B.loc ~= "trunk" or c.trunkRec or not c.model or not c.model.Parent then return end
+		local f = Instance.new("Folder")
+		f.Name = "TrunkItems"
+		f.Parent = c.model
+		c.trunkItems = f
+		c.trunkRec = T.makeBox(f, c.root, CF(0.9 * S, 1.53 * S + 0.35, 7.8 * S), "trunk", c)
+		T.sync(c)
+	end
+	function T.cleanup()
+		local B = T.box
+		T.dead = true
+		pcall(function() if B.tool then B.tool:Destroy() end end)
+		pcall(function() if T.worldRec and T.worldRec.folder then T.worldRec.folder:Destroy() end end)
+		local function sweep(holder)
+			if not holder then return end
+			for _, t in ipairs(holder:GetChildren()) do
+				if t:IsA("Tool") and t:GetAttribute("ChargerTool") then pcall(function() t:Destroy() end) end
+			end
+		end
+		pcall(sweep, player:FindFirstChildOfClass("Backpack"))
+		pcall(sweep, player.Character)
+	end
+end
 local function attachLogic(car, bodyColor)
 	HOOD.build(car, bodyColor)
+	HOOD.T.build(car)
 	car.animate = function(c, dt, spd)
 		HOOD.step(c, dt)
+		HOOD.T.step(c, dt)
 		local a = math.clamp((c.rpm or 0) / 7000, 0, 1)
 		local run = math.clamp((c.rpm or 0) / 300, 0, 1)
 		if c.shiftW then
@@ -2939,7 +4697,7 @@ local function buildCarRaw()
 	attachLogic(car, COLS.B)
 	return car
 end
-local CACHE_VER = "v64b"
+local CACHE_VER = "v65i"
 local CACHE_DIR = "CHARGER_SCRIPT/modelos"
 local carTpl = nil
 local function newPlate()
@@ -3118,6 +4876,7 @@ local function buildCar()
 	return c
 end
 local car = nil
+local AUTO = {}
 local gear = Config.StartGear
 local held = { brake = false, brakeUi = false }
 local saved = nil
@@ -3368,6 +5127,10 @@ local function setEngine(c, on)
 	on = on and true or false
 	if on then
 		if c.engineOn or c.ign then return end
+		if Config.Damage.Enabled and ((c.dmg or 0) >= Config.Damage.DeadAt or Config.Damage.noStart(c)) then
+			playSound(Config.SoundStartFail, 0.8)
+			return
+		end
 		c.ign = { t0 = os.clock() }
 		return
 	end
@@ -4286,42 +6049,8 @@ function RAYC.W.rate(o, r)
 	end
 end
 function RAYC.W.fx(c, dt, was, hv)
+	-- VFX de particulas do modo agua removidas (proa, popa, jato, respingo, nevoa, ondas, gotas)
 	local on = c.waterOn
-	local F = c.wfx
-	if not F then
-		F = RAYC.W.fxBuild(c)
-		c.wfx = F
-	end
-	if on then
-		local sk = Config.Water.Sink * (1 - Config.Water.PlaneLift * (c.plane or 0)) * S
-		if F.sk == nil or math.abs(sk - F.sk) > 0.02 then
-			F.sk = sk
-			for _, e in ipairs(F.all) do
-				e.w.C0 = CFrame.new(e.x * S, e.fy and e.fy * S or sk, e.z * S) * e.rot
-			end
-		end
-	end
-	local lq = (Config.LiteMode == "super" and 0.35) or (LITE and 0.6) or 1
-	local mv = on and math.clamp((hv - 5) / 25, 0, 1) or 0
-	local pl = c.plane or 0
-	local th = c.throttle or 0
-	local rb = mv * (6 + hv * 0.3) * lq
-	local rs = mv * (4 + hv * 0.22) * lq
-	local rt = on and pl * (10 + th * 70) * lq or 0
-	local setR = RAYC.W.rate
-	setR(F.bow[1], rb)
-	setR(F.bow[2], rb)
-	setR(F.stern[1], rs)
-	setR(F.stern[2], rs)
-	setR(F.tail[1], rt)
-	setR(F.tail[2], rt)
-	setR(F.mist[1], rs * 0.3)
-	setR(F.mist[2], rs * 0.3)
-	setR(F.ripple, mv * 1.6 * lq)
-	if on then c.wetT = 4 else c.wetT = math.max((c.wetT or 0) - dt, 0) end
-	local wet = c.wetT / 4
-	local rd = on and 0 or wet * (8 + hv * 0.12) * lq
-	for _, o in ipairs(F.drip) do setR(o, rd) end
 	local lt = on and 1 or 0
 	c.wLamp = (c.wLamp or 0) + (lt - (c.wLamp or 0)) * (1 - math.exp(-3 * dt))
 	local la = c.wLamp
@@ -4337,10 +6066,6 @@ function RAYC.W.fx(c, dt, was, hv)
 				L.Color = l.c0:Lerp(cb, la)
 			end
 		end
-	end
-	if (was or false) ~= on then
-		F.splash.pe:Emit(math.floor(math.clamp(10 + hv * 0.5, 12, 60) * lq))
-		F.ripple.pe:Emit(2)
 	end
 end
 function RAYC.W.step(c, dt)
@@ -4406,17 +6131,273 @@ function RAYC.W.step(c, dt)
 	c.plane = (c.plane or 0) + (pt - (c.plane or 0)) * (1 - math.exp(-2.5 * dt))
 	pcall(RAYC.W.fx, c, dt, was, hv)
 end
+-- ===== CHAMAR O CARRO (piloto automático: rota limpa) =====
+function AUTO.dirOf(y)
+	return Vector3.new(-math.sin(y), 0, -math.cos(y))
+end
+function AUTO.angDiff(a, b)
+	local d = (b - a) % (2 * math.pi)
+	if d > math.pi then d = d - 2 * math.pi end
+	return d
+end
+function AUTO.say(txt)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Charger", Text = txt, Duration = 3 })
+	end)
+end
+function AUTO.smoke(c, on)
+	if AUTO.smokeFn then pcall(AUTO.smokeFn, c, on) end
+end
+function AUTO.cancel(c, silent)
+	local a = c and c.auto
+	if not a then return end
+	c.auto = nil
+	c.smokeMul = nil
+	AUTO.smoke(c, false)
+	if not silent then c.parkPending = true end
+end
+-- Varre o chão numa direção. Sem wantEnd: devolve (distância do 1º problema, tipo).
+-- Com wantEnd: devolve (badD, tipo, altura do obstáculo, onde o chão volta, altura desse chão).
+function AUTO.scan(c, dir, len, wantEnd)
+	local step = 5 * S
+	local o = c.pos
+	local lastGood = o.Y
+	local upO, dnO = 30 * S, 60 * S
+	local badD, kind, rise, endD, landY = nil, nil, 0, nil, nil
+	local prevX, prevZ = o.X, o.Z
+	for i = 1, math.ceil(len / step) do
+		local d = i * step
+		local x, z = o.X + dir.X * d, o.Z + dir.Z * d
+		local g = workspace:Raycast(Vector3.new(x, lastGood + upO, z), Vector3.new(0, -(upO + dnO), 0), rp)
+		local gy = g and g.Position.Y
+		local isBad, k = false, nil
+		if g then
+			if badD and g.Normal.Y >= 0.45 and gy <= lastGood + 3 * S and gy >= lastGood - 25 * S then
+				isBad = false
+			elseif g.Normal.Y < 0.45 then
+				isBad, k = true, (gy > lastGood) and "rise" or "hole"
+			elseif gy - lastGood > step * 0.85 + 1.5 then
+				isBad, k = true, "rise"
+			elseif lastGood - gy > step * 1.3 + 3 then
+				isBad, k = true, "hole"
+			end
+		else
+			isBad = true
+			local t = workspace:Raycast(Vector3.new(x, lastGood + 400, z), Vector3.new(0, -(400 + dnO), 0), rp)
+			if t and t.Position.Y > lastGood + upO then
+				k, gy = "rise", t.Position.Y
+			else
+				k = "hole"
+			end
+		end
+		if wantEnd and not isBad then
+			for _, hh in ipairs(RAYC.HS) do
+				local w = RAYC.wallHit(Vector3.new(prevX, lastGood + hh, prevZ), dir * step)
+				if w then
+					isBad, k = true, "rise"
+					local t = workspace:Raycast(w.Position + dir * 1.5 + Vector3.new(0, 300, 0), Vector3.new(0, -(300 + dnO), 0), rp)
+					gy = t and t.Position.Y or (lastGood + hh * 2)
+					break
+				end
+			end
+		end
+		if not badD then
+			if isBad then
+				badD, kind = d, k
+				if k == "rise" and gy then rise = math.max(gy - lastGood, 0) end
+				if not wantEnd then break end
+			else
+				lastGood = gy
+			end
+		elseif isBad then
+			if k == "rise" and gy then rise = math.max(rise, gy - lastGood) end
+		else
+			endD, landY = d, gy
+			break
+		end
+		prevX, prevZ = x, z
+	end
+	if not wantEnd then
+		local lim = badD or len
+		local wd = RAYC.sweep(Vector3.new(o.X, o.Y, o.Z), dir, lim)
+		if wd < lim then badD, kind = wd, "wall" end
+		return badD, kind
+	end
+	return badD, kind, rise, endD, landY
+end
+function AUTO.onStuck(c, a, yawT, T)
+	AUTO.say("O Charger n\u{E3}o achou caminho até voc\u{EA}")
+	AUTO.cancel(c)
+end
+-- Calcula a rota limpa: segue reto se der, senão procura o menor desvio livre.
+function AUTO.plan(c, a, yawT, dist, T)
+	local Cl = Config.Call
+	local look = math.min(Cl.Look * S, math.max(dist - 4 * S, 10))
+	local badD, kind0 = AUTO.scan(c, AUTO.dirOf(yawT), look)
+	local needD = 28 * S + math.abs(c.vF or 0) * 0.5
+	if not badD or badD > needD then
+		a.yaw, a.side = yawT, 0
+		return
+	end
+	local bestA, bestS, bestCost
+	local full = Cl.Look * S
+	for _, deg in ipairs({ 10, 20, 32, 45, 60, 75, 90, 110, 135, 160 }) do
+		if bestCost and bestCost <= deg then break end
+		for _, sg in ipairs({ 1, -1 }) do
+			local ang = math.rad(deg) * sg
+			local bd = AUTO.scan(c, AUTO.dirOf(yawT + ang), full)
+			if not bd then
+				local cost = deg + ((a.side ~= 0 and sg ~= a.side) and 45 or 0)
+				if not bestCost or cost < bestCost then bestCost, bestA, bestS = cost, ang, sg end
+			end
+		end
+	end
+	if bestA and math.abs(math.deg(bestA)) <= Cl.DetourMax then
+		a.yaw, a.side = yawT + bestA, bestS
+		return
+	end
+	if bestA then
+		a.yaw, a.side = yawT + bestA, bestS
+	else
+		a.yaw = yawT
+	end
+end
+function AUTO.start(c)
+	local now = os.clock()
+	c.auto = { t0 = now, phase = "drive", lastPlan = 0, side = 0, ramps = 0, grace = now + 1.6, slowT = 0, yaw = c.yaw }
+	c.mode, c.engineOn, c.parkPending, c.ign = "D", true, false, nil
+	c.notch, c.notchT = 0, 0
+	c.lamps = true
+	c.rpm = math.max(c.rpm or 0, Config.Ignition.KickRpm)
+	c.kickT = now
+	c.shakeA = Config.Ignition.KickShake
+	playSound(Config.SoundStart, 0.9)
+	AUTO.say("Chamando o Charger...")
+end
+-- Chamado pela chave. Devolve true se tratou o clique (chamou ou parou o carro).
+function AUTO.tryCall(holding)
+	local Cl = Config.Call
+	local c = car
+	if not (Cl and Cl.Enabled and holding and c) then return false end
+	if c.driver or c.cine or c.boardFrom or c.exiting then return false end
+	if c.auto then
+		AUTO.cancel(c)
+		AUTO.say("Charger parado")
+		return true
+	end
+	local ch, hum, rpart = charParts()
+	if not rpart then return false end
+	local dx, dz = c.pos.X - rpart.Position.X, c.pos.Z - rpart.Position.Z
+	if math.sqrt(dx * dx + dz * dz) < Cl.MinDist * S then return false end
+	if Config.Damage.Enabled and (c.dmg or 0) >= Config.Damage.DeadAt then
+		playSound(Config.SoundStartFail, 0.9)
+		AUTO.say("O motor do Charger est\u{E1} destru\u{ED}do")
+		return true
+	end
+	AUTO.start(c)
+	return true
+end
+-- Roda todo frame dentro do stepCar. Devolve (acelerador, freio, volante).
+function AUTO.update(c, dt)
+	local a = c.auto
+	local Cl = Config.Call
+	local now = os.clock()
+	local ch, hum, rpart = charParts()
+	if not rpart then
+		AUTO.cancel(c)
+		return 0, 1, 0
+	end
+	if now - a.t0 > Cl.GiveUp then
+		AUTO.cancel(c)
+		AUTO.say("O Charger desistiu de chegar até voc\u{EA}")
+		return 0, 1, 0
+	end
+	local T = rpart.Position
+	local dx, dz = T.X - c.pos.X, T.Z - c.pos.Z
+	local dist = math.sqrt(dx * dx + dz * dz)
+	local yawT = math.atan2(-dx, -dz)
+	local yaw = c.yaw
+	local fwd = AUTO.dirOf(yaw)
+	local right = Vector3.new(-fwd.Z, 0, fwd.X)
+	local vF = c.vF or 0
+	local ph = a.phase
+	local function steerTo(d, gain)
+		local e = math.atan2(d:Dot(right), d:Dot(fwd))
+		return math.clamp(e * (gain or 1.8), -1, 1), e
+	end
+
+	if ph == "arrive" then
+		if c.mode == "P" then
+			c.auto = nil
+			c.smokeMul = nil
+			AUTO.smoke(c, false)
+			return 0, 0, 0
+		end
+		c.parkPending = true
+		return 0, 0, 0
+	end
+
+	-- ph == "drive": rota limpa até o jogador
+	if dist < Cl.StopDist * S then
+		a.phase = "arrive"
+		c.parkPending = true
+		return 0, 0, 0
+	end
+	c.mode = "D"
+	if now - a.lastPlan > 0.25 then
+		a.lastPlan = now
+		AUTO.plan(c, a, yawT, dist, T)
+		if a.phase ~= "drive" then return 0, 1, 0 end
+	end
+	local st, e = steerTo(AUTO.dirOf(a.yaw or yawT))
+	local vDes = Cl.Cruise
+	vDes = math.min(vDes, math.sqrt(2 * 55 * math.max(dist - Cl.StopDist * S, 0)) + 8)
+	vDes = vDes * (1 - 0.75 * math.min(math.abs(e), 1))
+	vDes = math.max(vDes, 12)
+	if now > a.grace and vF < 5 then a.slowT = a.slowT + dt else a.slowT = 0 end
+	if a.slowT > 1.6 then
+		a.slowT = 0
+		AUTO.onStuck(c, a, yawT, T)
+		if not c.auto or a.phase ~= "drive" then return 0, 1, 0 end
+	end
+	local thr, br = 0, 0
+	if vF < vDes then
+		thr = 1
+	elseif vF > vDes + 10 then
+		br = math.clamp((vF - vDes - 10) / 40, 0.3, 1)
+	end
+	return thr, br, st
+end
+-- ===== fim: CHAMAR O CARRO =====
 local function stepCar(c, dt)
 	ignStep(c, dt)
+	pcall(Config.Damage.vitalStep, c, dt)
 	RAYC.W.step(c, dt)
 	local g = workspace.Gravity
 	local driving = c.driver and not c.boardFrom and not c.exiting
 	local throttle, brakePed, steerIn = 0, 0, 0
+	local autoOn = false
 	if driving then
+		if c.auto then pcall(AUTO.cancel, c, true) end
 		local mv = getMove()
 		throttle = c.engineOn and math.clamp(-mv.Z, 0, 1) or 0
 		brakePed = math.clamp(mv.Z, 0, 1)
 		steerIn = math.clamp(mv.X, -1, 1)
+	elseif c.auto then
+		if c.driver then
+			pcall(AUTO.cancel, c)
+		else
+			local okA, t1, b1, s1 = pcall(AUTO.update, c, dt)
+			if okA then
+				if c.auto then
+					autoOn = true
+					throttle, brakePed, steerIn = t1, b1, s1
+				end
+			else
+				warn("[Charger] auto:", t1)
+				pcall(AUTO.cancel, c)
+			end
+		end
 	end
 	c.throttle = throttle
 	c.brakePed = brakePed
@@ -4446,8 +6427,17 @@ local function stepCar(c, dt)
 		vel = Vector3.zero
 		vF, vR = 0, 0
 	else
-		local top = Config.TopSpeed * Config.GearTop[gear]
-		local gearAcc = Config.GearAccel[gear]
+		local gU, accM = gear, 1
+		if autoOn then
+			gU = 5
+			local need = math.abs(vF) * 1.3
+			for gi = 1, 5 do
+				if Config.TopSpeed * Config.GearTop[gi] >= need then gU = gi break end
+			end
+			accM = Config.Call.AccelMul or 1
+		end
+		local top = Config.TopSpeed * Config.GearTop[gU] * Config.Damage.speedMul(c) * (c.vTop or 1)
+		local gearAcc = Config.GearAccel[gU] * accM
 		local acc = 0
 		if grounded and not c.parkPending then
 			if mode == "D" and throttle > 0 and brakePed == 0 then
@@ -4462,6 +6452,7 @@ local function stepCar(c, dt)
 				end
 			end
 		end
+		acc = acc * (c.vAcc or 1)
 		local resist = 2.5 + 0.00015 * vF * vF
 		if mode == "D" then
 			if throttle == 0 then resist = resist + 6 end
@@ -4506,7 +6497,7 @@ local function stepCar(c, dt)
 			end
 		end
 		local k = math.clamp(math.abs(vF) / 170, 0, 1)
-		maxD = R(34 + (6 - 34) * k)
+		maxD = R(34 + (6 - 34) * k) * (c.vSteer or 1)
 		c.steer = c.steer + (steerIn - c.steer) * (1 - math.exp(-(steerIn == 0 and 10 or 6) * dt))
 		if grounded then
 			yawRate = -(vF / WHEELBASE) * math.tan(maxD * c.steer)
@@ -4517,6 +6508,7 @@ local function stepCar(c, dt)
 			end
 			local cap = Config.MaxLatAccel * capMul / math.max(math.abs(vF), 1)
 			yawRate = math.clamp(yawRate, -cap, cap)
+			yawRate = yawRate + (c.vPull or 0) * math.clamp(math.abs(vF) / 90, 0, 1) * (vF >= 0 and 1 or -1)
 		end
 		local vw = fwd * vF + right * vR
 		yaw = yaw + yawRate * dt
@@ -4524,6 +6516,7 @@ local function stepCar(c, dt)
 		local right2 = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
 		vF, vR = vw:Dot(fwd2), vw:Dot(right2)
 		local grip = (c.notch > 0) and Config.DriftGrip[c.notch] or Config.Grip
+		grip = grip * (c.vGrip or 1)
 		if c.waterOn then grip = grip * 0.35 end
 		if grounded then vR = vR * math.exp(-grip * dt) end
 		fwd, right = fwd2, right2
@@ -4546,8 +6539,9 @@ local function stepCar(c, dt)
 					n = n.Unit
 					local into = vel:Dot(n)
 					if into < 0 then
+						local dmgd = Config.Damage.hit(c, -into, hit.Position, n)
 						vel = vel - n * into * 1.3
-						if -into > 35 then playSound(Config.SoundLand, 0.8, 0.8) end
+						if not dmgd and -into > 35 then playSound(Config.SoundLand, 0.8, 0.8) end
 						vF, vR = vel:Dot(fwd), vel:Dot(right)
 					end
 				end
@@ -4580,6 +6574,7 @@ local function stepCar(c, dt)
 					local d0 = hs * dt
 					local allowed = math.min(d0, math.max(bc.Distance - 0.3, 0) * hf)
 					if into < 0 then
+						Config.Damage.hit(c, -into, bc.Position, n)
 						vel = vel - n * into
 						vF, vR = vel:Dot(fwd), vel:Dot(right)
 					end
@@ -5057,6 +7052,7 @@ local function carVisuals(c, dt)
 		cf = cf * CFrame.new(math.sin(tt * 61 + 1) * 0.02 * sa * S, math.sin(tt * 47) * 0.03 * sa * S, 0)
 			* CFrame.Angles(math.cos(tt * 43) * 0.008 * sa, 0, math.sin(tt * 39) * 0.006 * sa)
 	end
+	if (c.flats or 0) > 0 then cf = cf * CFrame.Angles(c.leanP or 0, 0, c.leanR or 0) end
 	c.cf = cf
 	c.root.CFrame = cf
 	local vF = c.vF
@@ -5165,7 +7161,7 @@ local function carVisuals(c, dt)
 	end
 	if c.lampState ~= c.lamps then
 		c.lampState = c.lamps
-		for _, l in ipairs(c.lampObjs) do l.light.Enabled = c.lamps end
+		for _, l in ipairs(c.lampObjs) do l.light.Enabled = c.lamps and not l.broken end
 		c._lampChk = 0
 	end
 	-- Brilho dos farois (estilo Charger Toretto): particulas com LightEmission, aparecem no grafico minimo
@@ -5223,10 +7219,11 @@ local function carVisuals(c, dt)
 		for _, pe in ipairs(c.hGlow) do
 			local em = pe.Parent
 			if em then
-				if pe.Enabled ~= on then pe.Enabled = on end
-				local rt = on and math.floor((pe:GetAttribute("BR") or 10) * day * f + 0.5) or 0
+				local onp = on and not em:GetAttribute("Broken")
+				if pe.Enabled ~= onp then pe.Enabled = onp end
+				local rt = onp and math.floor((pe:GetAttribute("BR") or 10) * day * f + 0.5) or 0
 				if pe.Rate ~= rt then pe.Rate = rt end
-				if on and cam and c.cf then
+				if onp and cam and c.cf then
 					local to = cam.CFrame.Position - em.Position
 					local d = to.Magnitude > 0.1 and c.cf.LookVector:Dot(to.Unit) or 0
 					local kk = math.clamp((d - 0.4) / 0.45, 0, 1)
@@ -5251,7 +7248,8 @@ local function carVisuals(c, dt)
 		for _, l in ipairs(c.lampObjs) do
 			local L = l.light
 			if L and L.Parent then
-				if L.Enabled ~= want then L.Enabled = want end
+				local wl = want and not l.broken
+				if L.Enabled ~= wl then L.Enabled = wl end
 				if L.Range > 60 then L.Range = 60 end
 				if L.Parent:IsA("BasePart") and L.Parent.Parent == nil then L.Parent.Parent = c.model end
 			end
@@ -5503,6 +7501,7 @@ function CINE.smokeStyle(c, on)
 		c.smokeOrig = nil
 	end
 end
+AUTO.smokeFn = CINE.smokeStyle
 function CINE.flameSetup(c)
 	if c.flames or not c.exh then return end
 	c.flames = {}
@@ -5628,6 +7627,7 @@ end
 function CINE.destroy()
 	if not car then return end
 	local c = car
+	pcall(AUTO.cancel, c, true)
 	if c.driver then pcall(ANIM.exitCarNow, c) end
 	pcall(function() c.model:Destroy() end)
 	car = nil
@@ -6036,6 +8036,27 @@ local function spawnCar()
 	c.root.CFrame = CFrame.new(c.pos)
 	c.model.Parent = workspace
 	buildIgnition(c)
+	pcall(HOOD.T.fill, c)
+	task.defer(function()
+		pcall(Config.Damage.collect, c)
+		pcall(Config.Damage.collectLoose, c)
+		pcall(Config.Damage.points, c)
+	end)
+	if not Config._sndPre then
+		Config._sndPre = true
+		task.spawn(function()
+			local list = {}
+			for _, id in ipairs({ Config.SoundLand, "rbxasset://sounds/impact_explosion_03.mp3" }) do
+				if id then
+					local s = Instance.new("Sound")
+					s.SoundId = id
+					list[#list + 1] = s
+				end
+			end
+			pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+			for _, s in ipairs(list) do s:Destroy() end
+		end)
+	end
 	refreshFilter()
 	do
 		local pos0, yaw0 = c.pos, c.yaw
@@ -6408,18 +8429,38 @@ do
 	stroke(chip, 1.6, GREEN, 0)
 	label(chip, "G", 11, GREEN, 0, 0, 16, 16)
 end
+do
+	local tb = HX.shell(leftF, 0, 76, 118, 40)
+	HX.trunkBtn = tb.b
+	tb.b.Visible = false
+	local ic = tb.ic
+	local OUT = Color3.fromRGB(205, 214, 226)
+	HX.line(ic, 8, 27, 34, 27, 2.6, OUT)
+	HX.line(ic, 8, 27, 8, 17, 2.6, OUT)
+	HX.line(ic, 8, 17, 30, 8, 2.6, GREEN)
+	label(ic, "MALA", 13, WHITE, 44, 4, 54, 32, Enum.TextXAlignment.Left)
+	local chip = frame(ic, 98, 12, 16, 16, Color3.fromRGB(10, 14, 20), 1, 5)
+	stroke(chip, 1.6, GREEN, 0)
+	label(chip, "H", 11, GREEN, 0, 0, 16, 16)
+end
 function HX.nearZone(c)
 	local _, _, rpart = charParts()
 	if not rpart or not c or not c.root then return nil end
 	local lp = c.root.CFrame:PointToObjectSpace(rpart.Position) / S
 	if lp.X >= -11.5 and lp.X <= -2.4 and lp.Z >= -6 and lp.Z <= 8 then return "door" end
 	if lp.Z <= -8.6 and lp.Z >= -19 and math.abs(lp.X) <= 5.5 then return "front" end
+	if lp.Z >= 8.6 and lp.Z <= 19 and math.abs(lp.X) <= 5.5 then return "rear" end
 	return nil
 end
 function HX.toggleHood(c)
 	if not c or c.driver then return end
 	c.hoodT = (c.hoodT == 1) and 0 or 1
 	playSound(c.hoodT == 1 and Config.SoundDoorOpen or Config.SoundDoorClose, 0.6)
+end
+function HX.toggleTrunk(c)
+	if not c or c.driver then return end
+	c.trunkT = (c.trunkT == 1) and 0 or 1
+	playSound(c.trunkT == 1 and Config.SoundDoorOpen or Config.SoundDoorClose, 0.6)
 end
 local K = { alive = true }
 do
@@ -6611,7 +8652,11 @@ do
 			TweenService:Create(slotBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true),
 				{ Size = UDim2.fromOffset(60, 60) }):Play()
 		end)
-		if car then despawnCar() else spawnCar() end
+		if car then
+			if not AUTO.tryCall(true) then despawnCar() end
+		else
+			spawnCar()
+		end
 	end
 	local function setupKey()
 		local ch, hum = charParts()
@@ -7280,6 +9325,9 @@ end))
 track(HX.hoodBtn.Activated:Connect(function()
 	if car then HX.toggleHood(car) end
 end))
+track(HX.trunkBtn.Activated:Connect(function()
+	if car then HX.toggleTrunk(car) end
+end))
 track(exitBtn.Activated:Connect(function()
 	if car and car.driver then exitCar(car) end
 end))
@@ -7332,7 +9380,7 @@ do
 			clearStripes(c)
 			local root, model = c.root, c.model
 			if not (root and root.Parent and model and model.Parent) then return end
-			if (c.hoodA or 0) > 0.01 or (c.hoodT or 0) > 0 then return end
+			if (c.hoodA or 0) > 0.01 or (c.hoodT or 0) > 0 or (c.trunkA or 0) > 0.01 or (c.trunkT or 0) > 0 then return end
 			if os.clock() < (c._stripeNext or 0) then return end
 			local folder = Instance.new("Folder")
 			folder.Name = "ThemeStripes"
@@ -7504,6 +9552,119 @@ do
 end
 updateScale()
 track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
+-- painel de vida do carro (só aparece sentado): barra + vista de cima do carro com as zonas amassadas
+do
+	local W, H = 84, 124
+	local sF = frame(gui, 0, 0, W, H, PANEL, 1, 0)
+	sF.AnchorPoint = Vector2.new(1, 0)
+	sF.Position = UDim2.new(1, -8, 0, 8)
+	sF.Visible = false
+	addScale(sF, 0.9)
+	HX.statusF = sF
+	local function soft(l)
+		l.TextStrokeTransparency = 0.4
+		l.TextStrokeColor3 = Color3.new(0, 0, 0)
+		return l
+	end
+	soft(label(sF, "VIDA", 9, METALC, 0, 0, W, 12))
+	local barBg = frame(sF, 8, 13, W - 16, 6, Color3.fromRGB(28, 34, 42), 0, 3)
+	local barFill = frame(barBg, 0, 0, W - 16, 6, GREEN, 0, 3)
+	local pct = soft(label(sF, "100%", 11, WHITE, 8, 20, 36, 14, Enum.TextXAlignment.Left))
+	local stateL = soft(label(sF, "PERFEITO", 8, GREEN, 36, 20, W - 44, 14, Enum.TextXAlignment.Right))
+	local VW, VH = 44, 76
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = UDim2.fromOffset(VW, VH)
+	vp.Position = UDim2.fromOffset((W - VW) // 2, 35)
+	vp.BackgroundTransparency = 1
+	vp.Ambient = Color3.fromRGB(175, 175, 180)
+	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.3, -1, -0.4)
+	vp.Parent = sF
+	local vcam = Instance.new("Camera")
+	vcam.FieldOfView = 30
+	vcam.CFrame = CFrame.lookAt(Vector3.new(0, 44 * S, 0), Vector3.zero, Vector3.new(0, 0, -1))
+	vcam.Parent = vp
+	vp.CurrentCamera = vcam
+	local lineL = soft(label(sF, "", 8, WHITE, 0, 35 + VH + 1, W, 11))
+	local marks = {}
+	local function mcol(v)
+		if v >= 70 then return HUDRED end
+		if v >= 35 then return AMBER end
+		return Color3.fromRGB(255, 225, 120)
+	end
+	local vm, vSrc, vSig, vT = nil, nil, nil, 0
+	local function rebuild(c)
+		if vm then vm:Destroy() vm = nil end
+		local ok, m = pcall(function() return c.model:Clone() end)
+		if not (ok and m) then return end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("Light") or d:IsA("ParticleEmitter") or d:IsA("SurfaceGui") or d:IsA("Sound") or d:IsA("BaseScript") then
+				d:Destroy()
+			elseif d:IsA("BasePart") then
+				d.CastShadow = false
+				if d.Size.Magnitude < 1.2 * S then d:Destroy() end
+			end
+		end
+		pcall(function() m:PivotTo(CFrame.new()) end)
+		m.Parent = vp
+		vm = m
+	end
+	function HX.statusUpdate(c, dt)
+		local dmg = c.dmg or 0
+		local D = Config.Damage
+		local worst, worstV = nil, 0
+		for _, pt in ipairs(D.points(c)) do
+			local v = D.vval(c, pt.id)
+			if v > worstV then worst, worstV = pt, v end
+			local m = marks[pt.id]
+			if v >= 12 then
+				if not m then
+					m = frame(sF, 0, 0, pt.tire and 5 or 7, pt.tire and 10 or 7, AMBER, 0, pt.tire and 2 or 4)
+					m.Position = UDim2.fromOffset(math.floor(W / 2 + pt.x * 3.3 - m.Size.X.Offset / 2), math.floor(35 + VH / 2 + pt.z * 3.3 - m.Size.Y.Offset / 2))
+					marks[pt.id] = m
+				end
+				m.Visible = true
+				m.BackgroundColor3 = mcol(v)
+			elseif m then
+				m.Visible = false
+			end
+		end
+		local life = math.clamp(100 - math.max(dmg, worstV), 0, 100)
+		local msg, mc = "", WHITE
+		if (c.fuelLvl or 1) <= 0 then
+			msg, mc = "SEM COMBUSTIVEL", HUDRED
+		elseif (c.engTemp or 0) > 70 then
+			msg, mc = "SUPERAQUECENDO", HUDRED
+		elseif worst and worstV >= 12 then
+			local tail = worstV >= 100 and (worst.tire and " furado" or " quebrado") or (worstV >= 35 and " danificado" or " avariado")
+			msg, mc = worst.name .. tail, mcol(worstV)
+		end
+		lineL.Text = msg
+		lineL.TextColor3 = mc
+		local lc = (life > 60 and GREEN) or (life > 30 and AMBER) or HUDRED
+		barFill.Size = UDim2.fromOffset(math.floor((W - 16) * life / 100 + 0.5), 6)
+		barFill.BackgroundColor3 = lc
+		pct.Text = math.floor(life + 0.5) .. "%"
+		local st
+		if life <= 0 then
+			st = (os.clock() % 1 < 0.5) and "MORTO" or ""
+		else
+			st = (life >= 80 and "PERFEITO") or (life >= 55 and "BOM") or (life >= 30 and "DANO") or "CRÍTICO"
+		end
+		stateL.Text = st
+		stateL.TextColor3 = lc
+		local now = os.clock()
+		if now - vT > 1.5 then
+			vT = now
+			local sig = Config.Damage.dentCount(c) .. ":" .. tostring(c._body)
+			if c.model ~= vSrc or sig ~= vSig or not vm then
+				vSrc, vSig = c.model, sig
+				rebuild(c)
+			end
+		end
+	end
+	updateScale()
+end
 local HUDC = {}
 local function updateHud(dt)
 	local c = car
@@ -7511,12 +9672,14 @@ local function updateHud(dt)
 	gaugeF.Visible = seated
 	rightF.Visible = seated
 	quickF.Visible = seated
+	if HX.statusF then HX.statusF.Visible = seated and true or false end
 	if HX.themeF then HX.themeF.Visible = (K.keyOn and not seated) and true or false end
 	HX.waterBtn.Visible = not not seated
 	local zone = nil
 	if c and not c.driver and not c.boardFrom and not c.exiting then zone = HX.nearZone(c) end
 	enterBtn.Visible = zone == "door"
 	HX.hoodBtn.Visible = zone == "front"
+	HX.trunkBtn.Visible = zone == "rear"
 	local nowT = os.clock()
 	for _, f in ipairs(HX.anim) do f(nowT) end
 	if not seated then return end
@@ -7545,12 +9708,17 @@ local function updateHud(dt)
 	HX.setEngine(c.engineOn or c.ign ~= nil)
 	K.setLamp(c.lamps)
 	K.setWin(c.winP or 0)
+	if HX.statusUpdate then pcall(HX.statusUpdate, c, dt) end
 end
 track(UIS.InputBegan:Connect(function(input)
 	if UIS:GetFocusedTextBox() then return end
 	local k = input.KeyCode
 	if k == Enum.KeyCode.M then
-		if car then despawnCar() else spawnCar() end
+		if car then
+			if not AUTO.tryCall(K.keyOn) then despawnCar() end
+		else
+			spawnCar()
+		end
 	elseif k == Enum.KeyCode.F then
 		if car then
 			if car.driver then
@@ -7561,6 +9729,8 @@ track(UIS.InputBegan:Connect(function(input)
 		end
 	elseif k == Enum.KeyCode.G then
 		if car and not car.driver and HX.nearZone(car) == "front" then HX.toggleHood(car) end
+	elseif k == Enum.KeyCode.H then
+		if car and not car.driver and HX.nearZone(car) == "rear" then HX.toggleTrunk(car) end
 	elseif car and car.setShell and (k == Enum.KeyCode.One or k == Enum.KeyCode.Two or k == Enum.KeyCode.Three or k == Enum.KeyCode.Four) then
 		local n = (k == Enum.KeyCode.One and 1) or (k == Enum.KeyCode.Two and 2) or (k == Enum.KeyCode.Three and 3) or 4
 		Config.ShellStyle = n
@@ -7989,6 +10159,259 @@ local function driveArms(c, dt)
 	solveArm(chR, p0nOf(chR.sh), grips.right, 1, bodyRight, bodyUp, bodyBack, ez)
 	solveArm(chL, p0nOf(chL.sh), grips.left, -1, bodyRight, bodyUp, bodyBack, ez)
 	ARMS.chk = { sh = chR.sh, tf = chR.sh.Transform }
+end
+-- ferramentas na mao: pose certa (cabeca pra cima, face pra frente) e animacao do boneco + item ao usar
+do
+	local T = HOOD.T
+	local rad, cos, sin = math.rad, math.cos, math.sin
+	local function V(x, y, z) return Vector3.new(x, y, z) end
+	-- kf = { tempo, posicao da mao (fracao do alcance do braco: x direita, y cima, z -frente), inclinacao da ferramenta (graus, 0 = cabeca pra cima, 90 = pra frente), giro no proprio eixo (graus) }
+	local SPEC = {
+		["Martelo"] = {
+			kind = "hammer", g = V(0, 0, 0.275), th = 25, len = 0.62, impact = 0.36,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 25, 0 },
+				{ 0.20, V(0.18, 0.85, -0.15), -65, 0 },
+				{ 0.36, V(0.10, 0.00, -0.96), 38, 0, "in" },
+				{ 0.45, V(0.10, 0.04, -0.90), 30, 0 },
+				{ 0.62, V(0.22, 0.10, -0.75), 25, 0 },
+			},
+		},
+		["Chave inglesa"] = {
+			kind = "wrench", g = V(0, 0, 0.275), th = 20, len = 0.66, impact = 0.40,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 20, 0 },
+				{ 0.16, V(0.10, -0.18, -0.92), 100, -35 },
+				{ 0.28, V(0.10, -0.18, -0.92), 100, 35 },
+				{ 0.40, V(0.10, -0.22, -0.92), 100, -25 },
+				{ 0.50, V(0.10, -0.20, -0.90), 100, 20 },
+				{ 0.66, V(0.22, 0.10, -0.75), 20, 0 },
+			},
+		},
+		["Chave de fenda"] = {
+			kind = "driver", g = V(0, 0, 0.2), th = 70, len = 0.60, impact = 0.34,
+			kf = {
+				{ 0.00, V(0.22, 0.10, -0.75), 70, 0 },
+				{ 0.16, V(0.06, -0.10, -0.90), 95, 0 },
+				{ 0.34, V(0.06, -0.12, -0.95), 95, 200 },
+				{ 0.46, V(0.06, -0.12, -0.95), 95, 330 },
+				{ 0.60, V(0.22, 0.10, -0.75), 70, 360 },
+			},
+		},
+	}
+	local active = {}
+	-- orientacao da ferramenta no espaco do boneco (frente = -Z, cima = +Y); eixo longo da ferramenta = Z, cabeca em -Z
+	local function toolRot(kind, th, roll)
+		local t = rad(th)
+		local c, s = cos(t), sin(t)
+		local Z = V(0, -c, s)
+		local X, Y
+		if kind == "wrench" then
+			Y = V(0, s, c)
+			X = Y:Cross(Z)
+		else
+			X = V(0, -s, -c)
+			Y = Z:Cross(X)
+		end
+		return CFrame.fromMatrix(Vector3.zero, X, Y, Z) * CFrame.Angles(0, 0, rad(roll))
+	end
+	local function sample(kf, t)
+		local n = #kf
+		if t <= kf[1][1] then return kf[1][2], kf[1][3], kf[1][4] end
+		for i = 1, n - 1 do
+			local a, b = kf[i], kf[i + 1]
+			if t <= b[1] then
+				local u = (t - a[1]) / (b[1] - a[1])
+				local e = (b[5] == "in") and u * u or u * u * (3 - 2 * u)
+				return a[2]:Lerp(b[2], e), a[3] + (b[3] - a[3]) * e, a[4] + (b[4] - a[4]) * e
+			end
+		end
+		local l = kf[n]
+		return l[2], l[3], l[4]
+	end
+	-- mantem a ferramenta na orientacao desejada (relativa ao boneco), com o ponto de pegada na palma.
+	-- escreve direto na solda RightGrip (C1); se o jogo sobrescrever, cai pro tool.Grip e testa os dois sentidos
+	local function angBetween(a, b) return math.acos(math.clamp(a:Dot(b), -1, 1)) end
+	local function sameCF(a, b)
+		return (a.Position - b.Position).Magnitude < 0.002 and (a.LookVector - b.LookVector).Magnitude < 0.01 and (a.UpVector - b.UpVector).Magnitude < 0.01
+	end
+	local function applyGrip(tool, st, ch, rpart, th, roll)
+		local spec = st.spec
+		local handle = tool:FindFirstChild("Handle")
+		if not handle then return end
+		local w = st.w
+		if not (w and w.Parent and w.Part1 == handle) then
+			w = nil
+			st.w = nil
+			if os.clock() - (st.wT or 0) > 0.3 then
+				st.wT = os.clock()
+				local f = ch:FindFirstChild("RightGrip", true)
+				if f and f.Part1 == handle and f.Part0 then
+					w = f
+					st.w = f
+					st.lastC1 = nil
+				end
+			end
+		end
+		local attach
+		if w then
+			attach = w.Part0.CFrame * w.C0
+		else
+			local hand = ch:FindFirstChild("RightHand") or ch:FindFirstChild("Right Arm")
+			local att = hand and hand:FindFirstChild("RightGripAttachment")
+			if not att then return end
+			attach = hand.CFrame * att.CFrame
+		end
+		local rrot = rpart.CFrame.Rotation
+		local wrot = rrot * toolRot(spec.kind, th, roll)
+		-- Grip no sentido da solda: handle = attach * Grip^-1
+		local g1 = CFrame.new(spec.g) * (wrot:Inverse() * attach.Rotation)
+		if w and not st.viaProp then
+			if st.lastC1 and not sameCF(w.C1, st.lastC1) then
+				st.viaProp = true
+			else
+				w.C1 = g1
+				st.lastC1 = g1
+				return
+			end
+		end
+		-- caminho pelo tool.Grip (com deteccao do sentido pela posicao real do cabo)
+		if st.lt and (st.n or 0) >= 4 and not st.off then
+			local exp = st.lrr * toolRot(spec.kind, st.lt, st.lr)
+			local act = handle.CFrame
+			local err = math.max(angBetween(exp.LookVector, act.LookVector), angBetween(exp.UpVector, act.UpVector))
+			st.bad = (err > 0.6) and ((st.bad or 0) + 1) or 0
+			if st.bad >= 4 then
+				st.bad = 0
+				st.n = 0
+				st.flips = (st.flips or 0) + 1
+				if st.flips <= 2 then
+					st.mode = 3 - (st.mode or 1)
+				else
+					st.off = true
+				end
+			end
+		end
+		if st.off then return end
+		local g
+		if (st.mode or 1) == 1 then
+			g = g1
+		else
+			g = attach:Inverse() * (CFrame.new(attach.Position) * wrot * CFrame.new(-spec.g))
+		end
+		tool.Grip = g
+		st.lt, st.lr, st.lrr = th, roll, rrot
+		st.n = (st.n or 0) + 1
+	end
+	local function driveRight(st, ch, rpart, pos, ez)
+		local J = st.J
+		if not (J and J.right.shoulder and J.right.shoulder.Parent) then
+			J = armJoints(ch)
+			st.J, st.k, st.waist = J, nil, nil
+		end
+		if not J.right.shoulder then return end
+		local k = st.k
+		if not (k and k.sh.Parent) then
+			k = armChain(J.right)
+			st.k = k
+		end
+		if not k then return end
+		local sh = k.sh
+		local p0 = sh.Part0.CFrame
+		local rcf = rpart.CFrame
+		local P = p0 * sh.C0.Position
+		local tgt = P + rcf:VectorToWorldSpace(pos * k.reach)
+		solveArm(k, p0, tgt, 1, rcf.RightVector, rcf.UpVector, -rcf.LookVector, ez)
+		local hw = J.right.hand
+		if hw and hw.Parent then hw.Transform = hw.Transform:Lerp(CFrame.new(), ez) end
+		local waist = st.waist
+		if waist == nil then
+			waist = false
+			for _, d in ipairs(ch:GetDescendants()) do
+				if ARMS.isJoint(d) and d.Part0 and d.Part1 == sh.Part0 then waist = d break end
+			end
+			st.waist = waist
+		end
+		if waist and waist.Parent then
+			local cr = waist.C0.Rotation
+			if (cr.RightVector - Vector3.xAxis).Magnitude < 0.02 and (cr.UpVector - Vector3.yAxis).Magnitude < 0.02 then
+				local fwd = math.clamp((-pos.Z - 0.5) / 0.45, 0, 1)
+				local up = math.clamp((pos.Y - 0.3) / 0.5, 0, 1)
+				waist.Transform = CFrame.Angles((-0.2 * fwd + 0.1 * up) * ez, 0, 0)
+			end
+		end
+	end
+	local function stepTool(tool, st, ch, hum, rpart, dt)
+		local spec = st.spec
+		local th, roll = spec.th, 0
+		local u = st.use
+		if u then
+			local el = os.clock() - u.t0
+			if el >= spec.len or (car and car.driver) then
+				st.use = nil
+				if st.waist and st.waist.Parent then st.waist.Transform = CFrame.new() end
+			else
+				local pos
+				pos, th, roll = sample(spec.kf, el)
+				local wgt = math.clamp(math.min(el / 0.12, (spec.len - el) / 0.14), 0, 1)
+				local ez = wgt * wgt * (3 - 2 * wgt)
+				if u.face and el < 0.3 and hum.MoveDirection.Magnitude < 0.1 then
+					local cur = rpart.CFrame.LookVector
+					cur = Vector3.new(cur.X, 0, cur.Z)
+					if cur.Magnitude > 0.01 then
+						local nl = cur.Unit:Lerp(u.face, 1 - math.exp(-dt * 16))
+						if nl.Magnitude > 0.01 then
+							rpart.CFrame = CFrame.lookAt(rpart.Position, rpart.Position + nl.Unit)
+							rpart.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+				end
+				pcall(driveRight, st, ch, rpart, pos, ez)
+			end
+		end
+		applyGrip(tool, st, ch, rpart, th, roll)
+	end
+	function T.hold(tool, nm)
+		local spec = SPEC[nm]
+		if not spec then return end
+		active[tool] = { nm = nm, spec = spec }
+		tool.AncestryChanged:Connect(function()
+			if not tool:IsDescendantOf(game) then active[tool] = nil end
+		end)
+	end
+	-- chamada ao clicar com a ferramenta: devolve o instante do impacto (s) ou nil se nao tiver animacao
+	function T.playUse(tool, nm)
+		local st = active[tool]
+		if not (st and tool.Parent) then return nil end
+		local ch, _hum, rpart = charParts()
+		if not (ch and rpart and tool.Parent == ch) then return nil end
+		local face
+		local c = T.car
+		if c and c.model and c.model.Parent and c.root then
+			local tp, dist = T.carNear(c, rpart)
+			if dist <= Config.ToolFx.Reach * S then
+				local wp = c.root.CFrame:PointToWorldSpace(tp)
+				local d = Vector3.new(wp.X - rpart.Position.X, 0, wp.Z - rpart.Position.Z)
+				if d.Magnitude > 0.5 then face = d.Unit end
+			end
+		end
+		st.use = { t0 = os.clock(), face = face }
+		return st.spec.impact
+	end
+	track(RunService.Stepped:Connect(function(_, dt)
+		if T.dead or not next(active) then return end
+		dt = math.clamp(dt or 1 / 60, 1 / 240, 0.05)
+		local ch, hum, rpart = charParts()
+		if not (ch and rpart) then return end
+		for tool, st in pairs(active) do
+			if not tool.Parent then
+				active[tool] = nil
+			elseif tool.Parent == ch then
+				local ok = pcall(stepTool, tool, st, ch, hum, rpart, dt)
+				if not ok then st.use = nil end
+			end
+		end
+	end))
 end
 ANIM.L = { J = nil, AJ = nil, ank = nil, ch = nil, cur = {}, jw = {}, aw = { R = 0, L = 0 }, lw = { R = 0, L = 0 }, ap = {}, lp = {}, ik = 0 }
 ANIM.P = {
@@ -8554,6 +10977,7 @@ genv[CLEANUP_KEY] = function()
 	pcall(releaseArms)
 	pcall(ANIM.limbRelease)
 	pcall(CINE.destroy)
+	pcall(HOOD.T.cleanup)
 	pcall(K.destroy)
 	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
 	pcall(function() gui:Destroy() end)

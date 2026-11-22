@@ -1,26 +1,98 @@
 --==================================================
--- AUTO PROXIMITY FLING + ANTI FALL DAMAGE
--- Detecção: posição visual (RenderStepped) + Touched
+-- TOUCH FLING + ANTI FALL DAMAGE
+-- Fling: o MEU boneco carrega a velocidade, so quando encosta/atravessa alguem
+-- Anti Fall: automatico desde o boot, todo respawn
 -- Platform: Roblox | LocalScript
 --==================================================
 
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace  = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
-local DETECT_RADIUS     = 5
-local POWER_MULT        = 20000000000
-local HIT_FRAMES        = 6
-local FLING_COOLDOWN    = 1.5   -- segundos entre flings no mesmo alvo
+local POWER_MULT       = 20000000000
+local HIT_FRAMES       = 6      -- frames de fling depois do ultimo contato
+local USE_OVERLAP_POLL = true   -- detecta atravessar/overlap mesmo sem evento Touched
+local OVERLAP_MARGIN   = 0.5    -- studs de antecipacao: o fling ja esta ligado quando o corpo encosta (0 = so no contato exato)
 
-local activeFlings  = {}
-local lastFlingTime = {}
-
+local burstFrames        = 0
 local antiFallConnection = nil
+local touchConns         = {}
 
 --==================================================
--- ANTI FALL DAMAGE
+-- DETECCAO
+--==================================================
+
+local function isOtherPlayerPart(part)
+    local model = part:FindFirstAncestorOfClass("Model")
+    if not model then return false end
+    local p = Players:GetPlayerFromCharacter(model)
+    return p ~= nil and p ~= player
+end
+
+local function triggerBurst()
+    burstFrames = math.max(burstFrames, HIT_FRAMES)
+end
+
+-- 1) Touched: encostar / atravessar em movimento
+local function onTouched(other)
+    if isOtherPlayerPart(other) then
+        triggerBurst()
+    end
+end
+
+local function hookCharacter(char)
+    for _, c in ipairs(touchConns) do
+        c:Disconnect()
+    end
+    table.clear(touchConns)
+
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then
+            table.insert(touchConns, d.Touched:Connect(onTouched))
+        end
+    end
+
+    table.insert(touchConns, char.DescendantAdded:Connect(function(d)
+        if d:IsA("BasePart") then
+            table.insert(touchConns, d.Touched:Connect(onTouched))
+        end
+    end))
+end
+
+-- 2) Overlap com margem: roda DENTRO do loop de velocidade (mesmo frame),
+--    entao o fling liga antes do contato, sem esperar o proximo frame
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Include
+
+local function isTouchingOthers(char)
+    local others = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            table.insert(others, p.Character)
+        end
+    end
+    if #others == 0 then return false end
+
+    overlapParams.FilterDescendantsInstances = others
+    local pad = Vector3.one * (OVERLAP_MARGIN * 2)
+
+    for _, part in ipairs(char:GetChildren()) do
+        if part:IsA("BasePart") then
+            if #Workspace:GetPartBoundsInBox(part.CFrame, part.Size + pad, overlapParams) > 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--==================================================
+-- ANTI FALL + FLING (mesmo loop, para um nao brigar com o outro)
+-- Sem contato: o servidor ve velocidade zero (anti queda).
+-- Com contato: o servidor ve a velocidade enorme (fling).
+-- A fisica local sempre recebe a velocidade real de volta.
 --==================================================
 
 local function startAntiFall(char)
@@ -42,168 +114,51 @@ local function startAntiFall(char)
             con:Disconnect()
             return
         end
-        local vel = root.AssemblyLinearVelocity
-        root.AssemblyLinearVelocity = zero
+
+        if USE_OVERLAP_POLL and isTouchingOthers(char) then
+            triggerBurst()
+        end
+
+        local vel    = root.AssemblyLinearVelocity
+        local angVel = root.AssemblyAngularVelocity
+
+        if burstFrames > 0 then
+            local sign = burstFrames % 2 == 0 and 1 or -1
+            root.AssemblyLinearVelocity = Vector3.new(
+                POWER_MULT * sign,
+                POWER_MULT,
+                POWER_MULT * -sign
+            )
+            root.AssemblyAngularVelocity = Vector3.new(
+                POWER_MULT * -sign,
+                POWER_MULT * sign,
+                POWER_MULT
+            )
+            burstFrames -= 1
+        else
+            root.AssemblyLinearVelocity = zero
+        end
+
         RunService.RenderStepped:Wait()
-        root.AssemblyLinearVelocity = vel
+        root.AssemblyLinearVelocity  = vel
+        root.AssemblyAngularVelocity = angVel
     end)
 
     antiFallConnection = con
 end
 
-if player.Character then
-    startAntiFall(player.Character)
-end
+--==================================================
+-- BOOT / RESPAWN
+--==================================================
 
-player.CharacterAdded:Connect(function(char)
+local function onCharacter(char)
+    burstFrames = 0
+    hookCharacter(char)
     startAntiFall(char)
-end)
-
---==================================================
--- FLING
---==================================================
-
-local function doFling(targetPlayer)
-    local char       = player.Character
-    local targetChar = targetPlayer.Character
-    if not char or not targetChar then return end
-
-    local hrp       = char:FindFirstChild("HumanoidRootPart")
-    local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
-    local hum       = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not targetHrp or not hum then return end
-
-    -- cooldown por alvo
-    local now = tick()
-    if lastFlingTime[targetPlayer] and (now - lastFlingTime[targetPlayer]) < FLING_COOLDOWN then
-        return
-    end
-    lastFlingTime[targetPlayer] = now
-
-    activeFlings[targetPlayer] = true
-    local originCFrame = hrp.CFrame
-
-    local savedSpeed    = hum.WalkSpeed
-    local savedJump     = hum.JumpPower
-    local savedAutoJump = hum.AutoJumpEnabled
-
-    local savedCollision = {}
-    for _, part in ipairs(char:GetChildren()) do
-        if part:IsA("BasePart") then
-            savedCollision[part] = part.CanCollide
-            part.CanCollide = false
-        end
-    end
-    hrp.CanCollide = true
-
-    local frame = 0
-    local conn
-    conn = RunService.PostSimulation:Connect(function()
-        local hrpOk  = hrp and hrp.Parent
-        local tHrpOk = targetHrp and targetHrp.Parent
-
-        if not hrpOk or not tHrpOk then
-            conn:Disconnect()
-            activeFlings[targetPlayer] = nil
-            return
-        end
-
-        if frame < HIT_FRAMES then
-            local nudge = frame % 2 == 0 and 0.01 or -0.01
-            hrp.CFrame = CFrame.new(
-                targetHrp.Position + Vector3.new(nudge, 0, nudge)
-            )
-
-            local sign = frame % 2 == 0 and 1 or -1
-            targetHrp.AssemblyLinearVelocity = Vector3.new(
-                POWER_MULT * sign,
-                POWER_MULT,
-                POWER_MULT * -sign
-            )
-            targetHrp.AssemblyAngularVelocity = Vector3.new(
-                POWER_MULT * -sign,
-                POWER_MULT * sign,
-                POWER_MULT
-            )
-            frame += 1
-        else
-            conn:Disconnect()
-
-            hrp.CFrame = originCFrame
-            task.wait()
-            hrp.AssemblyLinearVelocity  = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-
-            for part, col in pairs(savedCollision) do
-                if part and part.Parent then
-                    part.CanCollide = col
-                end
-            end
-
-            hum.WalkSpeed       = savedSpeed
-            hum.JumpPower       = savedJump
-            hum.AutoJumpEnabled = savedAutoJump
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-
-            task.delay(FLING_COOLDOWN, function()
-                activeFlings[targetPlayer] = nil
-            end)
-        end
-    end)
-end
-
---==================================================
--- DETECTOR VISUAL (RenderStepped = posição renderizada)
---==================================================
-
-RunService.RenderStepped:Connect(function()
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == player then continue end
-        if activeFlings[p] then continue end
-
-        local tChar = p.Character
-        if not tChar then continue end
-        local tHrp = tChar:FindFirstChild("HumanoidRootPart")
-        if not tHrp then continue end
-
-        -- posição visual do alvo (client-side interpolated)
-        local dist = (hrp.Position - tHrp.Position).Magnitude
-        if dist <= DETECT_RADIUS then
-            doFling(p)
-        end
-    end
-end)
-
---==================================================
--- DETECTOR POR TOQUE FÍSICO (Touched — backup)
--- dispara quando qualquer parte do seu char toca
--- qualquer parte do char remoto visualmente
---==================================================
-
-local function hookTouched(char)
-    for _, part in ipairs(char:GetDescendants()) do
-        if not part:IsA("BasePart") then continue end
-        part.Touched:Connect(function(hit)
-            if not hit or not hit.Parent then return end
-            local targetChar = hit.Parent
-            local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-            if not targetPlayer or targetPlayer == player then return end
-            if activeFlings[targetPlayer] then return end
-            doFling(targetPlayer)
-        end)
-    end
 end
 
 if player.Character then
-    hookTouched(player.Character)
+    onCharacter(player.Character)
 end
 
-player.CharacterAdded:Connect(function(char)
-    char:WaitForChild("HumanoidRootPart")
-    hookTouched(char)
-end)
+player.CharacterAdded:Connect(onCharacter)

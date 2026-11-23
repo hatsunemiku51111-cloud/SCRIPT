@@ -4,6 +4,14 @@ local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local Debris = game:GetService("Debris")
 
+-- Executa junto o script anti-fall-damage (em task.spawn + pcall: se falhar, não afeta o resto)
+task.spawn(function()
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/hatsunemiku51111-cloud/SCRIPT/refs/heads/main/antifalldamagescripts.lua"))()
+    end)
+    if not ok then warn("[antifall] falhou ao carregar: " .. tostring(err)) end
+end)
+
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local hum = character:WaitForChild("Humanoid")
@@ -580,6 +588,7 @@ local ASSETS = {
     ERASE_IMAGE = "rbxassetid://107526909795121",
     OI_IMAGE = "94794505267303",
     KUSO_IMAGE = "83774881013358",
+    ERASE_TRAIL_BORDER_TEXTURE = "rbxassetid://127128586223557",  -- ID da imagem TheHand_TrailBorder.png enviada ao Roblox; vazio = trail antigo
  
     ACTIVATE_BUBBLES = {
     "94794505267303",   
@@ -1757,6 +1766,491 @@ end
 -- HABILIDADE DO THE HAND - ERASE (COM FLING)
 -- ============================================================
 
+-- ============================================================
+-- ANIMAÇÃO PROCEDURAL "THE HAND" (sistema de Motor6D da Moto)
+-- Substitui a animação de ERASE (rbxassetid://139217391004393) do Stand
+-- Anima: cabeça, tronco, braços, antebraços, mãos, pernas, joelhos e pés
+-- Ângulos em graus, no eixo da peça-pai (X+ = braço/perna para frente,
+-- tronco/cabeça X- = inclina para frente, Y+ = gira para a esquerda).
+-- ============================================================
+local HAND_POSE = {
+    EraseDuration = 0.9,  -- duração da fase do golpe (a partir da chegada ao alvo)
+    TotalDuration = 1.65, -- timeline completa: dash + golpe + retorno (segundos)
+    FadeIn        = 0.04, -- tempo para entrar na pose
+    FadeOut       = 0.12, -- tempo para sair da pose
+    Intensity     = 1.0,  -- multiplicador geral dos ângulos
+}
+
+local V3d = Vector3.new
+
+-- Timeline CONTÍNUA em segundos (dash -> chegada -> preparação -> golpe -> follow-through -> retorno).
+-- O stand nunca fica sem animação: a pose roda do 1º ao último instante do Erase.
+-- Interpolação por spline (Hermite/Catmull-Rom): sem "paradas" robóticas entre keyframes.
+-- Chave ausente = 0. hold=true zera a velocidade no keyframe (pausa de antecipação).
+local HAND_ERASE_FRAMES = {
+    -- 0) DASH: corpo inclinado pra frente, braços jogados pra trás, pernas arrastando
+    { t = 0.00, crouch = 0.10,
+      waist = V3d(-20, 0, 0),  neck = V3d(14, 0, 0),
+      rsh = V3d(-55, 0, 14),   rel = V3d(15, 0, 0),   rwr = V3d(-10, 0, 0),
+      lsh = V3d(-60, 0, -14),  lel = V3d(18, 0, 0),   lwr = V3d(-10, 0, 0),
+      rh = V3d(-40, 0, 6),     rk = V3d(-45, 0, 0),
+      lh = V3d(25, 0, -6),     lk = V3d(-20, 0, 0) },
+
+    { t = 0.28, crouch = 0.14,
+      waist = V3d(-26, -6, 0), neck = V3d(18, 4, 0),
+      rsh = V3d(-65, 0, 18),   rel = V3d(20, 0, 0),   rwr = V3d(-15, 0, 0),
+      lsh = V3d(-70, 0, -18),  lel = V3d(20, 0, 0),   lwr = V3d(-10, 0, 0),
+      rh = V3d(-30, 0, 6),     rk = V3d(-35, 0, 0),
+      lh = V3d(35, 0, -6),     lk = V3d(-30, 0, 0) },
+
+    -- 1) FREADA: chega no alvo, tronco joga pra trás, braços sobem (freio)
+    { t = 0.42, crouch = 0.28,
+      waist = V3d(10, -14, 0), neck = V3d(-8, 10, 0),
+      rsh = V3d(35, 0, 25),    rel = V3d(25, 0, 0),   rwr = V3d(-10, 0, 0),
+      lsh = V3d(25, 0, -25),   lel = V3d(30, 0, 0),   lwr = V3d(0, 0, 0),
+      rh = V3d(-12, 0, 8),     rk = V3d(-30, 0, 0),
+      lh = V3d(42, 0, -8),     lk = V3d(-48, 0, 0) },
+
+    -- 2) PREPARAÇÃO: braço direito abre pra trás/lado, tronco gira pra direita (antecipação)
+    { t = 0.64, hold = true, crouch = 0.24,
+      waist = V3d(12, -52, 0), neck = V3d(-8, 44, 0),
+      rsh = V3d(-35, 0, 100),  rel = V3d(35, 0, 0),   rwr = V3d(-25, 0, 0),
+      lsh = V3d(25, 0, -35),   lel = V3d(45, 0, 0),
+      rh = V3d(-22, 0, 10),    rk = V3d(-35, 0, 0),
+      lh = V3d(32, 0, -8),     lk = V3d(-28, 0, 0) },
+
+    -- 3) GOLPE: varre da direita pra esquerda, mão em garra, corpo inteiro chicoteia
+    { t = 0.78, crouch = 0.50,
+      waist = V3d(-28, 54, 0), neck = V3d(10, -44, 0),
+      rsh = V3d(100, 0, -48),  rel = V3d(4, 0, 0),    rwr = V3d(-38, 0, 0),
+      lsh = V3d(-34, 0, -55),  lel = V3d(30, 0, 0),   lwr = V3d(10, 0, 0),
+      rh = V3d(-34, 0, 10),    rk = V3d(-12, 0, 0),
+      lh = V3d(44, 0, -8),     lk = V3d(-54, 0, 0) },
+
+    -- 4) FOLLOW-THROUGH: passa do ponto (overshoot) e assenta
+    { t = 0.94, crouch = 0.44,
+      waist = V3d(-33, 68, 0), neck = V3d(13, -54, 0),
+      rsh = V3d(84, 0, -78),   rel = V3d(5, 0, 0),    rwr = V3d(-48, 0, 0),
+      lsh = V3d(-38, 0, -58),  lel = V3d(30, 0, 0),   lwr = V3d(10, 0, 0),
+      rh = V3d(-30, 0, 10),    rk = V3d(-15, 0, 0),
+      lh = V3d(42, 0, -8),     lk = V3d(-50, 0, 0) },
+
+    { t = 1.18, crouch = 0.40,
+      waist = V3d(-30, 62, 0), neck = V3d(12, -50, 0),
+      rsh = V3d(78, 0, -72),   rel = V3d(5, 0, 0),    rwr = V3d(-45, 0, 0),
+      lsh = V3d(-35, 0, -55),  lel = V3d(30, 0, 0),   lwr = V3d(10, 0, 0),
+      rh = V3d(-30, 0, 10),    rk = V3d(-15, 0, 0),
+      lh = V3d(40, 0, -8),     lk = V3d(-50, 0, 0) },
+
+    -- 5) RETORNO: gira o corpo de volta enquanto o stand voa pra trás do player
+    { t = 1.42, crouch = 0.12,
+      waist = V3d(6, 14, 0),   neck = V3d(-4, -8, 0),
+      rsh = V3d(20, 0, 28),    rel = V3d(18, 0, 0),   rwr = V3d(-8, 0, 0),
+      lsh = V3d(14, 0, -28),   lel = V3d(18, 0, 0),
+      rh = V3d(-14, 0, 6),     rk = V3d(-18, 0, 0),
+      lh = V3d(14, 0, -6),     lk = V3d(-12, 0, 0) },
+
+    { t = 1.65, hold = true, crouch = 0.0 },
+}
+
+-- ============================================================
+-- VARIAÇÕES DE CORTE: mesmo dash/freada/retorno, só mudam preparação -> golpe -> follow-through.
+-- Os tempos (0.64 / 0.78 / 0.94 / 1.18) são os mesmos, então o hit (HAND_HIT_T) continua sincronizado.
+-- ============================================================
+local function hpBuildVariant(mid)
+    local f = {}
+    for i = 1, 3 do f[#f + 1] = HAND_ERASE_FRAMES[i] end   -- dash + freada
+    for _, m in ipairs(mid) do f[#f + 1] = m end            -- preparação, golpe, follow-through
+    for i = 8, 9 do f[#f + 1] = HAND_ERASE_FRAMES[i] end   -- retorno
+    return f
+end
+
+local HAND_ERASE_VARIANTS = {
+    -- 1) HORIZONTAL (original): direita -> esquerda
+    HAND_ERASE_FRAMES,
+
+    -- 2) VERTICAL: braço sobe por cima da cabeça e desce em machadada
+    hpBuildVariant({
+        { t = 0.64, hold = true, crouch = 0.08,
+          waist = V3d(16, 0, 0),   neck = V3d(-12, 0, 0),
+          rsh = V3d(165, 0, 12),   rel = V3d(25, 0, 0),   rwr = V3d(-20, 0, 0),
+          lsh = V3d(40, 0, -30),   lel = V3d(40, 0, 0),
+          rh = V3d(-18, 0, 8),     rk = V3d(-28, 0, 0),
+          lh = V3d(30, 0, -8),     lk = V3d(-25, 0, 0) },
+        { t = 0.78, crouch = 0.55,
+          waist = V3d(-38, 0, 0),  neck = V3d(16, 0, 0),
+          rsh = V3d(28, 0, -4),    rel = V3d(6, 0, 0),    rwr = V3d(-42, 0, 0),
+          lsh = V3d(-40, 0, -42),  lel = V3d(30, 0, 0),
+          rh = V3d(-36, 0, 10),    rk = V3d(-12, 0, 0),
+          lh = V3d(46, 0, -8),     lk = V3d(-56, 0, 0) },
+        { t = 0.94, crouch = 0.50,
+          waist = V3d(-44, 0, 0),  neck = V3d(20, 0, 0),
+          rsh = V3d(12, 0, -6),    rel = V3d(5, 0, 0),    rwr = V3d(-48, 0, 0),
+          lsh = V3d(-44, 0, -46),  lel = V3d(30, 0, 0),
+          rh = V3d(-34, 0, 10),    rk = V3d(-14, 0, 0),
+          lh = V3d(44, 0, -8),     lk = V3d(-54, 0, 0) },
+        { t = 1.18, crouch = 0.46,
+          waist = V3d(-40, 0, 0),  neck = V3d(16, 0, 0),
+          rsh = V3d(10, 0, -6),    rel = V3d(5, 0, 0),    rwr = V3d(-45, 0, 0),
+          lsh = V3d(-40, 0, -45),  lel = V3d(30, 0, 0),
+          rh = V3d(-32, 0, 10),    rk = V3d(-15, 0, 0),
+          lh = V3d(42, 0, -8),     lk = V3d(-52, 0, 0) },
+    }),
+
+    -- 3) DIAGONAL: de cima-direita para baixo-esquerda, corpo girando junto
+    hpBuildVariant({
+        { t = 0.64, hold = true, crouch = 0.15,
+          waist = V3d(10, -46, -8), neck = V3d(-10, 40, 0),
+          rsh = V3d(-15, 0, 135),   rel = V3d(30, 0, 0),   rwr = V3d(-25, 0, 0),
+          lsh = V3d(25, 0, -35),    lel = V3d(45, 0, 0),
+          rh = V3d(-22, 0, 10),     rk = V3d(-32, 0, 0),
+          lh = V3d(32, 0, -8),      lk = V3d(-28, 0, 0) },
+        { t = 0.78, crouch = 0.52,
+          waist = V3d(-36, 52, 6),  neck = V3d(12, -42, 0),
+          rsh = V3d(75, 0, -58),    rel = V3d(4, 0, 0),    rwr = V3d(-40, 0, 0),
+          lsh = V3d(-34, 0, -55),   lel = V3d(30, 0, 0),
+          rh = V3d(-34, 0, 10),     rk = V3d(-12, 0, 0),
+          lh = V3d(44, 0, -8),      lk = V3d(-54, 0, 0) },
+        { t = 0.94, crouch = 0.46,
+          waist = V3d(-42, 66, 8),  neck = V3d(14, -52, 0),
+          rsh = V3d(58, 0, -86),    rel = V3d(5, 0, 0),    rwr = V3d(-48, 0, 0),
+          lsh = V3d(-38, 0, -58),   lel = V3d(30, 0, 0),
+          rh = V3d(-30, 0, 10),     rk = V3d(-15, 0, 0),
+          lh = V3d(42, 0, -8),      lk = V3d(-50, 0, 0) },
+        { t = 1.18, crouch = 0.42,
+          waist = V3d(-38, 60, 6),  neck = V3d(12, -48, 0),
+          rsh = V3d(55, 0, -82),    rel = V3d(5, 0, 0),    rwr = V3d(-45, 0, 0),
+          lsh = V3d(-35, 0, -55),   lel = V3d(30, 0, 0),
+          rh = V3d(-30, 0, 10),     rk = V3d(-15, 0, 0),
+          lh = V3d(40, 0, -8),      lk = V3d(-50, 0, 0) },
+    }),
+
+    -- 4) BACKHAND: braço cruza o peito e abre de costas pra direita (antecipação curta)
+    hpBuildVariant({
+        { t = 0.64, hold = true, crouch = 0.22,
+          waist = V3d(-6, 42, 0),   neck = V3d(0, -30, 0),
+          rsh = V3d(55, 0, -85),    rel = V3d(65, 0, 0),   rwr = V3d(10, 0, 0),
+          lsh = V3d(15, 0, -30),    lel = V3d(40, 0, 0),
+          rh = V3d(-18, 0, 8),      rk = V3d(-30, 0, 0),
+          lh = V3d(34, 0, -8),      lk = V3d(-28, 0, 0) },
+        { t = 0.78, crouch = 0.48,
+          waist = V3d(-12, -58, 0), neck = V3d(8, 46, 0),
+          rsh = V3d(15, 0, 95),     rel = V3d(4, 0, 0),    rwr = V3d(35, 0, 0),
+          lsh = V3d(-30, 0, -50),   lel = V3d(30, 0, 0),
+          rh = V3d(-34, 0, 10),     rk = V3d(-12, 0, 0),
+          lh = V3d(44, 0, -8),      lk = V3d(-52, 0, 0) },
+        { t = 0.94, crouch = 0.44,
+          waist = V3d(-14, -72, 0), neck = V3d(10, 56, 0),
+          rsh = V3d(8, 0, 112),     rel = V3d(5, 0, 0),    rwr = V3d(42, 0, 0),
+          lsh = V3d(-34, 0, -54),   lel = V3d(30, 0, 0),
+          rh = V3d(-32, 0, 10),     rk = V3d(-14, 0, 0),
+          lh = V3d(42, 0, -8),      lk = V3d(-50, 0, 0) },
+        { t = 1.18, crouch = 0.40,
+          waist = V3d(-12, -66, 0), neck = V3d(8, 50, 0),
+          rsh = V3d(8, 0, 105),     rel = V3d(5, 0, 0),    rwr = V3d(38, 0, 0),
+          lsh = V3d(-32, 0, -52),   lel = V3d(30, 0, 0),
+          rh = V3d(-30, 0, 10),     rk = V3d(-15, 0, 0),
+          lh = V3d(40, 0, -8),      lk = V3d(-50, 0, 0) },
+    }),
+}
+-- Sorteia entre o corte HORIZONTAL (1) e o VERTICAL (2) a cada Erase
+local function pickEraseVariant()
+    return HAND_ERASE_VARIANTS[math.random(1, 2)]
+end
+
+local HAND_KEYS = { "waist", "neck", "rsh", "rel", "rwr", "lsh", "lel", "lwr", "rh", "rk", "ra", "lh", "lk", "la" }
+
+local function hpSmooth(a) return a * a * (3 - 2 * a) end
+
+local ZERO3 = V3d()
+
+-- Tangente de Catmull-Rom (não uniforme) de um valor no keyframe i
+local function hpTangent(frames, i, key)
+    local f = frames[i]
+    if f.hold or i == 1 or i == #frames then return nil end
+    local p, n = frames[i - 1], frames[i + 1]
+    local dt = n.t - p.t
+    if key == "crouch" then
+        return ((n.crouch or 0) - (p.crouch or 0)) / dt
+    end
+    return ((n[key] or ZERO3) - (p[key] or ZERO3)) / dt
+end
+
+local function hpEval(frames, t)
+    local last = frames[#frames]
+    local pose = { crouch = 0 }
+    if t >= last.t then
+        pose.crouch = last.crouch or 0
+        for _, k in ipairs(HAND_KEYS) do pose[k] = last[k] or ZERO3 end
+        return pose
+    end
+    local ia = 1
+    for i = 1, #frames - 1 do
+        if t >= frames[i].t and t < frames[i + 1].t then ia = i break end
+    end
+    local a, b = frames[ia], frames[ia + 1]
+    local dt = b.t - a.t
+    local s = (t - a.t) / dt
+    local s2, s3 = s * s, s * s * s
+    local h00, h10, h01, h11 = 2*s3 - 3*s2 + 1, s3 - 2*s2 + s, -2*s3 + 3*s2, s3 - s2
+
+    local m0 = hpTangent(frames, ia, "crouch") or 0
+    local m1 = hpTangent(frames, ia + 1, "crouch") or 0
+    pose.crouch = h00 * (a.crouch or 0) + h10 * dt * m0 + h01 * (b.crouch or 0) + h11 * dt * m1
+
+    for _, k in ipairs(HAND_KEYS) do
+        local t0 = hpTangent(frames, ia, k) or ZERO3
+        local t1 = hpTangent(frames, ia + 1, k) or ZERO3
+        pose[k] = (a[k] or ZERO3) * h00 + t0 * (h10 * dt) + (b[k] or ZERO3) * h01 + t1 * (h11 * dt)
+    end
+
+    return pose
+end
+
+local function hpJoints(ch)
+    local map = {
+        root  = { "LowerTorso" },
+        waist = { "UpperTorso" },
+        neck  = { "Head" },
+        rsh = { "RightUpperArm", "Right Arm" },
+        rel = { "RightLowerArm" },
+        rwr = { "RightHand" },
+        lsh = { "LeftUpperArm", "Left Arm" },
+        lel = { "LeftLowerArm" },
+        lwr = { "LeftHand" },
+        rh = { "RightUpperLeg", "Right Leg" },
+        rk = { "RightLowerLeg" },
+        ra = { "RightFoot" },
+        lh = { "LeftUpperLeg", "Left Leg" },
+        lk = { "LeftLowerLeg" },
+        la = { "LeftFoot" },
+    }
+    local J = {}
+    for _, d in ipairs(ch:GetDescendants()) do
+        if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+            for key, names in pairs(map) do
+                if not J[key] then
+                    for _, n in ipairs(names) do
+                        if d.Part1.Name == n then J[key] = d end
+                    end
+                end
+            end
+            -- R6: o RootJoint liga HumanoidRootPart -> Torso
+            if not J.root and d.Part0.Name == "HumanoidRootPart" and d.Part1.Name == "Torso" then
+                J.root = d
+            end
+        end
+    end
+    return J
+end
+
+local HandPose = { J = nil, char = nil, t0 = 0, w = 0, fading = false, fadeTime = 0.3, bound = false, frames = nil, speed = 1, fadeIn = 0.05 }
+local HAND_BIND = "TheHandEraseAnim"
+
+local function hpApply(m, rotDeg, offset, w)
+    local c0 = m.C0 - m.C0.Position
+    local A = CFrame.Angles(math.rad(rotDeg.X), math.rad(rotDeg.Y), math.rad(rotDeg.Z))
+    if offset then A = CFrame.new(offset) * A end
+    local T = c0:Inverse() * A * c0
+    m.Transform = CFrame.new():Lerp(T, w)
+end
+
+function HandPose.reset()
+    if HandPose.J then
+        for _, m in pairs(HandPose.J) do
+            if m.Parent then m.Transform = CFrame.new() end
+        end
+    end
+    HandPose.J, HandPose.char = nil, nil
+end
+
+function HandPose.stopNow()
+    if HandPose.bound then
+        pcall(function() RunService:UnbindFromRenderStep(HAND_BIND) end)
+        HandPose.bound = false
+    end
+    HandPose.reset()
+    HandPose.fading = false
+    HandPose.w = 0
+end
+
+function HandPose.stop(fade)
+    if not HandPose.bound then return end
+    HandPose.fading = true
+    HandPose.fadeTime = math.max(fade or HAND_POSE.FadeOut, 0.01)
+end
+
+function HandPose.start(char, frames, speed)
+    HandPose.stopNow()
+    if not char then return false end
+    local J = hpJoints(char)
+    if not (J.root or J.waist or J.rsh) then return false end
+    HandPose.J, HandPose.char = J, char
+    HandPose.frames, HandPose.speed = frames, speed or 1
+    HandPose.t0 = os.clock()
+    HandPose.w = 0
+    HandPose.fading = false
+    HandPose.bound = true
+
+    RunService:BindToRenderStep(HAND_BIND, Enum.RenderPriority.Camera.Value - 1, function(dt)
+        if not HandPose.char or not HandPose.char.Parent then
+            HandPose.stopNow()
+            return
+        end
+        local rate = HandPose.fading and (1 / HandPose.fadeTime) or (1 / math.max(HAND_POSE.FadeIn, 0.01))
+        local goal = HandPose.fading and 0 or 1
+        HandPose.w = HandPose.w + math.clamp(goal - HandPose.w, -rate * dt, rate * dt)
+        if HandPose.fading and HandPose.w <= 0.001 then
+            HandPose.stopNow()
+            return
+        end
+
+        local t = (os.clock() - HandPose.t0) * HandPose.speed
+        local pose = hpEval(HandPose.frames, t)
+
+        -- Vida extra procedural: respiração/flutuação o tempo todo + tremor da mão no auge do apagamento
+        pose.waist = pose.waist + V3d(math.sin(t * 9) * 1.5, math.sin(t * 6) * 2, 0)
+        pose.neck  = pose.neck  + V3d(0, math.sin(t * 7 + 1) * 2, 0)
+        pose.lsh   = pose.lsh   + V3d(math.sin(t * 8) * 2, 0, math.sin(t * 6) * 2)
+        local shake = math.clamp(1 - math.abs(t - 1.0) / 0.35, 0, 1) -- pico em ~1.0s
+        if shake > 0 then
+            pose.rwr = pose.rwr + V3d(math.sin(t * 70) * 7, math.sin(t * 53) * 5, math.sin(t * 61) * 4) * shake
+            pose.rel = pose.rel + V3d(math.sin(t * 64) * 3, 0, 0) * shake
+        end
+        local w = hpSmooth(math.clamp(HandPose.w, 0, 1))
+        local mul = HAND_POSE.Intensity
+        local J = HandPose.J
+
+        for key, m in pairs(J) do
+            if m.Parent and m.Part0 and m.Part1 and key ~= "root" then
+                local r = pose[key]
+                if r then hpApply(m, r * mul, nil, w) end
+            end
+        end
+
+        -- agachada (e, no R6, a inclinação do tronco) pelo RootJoint
+        local root = J.root
+        if root and root.Parent then
+            local rot = J.waist and V3d() or (pose.waist * mul)
+            hpApply(root, rot, V3d(0, -pose.crouch * mul, 0), w)
+        end
+    end)
+    return true
+end
+
+-- ============================================================
+-- VOO DO STAND (ida e volta do Erase): arco em curva, rastro, imagens residuais e poeira
+-- ============================================================
+local function easeOutQuad(a) return 1 - (1 - a) * (1 - a) end
+local function easeOutBack(a) local c1, c3 = 1.4, 2.4 return 1 + c3 * (a - 1)^3 + c1 * (a - 1)^2 end
+
+local function spawnStandGhost(stand, color)
+    local n = 0
+    for _, d in ipairs(stand:GetDescendants()) do
+        if d:IsA("BasePart") and d.Transparency < 0.95 and d.Name ~= "HumanoidRootPart" and not d.Name:find("Trail") then
+            n += 1
+            if n > 18 then break end
+            local ok, g = pcall(function() return d:Clone() end)
+            if ok and g then
+                for _, c in ipairs(g:GetChildren()) do
+                    if not c:IsA("DataModelMesh") then c:Destroy() end
+                end
+                g.Anchored = true
+                g.CanCollide = false
+                g.CanQuery = false
+                g.CanTouch = false
+                g.CastShadow = false
+                g.Material = Enum.Material.Neon
+                g.Color = color
+                g.Transparency = 0.45
+                g.CFrame = d.CFrame
+                if g:IsA("MeshPart") then pcall(function() g.TextureID = "" end) end
+                g.Parent = workspace
+                TweenService:Create(g, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                    { Transparency = 1, Size = g.Size * 0.85 }):Play()
+                Debris:AddItem(g, 0.4)
+            end
+        end
+    end
+end
+
+local function dustBurst(pos, size)
+    local part = Instance.new("Part")
+    part.Size = Vector3.new(0.5, 0.5, 0.5)
+    part.Position = pos
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 1
+    part.Parent = workspace
+    Debris:AddItem(part, 1.5)
+    local at = Instance.new("Attachment", part)
+    local pe = Instance.new("ParticleEmitter", at)
+    pe.Texture = "rbxassetid://14317181033"
+    pe.Color = ColorSequence.new(Color3.fromRGB(0, 200, 255), Color3.fromRGB(255, 255, 255))
+    pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, size), NumberSequenceKeypoint.new(1, 0)})
+    pe.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+    pe.Lifetime = NumberRange.new(0.3, 0.6)
+    pe.Speed = NumberRange.new(12, 24)
+    pe.SpreadAngle = Vector2.new(180, 180)
+    pe.LightEmission = 1
+    pe.Rate = 0
+    pe:Emit(22)
+end
+
+-- Voa a stand de onde está até toCF em "dur" segundos, em arco, com rastro e afterimages.
+-- toCF pode ser um CFrame ou uma função que devolve o CFrame destino ATUAL (acompanha o player).
+local function standFlight(stand, sRoot, toCFArg, dur, easeFn, arc, side)
+    local function getTo() if typeof(toCFArg) == "function" then return toCFArg() end return toCFArg end
+    local fromCF = sRoot.CFrame
+    local p0 = fromCF.Position
+    local dir = (getTo().Position - p0)
+    local flat = Vector3.new(dir.X, 0, dir.Z)
+    local right = flat.Magnitude > 0.01 and flat.Unit:Cross(Vector3.yAxis) or Vector3.xAxis
+    local p1off = Vector3.new(0, arc, 0) + right * side
+
+    local color = Color3.fromRGB(0, 180, 255)
+    local t0, lastGhost = os.clock(), 0
+    while true do
+        local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+        local e = easeFn(a)
+        local omE = 1 - e
+        -- destino recalculado a cada frame: o stand termina EXATAMENTE na posição atual do player
+        local toCF = getTo()
+        local p2 = toCF.Position
+        local p1 = (p0 + p2) / 2 + p1off
+        local pos = p0 * (omE * omE) + p1 * (2 * omE * e) + p2 * (e * e)
+        local rotCF = fromCF.Rotation:Lerp(toCF.Rotation, math.clamp(e, 0, 1))
+        local roll = CFrame.Angles(0, 0, math.sin(a * math.pi) * 0.3 * (side >= 0 and 1 or -1))
+        sRoot.CFrame = CFrame.new(pos) * rotCF * roll
+        if a >= 1 then break end
+        RunService.Heartbeat:Wait()
+    end
+    sRoot.CFrame = getTo()
+end
+
+local HAND_HIT_T = 0.72  -- segundos desde o início da pose: mão cruzando o alvo
+
+-- Shake de impacto: um único tremor curto, amortecido, sem brigar com outros shakes
+local hitShakeToken = 0
+local function hitShake(duration, intensity)
+    if not hum then return end
+    hitShakeToken += 1
+    local my = hitShakeToken
+    local start = os.clock()
+    task.spawn(function()
+        while my == hitShakeToken do
+            local el = os.clock() - start
+            if el >= duration then break end
+            local k = (1 - el / duration)
+            k = k * k
+            local f = el * 55
+            hum.CameraOffset = Vector3.new(math.sin(f) * 0.5, math.sin(f * 1.3 + 1) * 0.35, 0) * intensity * k
+            RunService.RenderStepped:Wait()
+        end
+        if my == hitShakeToken then hum.CameraOffset = Vector3.new(0, 0, 0) end
+    end)
+end
+
 local function performErase()
     if not canUseStrict("Erase") then return end
     if not isStandActive or not currentStand or isAttacking then return end
@@ -1805,9 +2299,14 @@ local function performErase()
     -- =============================================
     -- FASE 1: STAND VAI ATÉ O ALVO
     -- =============================================
-    if idleTrack and idleTrack.IsPlaying then idleTrack:Stop() end
-    if walkTrack and walkTrack.IsPlaying then walkTrack:Stop() end
-    if runTrack and runTrack.IsPlaying then runTrack:Stop() end
+    if idleTrack and idleTrack.IsPlaying then idleTrack:Stop(0.05) end
+    if walkTrack and walkTrack.IsPlaying then walkTrack:Stop(0.05) end
+    if runTrack and runTrack.IsPlaying then runTrack:Stop(0.05) end
+    for _, tr in ipairs(sHum:GetPlayingAnimationTracks()) do
+        pcall(function() tr:Stop(0.05) end)
+    end
+    -- Animação procedural CONTÍNUA: começa já no dash e só termina no retorno (sem tempo morto)
+    HandPose.start(currentStand, pickEraseVariant(), 1)
     
     local targetPos = targetRoot.Position
     local directionToTarget = (targetPos - charRoot.Position).Unit
@@ -1815,29 +2314,14 @@ local function performErase()
     standDestination = Vector3.new(standDestination.X, targetPos.Y + 3, standDestination.Z)
     local lookAtTarget = CFrame.lookAt(standDestination, targetPos)
     
-    local moveTween = TweenService:Create(sRoot, 
-        TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
-        {CFrame = lookAtTarget}
-    )
-    moveTween:Play()
-    moveTween.Completed:Wait()
+    dustBurst(sRoot.Position, 3)  -- explosão de partida
+    standFlight(currentStand, sRoot, lookAtTarget, 0.4, easeOutQuad, 3, 4)
+    dustBurst(sRoot.Position, 4)  -- impacto na chegada
     
 -- =============================================
--- FASE 2: ANIMAÇÃO DE ERASE (TOCA NORMALMENTE)
+-- FASE 2: GOLPE (a pose procedural já está rodando desde o dash)
 -- =============================================
-local eraseAnim = Instance.new("Animation")
-eraseAnim.AnimationId = ASSETS.ERASE_ANIM
-local eraseTrack = sHum:LoadAnimation(eraseAnim)
-eraseTrack.Looped = false
-eraseTrack.Priority = Enum.AnimationPriority.Action
-eraseTrack:Play(0)
-
--- ⚡ AJUSTE DE VELOCIDADE AQUI
-local ERASE_ANIM_SPEED = 5.45
-eraseTrack:AdjustSpeed(ERASE_ANIM_SPEED)
-
-local animLength = eraseTrack.Length
-    
+local ERASE_END_T = HAND_POSE.TotalDuration - 0.35  -- instante em que o stand começa a voltar
     -- Trail na mão direita
     local sRightHand = findRightHand(currentStand)
     local trailMain, trailOutline, att0, att1, trailPart
@@ -1922,6 +2406,19 @@ local animLength = eraseTrack.Length
             NumberSequenceKeypoint.new(0.72, 0.33),
             NumberSequenceKeypoint.new(1.00, 1.0)
         })
+
+        -- Borda preta de verdade: textura com moldura preta e miolo branco (a cor do trail tinge só o miolo)
+        if ASSETS.ERASE_TRAIL_BORDER_TEXTURE ~= "" then
+            trailOutline.Enabled = false
+            trailMain.Texture = ASSETS.ERASE_TRAIL_BORDER_TEXTURE
+            trailMain.TextureMode = Enum.TextureMode.Stretch
+            trailMain.LightEmission = 0.2  -- brilho alto (aditivo) apaga o preto; 0.2 é ponto de partida
+            trailMain.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0.00, 0.0),
+                NumberSequenceKeypoint.new(0.72, 0.15),
+                NumberSequenceKeypoint.new(1.00, 1.0)
+            })
+        end
     end
 
     -- Som
@@ -1931,9 +2428,10 @@ local animLength = eraseTrack.Length
     eraseSound:Play()
     Debris:AddItem(eraseSound, 3)
     
-    cameraShake(0.6, 3)
-    
-    task.wait(0.2)
+    -- Espera o instante exato em que a mão do stand passa pelo alvo (meio da varrida) e dispara
+    -- o shake + o apagamento juntos, sincronizados com a animação.
+    task.wait(math.max(0, (HandPose.t0 + HAND_HIT_T) - os.clock()))
+    hitShake(0.28, 1.6)
 
     -- =============================================
 -- FASE 3: VFX E FLING (RODA EM PARALELO!)
@@ -1956,7 +2454,7 @@ task.spawn(function()
             highlight.FillTransparency = 1
             highlight.Parent = targetChar
             
-            TweenService:Create(highlight, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            TweenService:Create(highlight, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
                 { OutlineTransparency = 0.5, FillTransparency = 0.5 }
             ):Play()
 
@@ -1998,7 +2496,7 @@ task.spawn(function()
             end)
 
             -- Encolhimento
-            local tweenInfoErasure = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            local tweenInfoErasure = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
             for _, part in ipairs(targetChar:GetDescendants()) do
                 if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                     originalSizes[part] = part.Size
@@ -2016,7 +2514,7 @@ task.spawn(function()
             end)
         end
 
-        task.wait(0.5)
+        task.wait(0.15)
         
         -- FLING (burst do XJ_Fling: o meu corpo vai ate o alvo, nada e movido no alvo)
         local SYNC_DURATION = 2
@@ -2053,10 +2551,9 @@ task.spawn(function()
     -- =============================================
     
     -- Espera a animação de erase terminar
-    task.wait(animLength / eraseTrack.Speed)
+    task.wait(math.max(0, (HandPose.t0 + ERASE_END_T) - os.clock()))
     
-    -- Para o erase
-    if eraseTrack then eraseTrack:Stop() end
+    -- (a pose continua no retorno; ela termina sozinha ao fim da timeline)
     
     -- Limpa trails
     if trailMain then
@@ -2102,14 +2599,13 @@ task.spawn(function()
     task.delay(0.5, function() peReturn.Enabled = false end)
     
     -- STAND VOLTA PARA TRÁS DO PLAYER
-    local returnTween = TweenService:Create(sRoot, 
-        TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), 
-        {CFrame = returnCFrame}
-    )
-    returnTween:Play()
-    returnTween.Completed:Wait()
+    standFlight(currentStand, sRoot, function()
+        local r = character and character:FindFirstChild("HumanoidRootPart") or charRoot
+        return r.CFrame * CFrame.new(STAND_OFFSET)
+    end, 0.35, easeOutBack, 2, -3)
     
-    -- Volta ao idle
+    -- Termina a pose suavemente e volta ao idle sem buraco
+    HandPose.stop(HAND_POSE.FadeOut)
     idleTrack = playAnim(sHum, ASSETS.STAND_IDLE, 1, true, Enum.AnimationPriority.Idle)
     
     -- ✅ Finaliza (não espera o Fling!)
@@ -2266,6 +2762,67 @@ print("✅ VFX de Spawn carregado!")
 
 local firstActivation = true   
 
+-- ==================== FAIXAS DA CUTSCENE (ENTRADA E SAÍDA COM TWEEN) ====================
+local CUTSCENE_BANDS = {
+    HeightScale = 0.14,                       -- altura de cada faixa (fração da tela)
+    Color = Color3.fromRGB(0, 0, 0),
+    EnterTime = 0.35,
+    EnterStyle = Enum.EasingStyle.Quint,
+    ExitTime = 0.45,
+    ExitStyle = Enum.EasingStyle.Quint,
+    SafetyLifetime = 20,                      -- remove a GUI sozinha se a cutscene quebrar no meio
+}
+
+local function createCutsceneBands()
+    local cfg = CUTSCENE_BANDS
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "TheHandCutsceneBands"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true                 -- cobre a tela toda, inclusive o notch no celular
+    pcall(function() gui.ScreenInsets = Enum.ScreenInsets.None end)
+    gui.DisplayOrder = 1000
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = player:WaitForChild("PlayerGui")
+    Debris:AddItem(gui, cfg.SafetyLifetime)
+
+    local function makeBand(name, hiddenPos, shownPos)
+        local band = Instance.new("Frame")
+        band.Name = name
+        band.AnchorPoint = Vector2.new(0, 0)
+        band.Size = UDim2.new(1, 0, cfg.HeightScale, 2)
+        band.Position = hiddenPos
+        band.BackgroundColor3 = cfg.Color
+        band.BorderSizePixel = 0
+        band.ZIndex = 1400
+        band.Parent = gui
+        return band, shownPos
+    end
+
+    local h = cfg.HeightScale
+    local topHidden, topShown = UDim2.new(0, 0, -h, -2), UDim2.new(0, 0, 0, 0)
+    local botHidden, botShown = UDim2.new(0, 0, 1, 0),   UDim2.new(0, 0, 1 - h, -2)
+    local top = makeBand("TopBand", topHidden, topShown)
+    local bottom = makeBand("BottomBand", botHidden, botShown)
+
+    local enterInfo = TweenInfo.new(cfg.EnterTime, cfg.EnterStyle, Enum.EasingDirection.Out)
+    TweenService:Create(top, enterInfo, {Position = topShown}):Play()
+    TweenService:Create(bottom, enterInfo, {Position = botShown}):Play()
+
+    local exiting = false
+    local handle = {}
+    function handle.Exit()
+        if exiting then return end
+        exiting = true
+        if not gui.Parent then return end
+        local exitInfo = TweenInfo.new(cfg.ExitTime, cfg.ExitStyle, Enum.EasingDirection.In)
+        TweenService:Create(top, exitInfo, {Position = topHidden}):Play()
+        local t = TweenService:Create(bottom, exitInfo, {Position = botHidden})
+        t.Completed:Once(function() gui:Destroy() end)
+        t:Play()
+    end
+    return handle
+end
+
 -- ==================== CUTSCENE OKUYASU - THE HAND (CORTES SUAVES NO MEIO) ====================
 local function playOkuyasuCutscene()
     if not character or not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChild("Head") then return end
@@ -2291,10 +2848,13 @@ local function playOkuyasuCutscene()
     local originalCameraSubject = camera.CameraSubject
     camera.CameraType = Enum.CameraType.Scriptable
     
+    -- ==================== FAIXAS (ENTRAM AQUI, SAEM NO FINAL) ====================
+    local cutsceneBands = createCutsceneBands()
+    
     -- ==================== SOM ====================
     local okuyasuVoice = Instance.new("Sound")
     okuyasuVoice.SoundId = "rbxassetid://5375544504"
-    okuyasuVoice.Volume = 2.5
+    okuyasuVoice.Volume = 0.3
     okuyasuVoice.PlaybackSpeed = 1
     okuyasuVoice.Parent = head
     okuyasuVoice:Play()
@@ -2521,6 +3081,7 @@ local function playOkuyasuCutscene()
         TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), 
         {CFrame = CFrame.new(originalCamPos, root.Position + Vector3.new(0, 3, 0))})
     finalTween:Play()
+    cutsceneBands.Exit()  -- faixas saem em tween junto com a câmera recuando
     finalTween.Completed:Wait()
     
     -- ═══════════════════════════════════════

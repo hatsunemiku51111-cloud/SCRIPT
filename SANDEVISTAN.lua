@@ -7967,27 +7967,93 @@ local function BuildUI()
         end
     end
 
+    -- ============================================================
+    -- MENU DE CONFIGS // CYBER UI
+    -- ============================================================
+    local CY = {
+        YELLOW  = Color3.fromRGB(252, 238, 9),
+        CYAN    = Color3.fromRGB(0, 240, 255),
+        MAGENTA = Color3.fromRGB(255, 43, 140),
+        RED     = Color3.fromRGB(255, 40, 80),
+        ROW     = Color3.fromRGB(11, 14, 24),
+        LINE    = Color3.fromRGB(38, 46, 66),
+        DIM     = Color3.fromRGB(110, 122, 148),
+        OFF     = Color3.fromRGB(20, 23, 34),
+        WHITE   = Color3.new(1, 1, 1),
+        BLACK   = Color3.new(0, 0, 0),
+    }
+
+    local function tw(obj, t, props, style, dir)
+        TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props):Play()
+    end
+
+    -- colchetes de canto (cantoneiras) estilo HUD
+    local function addBrackets(parent, color, len, th, inset, z)
+        for _, c in ipairs({{0, 0}, {1, 0}, {0, 1}, {1, 1}}) do
+            local ax, ay = c[1], c[2]
+            local ox = (ax == 0) and inset or -inset
+            local oy = (ay == 0) and inset or -inset
+            Create("Frame", {Size = UDim2.new(0, len, 0, th), AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, ox, ay, oy), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = z, Parent = parent})
+            Create("Frame", {Size = UDim2.new(0, th, 0, len), AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, ox, ay, oy), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = z, Parent = parent})
+        end
+    end
+
+    -- ---------- painel principal ----------
     local settingsMenu = Create("Frame", {
-    Name = "SettingsMenu", 
-    Size = UDim2.new(0, 0, 0, 0),
-    Position = UDim2.new(0, 78, 0, 28), 
-    BackgroundColor3 = Color3.fromRGB(4,4,8), 
-    Visible = false,
-    BorderSizePixel = 0, 
-    Parent = gui
-})
-    Create("UICorner", {CornerRadius = UDim.new(0, 16), Parent = settingsMenu})
-    local menuStroke1 = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 4, Transparency = 0.2, Parent = settingsMenu})
-    local menuStroke2 = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.55, Parent = settingsMenu})
+        Name = "SettingsMenu",
+        Size = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0, 78, 0, 28),
+        BackgroundColor3 = CY.WHITE,
+        Visible = false,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        Parent = gui
+    })
+    Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = settingsMenu})
+    Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(10, 13, 24), Color3.fromRGB(3, 4, 9)), Rotation = 90, Parent = settingsMenu})
+    Create("UIStroke", {Color = CY.CYAN, Thickness = 1.5, Transparency = 0.15, Parent = settingsMenu})
+    local menuGlow = Create("UIStroke", {Color = CY.CYAN, Thickness = 7, Transparency = 0.88, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = settingsMenu})
+    TweenService:Create(menuGlow, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Transparency = 0.7}):Play()
+    addBrackets(settingsMenu, CY.YELLOW, 16, 2, 3, 12)
 
-    local title = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Text = "NEURAL INTERFACE\nCYBER REBUILT 2077", TextColor3 = Colors.CYBER_ORANGE, Font = Enum.Font.SciFi, TextSize = 19, TextStrokeTransparency = 0.5, Parent = settingsMenu})
+    -- faixa superior
+    Create("Frame", {Size = UDim2.new(0, 96, 0, 3), BackgroundColor3 = CY.YELLOW, BorderSizePixel = 0, ZIndex = 3, Parent = settingsMenu})
+    Create("Frame", {Size = UDim2.new(1, -96, 0, 3), Position = UDim2.new(0, 96, 0, 0), BackgroundColor3 = CY.CYAN, BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 3, Parent = settingsMenu})
 
-    -- Botão X: fecha o menu (mesma animação do comando -settings)
-    local closeBtn = Create("TextButton", {Name = "CloseBtn", Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -42, 0, 8), BackgroundColor3 = Color3.fromRGB(200, 40, 40), Text = "X", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.SciFi, TextSize = 20, AutoButtonColor = true, ZIndex = 10, Parent = settingsMenu})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = closeBtn})
-    Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.4, Parent = closeBtn})
+    -- título com "RGB split" (glitch ocasional)
+    local function titleLayer(color, x, z, transp)
+        return Create("TextLabel", {Size = UDim2.new(1, -70, 0, 26), Position = UDim2.new(0, x, 0, 12), BackgroundTransparency = 1, Text = "NEURAL INTERFACE", TextColor3 = color, TextTransparency = transp, Font = Enum.Font.SciFi, TextSize = 20, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = z, Parent = settingsMenu})
+    end
+    local titleC = titleLayer(CY.CYAN, 15, 4, 0.35)
+    local titleR = titleLayer(CY.MAGENTA, 17, 4, 0.35)
+    local title = titleLayer(CY.YELLOW, 16, 5, 0)
+    Create("TextLabel", {Size = UDim2.new(1, -70, 0, 14), Position = UDim2.new(0, 16, 0, 40), BackgroundTransparency = 1, Text = "CYBER REBUILT 2077 // CONFIG.SYS", TextColor3 = CY.CYAN, TextTransparency = 0.2, Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5, Parent = settingsMenu})
+    Create("Frame", {Size = UDim2.new(1, -20, 0, 1), Position = UDim2.new(0, 10, 0, 62), BackgroundColor3 = CY.CYAN, BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 3, Parent = settingsMenu})
+
+    task.spawn(function()
+        while settingsMenu.Parent do
+            task.wait(2 + math.random() * 3)
+            if settingsMenu.Visible then
+                for _ = 1, 4 do
+                    local d = math.random(2, 4)
+                    titleC.Position = UDim2.new(0, 16 - d, 0, 12 + math.random(-1, 1))
+                    titleR.Position = UDim2.new(0, 16 + d, 0, 12 + math.random(-1, 1))
+                    task.wait(0.04)
+                end
+                titleC.Position = UDim2.new(0, 15, 0, 12)
+                titleR.Position = UDim2.new(0, 17, 0, 12)
+            end
+        end
+    end)
+
+    -- botão X: fecha o menu (mesma animação do comando -settings)
+    local closeBtn = Create("TextButton", {Name = "CloseBtn", Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -42, 0, 14), BackgroundColor3 = Color3.fromRGB(40, 8, 16), Text = "X", TextColor3 = CY.RED, Font = Enum.Font.SciFi, TextSize = 18, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 10, Parent = settingsMenu})
+    Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = closeBtn})
+    Create("UIStroke", {Color = CY.RED, Thickness = 1.5, Transparency = 0.2, Parent = closeBtn})
+    closeBtn.MouseEnter:Connect(function() tw(closeBtn, 0.12, {BackgroundColor3 = CY.RED, TextColor3 = CY.WHITE}) end)
+    closeBtn.MouseLeave:Connect(function() tw(closeBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(40, 8, 16), TextColor3 = CY.RED}) end)
     local closingMenu = false
-    closeBtn.MouseButton1Click:Connect(function()
+    local function closeSettingsMenu()
         if closingMenu or not settingsMenu.Visible then return end
         closingMenu = true
         local closeTween = TweenService:Create(settingsMenu, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -7999,10 +8065,112 @@ local function BuildUI()
             settingsMenu.Visible = false
             closingMenu = false
         end)
-    end)
+    end
+    local function toggleSettingsMenu()
+        if closingMenu then return end
+        if settingsMenu.Visible then
+            closeSettingsMenu()
+        else
+            settingsMenu.Visible = true
+            settingsMenu.Size = UDim2.new(0, 0, 0, 0)
+            settingsMenu.BackgroundTransparency = 1
+            TweenService:Create(settingsMenu, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, 360, 0, 520),
+                BackgroundTransparency = 0
+            }):Play()
+        end
+    end
+    closeBtn.MouseButton1Click:Connect(closeSettingsMenu)
 
-    local scroll = Create("ScrollingFrame", {Name = "AbilitiesScroll", Size = UDim2.new(1, -24, 1, -148), Position = UDim2.new(0, 12, 0, 66), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6, ScrollBarImageColor3 = Colors.UI_NEON, Parent = settingsMenu})
-    Create("UIListLayout", {Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll})
+    -- ---------- rodapé ----------
+    local footer = Create("Frame", {Size = UDim2.new(1, 0, 0, 32), AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(4, 5, 10), BorderSizePixel = 0, ZIndex = 6, Parent = settingsMenu})
+    Create("Frame", {Size = UDim2.new(1, -20, 0, 1), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = CY.CYAN, BackgroundTransparency = 0.65, BorderSizePixel = 0, ZIndex = 7, Parent = footer})
+    Create("TextLabel", {Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 16, 0, 0), BackgroundTransparency = 1, Text = "SYS.CFG // AUTOSAVE ON", TextColor3 = CY.DIM, Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = footer})
+    Create("TextLabel", {Size = UDim2.new(0, 90, 1, 0), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 0), BackgroundTransparency = 1, Text = "NEURAL LINK", TextColor3 = CY.CYAN, TextTransparency = 0.25, Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 7, Parent = footer})
+    local linkDot = Create("Frame", {Size = UDim2.new(0, 6, 0, 6), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -112, 0.5, 0), BackgroundColor3 = CY.CYAN, BorderSizePixel = 0, ZIndex = 7, Parent = footer})
+    TweenService:Create(linkDot, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {BackgroundTransparency = 0.8}):Play()
+
+    -- ---------- lista rolável ----------
+    local scroll = Create("ScrollingFrame", {Name = "AbilitiesScroll", Size = UDim2.new(1, -20, 1, -112), Position = UDim2.new(0, 10, 0, 72), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = CY.CYAN, ScrollBarImageTransparency = 0.2, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 2, Parent = settingsMenu})
+    Create("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll})
+    Create("UIPadding", {PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10), Parent = scroll})
+
+    -- linha de varredura (scanline)
+    local scan = Create("Frame", {Name = "Scan", Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 66), BackgroundTransparency = 1, ZIndex = 15, Parent = settingsMenu})
+    local scanGlow = Create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = CY.CYAN, BorderSizePixel = 0, ZIndex = 15, Parent = scan})
+    Create("UIGradient", {Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.9), NumberSequenceKeypoint.new(1, 1)}), Rotation = 90, Parent = scanGlow})
+    Create("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = CY.CYAN, BackgroundTransparency = 0.75, BorderSizePixel = 0, ZIndex = 15, Parent = scan})
+    TweenService:Create(scan, TweenInfo.new(3.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false), {Position = UDim2.new(0, 0, 1, -50)}):Play()
+
+    local order = 0
+    local function nextOrder() order += 1 return order end
+
+    local function sectionHeader(text, color)
+        local h = Create("Frame", {Name = "Section", Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = nextOrder(), Parent = scroll})
+        Create("Frame", {Size = UDim2.new(0, 6, 0, 6), Position = UDim2.new(0, 3, 0.5, -3), Rotation = 45, BackgroundColor3 = color, BorderSizePixel = 0, Parent = h})
+        Create("TextLabel", {Size = UDim2.new(0, 124, 1, 0), Position = UDim2.new(0, 16, 0, 0), BackgroundTransparency = 1, Text = text, TextColor3 = color, Font = Enum.Font.Code, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = h})
+        Create("Frame", {Size = UDim2.new(1, -144, 0, 1), Position = UDim2.new(0, 140, 0.5, 0), BackgroundColor3 = color, BackgroundTransparency = 0.65, BorderSizePixel = 0, Parent = h})
+        return h
+    end
+
+    -- linha base: barra de acento + título + sub-texto de status
+    local function makeRow(titleText, subText, accent, height, subWidthOffset)
+        local row = Create("Frame", {Size = UDim2.new(1, 0, 0, height or 52), BackgroundColor3 = CY.WHITE, BorderSizePixel = 0, LayoutOrder = nextOrder(), Parent = scroll})
+        Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = row})
+        Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(19, 23, 38), Color3.fromRGB(9, 11, 19)), Rotation = 0, Parent = row})
+        local stroke = Create("UIStroke", {Color = CY.LINE, Thickness = 1, Transparency = 0.1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = row})
+        local bar = Create("Frame", {Size = UDim2.new(0, 3, 1, -12), Position = UDim2.new(0, 0, 0, 6), BackgroundColor3 = accent, BorderSizePixel = 0, Parent = row})
+        local titleLabel, subLabel
+        if subText ~= nil then
+            titleLabel = Create("TextLabel", {Size = UDim2.new(1, -100, 0, 22), Position = UDim2.new(0, 14, 0, 7), BackgroundTransparency = 1, Text = titleText, TextColor3 = accent, Font = Enum.Font.SciFi, TextSize = 17, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row})
+            subLabel = Create("TextLabel", {Size = UDim2.new(1, subWidthOffset or -100, 0, 14), Position = UDim2.new(0, 14, 0, 30), BackgroundTransparency = 1, Text = subText, TextColor3 = CY.DIM, Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row})
+        else
+            titleLabel = Create("TextLabel", {Size = UDim2.new(0, 150, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = titleText, TextColor3 = accent, Font = Enum.Font.SciFi, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row})
+        end
+        row.MouseEnter:Connect(function()
+            tw(stroke, 0.12, {Color = accent, Transparency = 0.35})
+            tw(bar, 0.12, {Size = UDim2.new(0, 5, 1, -6), Position = UDim2.new(0, 0, 0, 3)})
+        end)
+        row.MouseLeave:Connect(function()
+            tw(stroke, 0.18, {Color = CY.LINE, Transparency = 0.1})
+            tw(bar, 0.18, {Size = UDim2.new(0, 3, 1, -12), Position = UDim2.new(0, 0, 0, 6)})
+        end)
+        return row, subLabel
+    end
+
+    -- chave ON/OFF (a lógica fica no onClick, a chave só mostra o estado)
+    local function makeSwitch(row, accent, getState, onClick, subLabel, subFn)
+        local track = Create("TextButton", {Name = "Switch", Size = UDim2.new(0, 64, 0, 26), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Text = "", AutoButtonColor = false, BackgroundColor3 = CY.OFF, BorderSizePixel = 0, Parent = row})
+        Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = track})
+        local tStroke = Create("UIStroke", {Color = CY.DIM, Thickness = 1.5, Parent = track})
+        local knob = Create("Frame", {Size = UDim2.new(0, 24, 0, 20), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), BackgroundColor3 = CY.DIM, BorderSizePixel = 0, ZIndex = 2, Parent = track})
+        Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = knob})
+        local lbl = Create("TextLabel", {Size = UDim2.new(0, 30, 1, 0), BackgroundTransparency = 1, Text = "OFF", Font = Enum.Font.Code, TextSize = 11, TextColor3 = CY.DIM, Parent = track})
+        local function render(animate)
+            local on = getState()
+            local t = animate and 0.16 or 0
+            tw(knob, t, {Position = on and UDim2.new(1, -27, 0.5, 0) or UDim2.new(0, 3, 0.5, 0), BackgroundColor3 = on and accent or CY.DIM})
+            tw(track, t, {BackgroundColor3 = on and accent:Lerp(CY.BLACK, 0.78) or CY.OFF})
+            tw(tStroke, t, {Color = on and accent or CY.DIM})
+            lbl.Text = on and "ON" or "OFF"
+            lbl.TextColor3 = on and accent or CY.DIM
+            lbl.TextXAlignment = on and Enum.TextXAlignment.Left or Enum.TextXAlignment.Right
+            lbl.Position = on and UDim2.new(0, 5, 0, 0) or UDim2.new(1, -35, 0, 0)
+            if subLabel and subFn then
+                subLabel.Text = subFn(on)
+                subLabel.TextColor3 = on and accent or CY.DIM
+            end
+        end
+        track.MouseButton1Click:Connect(function()
+            onClick()
+            render(true)
+        end)
+        render(false)
+        return render
+    end
+
+    -- ============ MÓDULOS (habilidades) ============
+    sectionHeader("// MODULOS", CY.CYAN)
 
     local abilitiesList = {
         {display = "DASH IMPULSE", key = "Dash", color = Colors.DASH_GREEN},
@@ -8011,69 +8179,67 @@ local function BuildUI()
         {display = "PHASE SHIFT", key = "Optical", color = Colors.OPTICAL},
         {display = "NEURAL DODGE", key = "Dodge", color = Colors.DODGE_START}
     }
-    for _, ab in ipairs(abilitiesList) do
-        local row = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-        Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = row})
-        Create("TextLabel", {Size = UDim2.new(0.64, 0, 1, 0), BackgroundTransparency = 1, Text = "  " .. ab.display, TextColor3 = ab.color, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
-
-        local tog = Create("TextButton", {Size = UDim2.new(0.29, 0, 0.78, 0), Position = UDim2.new(0.68, 0, 0.11, 0), Text = EnabledAbilities[ab.key] and "ON" or "OFF", BackgroundColor3 = EnabledAbilities[ab.key] and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = row})
-        Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = tog})
-
-        tog.MouseButton1Click:Connect(function()
-    EnabledAbilities[ab.key] = not EnabledAbilities[ab.key]
-    tog.Text = EnabledAbilities[ab.key] and "ON" or "OFF"
-    tog.BackgroundColor3 = EnabledAbilities[ab.key] and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-    if ab.key == "Dodge" and not EnabledAbilities.Dodge then State.IsDodgeReady = false end
-    local btnName = AbilityMap[ab.key]
-    if btnName and SkillContainers[btnName] then
-        local visible = EnabledAbilities[ab.key]
-        if btnName == "DodgeBtn" then visible = visible and DodgeMode == "Counter" end
-        SkillContainers[btnName].Visible = visible
-    end
-    SaveConfig()
-end)
+    for i, ab in ipairs(abilitiesList) do
+        local row, sub = makeRow(ab.display, "", ab.color, 52)
+        makeSwitch(row, ab.color, function() return EnabledAbilities[ab.key] end, function()
+            EnabledAbilities[ab.key] = not EnabledAbilities[ab.key]
+            if ab.key == "Dodge" and not EnabledAbilities.Dodge then State.IsDodgeReady = false end
+            local btnName = AbilityMap[ab.key]
+            if btnName and SkillContainers[btnName] then
+                local visible = EnabledAbilities[ab.key]
+                if btnName == "DodgeBtn" then visible = visible and DodgeMode == "Counter" end
+                SkillContainers[btnName].Visible = visible
+            end
+            SaveConfig()
+        end, sub, function(on)
+            return string.format("MOD-%02d // %s", i, on and "ONLINE" or "OFFLINE")
+        end)
     end
 
-    local modeRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = modeRow})
-    Create("TextLabel", {Size = UDim2.new(0.64, 0, 1, 0), BackgroundTransparency = 1, Text = "  DODGE MODE", TextColor3 = Colors.DODGE_START, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = modeRow})
-    local modeToggle = Create("TextButton", {Size = UDim2.new(0.29, 0, 0.78, 0), Position = UDim2.new(0.68, 0, 0.11, 0), Text = DodgeMode == "Counter" and "COUNTER" or "AUTO", BackgroundColor3 = DodgeMode == "Counter" and Color3.fromRGB(255, 165, 0) or Color3.fromRGB(0, 255, 255), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = modeRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = modeToggle})
-    modeToggle.MouseButton1Click:Connect(function()
-    if DodgeMode == "Counter" then
-        DodgeMode = "Auto"
-        modeToggle.Text = "AUTO"
-        modeToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
-    else
-        DodgeMode = "Counter"
-        modeToggle.Text = "COUNTER"
-        modeToggle.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+    -- ============ SISTEMA ============
+    sectionHeader("// SISTEMA", CY.YELLOW)
+
+    -- DODGE MODE (seletor segmentado COUNTER | AUTO)
+    local modeRow, modeSub = makeRow("DODGE MODE", "", Colors.DODGE_START, 52, -170)
+    local seg = Create("Frame", {Size = UDim2.new(0, 150, 0, 28), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), BackgroundColor3 = CY.OFF, BorderSizePixel = 0, Parent = modeRow})
+    Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = seg})
+    Create("UIStroke", {Color = CY.LINE, Thickness = 1.5, Parent = seg})
+    local segCounter = Create("TextButton", {Size = UDim2.new(0, 72, 1, -4), Position = UDim2.new(0, 2, 0, 2), Text = "COUNTER", Font = Enum.Font.SciFi, TextSize = 12, AutoButtonColor = false, BackgroundColor3 = CY.OFF, TextColor3 = CY.DIM, BorderSizePixel = 0, Parent = seg})
+    local segAuto = Create("TextButton", {Size = UDim2.new(0, 72, 1, -4), Position = UDim2.new(0, 76, 0, 2), Text = "AUTO", Font = Enum.Font.SciFi, TextSize = 12, AutoButtonColor = false, BackgroundColor3 = CY.OFF, TextColor3 = CY.DIM, BorderSizePixel = 0, Parent = seg})
+    Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = segCounter})
+    Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = segAuto})
+    local COUNTER_COLOR = Colors.CYBER_ORANGE
+    local function renderMode()
+        local isCounter = (DodgeMode == "Counter")
+        tw(segCounter, 0.15, {BackgroundColor3 = isCounter and COUNTER_COLOR or CY.OFF, TextColor3 = isCounter and CY.BLACK or CY.DIM})
+        tw(segAuto, 0.15, {BackgroundColor3 = (not isCounter) and CY.CYAN or CY.OFF, TextColor3 = (not isCounter) and CY.BLACK or CY.DIM})
+        modeSub.Text = isCounter and "MANUAL // BOTAO ATIVO" or "REATIVO // SEM BOTAO"
+        modeSub.TextColor3 = isCounter and COUNTER_COLOR or CY.CYAN
     end
-    if SkillContainers["DodgeBtn"] then SkillContainers["DodgeBtn"].Visible = (EnabledAbilities.Dodge and DodgeMode == "Counter") end
-    SaveConfig()
-end)
+    local function setDodgeMode(mode)
+        if DodgeMode == mode then return end
+        DodgeMode = mode
+        if SkillContainers["DodgeBtn"] then SkillContainers["DodgeBtn"].Visible = (EnabledAbilities.Dodge and DodgeMode == "Counter") end
+        renderMode()
+        SaveConfig()
+    end
+    segCounter.MouseButton1Click:Connect(function() setDodgeMode("Counter") end)
+    segAuto.MouseButton1Click:Connect(function() setDodgeMode("Auto") end)
+    renderMode()
 
-    local liteRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = liteRow})
-    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  MODO LITE", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = liteRow})
-    local liteToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = LiteMode and "ON" or "OFF", BackgroundColor3 = LiteMode and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = liteRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = liteToggle})
-    liteToggle.MouseButton1Click:Connect(function()
-    LiteMode = not LiteMode
-    liteToggle.Text = LiteMode and "ON" or "OFF"
-    liteToggle.BackgroundColor3 = LiteMode and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-    SaveConfig()
-end)
+    -- MODO LITE
+    local liteRow, liteSub = makeRow("MODO LITE", "", CY.CYAN, 52)
+    makeSwitch(liteRow, CY.CYAN, function() return LiteMode end, function()
+        LiteMode = not LiteMode
+        SaveConfig()
+    end, liteSub, function(on)
+        return on and "EFEITOS REDUZIDOS" or "EFEITOS COMPLETOS"
+    end)
 
-    local musicRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = musicRow})
-    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  MUSICA SANDI", TextColor3 = Colors.SANDI_TINT, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = musicRow})
-    local musicToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = Constants.MUSIC_ENABLED and "ON" or "OFF", BackgroundColor3 = Constants.MUSIC_ENABLED and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = musicRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = musicToggle})
-    musicToggle.MouseButton1Click:Connect(function()
+    -- MUSICA SANDI
+    local musicRow, musicSub = makeRow("MUSICA SANDI", "", Colors.SANDI_TINT, 52)
+    makeSwitch(musicRow, Colors.SANDI_TINT, function() return Constants.MUSIC_ENABLED end, function()
         Constants.MUSIC_ENABLED = not Constants.MUSIC_ENABLED
-        musicToggle.Text = Constants.MUSIC_ENABLED and "ON" or "OFF"
-        musicToggle.BackgroundColor3 = Constants.MUSIC_ENABLED and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
         -- aplica na hora se o Sandevistan estiver ativo
         if not Constants.MUSIC_ENABLED then
             if State.MusicSound then
@@ -8084,9 +8250,12 @@ end)
             State.MusicSound = tocarMusica()
         end
         SaveConfig() -- grava no arquivo (writefile)
+    end, musicSub, function(on)
+        return on and "AUDIO ATIVO" or "AUDIO MUDO"
     end)
 
-    local keybindsHeader = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Text = "  CUSTOM KEYBINDS", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 21, TextXAlignment = Enum.TextXAlignment.Left, Parent = scroll})
+    -- ============ KEYBINDS ============
+    sectionHeader("// KEYBINDS", CY.MAGENTA)
 
     local keybindList = {
         {name = "DASH IMPULSE", ab = "Dash", color = Colors.DASH_GREEN},
@@ -8095,23 +8264,84 @@ end)
         {name = "PHASE SHIFT", ab = "Optical", color = Colors.OPTICAL},
         {name = "NEURAL DODGE", ab = "Dodge", color = Colors.DODGE_START}
     }
+    local rebindButtons = {}
     for _, kb in ipairs(keybindList) do
-        local row = Create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-        Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = row})
-        Create("TextLabel", {Size = UDim2.new(0.48, 0, 1, 0), BackgroundTransparency = 1, Text = "  " .. kb.name, TextColor3 = kb.color, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
-        local currentKeyText = Create("TextLabel", {Size = UDim2.new(0.26, 0, 1, 0), Position = UDim2.new(0.48, 0, 0, 0), BackgroundTransparency = 1, Text = CurrentKeybinds[kb.ab].Name, TextColor3 = Colors.UI_NEON, Font = Enum.Font.Code, TextSize = 21, Parent = row})
+        local row = makeRow(kb.name, nil, kb.color, 46)
+
+        local chip = Create("Frame", {Size = UDim2.new(0, 58, 0, 28), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 0.5, 0), BackgroundColor3 = Color3.fromRGB(4, 6, 12), BorderSizePixel = 0, Parent = row})
+        Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = chip})
+        Create("UIStroke", {Color = CY.CYAN, Thickness = 1.5, Transparency = 0.35, Parent = chip})
+        local currentKeyText = Create("TextLabel", {Size = UDim2.new(1, -6, 1, 0), Position = UDim2.new(0, 3, 0, 0), BackgroundTransparency = 1, Text = CurrentKeybinds[kb.ab].Name, TextColor3 = CY.CYAN, Font = Enum.Font.Code, TextSize = 16, TextScaled = true, Parent = chip})
+        Create("UITextSizeConstraint", {MaxTextSize = 16, MinTextSize = 8, Parent = currentKeyText})
         KeybindCurrentTexts[kb.ab] = currentKeyText
-        local rebindButton = Create("TextButton", {Size = UDim2.new(0.22, 0, 0.78, 0), Position = UDim2.new(0.76, 0, 0.11, 0), Text = "REBIND", BackgroundColor3 = Colors.UI_ACCENT, TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 16, Parent = row})
-        Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = rebindButton})
-        rebindButton.MouseButton1Click:Connect(function() RebindingAbility = kb.ab end)
+
+        local rebindButton = Create("TextButton", {Size = UDim2.new(0, 78, 0, 28), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Text = "REBIND", BackgroundColor3 = Color3.fromRGB(22, 21, 4), TextColor3 = CY.YELLOW, Font = Enum.Font.SciFi, TextSize = 13, AutoButtonColor = false, BorderSizePixel = 0, Parent = row})
+        Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = rebindButton})
+        local rStroke = Create("UIStroke", {Color = CY.YELLOW, Thickness = 1.5, Transparency = 0.3, Parent = rebindButton})
+        rebindButton.MouseEnter:Connect(function()
+            if RebindingAbility ~= kb.ab then tw(rebindButton, 0.1, {BackgroundColor3 = Color3.fromRGB(52, 48, 6)}) end
+        end)
+        rebindButton.MouseLeave:Connect(function()
+            if RebindingAbility ~= kb.ab then tw(rebindButton, 0.15, {BackgroundColor3 = Color3.fromRGB(22, 21, 4)}) end
+        end)
+        rebindButton.MouseButton1Click:Connect(function()
+            -- clicar de novo cancela a escuta
+            RebindingAbility = (RebindingAbility == kb.ab) and nil or kb.ab
+        end)
+        rebindButtons[kb.ab] = {btn = rebindButton, stroke = rStroke, chip = currentKeyText}
     end
+
+    -- atualiza o estado visual de "ouvindo tecla" (pisca) e mantém o chip sincronizado
+    task.spawn(function()
+        while settingsMenu.Parent do
+            if settingsMenu.Visible then
+                local blink = (os.clock() % 0.8) < 0.4
+                for ab, d in pairs(rebindButtons) do
+                    if RebindingAbility == ab then
+                        d.btn.Text = "PRESS KEY"
+                        d.btn.TextSize = 11
+                        d.btn.TextColor3 = blink and CY.RED or CY.YELLOW
+                        d.btn.BackgroundColor3 = Color3.fromRGB(46, 8, 14)
+                        d.stroke.Color = CY.RED
+                        d.chip.Text = blink and "_" or ""
+                    else
+                        if d.btn.Text ~= "REBIND" then
+                            d.btn.Text = "REBIND"
+                            d.btn.TextSize = 13
+                            d.btn.TextColor3 = CY.YELLOW
+                            d.btn.BackgroundColor3 = Color3.fromRGB(22, 21, 4)
+                            d.stroke.Color = CY.YELLOW
+                        end
+                        local keyName = CurrentKeybinds[ab] and CurrentKeybinds[ab].Name
+                        if keyName and d.chip.Text ~= keyName then d.chip.Text = keyName end
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+
+    -- ============ SETS ============
+    local setsHeader = sectionHeader("// NEURAL SETS", CY.YELLOW)
+    setsHeader.LayoutOrder = 9990
 
     Constants.SetUI.Build(gui, scroll) -- botão de sets (preview do boneco) dentro do menu de settings
 
-    scroll.CanvasSize = UDim2.new(0, 0, 0, scroll.UIListLayout.AbsoluteContentSize.Y + 160)
+    local _setRow = scroll:FindFirstChild("SetRow")
+    if _setRow then _setRow.LayoutOrder = 9991 end
 
     MakeDraggable(gui:FindFirstChild("EnergyBar"), gui:FindFirstChild("EnergyBar"))
+    local lastLockClick = 0
     lockBtn.MouseButton1Click:Connect(function()
+    -- dois cliques seguidos no botão do modo de edição abrem/fecham o menu de configs
+    -- (o modo de edição alterna duas vezes e volta ao estado anterior)
+    local nowClick = os.clock()
+    if nowClick - lastLockClick < 0.4 then
+        lastLockClick = 0
+        toggleSettingsMenu()
+    else
+        lastLockClick = nowClick
+    end
     State.EditMode = not State.EditMode
     lockBtn.BackgroundColor3 = State.EditMode and Colors.EDIT_MODE or Colors.UI_DARK
     lockBtn.TextColor3 = State.EditMode and Colors.UI_DARK or Colors.UI_NEON
@@ -8866,63 +9096,6 @@ local function SetupCharacter(character)
         end
     end)
 end
-
-local function HandleChat(message)
-    local msg = message:lower():gsub("%s+", "")
-    if msg == "-settings" then
-        local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-        if gui then
-            local menu = gui:FindFirstChild("SettingsMenu")
-            if menu then
-                local newState = not menu.Visible
-                
-                if newState then
-                    menu.Visible = true
-                    menu.Size = UDim2.new(0, 0, 0, 0)
-                    menu.BackgroundTransparency = 1
-                    TweenService:Create(menu, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(0, 340, 0, 480),
-                        BackgroundTransparency = 0
-                    }):Play()
-                    
-                else
-                    local closeTween = TweenService:Create(menu, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                        Size = UDim2.new(0, 0, 0, 0),
-                        BackgroundTransparency = 1
-                    })
-                    closeTween:Play()
-                    
-                    closeTween.Completed:Connect(function()
-                        menu.Visible = false
-                    end)
-                end
-            end
-        end
-    end
-end
-
-local ultimoChatTexto, ultimoChatTempo = "", 0
-local function OnChat(message)
-    if type(message) ~= "string" then return end
-    local agora = os.clock()
-    -- evita rodar 2x quando Chatted e TextChatService disparam juntos
-    if message == ultimoChatTexto and agora - ultimoChatTempo < 0.6 then return end
-    ultimoChatTexto, ultimoChatTempo = message, agora
-    HandleChat(message)
-end
-
-Player.Chatted:Connect(OnChat)
-pcall(function()
-    local TextChatService = game:GetService("TextChatService")
-    TextChatService.SendingMessage:Connect(function(m)
-        OnChat(m.Text)
-    end)
-    TextChatService.MessageReceived:Connect(function(m)
-        if m.TextSource and m.TextSource.UserId == Player.UserId then
-            OnChat(m.Text)
-        end
-    end)
-end)
 
 local function CyberSendNotification(title: string, text: string, duration: number?, imageId: string?)
     duration = duration or 4.8

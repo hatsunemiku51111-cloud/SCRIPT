@@ -1110,64 +1110,176 @@ task.spawn(function()
     end
 end)
 
+-- ============================================================
+-- ÍCONES DAS HABILIDADES (desenhados com Frames, grade 24x24, escalam com o tamanho do pai)
+-- ============================================================
+local function AbilityIconKind(name)
+    local n = string.lower(name or "")
+    if n:find("overload") then return "warn" end
+    if n:find("dash") then return "dash" end
+    if n:find("kiroshi") then return "kiroshi" end
+    if n:find("phase") then return "optical" end
+    if n:find("dodge") then return "dodge" end
+    if n:find("sandevistan") then return "sandi" end
+    return "warn"
+end
+
+local function BuildAbilityIcon(parent, kind, color, zindex, strokePx)
+    zindex = zindex or 3
+    strokePx = strokePx or 2
+    local DARK = Color3.fromRGB(4, 5, 10)
+    local R1, RFULL, R2 = UDim.new(0, 1), UDim.new(0.5, 0), UDim.new(0, 2)
+    local holder = Create("Frame", {Name = "AbilityIcon", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = zindex, Parent = parent})
+    local fills, strokes = {}, {}
+
+    -- barra/forma preenchida (cx, cy = centro na grade 24x24)
+    local function bar(cx, cy, w, h, rot, radius, dark)
+        local f = Create("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(cx / 24, 0, cy / 24, 0), Size = UDim2.new(w / 24, 0, h / 24, 0), Rotation = rot or 0, BackgroundColor3 = dark and DARK or color, BorderSizePixel = 0, ZIndex = zindex, Parent = holder})
+        if radius then Create("UICorner", {CornerRadius = radius, Parent = f}) end
+        if not dark then table.insert(fills, f) end
+        return f
+    end
+    -- contorno (só borda)
+    local function ring(cx, cy, w, h, rot, radius, transp)
+        local f = Create("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(cx / 24, 0, cy / 24, 0), Size = UDim2.new(w / 24, 0, h / 24, 0), Rotation = rot or 0, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = zindex, Parent = holder})
+        Create("UICorner", {CornerRadius = radius, Parent = f})
+        table.insert(strokes, Create("UIStroke", {Color = color, Thickness = strokePx, Transparency = transp or 0, Parent = f}))
+        return f
+    end
+
+    if kind == "dash" then
+        -- dois chevrons ">>" + linha de velocidade
+        for _, tip in ipairs({13, 20}) do
+            bar(tip - 3.2, 8.8, 9, 3, 45, R1)
+            bar(tip - 3.2, 15.2, 9, 3, -45, R1)
+        end
+        bar(3.5, 12, 6, 2, 0, R1)
+    elseif kind == "sandi" then
+        -- relógio (tempo desacelerado)
+        ring(12, 12, 16, 16, 0, RFULL)
+        bar(12, 8.5, 2, 6, 0, R1)
+        bar(15, 12, 6, 2, 0, R1)
+        bar(12, 12, 4, 4, 0, RFULL)
+        bar(12, 1.8, 4, 2.5, 0, R1)
+    elseif kind == "kiroshi" then
+        -- olho + marcas de mira
+        ring(12, 12, 20, 10, 0, RFULL)
+        bar(12, 12, 7, 7, 0, RFULL)
+        bar(12, 12, 3, 3, 0, RFULL, true)
+        bar(12, 2.5, 2, 3, 0, R1)
+        bar(12, 21.5, 2, 3, 0, R1)
+    elseif kind == "optical" then
+        -- dois quadrados defasados (phase shift)
+        ring(10, 10, 11, 11, 0, R2)
+        ring(14, 14, 11, 11, 0, R2, 0.5)
+        bar(12, 12, 4, 4, 45, nil)
+    elseif kind == "dodge" then
+        -- escudo com faísca neural
+        bar(12, 8, 14, 10, 0, R1)
+        bar(12, 13, 9.9, 9.9, 45, nil)
+        bar(12, 10.5, 4.5, 4.5, 45, nil, true)
+    else
+        -- alerta (falha/overload)
+        ring(12, 12, 14, 14, 45, R1)
+        bar(12, 10, 2, 6, 0, R1)
+        bar(12, 16, 2, 2, 0, R1)
+    end
+
+    local function setColor(c)
+        for _, f in ipairs(fills) do f.BackgroundColor3 = c end
+        for _, s in ipairs(strokes) do s.Color = c end
+    end
+    local function fade(t)
+        for _, d in ipairs(holder:GetDescendants()) do
+            if d:IsA("Frame") then
+                TweenService:Create(d, TweenInfo.new(t), {BackgroundTransparency = 1}):Play()
+            elseif d:IsA("UIStroke") then
+                TweenService:Create(d, TweenInfo.new(t), {Transparency = 1}):Play()
+            end
+        end
+    end
+    return holder, setColor, fade
+end
+
 local function ShowCooldownText(name: string, duration: number, color: Color3)
     task.spawn(function()
         local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
         if not gui then return end
         
         local container = Create("Frame", {
-            Size = UDim2.new(0, 220, 0, 42), 
+            Size = UDim2.new(0, 220, 0, 42),
             Position = UDim2.new(0.5, -110, 0.85, 0),
-            BackgroundColor3 = Color3.fromRGB(8, 8, 12), 
-            BackgroundTransparency = 0.05, 
-            BorderSizePixel = 0, 
+            BackgroundColor3 = Color3.fromRGB(7, 9, 16),
+            BackgroundTransparency = 0.05,
+            BorderSizePixel = 0,
             Parent = gui
         })
-        Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = container})
-        
-        local stroke = Create("UIStroke", {Color = color, Thickness = 2, Transparency = 0.2, Parent = container})
-        
+        Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = container})
+        local stroke = Create("UIStroke", {Color = color, Thickness = 1.5, Transparency = 0.3, Parent = container})
+
+        -- decoração (some junto no fade): barra de acento + cantoneiras
+        local decor = {}
+        table.insert(decor, Create("Frame", {Size = UDim2.new(0, 3, 1, -12), Position = UDim2.new(0, 0, 0, 6), BackgroundColor3 = color, BorderSizePixel = 0, Parent = container}))
+        for _, c in ipairs({{0, 0}, {1, 0}, {0, 1}, {1, 1}}) do
+            local ax, ay = c[1], c[2]
+            local ox = (ax == 0) and 2 or -2
+            local oy = (ay == 0) and 2 or -2
+            for _, sz in ipairs({UDim2.new(0, 6, 0, 1), UDim2.new(0, 1, 0, 6)}) do
+                table.insert(decor, Create("Frame", {Size = sz, AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, ox, ay, oy), BackgroundColor3 = color, BorderSizePixel = 0, Parent = container}))
+            end
+        end
+
+        -- ícone da habilidade
+        local iconBox = Create("Frame", {Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(0, 12, 0, 4), BackgroundTransparency = 1, Parent = container})
+        local _, _, fadeIcon = BuildAbilityIcon(iconBox, AbilityIconKind(name), color, 2, 1.5)
+
         local label = Create("TextLabel", {
-            Size = UDim2.new(1, -20, 0.55, 0), 
-            Position = UDim2.new(0, 10, 0, 4), 
-            BackgroundTransparency = 1, 
-            TextColor3 = color, 
-            Font = Enum.Font.SciFi, 
-            TextSize = 16, 
-            TextXAlignment = Enum.TextXAlignment.Left, 
-            Text = name:upper(), 
+            Size = UDim2.new(1, -108, 0, 22),
+            Position = UDim2.new(0, 38, 0, 3),
+            BackgroundTransparency = 1,
+            TextColor3 = color,
+            Font = Enum.Font.SciFi,
+            TextSize = 15,
+            TextScaled = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = name:upper(),
             Parent = container
         })
-        
+        Create("UITextSizeConstraint", {MaxTextSize = 15, MinTextSize = 9, Parent = label})
+
         local progressBar = Create("Frame", {
-            Size = UDim2.new(1, -20, 0, 6), 
-            Position = UDim2.new(0, 10, 1, -12), 
-            BackgroundColor3 = Color3.fromRGB(20, 20, 25), 
-            BorderSizePixel = 0, 
+            Size = UDim2.new(1, -24, 0, 6),
+            Position = UDim2.new(0, 12, 1, -12),
+            BackgroundColor3 = Color3.fromRGB(16, 19, 30),
+            BorderSizePixel = 0,
             Parent = container
         })
-        Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = progressBar})
-        
+        Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = progressBar})
+
         local fillBar = Create("Frame", {
-            Size = UDim2.new(1, 0, 1, 0), 
-            BackgroundColor3 = color, 
-            BorderSizePixel = 0, 
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundColor3 = color,
+            BorderSizePixel = 0,
             Parent = progressBar
         })
-        Create("UICorner", {CornerRadius = UDim.new(0, 3), Parent = fillBar})
-        
+        Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = fillBar})
+        -- marcas da barra segmentada
+        for i = 1, 9 do
+            table.insert(decor, Create("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(i / 10, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(7, 9, 16), BorderSizePixel = 0, ZIndex = 3, Parent = progressBar}))
+        end
+
         local timer = Create("TextLabel", {
-            Size = UDim2.new(0, 50, 1, 0), 
-            Position = UDim2.new(1, -55, 0, 0), 
-            BackgroundTransparency = 1, 
-            TextColor3 = Colors.UI_NEON, 
-            Font = Enum.Font.Code, 
-            TextSize = 16, 
-            TextXAlignment = Enum.TextXAlignment.Right, 
-            Text = string.format("%.1fs", duration), 
+            Size = UDim2.new(0, 56, 0, 22),
+            Position = UDim2.new(1, -62, 0, 3),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.fromRGB(235, 245, 255),
+            Font = Enum.Font.Code,
+            TextSize = 16,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            Text = string.format("%.1fs", duration),
             Parent = container
         })
-        
+
         table.insert(ActiveCooldownFrames, container)
         
         local myIndex = 0
@@ -1216,6 +1328,10 @@ local function ShowCooldownText(name: string, duration: number, color: Color3)
         TweenService:Create(progressBar, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
         TweenService:Create(fillBar, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
         TweenService:Create(stroke, TweenInfo.new(0.3), {Transparency = 1}):Play()
+        for _, d in ipairs(decor) do
+            if d.Parent then TweenService:Create(d, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play() end
+        end
+        fadeIcon(0.3)
         
         task.wait(0.4)
         
@@ -7362,7 +7478,7 @@ local function MakeDraggable(movable: Frame, hit: GuiObject)
     hit = hit or movable
     local dragging = false
     local dragStart, startPos
-    local stroke = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 2, Transparency = 0.5, Enabled = false, Parent = movable})
+    local stroke = Create("UIStroke", {Color = Color3.fromRGB(252, 238, 9), Thickness = 2, Transparency = 0.35, Enabled = false, Parent = movable})
     table.insert(UI_Elements, {Frame = movable, Stroke = stroke})
     hit.InputBegan:Connect(function(input)
         if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and State.EditMode then
@@ -7889,50 +8005,207 @@ local function BuildUI()
     CreateEnergyBar(gui)
     KeybindCurrentTexts = {}
 
-    local lockBtn = Create("TextButton", {Name = "LockBtn", Size = ButtonConfigs.LockBtn.Size, Position = ButtonConfigs.LockBtn.Position, Text = ButtonConfigs.LockBtn.Text, BackgroundColor3 = ButtonConfigs.LockBtn.BackgroundColor3, TextColor3 = ButtonConfigs.LockBtn.TextColor3, Font = ButtonConfigs.LockBtn.Font, TextSize = ButtonConfigs.LockBtn.TextSize, Parent = gui})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = lockBtn})
-    local lockStroke1 = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 3, Transparency = 0.3, Parent = lockBtn})
-    local lockStroke2 = Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.6, Parent = lockBtn})
-    local lockGradient = Create("UIGradient", {Color = ColorSequence.new(Colors.UI_DARK, Colors.CYBER_ORANGE), Rotation = 45, Parent = lockBtn})
+    -- ============================================================
+    -- BOTÃO DO MODO DE EDIÇÃO // CYBER (ícone de cadeado desenhado com Frames)
+    -- ============================================================
+    local LK = {
+        YELLOW = Color3.fromRGB(252, 238, 9),
+        CYAN = Color3.fromRGB(0, 240, 255),
+        DARK = Color3.fromRGB(4, 5, 10),
+    }
+    local lockBtn = Create("TextButton", {Name = "LockBtn", Size = UDim2.new(0, 46, 0, 46), Position = ButtonConfigs.LockBtn.Position, Text = "", AutoButtonColor = false, BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = gui})
+    Create("UICorner", {CornerRadius = UDim.new(0, 5), Parent = lockBtn})
+    Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(18, 22, 38), Color3.fromRGB(4, 5, 10)), Rotation = 90, Parent = lockBtn})
+    local lockStroke = Create("UIStroke", {Color = LK.CYAN, Thickness = 1.5, Transparency = 0.15, Parent = lockBtn})
+    local lockGlow = Create("UIStroke", {Color = LK.CYAN, Thickness = 6, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = lockBtn})
+    TweenService:Create(lockGlow, TweenInfo.new(1.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Transparency = 0.62}):Play()
+    local lockScale = Create("UIScale", {Scale = 1, Parent = lockBtn})
+    local lockTint = Create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = LK.YELLOW, BackgroundTransparency = 1, BorderSizePixel = 0, Parent = lockBtn})
+    Create("UICorner", {CornerRadius = UDim.new(0, 5), Parent = lockTint})
+
+    -- cantoneiras
+    local lockBrackets = {}
+    for _, c in ipairs({{0, 0}, {1, 0}, {0, 1}, {1, 1}}) do
+        local ax, ay = c[1], c[2]
+        local ox = (ax == 0) and 3 or -3
+        local oy = (ay == 0) and 3 or -3
+        for _, sz in ipairs({UDim2.new(0, 8, 0, 2), UDim2.new(0, 2, 0, 8)}) do
+            table.insert(lockBrackets, Create("Frame", {Size = sz, AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, ox, ay, oy), BackgroundColor3 = LK.CYAN, BorderSizePixel = 0, ZIndex = 3, Parent = lockBtn}))
+        end
+    end
+
+    -- ícone: cadeado 24x24 (fechado = LOCK / aberto = EDIT)
+    local iconHolder = Create("Frame", {Name = "Icon", Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(0.5, -12, 0, 6), BackgroundTransparency = 1, ZIndex = 2, Parent = lockBtn})
+    local iconParts = {}
+    local function iconBlock(size, pos, parent, radius)
+        local f = Create("Frame", {Size = size, Position = pos, BackgroundColor3 = LK.CYAN, BorderSizePixel = 0, ZIndex = 2, Parent = parent})
+        if radius then Create("UICorner", {CornerRadius = UDim.new(0, radius), Parent = f}) end
+        table.insert(iconParts, f)
+        return f
+    end
+    iconBlock(UDim2.new(0, 18, 0, 12), UDim2.new(0, 3, 0, 11), iconHolder, 2) -- corpo
+    local shackle = Create("Frame", {Size = UDim2.new(0, 12, 0, 11), Position = UDim2.new(0, 6, 0, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = iconHolder})
+    iconBlock(UDim2.new(0, 12, 0, 3), UDim2.new(0, 0, 0, 0), shackle, 1)            -- topo do arco
+    local shackleL = iconBlock(UDim2.new(0, 3, 0, 11), UDim2.new(0, 0, 0, 0), shackle, 1) -- haste esquerda
+    local shackleR = iconBlock(UDim2.new(0, 3, 0, 11), UDim2.new(0, 9, 0, 0), shackle, 1) -- haste direita
+    local keyDot = Create("Frame", {Size = UDim2.new(0, 4, 0, 4), Position = UDim2.new(0, 10, 0, 14), BackgroundColor3 = LK.DARK, BorderSizePixel = 0, ZIndex = 3, Parent = iconHolder})
+    Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = keyDot})
+    Create("Frame", {Size = UDim2.new(0, 2, 0, 4), Position = UDim2.new(0, 11, 0, 17), BackgroundColor3 = LK.DARK, BorderSizePixel = 0, ZIndex = 3, Parent = iconHolder})
+
+    local lockLabel = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 32), BackgroundTransparency = 1, Text = "LOCK", TextColor3 = LK.CYAN, Font = Enum.Font.Code, TextSize = 10, ZIndex = 2, Parent = lockBtn})
+
+    -- faixa de aviso no topo da tela enquanto o modo de edição está ligado
+    local editBanner = Create("Frame", {Name = "EditBanner", Size = UDim2.new(0, 330, 0, 28), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), BackgroundColor3 = Color3.fromRGB(10, 10, 3), BackgroundTransparency = 0.12, BorderSizePixel = 0, Visible = false, ZIndex = 50, Parent = gui})
+    Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = editBanner})
+    local bannerStroke = Create("UIStroke", {Color = LK.YELLOW, Thickness = 1.5, Transparency = 0.2, Parent = editBanner})
+    local bannerText = Create("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "// EDIT MODE // ARRASTE OS ELEMENTOS //", TextColor3 = LK.YELLOW, Font = Enum.Font.Code, TextSize = 13, ZIndex = 51, Parent = editBanner})
+
+    local function renderLock(on, animate)
+        local t = animate and 0.18 or 0
+        local plain = TweenInfo.new(t)
+        local back = TweenInfo.new(t, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        local col = on and LK.YELLOW or LK.CYAN
+        for _, f in ipairs(iconParts) do TweenService:Create(f, plain, {BackgroundColor3 = col}):Play() end
+        for _, f in ipairs(lockBrackets) do TweenService:Create(f, plain, {BackgroundColor3 = col}):Play() end
+        TweenService:Create(lockStroke, plain, {Color = col}):Play()
+        TweenService:Create(lockGlow, plain, {Color = col}):Play()
+        TweenService:Create(lockTint, plain, {BackgroundTransparency = on and 0.86 or 1}):Play()
+        TweenService:Create(shackle, back, {Position = on and UDim2.new(0, 6, 0, -2) or UDim2.new(0, 6, 0, 1)}):Play()
+        TweenService:Create(shackleR, back, {Size = on and UDim2.new(0, 3, 0, 5) or UDim2.new(0, 3, 0, 11)}):Play()
+        TweenService:Create(shackleL, back, {Size = on and UDim2.new(0, 3, 0, 14) or UDim2.new(0, 3, 0, 11)}):Play()
+        lockLabel.Text = on and "EDIT" or "LOCK"
+        lockLabel.TextColor3 = col
+        if on then
+            editBanner.Visible = true
+            if animate then
+                editBanner.BackgroundTransparency = 1
+                bannerText.TextTransparency = 1
+                bannerStroke.Transparency = 1
+                TweenService:Create(editBanner, TweenInfo.new(0.2), {BackgroundTransparency = 0.12}):Play()
+                TweenService:Create(bannerText, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
+                TweenService:Create(bannerStroke, TweenInfo.new(0.2), {Transparency = 0.2}):Play()
+            end
+        else
+            editBanner.Visible = false
+        end
+    end
+    renderLock(false, false)
+
+    lockBtn.MouseEnter:Connect(function()
+        TweenService:Create(lockScale, TweenInfo.new(0.12), {Scale = 1.06}):Play()
+        TweenService:Create(lockStroke, TweenInfo.new(0.12), {Thickness = 2.2}):Play()
+    end)
+    lockBtn.MouseLeave:Connect(function()
+        TweenService:Create(lockScale, TweenInfo.new(0.15), {Scale = 1}):Play()
+        TweenService:Create(lockStroke, TweenInfo.new(0.15), {Thickness = 1.5}):Play()
+    end)
+    lockBtn.MouseButton1Down:Connect(function()
+        TweenService:Create(lockScale, TweenInfo.new(0.08), {Scale = 0.92}):Play()
+    end)
+    lockBtn.MouseButton1Up:Connect(function()
+        TweenService:Create(lockScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1.06}):Play()
+    end)
+
+    local ABILITY_ICON = {DashBtn = "dash", SandiBtn = "sandi", KiroshiBtn = "kiroshi", OpticalBtn = "optical", DodgeBtn = "dodge"}
+    local ABILITY_CD = {DashBtn = "DASH", SandiBtn = "SANDI", KiroshiBtn = "KIROSHI", OpticalBtn = "OPTICAL", DodgeBtn = "DODGE"}
+    local ABILITY_KEY = {DashBtn = "Dash", SandiBtn = "Sandi", KiroshiBtn = "Kiroshi", OpticalBtn = "Optical", DodgeBtn = "Dodge"}
 
     local function CreateSkillBtn(key, color, pos, name, func)
-        local btnContainer = Create("Frame", {Name = name .. "Container", Size = UDim2.new(0, 54, 0, 54), Position = savedPositions[name] or pos, BackgroundTransparency = 1, Parent = gui})
+        local btnContainer = Create("Frame", {Name = name .. "Container", Size = UDim2.new(0, 56, 0, 56), Position = savedPositions[name] or pos, BackgroundTransparency = 1, Parent = gui})
 
-        local btn = Create("TextButton", {Name = name, Size = UDim2.new(1, 0, 1, 0), Text = key, BackgroundColor3 = Colors.UI_DARK, TextColor3 = color, Font = Enum.Font.SciFi, TextSize = 21, AutoButtonColor = false, Parent = btnContainer})
+        local btn = Create("TextButton", {Name = name, Size = UDim2.new(1, 0, 1, 0), Text = "", BackgroundColor3 = Color3.new(1, 1, 1), AutoButtonColor = false, BorderSizePixel = 0, Parent = btnContainer})
+        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = btn})
+        Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(20, 24, 40), Color3.fromRGB(4, 5, 10)), Rotation = 90, Parent = btn})
+        local strokeMain = Create("UIStroke", {Color = color, Thickness = 2, Transparency = 0.1, Parent = btn})
+        local glow = Create("UIStroke", {Color = color, Thickness = 6, Transparency = 0.85, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = btn})
+        local scale = Create("UIScale", {Scale = 1, Parent = btn})
 
-        local strokeOuter = Create("UIStroke", {Color = color, Thickness = 3.5, Transparency = 0.25, Parent = btn})
-        local strokeInner = Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 1.2, Transparency = 0.5, Parent = btn})
+        -- cantoneiras
+        local brackets = {}
+        for _, c in ipairs({{0, 0}, {1, 0}, {0, 1}, {1, 1}}) do
+            local ax, ay = c[1], c[2]
+            local ox = (ax == 0) and 3 or -3
+            local oy = (ay == 0) and 3 or -3
+            for _, sz in ipairs({UDim2.new(0, 7, 0, 2), UDim2.new(0, 2, 0, 7)}) do
+                table.insert(brackets, Create("Frame", {Size = sz, AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, ox, ay, oy), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 3, Parent = btn}))
+            end
+        end
 
-        Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = btn})
+        -- ícone desenhado
+        local iconHost = Create("Frame", {Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(0.5, -14, 0, 6), BackgroundTransparency = 1, ZIndex = 3, Parent = btn})
+        local _, setIconColor = BuildAbilityIcon(iconHost, ABILITY_ICON[name] or "warn", color, 3, 2)
 
-        local gradient = Create("UIGradient", {Color = ColorSequence.new(Colors.UI_DARK, color:Lerp(Colors.UI_NEON, 0.45)), Rotation = 35, Parent = btn})
+        -- divisor + tecla
+        local divider = Create("Frame", {Size = UDim2.new(1, -16, 0, 1), Position = UDim2.new(0, 8, 1, -19), BackgroundColor3 = color, BackgroundTransparency = 0.7, BorderSizePixel = 0, ZIndex = 3, Parent = btn})
+        local chip = Create("TextLabel", {Size = UDim2.new(1, -8, 0, 12), Position = UDim2.new(0, 4, 1, -17), BackgroundTransparency = 1, Text = key, TextColor3 = color, Font = Enum.Font.Code, TextSize = 11, TextScaled = true, ZIndex = 3, Parent = btn})
+        Create("UITextSizeConstraint", {MaxTextSize = 11, MinTextSize = 7, Parent = chip})
 
-        local glow = Create("UIStroke", {Color = Colors.UI_GLOW, Thickness = 4.5, Transparency = 0.78, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = btn})
+        -- camada de cooldown (esvazia conforme o tempo passa) + contagem
+        local cdOverlay = Create("Frame", {Size = UDim2.new(1, 0, 0, 0), AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Visible = false, ZIndex = 4, Parent = btn})
+        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = cdOverlay})
+        local cdEdge = Create("Frame", {Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 5, Parent = cdOverlay})
+        local cdText = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0.5, -9), BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(235, 245, 255), Font = Enum.Font.Code, TextSize = 15, TextStrokeTransparency = 0.5, Visible = false, ZIndex = 6, Parent = btn})
+
+        local function applyAccent(c)
+            strokeMain.Color = c
+            glow.Color = c
+            for _, b in ipairs(brackets) do b.BackgroundColor3 = c end
+            divider.BackgroundColor3 = c
+            chip.TextColor3 = c
+            cdEdge.BackgroundColor3 = c
+            setIconColor(c)
+        end
 
         btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = color:Lerp(Colors.CYBER_ORANGE, 0.3)}):Play()
-            TweenService:Create(glow, TweenInfo.new(0.15), {Transparency = 0.35}):Play()
-            TweenService:Create(strokeOuter, TweenInfo.new(0.15), {Thickness = 4.2}):Play()
+            TweenService:Create(scale, TweenInfo.new(0.12), {Scale = 1.06}):Play()
+            TweenService:Create(glow, TweenInfo.new(0.12), {Transparency = 0.45}):Play()
         end)
         btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = Colors.UI_DARK}):Play()
-            TweenService:Create(glow, TweenInfo.new(0.2), {Transparency = 0.78}):Play()
-            TweenService:Create(strokeOuter, TweenInfo.new(0.2), {Thickness = 3.5}):Play()
+            TweenService:Create(scale, TweenInfo.new(0.15), {Scale = 1}):Play()
+            TweenService:Create(glow, TweenInfo.new(0.2), {Transparency = 0.85}):Play()
         end)
-
         btn.MouseButton1Down:Connect(function()
             if not State.EditMode then
-                TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.9, 0, 0.9, 0), BackgroundColor3 = color}):Play()
+                TweenService:Create(scale, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 0.92}):Play()
                 func()
             end
         end)
         btn.MouseButton1Up:Connect(function()
             if not State.EditMode then
-                TweenService:Create(btn, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Colors.UI_DARK}):Play()
+                TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1.06}):Play()
             end
         end)
 
-        TweenService:Create(btn, TweenInfo.new(2.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Rotation = 2.8}):Play()
+        -- cooldown no botão + tecla atual (acompanha o rebind)
+        local cdKey = ABILITY_CD[name]
+        local abKey = ABILITY_KEY[name]
+        task.spawn(function()
+            local lastUntil, total, wasCd = 0, 1, false
+            while btn.Parent do
+                local untilT = (cdKey and State.Cooldowns[cdKey]) or 0
+                local remaining = untilT - os.clock()
+                if remaining > 0.05 then
+                    if untilT ~= lastUntil then
+                        lastUntil = untilT
+                        total = math.max(remaining, 0.1)
+                    end
+                    wasCd = true
+                    cdOverlay.Visible = true
+                    cdOverlay.Size = UDim2.new(1, 0, math.clamp(remaining / total, 0, 1), 0)
+                    cdText.Visible = true
+                    cdText.Text = remaining >= 10 and string.format("%d", math.ceil(remaining)) or string.format("%.1f", remaining)
+                elseif wasCd then
+                    wasCd = false
+                    cdOverlay.Visible = false
+                    cdText.Visible = false
+                    glow.Transparency = 0.2
+                    TweenService:Create(glow, TweenInfo.new(0.5), {Transparency = 0.85}):Play()
+                end
+                local kb = abKey and CurrentKeybinds[abKey]
+                if kb and chip.Text ~= kb.Name then chip.Text = kb.Name end
+                task.wait()
+            end
+        end)
 
         MakeDraggable(btnContainer, btn)
         SkillContainers[name] = btnContainer
@@ -7940,11 +8213,7 @@ local function BuildUI()
         if name == "SandiBtn" then
             task.spawn(function()
                 while btn.Parent do
-                    local hue = (os.clock() % 4.5) / 4.5
-                    local rainbowColor = Color3.fromHSV(hue, 1, 1)
-                    btn.TextColor3 = rainbowColor
-                    strokeOuter.Color = rainbowColor
-                    gradient.Color = ColorSequence.new(Colors.UI_DARK, rainbowColor)
+                    applyAccent(Color3.fromHSV((os.clock() % 4.5) / 4.5, 1, 1))
                     task.wait()
                 end
             end)
@@ -8343,8 +8612,7 @@ local function BuildUI()
         lastLockClick = nowClick
     end
     State.EditMode = not State.EditMode
-    lockBtn.BackgroundColor3 = State.EditMode and Colors.EDIT_MODE or Colors.UI_DARK
-    lockBtn.TextColor3 = State.EditMode and Colors.UI_DARK or Colors.UI_NEON
+    renderLock(State.EditMode, true)
     for _, item in ipairs(UI_Elements) do item.Stroke.Enabled = State.EditMode end
     
     if not State.EditMode then

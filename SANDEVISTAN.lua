@@ -114,6 +114,7 @@ local DefaultConfig = {
     Settings = {
         DodgeMode = "Counter",  
         LiteMode = false,        
+        MusicEnabled = true,     -- música do Sandevistan (menu de config)
         CurrentSet = 1,          
         CloneColorIndex = 34
     }
@@ -150,12 +151,14 @@ local Constants = {
     MAX_ENERGY = 100,
     SANDI_SPEED = 67,
     DASH_FORCE = 100,
+    MUSIC_ENABLED = true, -- liga/desliga a música do Sandevistan (salvo no config)
     MOVING_THRESHOLD = 1,
     OPTICAL_DURATION = 2,
     SLOW_FACTOR = 0.8,
     COOLDOWNS = {
         SANDI = 10,
-        DASH = 3.5,
+        DASH = 3.5,        -- cooldown do dash LATERAL (esquerda/direita)
+        DASH_FB = 1.5,     -- cooldown do dash pra FRENTE / TRÁS (e no ar) — mais curto
         DODGE = 5,
         KIROSHI = 3.5,
         OPTICAL = 10
@@ -463,6 +466,7 @@ local VOLUME_MAXIMO = 0.9
 local FADE_DURATION = 2.5 
 
 local function tocarMusica()
+    if not Constants.MUSIC_ENABLED then return end
     local musicaId = encontrarMusica()
     if not musicaId then return end
     
@@ -650,10 +654,6 @@ local psyPercentLabel: TextLabel
 local settingsMenu = nil 
 local DodgeMode = DefaultConfig.Settings.DodgeMode
 local LiteMode = DefaultConfig.Settings.LiteMode
-local Noclip = false
-local noclipConnection
-local lineEnabled = false  
-local lineObject = nil
 local currentSet = DefaultConfig.Settings.CurrentSet
 local cloneColorIndex = DefaultConfig.Settings.CloneColorIndex
 local originalClockTime = nil  
@@ -1600,138 +1600,6 @@ local function ApplyGlitchEffect()
     end)
 end
 
-local function lineEffect(gui)
-    if lineObject and lineObject.Parent then
-        lineObject:Destroy()
-    end
-    
-    if not lineEnabled then return end
-    
-    lineObject = Create("Frame", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-        Parent = gui
-    })
-    
-    local line = Create("Frame", {
-        Size = UDim2.new(1, -80, 0, 1.5),
-        Position = UDim2.new(0, 40, -0.02, 0),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.45,
-        BorderSizePixel = 0,
-        ZIndex = 10,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = line})
-    
-    local glow = Create("Frame", {
-        Size = UDim2.new(1, -60, 0, 5),
-        Position = UDim2.new(0, 30, -0.02, -1.5),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.85,
-        BorderSizePixel = 0,
-        ZIndex = 9,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = glow})
-    
-    for i = 1, 4 do
-        local decorLine = Create("Frame", {
-            Size = UDim2.new(1, math.random(-20, 20), 0, 0.5),
-            Position = UDim2.new(0, math.random(10, 30), 0, math.random(10, 90) / 100),
-            BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-            BackgroundTransparency = 0.9,
-            BorderSizePixel = 0,
-            ZIndex = 4,
-            Parent = lineObject
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = decorLine})
-        
-        task.spawn(function()
-            while decorLine and decorLine.Parent do
-                task.wait(math.random(4, 10))
-                TweenService:Create(decorLine, TweenInfo.new(0.08), {
-                    BackgroundTransparency = 0.5
-                }):Play()
-                task.wait(0.08)
-                TweenService:Create(decorLine, TweenInfo.new(0.25), {
-                    BackgroundTransparency = 0.9
-                }):Play()
-            end
-        end)
-    end
-    
-    task.spawn(function()
-        while lineObject and lineObject.Parent do
-            if math.random() < 0.25 then
-                local particle = Create("Frame", {
-                    Size = UDim2.new(0, 1.5, 0, 1.5),
-                    Position = UDim2.new(0, math.random(30, 90) / 100 * Camera.ViewportSize.X, 0, math.random(0, 100) / 100 * Camera.ViewportSize.Y),
-                    BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-                    BackgroundTransparency = 0.5,
-                    BorderSizePixel = 0,
-                    ZIndex = 5,
-                    Parent = lineObject
-                })
-                Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = particle})
-                
-                TweenService:Create(particle, TweenInfo.new(0.7), {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, particle.Position.X.Offset + math.random(-15, 15), 0, particle.Position.Y.Offset + 25)
-                }):Play()
-                
-                task.delay(0.8, function() particle:Destroy() end)
-            end
-            task.wait(0.06)
-        end
-    end)
-    
-    task.spawn(function()
-        while line and line.Parent do
-            line.Position = UDim2.new(0, 40, -0.02, 0)
-            glow.Position = UDim2.new(0, 30, -0.02, -1.5)
-            
-            local duration = 5
-            
-            TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 40, 1.02, 0)
-            }):Play()
-            
-            TweenService:Create(glow, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 30, 1.02, -1.5)
-            }):Play()
-            
-            task.spawn(function()
-                for i = 1, 30 do
-                    if not line.Parent then break end
-                    local pulse = math.sin(i * 0.25) * 0.1
-                    line.BackgroundTransparency = 0.4 + pulse
-                    glow.BackgroundTransparency = 0.82 + pulse
-                    task.wait(0.17)
-                end
-            end)
-            
-            task.wait(duration + 0.2)
-        end
-    end)
-end
-
-local function Toggleline()
-    lineEnabled = not lineEnabled
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    if lineEnabled then
-        lineEffect(gui)
-    else
-        if lineObject and lineObject.Parent then
-            lineObject:Destroy()
-            lineObject = nil
-        end
-    end
-end
-
 local function PulseAnimation(object)
     task.spawn(function()
         while object.Parent do
@@ -1767,138 +1635,6 @@ local function ApplyGlitchEffect()
         TweenService:Create(blur, TweenInfo.new(0.6), {Size = 0}):Play()
         task.delay(0.7, function() cc:Destroy() blur:Destroy() end)
     end)
-end
-
-local function lineEffect(gui)
-    if lineObject and lineObject.Parent then
-        lineObject:Destroy()
-    end
-    
-    if not lineEnabled then return end
-    
-    lineObject = Create("Frame", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-        Parent = gui
-    })
-    
-    local line = Create("Frame", {
-        Size = UDim2.new(1, -80, 0, 1.5),
-        Position = UDim2.new(0, 40, -0.02, 0),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.45,
-        BorderSizePixel = 0,
-        ZIndex = 10,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = line})
-    
-    local glow = Create("Frame", {
-        Size = UDim2.new(1, -60, 0, 5),
-        Position = UDim2.new(0, 30, -0.02, -1.5),
-        BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-        BackgroundTransparency = 0.85,
-        BorderSizePixel = 0,
-        ZIndex = 9,
-        Parent = lineObject
-    })
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = glow})
-    
-    for i = 1, 4 do
-        local decorLine = Create("Frame", {
-            Size = UDim2.new(1, math.random(-20, 20), 0, 0.5),
-            Position = UDim2.new(0, math.random(10, 30), 0, math.random(10, 90) / 100),
-            BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-            BackgroundTransparency = 0.9,
-            BorderSizePixel = 0,
-            ZIndex = 4,
-            Parent = lineObject
-        })
-        Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = decorLine})
-        
-        task.spawn(function()
-            while decorLine and decorLine.Parent do
-                task.wait(math.random(4, 10))
-                TweenService:Create(decorLine, TweenInfo.new(0.08), {
-                    BackgroundTransparency = 0.5
-                }):Play()
-                task.wait(0.08)
-                TweenService:Create(decorLine, TweenInfo.new(0.25), {
-                    BackgroundTransparency = 0.9
-                }):Play()
-            end
-        end)
-    end
-    
-    task.spawn(function()
-        while lineObject and lineObject.Parent do
-            if math.random() < 0.25 then
-                local particle = Create("Frame", {
-                    Size = UDim2.new(0, 1.5, 0, 1.5),
-                    Position = UDim2.new(0, math.random(30, 90) / 100 * Camera.ViewportSize.X, 0, math.random(0, 100) / 100 * Camera.ViewportSize.Y),
-                    BackgroundColor3 = Color3.fromRGB(0, 255, 200),
-                    BackgroundTransparency = 0.5,
-                    BorderSizePixel = 0,
-                    ZIndex = 5,
-                    Parent = lineObject
-                })
-                Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = particle})
-                
-                TweenService:Create(particle, TweenInfo.new(0.7), {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, particle.Position.X.Offset + math.random(-15, 15), 0, particle.Position.Y.Offset + 25)
-                }):Play()
-                
-                task.delay(0.8, function() particle:Destroy() end)
-            end
-            task.wait(0.06)
-        end
-    end)
-    
-    task.spawn(function()
-        while line and line.Parent do
-            line.Position = UDim2.new(0, 40, -0.02, 0)
-            glow.Position = UDim2.new(0, 30, -0.02, -1.5)
-            
-            local duration = 5
-            
-            TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 40, 1.02, 0)
-            }):Play()
-            
-            TweenService:Create(glow, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-                Position = UDim2.new(0, 30, 1.02, -1.5)
-            }):Play()
-            
-            task.spawn(function()
-                for i = 1, 30 do
-                    if not line.Parent then break end
-                    local pulse = math.sin(i * 0.25) * 0.1
-                    line.BackgroundTransparency = 0.4 + pulse
-                    glow.BackgroundTransparency = 0.82 + pulse
-                    task.wait(0.17)
-                end
-            end)
-            
-            task.wait(duration + 0.2)
-        end
-    end)
-end
-
-local function Toggleline()
-    lineEnabled = not lineEnabled
-    local gui = Player.PlayerGui:FindFirstChild("CyberRebuilt")
-    if not gui then return end
-    if lineEnabled then
-        lineEffect(gui)
-    else
-        if lineObject and lineObject.Parent then
-            lineObject:Destroy()
-            lineObject = nil
-        end
-    end
 end
 
 local function PulseAnimation(object)
@@ -4286,33 +4022,6 @@ PsiModule = Module
 end)
 
 
-local function ToggleNoclip()
-    Noclip = not Noclip
-    if Noclip then
-        noclipConnection = RunService.Stepped:Connect(function()
-            if Character then
-                for _, v in ipairs(Character:GetDescendants()) do
-                    if v:IsA("BasePart") then
-                        v.CanCollide = false
-                    end
-                end
-            end
-        end)
-    else
-        if noclipConnection then
-            noclipConnection:Disconnect()
-            noclipConnection = nil
-        end
-        if Character then
-            for _, v in ipairs(Character:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = true
-                end
-            end
-        end
-    end
-end
-
 local function CleanupSandiSounds()
     if sandiLoopSound then sandiLoopSound:Stop() sandiLoopSound:Destroy() sandiLoopSound = nil end
 end
@@ -6174,30 +5883,254 @@ task.spawn(dcLoadAsync)
 end
 
 
+-- ========== DASH VFX PRO ==========
+-- Efeitos do dash: onda de choque, rastros (corpo + membros), linhas de velocidade,
+-- faíscas, poeira no chão, flash, blur + bloom. Frente/Trás/Ar = verde com detalhe laranja;
+-- Esquerda/Direita = laranja com detalhe verde (assim dá pra "ver" qual cooldown você pegou).
+do
+    local VFX = {Enabled = true, Folder = nil}
+    Constants.DashVFX = VFX
+
+    local ORANGE = Color3.fromRGB(255, 80, 0)
+
+    local function getFolder()
+        if VFX.Folder and VFX.Folder.Parent then return VFX.Folder end
+        local f = Instance.new("Folder")
+        f.Name = "DashVFXPro"
+        f.Parent = workspace.CurrentCamera
+        VFX.Folder = f
+        return f
+    end
+
+    local function newPart(size, color, transparency, cf, shape)
+        local p = Instance.new("Part")
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.CanTouch = false
+        p.CastShadow = false
+        p.Material = Enum.Material.Neon
+        p.TopSurface = Enum.SurfaceType.Smooth
+        p.BottomSurface = Enum.SurfaceType.Smooth
+        if shape then p.Shape = shape end
+        p.Color = color
+        p.Size = size
+        p.Transparency = transparency
+        p.CFrame = cf
+        p.Parent = getFolder()
+        return p
+    end
+
+    local function palette(kind)
+        if kind == "Left" or kind == "Right" then return ORANGE, Colors.DASH_GREEN end
+        return Colors.DASH_GREEN, ORANGE
+    end
+
+    function VFX.GetFOV(kind)
+        if kind == "Back" then return 105 end
+        if kind == "Left" or kind == "Right" then return 112 end
+        return 125
+    end
+
+    local function groundPoint(root)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {Character, getFolder()}
+        local hit = workspace:Raycast(root.Position, Vector3.new(0, -10, 0), params)
+        return hit and (hit.Position + Vector3.new(0, 0.1, 0)) or nil
+    end
+
+    local function ring(pos, vertical, dir, color, startSize, endSize, startTransp, time)
+        local cf
+        if vertical then
+            -- disco "de frente" pra direção do dash (eixo X do cilindro = dir)
+            cf = CFrame.lookAt(pos, pos + dir) * CFrame.Angles(0, math.rad(90), 0)
+        else
+            cf = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
+        end
+        local p = newPart(Vector3.new(0.15, startSize, startSize), color, startTransp, cf, Enum.PartType.Cylinder)
+        TweenService:Create(p, TweenInfo.new(time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = Vector3.new(0.15, endSize, endSize),
+            Transparency = 1,
+        }):Play()
+        Debris:AddItem(p, time + 0.1)
+    end
+
+    local function streaks(origin, dir, main, accent, count)
+        local right = dir:Cross(Vector3.yAxis)
+        if right.Magnitude < 0.05 then right = Vector3.xAxis end
+        right = right.Unit
+        local up = right:Cross(dir).Unit
+        for i = 1, count do
+            local ang = math.random() * math.pi * 2
+            local rad = 3 + math.random() * 7
+            local offset = right * (math.cos(ang) * rad) + up * (math.sin(ang) * rad)
+            local len = 6 + math.random() * 10
+            local start = origin + offset + dir * (math.random() * 12 - 2)
+            local cf = CFrame.lookAt(start, start + dir)
+            local p = newPart(Vector3.new(0.12, 0.12, len), (i % 3 == 0) and accent or main, 0.15, cf)
+            TweenService:Create(p, TweenInfo.new(0.28 + math.random() * 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                CFrame = cf + (-dir * (25 + math.random() * 15)),
+                Size = Vector3.new(0.03, 0.03, len * 0.4),
+                Transparency = 1,
+            }):Play()
+            Debris:AddItem(p, 0.6)
+        end
+    end
+
+    local function makeTrail(part, off0, off1, main, accent, life)
+        local a0 = Instance.new("Attachment")
+        a0.Position = off0
+        a0.Parent = part
+        local a1 = Instance.new("Attachment")
+        a1.Position = off1
+        a1.Parent = part
+        local tr = Instance.new("Trail")
+        tr.Attachment0 = a0
+        tr.Attachment1 = a1
+        tr.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, main),
+            ColorSequenceKeypoint.new(0.5, accent),
+            ColorSequenceKeypoint.new(1, accent),
+        })
+        tr.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+        tr.WidthScale = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)})
+        tr.LightEmission = 1
+        tr.LightInfluence = 0
+        tr.FaceCamera = true
+        tr.MinLength = 0.05
+        tr.Lifetime = life
+        tr.Parent = part
+        return {tr, a0, a1}
+    end
+
+
+    -- ===== SOM DO DASH =====
+    -- Mantém o mesmo áudio, mas com "tonalidade" nova: pitch shift (muda o tom sem mexer na
+    -- velocidade), EQ com grave + brilho, reverb curtinho e uma camada grave (sub) por baixo.
+    -- octave: 1 = tom original | 1.12 ≈ +2 semitons | 0.92 ≈ -1 semitom
+    VFX.Sound = {
+        Front = {octave = 1.12, low = 5, mid = -3, high = 7, wet = -14, sub = 0.55},
+        Air   = {octave = 1.16, low = 4, mid = -3, high = 8, wet = -10, sub = 0.45},
+        Back  = {octave = 0.92, low = 7, mid = -2, high = 5, wet = -14, sub = 0.7},
+        Left  = {octave = 1.22, low = 3, mid = -2, high = 9, wet = -12, sub = 0.5},
+        Right = {octave = 1.22, low = 3, mid = -2, high = 9, wet = -12, sub = 0.5},
+    }
+
+    function VFX.PlaySound(kind)
+        local cfg = VFX.Sound[kind] or VFX.Sound.Front
+        local base = (kind == "Back") and Sounds.DASH_BACK or Sounds.DASH
+        local ok, err = pcall(function()
+            local main = PlaySFX({id = base.id, volume = (base.volume or 1.5) * 1.1, pitch = 1})
+            Create("PitchShiftSoundEffect", {Octave = cfg.octave, Parent = main})
+            Create("EqualizerSoundEffect", {LowGain = cfg.low, MidGain = cfg.mid, HighGain = cfg.high, MidRange = NumberRange.new(500, 3000), Parent = main})
+            Create("ReverbSoundEffect", {DecayTime = 0.9, Density = 0.7, Diffusion = 0.8, DryLevel = 0, WetLevel = cfg.wet, Parent = main})
+
+            -- camada grave (sub) pra dar corpo/impacto
+            local sub = PlaySFX({id = base.id, volume = (base.volume or 1.5) * cfg.sub, pitch = 0.62})
+            Create("EqualizerSoundEffect", {LowGain = 8, MidGain = -12, HighGain = -30, Parent = sub})
+        end)
+        if not ok then
+            warn("[DashVFX] som:", err)
+            PlaySFX(base) -- reserva: toca o som original
+        end
+    end
+    -- ===== FIM DO SOM =====
+
+    local LIMBS = {"Left Arm", "Right Arm", "LeftHand", "RightHand"} -- trail apenas nos braços
+
+    function VFX.Play(kind, dir, isAir)
+        if LiteMode or not VFX.Enabled then return end
+        if not Character or not HRP or not HRP.Parent then return end
+        local ok, err = pcall(function()
+            local main, accent = palette(kind)
+            local origin = HRP.Position
+            local ground = (not isAir) and groundPoint(HRP) or nil
+
+            -- 1) onda de choque (só no ar)
+            if not ground then
+                ring(origin - dir * 1.5, true, dir, main, 3, 16, 0.55, 0.35)
+                task.delay(0.06, function() ring(origin - dir * 1.5, true, dir, accent, 2, 10, 0.55, 0.3) end)
+            end
+
+            -- 3) rastros: apenas braços
+            local trails = {}
+            for _, name in ipairs(LIMBS) do
+                local limb = Character:FindFirstChild(name)
+                if limb and limb:IsA("BasePart") then
+                    local h = limb.Size.Y / 2
+                    for _, t in ipairs(makeTrail(limb, Vector3.new(0, h, 0), Vector3.new(0, -h, 0), accent, main, 0.3)) do
+                        table.insert(trails, t)
+                    end
+                end
+            end
+
+            -- 4) linhas de velocidade (rajada inicial + contínuas durante o dash)
+            streaks(origin, dir, main, accent, 14)
+            task.spawn(function()
+                local t0 = os.clock()
+                while os.clock() - t0 < 0.25 and HRP and HRP.Parent do
+                    streaks(HRP.Position, dir, main, accent, 5)
+                    task.wait(0.03)
+                end
+            end)
+
+            -- 5) blur + bloom de tela
+            local blur = Instance.new("BlurEffect")
+            blur.Size = 14
+            blur.Parent = Lighting
+            TweenService:Create(blur, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 0}):Play()
+            Debris:AddItem(blur, 0.55)
+
+            local bloom = Instance.new("BloomEffect")
+            bloom.Intensity = 1.4
+            bloom.Size = 30
+            bloom.Threshold = 0.8
+            bloom.Parent = Lighting
+            TweenService:Create(bloom, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Intensity = 0}):Play()
+            Debris:AddItem(bloom, 0.6)
+
+            -- 6) fim do dash: some o rastro + puff final
+            task.delay(0.26, function()
+                for _, inst in ipairs(trails) do
+                    if inst:IsA("Trail") then inst.Enabled = false end
+                    Debris:AddItem(inst, 0.5)
+                end
+            end)
+        end)
+        if not ok then warn("[DashVFX]", err) end
+    end
+end
+-- ========== FIM DO DASH VFX PRO ==========
+
 local function ExecDash()
     if State.IsSandiActive then return end
     if State.Energy < Constants.ENERGY_COSTS.DASH or os.clock() < State.Cooldowns.DASH then return end
     
-    State.Energy -= Constants.ENERGY_COSTS.DASH
-    State.Energy = math.max(0, State.Energy)
-    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
-    State.Cooldowns.DASH = os.clock() + Constants.COOLDOWNS.DASH
-    if PsyBar.Use("Dash") then return end
-    
-    -- Efeitos sonoros e visuais
     -- Tipo do dash: Air (no ar) | Front | Back | Left | Right (no chão, pela direção em que você anda)
     local isAirDash = Humanoid.FloorMaterial == Enum.Material.Air
     local dashKind, groundDirection = "Air", nil
     if not isAirDash then dashKind, groundDirection = GetGroundDashKind() end
     local isBackDash = dashKind == "Back"
-    PlaySFX(isBackDash and Sounds.DASH_BACK or Sounds.DASH)
+    -- Cooldown: lateral = normal | frente / trás / ar = curto
+    local isSideDash = dashKind == "Left" or dashKind == "Right"
+    local dashCd = isSideDash and Constants.COOLDOWNS.DASH or Constants.COOLDOWNS.DASH_FB
+    
+    State.Energy -= Constants.ENERGY_COSTS.DASH
+    State.Energy = math.max(0, State.Energy)
+    State.NoRegenUntil = os.clock() + Constants.REGEN_DELAY_USE
+    State.Cooldowns.DASH = os.clock() + dashCd
+    if PsyBar.Use("Dash") then return end
+    
+    -- Efeitos sonoros e visuais
+    Constants.DashVFX.PlaySound(dashKind)
     Falar("dash")
-    ShowCooldownText("Dash Impulse", Constants.COOLDOWNS.DASH, Colors.DASH_GREEN)
+    ShowCooldownText("Dash Impulse", dashCd, isSideDash and Color3.fromRGB(255, 80, 0) or Colors.DASH_GREEN)
     ScreenFade(0.15, 0, 0.35, Colors.DASH_GREEN, 0.5, 0.2)
     
     local dashEffect = Create("ColorCorrectionEffect", {Name = "DashEffect", TintColor = Color3.new(1,1,1), Contrast = 0, Saturation = 0, Parent = Lighting})
     TweenService:Create(dashEffect, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TintColor = Colors.DASH_GREEN, Contrast = 0.1, Saturation = -0.1}):Play()
-    TweenService:Create(Camera, TweenInfo.new(0.25), {FieldOfView = 125}):Play()
+    TweenService:Create(Camera, TweenInfo.new(0.25), {FieldOfView = Constants.DashVFX.GetFOV(dashKind)}):Play()
     
     -- ========== VIEWPORTFRAME DO DASH ==========
     if _G.DashViewport then
@@ -6274,6 +6207,7 @@ local function ExecDash()
 
     -- Animação do dash (frente / trás / ar)
     PlayDashAnim(dashKind, direction)
+    Constants.DashVFX.Play(dashKind, direction, isAirDash)
 
     local collisionConn
     collisionConn = HRP.Touched:Connect(function(hit)
@@ -7342,53 +7276,86 @@ local function LimparAcessorios()
     end
 end
 
-local function AplicarSet(listaIds)
-    local character = Player.Character or Player.CharacterAdded:Wait()
-    LimparAcessorios()
+-- Cache dos assets dos sets (cada id é baixado só 1x; previews e o personagem reutilizam)
+function Constants.ObterAssetSet(id)
+    local cache = Constants.SetAssetCache
+    if not cache then
+        cache = {}
+        Constants.SetAssetCache = cache
+    end
+    local template = cache[id]
+    if template then return template end
+    local ok, objects = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
+    if ok and objects and objects[1] then
+        template = objects[1]
+        for _, v in pairs(template:GetDescendants()) do
+            if v:IsA("LuaSourceContainer") then v:Destroy() end
+        end
+        cache[id] = template
+        return template
+    end
+    return nil
+end
+
+-- Equipa uma lista de ids em QUALQUER personagem (o real ou o clone do preview).
+-- snap = true: posiciona as peças na hora (necessário dentro de ViewportFrame, que não simula Weld).
+function Constants.EquiparEm(character, listaIds, snap)
     for _, id in pairs(listaIds) do
         task.spawn(function()
-            local sucesso, objects = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
-            if sucesso and objects and objects[1] then
-                local asset = objects[1]:Clone()
-                asset.Name = "SetItem_" .. id
-                local tag = Instance.new("BoolValue")
-                tag.Name = "AutoWeldTag"
-                tag.Parent = asset
-                local handle = asset:IsA("BasePart") and asset or asset:FindFirstChild("Handle", true)
-                if handle then
-                    for _, v in pairs(asset:GetDescendants()) do if v:IsA("LuaSourceContainer") then v:Destroy() end end
-                    handle.CanCollide = false
-                    handle.Massless = true
-                    asset.Parent = character
-                    local attachmentItem = handle:FindFirstChildWhichIsA("Attachment")
-                    local partAlvo = nil
-                    local attachmentCorpo = nil
-                    if attachmentItem then
-                        for _, parte in pairs(character:GetChildren()) do
-                            if parte:IsA("BasePart") then
-                                local found = parte:FindFirstChild(attachmentItem.Name)
-                                if found then partAlvo = parte attachmentCorpo = found break end
-                            end
-                        end
-                    end
-                    if not partAlvo then partAlvo = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart") end
-                    if partAlvo then
-                        local weld = Instance.new("Weld")
-                        weld.Part0 = partAlvo
-                        weld.Part1 = handle
-                        if attachmentItem and attachmentCorpo then
-                            weld.C0 = attachmentCorpo.CFrame
-                            weld.C1 = attachmentItem.CFrame
-                        else
-                            weld.C0 = CFrame.new(0, 0, 0.6) * CFrame.Angles(0, math.rad(180), 0)
-                        end
-                        weld.Parent = handle
+            local template = Constants.ObterAssetSet(id)
+            if not template then return end
+            if not character or not character:IsDescendantOf(game) then return end
+            local asset = template:Clone()
+            asset.Name = "SetItem_" .. id
+            local tag = Instance.new("BoolValue")
+            tag.Name = "AutoWeldTag"
+            tag.Parent = asset
+            local handle = asset:IsA("BasePart") and asset or asset:FindFirstChild("Handle", true)
+            if not handle then return end
+            handle.CanCollide = false
+            handle.Massless = true
+            asset.Parent = character
+            local attachmentItem = handle:FindFirstChildWhichIsA("Attachment")
+            local partAlvo = nil
+            local attachmentCorpo = nil
+            if attachmentItem then
+                for _, parte in pairs(character:GetChildren()) do
+                    if parte:IsA("BasePart") then
+                        local found = parte:FindFirstChild(attachmentItem.Name)
+                        if found then partAlvo = parte attachmentCorpo = found break end
                     end
                 end
-                objects[1]:Destroy()
+            end
+            if not partAlvo then partAlvo = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart") end
+            if partAlvo then
+                local weld = Instance.new("Weld")
+                weld.Part0 = partAlvo
+                weld.Part1 = handle
+                if attachmentItem and attachmentCorpo then
+                    weld.C0 = attachmentCorpo.CFrame
+                    weld.C1 = attachmentItem.CFrame
+                else
+                    weld.C0 = CFrame.new(0, 0, 0.6) * CFrame.Angles(0, math.rad(180), 0)
+                end
+                weld.Parent = handle
+                if snap then
+                    local alvo = partAlvo.CFrame * weld.C0 * weld.C1:Inverse()
+                    local delta = alvo * handle.CFrame:Inverse()
+                    local partes = asset:GetDescendants()
+                    table.insert(partes, asset)
+                    for _, p in ipairs(partes) do
+                        if p:IsA("BasePart") then p.CFrame = delta * p.CFrame end
+                    end
+                end
             end
         end)
     end
+end
+
+local function AplicarSet(listaIds)
+    local character = Player.Character or Player.CharacterAdded:Wait()
+    LimparAcessorios()
+    Constants.EquiparEm(character, listaIds, false)
 end
 
 local function MakeDraggable(movable: Frame, hit: GuiObject)
@@ -7576,6 +7543,7 @@ local function SaveConfig()
         Settings = {
             DodgeMode = DodgeMode,
             LiteMode = LiteMode,
+            MusicEnabled = Constants.MUSIC_ENABLED,
             CurrentSet = currentSet,
             CloneColorIndex = cloneColorIndex
         }
@@ -7642,6 +7610,9 @@ local function ApplyConfig(config)
         if config.Settings.LiteMode ~= nil then
             LiteMode = config.Settings.LiteMode
         end
+        if config.Settings.MusicEnabled ~= nil then
+            Constants.MUSIC_ENABLED = config.Settings.MusicEnabled and true or false
+        end
         if config.Settings.CurrentSet then
             currentSet = config.Settings.CurrentSet
         end
@@ -7650,6 +7621,263 @@ local function ApplyConfig(config)
         end
     end
 end
+
+-- ========== BOTÃO DE SETS COM PREVIEW + MENU DE ESCOLHA ==========
+-- Botão sem texto: mostra o SEU boneco com o set equipado. Ao clicar abre um menu com o preview
+-- de cada set, e você escolhe livremente. A escolha é aplicada na hora e salva no config.
+do
+    local SetUI = {MainVpf = nil, MainStroke = nil, Spins = {}}
+    local SPIN_SPEED = 0.6 -- rad/s (~34°/s): uma volta completa a cada ~10s
+    Constants.SetUI = SetUI
+
+    local SETS = {SET_1, SET_2, SET_3}
+    local JUNK = {Sound = true, BillboardGui = true, Highlight = true, Trail = true, ParticleEmitter = true, Beam = true,
+        ForceField = true, PointLight = true, SpotLight = true, SurfaceLight = true, Fire = true, Smoke = true, Sparkles = true}
+
+    local function accent(i)
+        return setColors[i]:Lerp(Color3.new(1, 1, 1), 0.35)
+    end
+
+    -- só gira se o preview está realmente visível (menu de config / seletor abertos)
+    local function isShown(obj)
+        while obj and obj:IsA("GuiObject") do
+            if not obj.Visible then return false end
+            obj = obj.Parent
+        end
+        return true
+    end
+
+    -- órbita suave da câmera em volta do boneco (dá pra ver todos os detalhes dos acessórios)
+    local function startSpin(vpf, cam, center, dist, height, phase)
+        local old = SetUI.Spins[vpf]
+        if old then old:Disconnect() end
+        local t0 = os.clock()
+        local conn
+        conn = RunService.RenderStepped:Connect(function()
+            if not vpf.Parent or not cam.Parent then
+                conn:Disconnect()
+                if SetUI.Spins[vpf] == conn then SetUI.Spins[vpf] = nil end
+                return
+            end
+            if not isShown(vpf) then return end
+            local ang = phase + (os.clock() - t0) * SPIN_SPEED
+            local dir = CFrame.Angles(0, ang, 0):VectorToWorldSpace(Vector3.new(0, 0, -1))
+            cam.CFrame = CFrame.lookAt(center + dir * dist + Vector3.new(0, height, 0), center)
+        end)
+        SetUI.Spins[vpf] = conn
+    end
+
+    -- monta (ou remonta) o preview: clone do personagem + set escolhido + câmera enquadrada
+    function SetUI.FillPreview(vpf, setIndex)
+        if not vpf or not vpf.Parent then return end
+        for _, c in ipairs(vpf:GetChildren()) do
+            if c:IsA("Model") or c:IsA("Camera") then c:Destroy() end
+        end
+        local char = Player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local ok, err = pcall(function()
+            char.Archivable = true
+            local clone = char:Clone()
+            if not clone then return end
+            for _, d in ipairs(clone:GetDescendants()) do
+                if d:IsA("LuaSourceContainer") or JUNK[d.ClassName] then
+                    d:Destroy()
+                elseif d:IsA("Accessory") and (d.Name:find("SetItem_") or d:FindFirstChild("AutoWeldTag")) then
+                    d:Destroy()
+                end
+            end
+            for _, c in ipairs(clone:GetChildren()) do
+                if c.Name:find("^SetItem_") then c:Destroy() end
+            end
+            local hum = clone:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+            end
+            clone.PrimaryPart = clone:FindFirstChild("HumanoidRootPart")
+            clone:PivotTo(CFrame.new(0, 0, 0)) -- de frente pra -Z, na origem
+            clone.Parent = vpf
+
+            local head = clone:FindFirstChild("Head")
+            local _, size = clone:GetBoundingBox()
+            local h = math.max(size.Y, 4)
+            local headY = head and head.Position.Y or 1.5
+            local center = Vector3.new(0, headY - h * 0.2, 0)
+            local phase = math.rad(-28) + setIndex * 1.3 -- cada preview começa de um ângulo
+            local dist, height = h * 1.6, h * 0.04
+            local dir = CFrame.Angles(0, phase, 0):VectorToWorldSpace(Vector3.new(0, 0, -1))
+            local cam = Instance.new("Camera")
+            cam.FieldOfView = 38
+            cam.CFrame = CFrame.lookAt(center + dir * dist + Vector3.new(0, height, 0), center)
+            cam.Parent = vpf
+            vpf.CurrentCamera = cam
+            startSpin(vpf, cam, center, dist, height, phase)
+
+            Constants.EquiparEm(clone, SETS[setIndex], true)
+        end)
+        if not ok then warn("[SetUI] preview:", err) end
+    end
+
+    local function newViewport(parent, radius)
+        local vpf = Create("ViewportFrame", {
+            Size = UDim2.new(1, -8, 1, -8),
+            Position = UDim2.new(0, 4, 0, 4),
+            BackgroundTransparency = 1,
+            Ambient = Color3.fromRGB(170, 170, 185),
+            LightColor = Color3.fromRGB(255, 240, 225),
+            LightDirection = Vector3.new(0.4, -0.7, 1),
+            Parent = parent,
+        })
+        Create("UICorner", {CornerRadius = UDim.new(0, radius), Parent = vpf})
+        return vpf
+    end
+
+    function SetUI.RefreshMain()
+        if SetUI.MainVpf and SetUI.MainVpf.Parent then
+            SetUI.FillPreview(SetUI.MainVpf, currentSet)
+        end
+        if SetUI.MainStroke and SetUI.MainStroke.Parent then
+            TweenService:Create(SetUI.MainStroke, TweenInfo.new(0.25), {Color = accent(currentSet)}):Play()
+        end
+    end
+
+    function SetUI.Open(gui)
+        local PG = Player:WaitForChild("PlayerGui")
+        if PG:FindFirstChild("CyberSetMenuGui") then return end
+        local W = math.min(400, math.max(gui.AbsoluteSize.X, 360) - 24)
+        local H = math.min(230, math.max(gui.AbsoluteSize.Y, 260) - 24)
+
+        -- ScreenGui próprio (Sibling + DisplayOrder alto): o menu fica por cima de tudo
+        -- e os cartões/botões ficam por cima do fundo do menu, sem briga de ZIndex
+        local sg = Create("ScreenGui", {Name = "CyberSetMenuGui", IgnoreGuiInset = true, ResetOnSpawn = false, DisplayOrder = 50, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = PG})
+
+        local backdrop = Create("TextButton", {Name = "SetMenuBackdrop", Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, Parent = sg})
+        local menu = Create("Frame", {Name = "SetMenu", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(4, 4, 8), BackgroundTransparency = 1, Active = true, ClipsDescendants = true, Parent = sg})
+        Create("UICorner", {CornerRadius = UDim.new(0, 16), Parent = menu})
+        Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 4, Transparency = 0.2, Parent = menu})
+        Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.55, Parent = menu})
+
+        -- detalhe decorativo no topo (sem texto)
+        local bar = Create("Frame", {Size = UDim2.new(0, 70, 0, 4), Position = UDim2.new(0, 14, 0, 22), BackgroundColor3 = Colors.CYBER_ORANGE, BorderSizePixel = 0, Parent = menu})
+        Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = bar})
+        local bar2 = Create("Frame", {Size = UDim2.new(0, 24, 0, 4), Position = UDim2.new(0, 90, 0, 22), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, Parent = menu})
+        Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = bar2})
+
+        local closing = false
+        local function close()
+            if closing then return end
+            closing = true
+            local t = TweenService:Create(menu, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1})
+            TweenService:Create(backdrop, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
+            t:Play()
+            t.Completed:Connect(function()
+                sg:Destroy()
+            end)
+        end
+        backdrop.MouseButton1Click:Connect(close)
+
+        local closeBtn = Create("TextButton", {Name = "CloseBtn", Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -42, 0, 6), BackgroundColor3 = Color3.fromRGB(200, 40, 40), Text = "X", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.SciFi, TextSize = 20, Parent = menu})
+        Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = closeBtn})
+        Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.4, Parent = closeBtn})
+        closeBtn.MouseButton1Click:Connect(close)
+
+        local cards = Create("Frame", {Size = UDim2.new(1, -24, 1, -58), Position = UDim2.new(0, 12, 0, 46), BackgroundTransparency = 1, Parent = menu})
+        Create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = cards})
+        local cardW = math.floor((W - 24 - 20) / 3)
+
+        local strokes, dots = {}, {}
+        local function updateSelection()
+            for i = 1, 3 do
+                local sel = (currentSet == i)
+                strokes[i].Color = sel and Colors.UI_NEON or accent(i)
+                strokes[i].Thickness = sel and 3.5 or 2
+                strokes[i].Transparency = sel and 0 or 0.35
+                dots[i].Visible = sel
+            end
+        end
+
+        for i = 1, 3 do
+            local card = Create("TextButton", {Name = "SetCard" .. i, Size = UDim2.new(0, cardW, 1, 0), BackgroundColor3 = Color3.fromRGB(8, 8, 14), Text = "", AutoButtonColor = false, LayoutOrder = i, Parent = cards})
+            Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = card})
+            strokes[i] = Create("UIStroke", {Color = accent(i), Thickness = 2, Transparency = 0.35, Parent = card})
+            Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(10, 10, 18), setColors[i]:Lerp(Color3.fromRGB(10, 10, 18), 0.45)), Rotation = 60, Parent = card})
+            local scale = Create("UIScale", {Scale = 1, Parent = card})
+
+            local vpf = newViewport(card, 10)
+            dots[i] = Create("Frame", {Size = UDim2.new(0, 10, 0, 10), Position = UDim2.new(0, 8, 0, 8), BackgroundColor3 = Colors.UI_NEON, BorderSizePixel = 0, ZIndex = 5, Visible = false, Parent = card})
+            Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = dots[i]})
+
+            card.MouseEnter:Connect(function() TweenService:Create(scale, TweenInfo.new(0.12), {Scale = 1.04}):Play() end)
+            card.MouseLeave:Connect(function() TweenService:Create(scale, TweenInfo.new(0.15), {Scale = 1}):Play() end)
+            card.MouseButton1Click:Connect(function()
+                if currentSet ~= i then
+                    currentSet = i
+                    AplicarSet(SETS[i])
+                    SaveConfig()
+                    SetUI.RefreshMain()
+                    pcall(function() PlaySFX({id = Sounds.KIROSHI_ON.id, volume = 0.6, pitch = 1.4}) end)
+                end
+                updateSelection()
+            end)
+
+            task.spawn(function() SetUI.FillPreview(vpf, i) end)
+        end
+        updateSelection()
+
+        TweenService:Create(menu, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, W, 0, H), BackgroundTransparency = 0}):Play()
+        TweenService:Create(backdrop, TweenInfo.new(0.25), {BackgroundTransparency = 0.55}):Play()
+    end
+
+    function SetUI.Build(gui, parent)
+        local oldMenu = Player.PlayerGui:FindFirstChild("CyberSetMenuGui")
+        if oldMenu then oldMenu:Destroy() end
+        -- linha dentro do menu de config; o botão fica centralizado nela
+        local row = Create("Frame", {Name = "SetRow", Size = UDim2.new(1, 0, 0, 92), BackgroundTransparency = 1, Parent = parent})
+        local btn = Create("TextButton", {Name = "SetBtn", Size = UDim2.new(0, 80, 0, 80), Position = UDim2.new(0.5, -40, 0, 6), Text = "", AutoButtonColor = false, BackgroundColor3 = Colors.UI_DARK, Parent = row})
+        Create("UICorner", {CornerRadius = UDim.new(0, 16), Parent = btn})
+        local strokeOuter = Create("UIStroke", {Color = accent(currentSet), Thickness = 3.5, Transparency = 0.2, Parent = btn})
+        Create("UIStroke", {Color = Colors.CYBER_CHROME, Thickness = 1.2, Transparency = 0.5, Parent = btn})
+        local glow = Create("UIStroke", {Color = Colors.UI_GLOW, Thickness = 5, Transparency = 0.8, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = btn})
+        Create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(14, 16, 28), Color3.fromRGB(2, 2, 8)), Rotation = 90, Parent = btn})
+        local scale = Create("UIScale", {Scale = 1, Parent = btn})
+
+        local vpf = newViewport(btn, 12)
+        SetUI.MainVpf = vpf
+        SetUI.MainStroke = strokeOuter
+
+        -- brilho de vidro no topo
+        local shine = Create("Frame", {Size = UDim2.new(1, -8, 0.45, 0), Position = UDim2.new(0, 4, 0, 4), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3, Parent = btn})
+        Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = shine})
+        Create("UIGradient", {Transparency = NumberSequence.new(0.82, 1), Rotation = 90, Parent = shine})
+
+        TweenService:Create(glow, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Transparency = 0.45}):Play()
+
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(scale, TweenInfo.new(0.12), {Scale = 1.07}):Play()
+            TweenService:Create(strokeOuter, TweenInfo.new(0.12), {Thickness = 4.5}):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(scale, TweenInfo.new(0.15), {Scale = 1}):Play()
+            TweenService:Create(strokeOuter, TweenInfo.new(0.15), {Thickness = 3.5}):Play()
+        end)
+        btn.MouseButton1Down:Connect(function()
+            TweenService:Create(scale, TweenInfo.new(0.08), {Scale = 0.92}):Play()
+        end)
+        btn.MouseButton1Up:Connect(function()
+            TweenService:Create(scale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+        end)
+        btn.MouseButton1Click:Connect(function()
+            SetUI.Open(gui)
+        end)
+
+        task.spawn(function() SetUI.FillPreview(vpf, currentSet) end)
+        -- aparência do personagem pode terminar de carregar depois: remonta o preview
+        task.delay(2.5, function()
+            if vpf and vpf.Parent then SetUI.FillPreview(vpf, currentSet) end
+        end)
+    end
+end
+-- ========== FIM DO BOTÃO DE SETS ==========
 
 local function BuildUI()
     if Player.PlayerGui:FindFirstChild("CyberRebuilt") then Player.PlayerGui.CyberRebuilt:Destroy() end
@@ -7754,6 +7982,25 @@ local function BuildUI()
 
     local title = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Text = "NEURAL INTERFACE\nCYBER REBUILT 2077", TextColor3 = Colors.CYBER_ORANGE, Font = Enum.Font.SciFi, TextSize = 19, TextStrokeTransparency = 0.5, Parent = settingsMenu})
 
+    -- Botão X: fecha o menu (mesma animação do comando -settings)
+    local closeBtn = Create("TextButton", {Name = "CloseBtn", Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -42, 0, 8), BackgroundColor3 = Color3.fromRGB(200, 40, 40), Text = "X", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.SciFi, TextSize = 20, AutoButtonColor = true, ZIndex = 10, Parent = settingsMenu})
+    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = closeBtn})
+    Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 1.5, Transparency = 0.4, Parent = closeBtn})
+    local closingMenu = false
+    closeBtn.MouseButton1Click:Connect(function()
+        if closingMenu or not settingsMenu.Visible then return end
+        closingMenu = true
+        local closeTween = TweenService:Create(settingsMenu, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1
+        })
+        closeTween:Play()
+        closeTween.Completed:Connect(function()
+            settingsMenu.Visible = false
+            closingMenu = false
+        end)
+    end)
+
     local scroll = Create("ScrollingFrame", {Name = "AbilitiesScroll", Size = UDim2.new(1, -24, 1, -148), Position = UDim2.new(0, 12, 0, 66), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6, ScrollBarImageColor3 = Colors.UI_NEON, Parent = settingsMenu})
     Create("UIListLayout", {Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll})
 
@@ -7818,27 +8065,26 @@ end)
     SaveConfig()
 end)
 
-    local noclipRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = noclipRow})
-    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  NOCLIP", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = noclipRow})
-    local noclipToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = Noclip and "ON" or "OFF", BackgroundColor3 = Noclip and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = noclipRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = noclipToggle})
-    noclipToggle.MouseButton1Click:Connect(function()
-        ToggleNoclip()
-        noclipToggle.Text = Noclip and "ON" or "OFF"
-        noclipToggle.BackgroundColor3 = Noclip and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
+    local musicRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
+    Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = musicRow})
+    Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  MUSICA SANDI", TextColor3 = Colors.SANDI_TINT, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = musicRow})
+    local musicToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = Constants.MUSIC_ENABLED and "ON" or "OFF", BackgroundColor3 = Constants.MUSIC_ENABLED and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = musicRow})
+    Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = musicToggle})
+    musicToggle.MouseButton1Click:Connect(function()
+        Constants.MUSIC_ENABLED = not Constants.MUSIC_ENABLED
+        musicToggle.Text = Constants.MUSIC_ENABLED and "ON" or "OFF"
+        musicToggle.BackgroundColor3 = Constants.MUSIC_ENABLED and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
+        -- aplica na hora se o Sandevistan estiver ativo
+        if not Constants.MUSIC_ENABLED then
+            if State.MusicSound then
+                pararMusica(State.MusicSound)
+                State.MusicSound = nil
+            end
+        elseif State.IsSandiActive and not State.MusicSound then
+            State.MusicSound = tocarMusica()
+        end
+        SaveConfig() -- grava no arquivo (writefile)
     end)
-
-local lineRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Colors.UI_BG, BorderSizePixel = 0, Parent = scroll})
-Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = lineRow})
-Create("TextLabel", {Size = UDim2.new(0.65, 0, 1, 0), BackgroundTransparency = 1, Text = "  LINE", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 19, TextXAlignment = Enum.TextXAlignment.Left, Parent = lineRow})
-local lineToggle = Create("TextButton", {Size = UDim2.new(0.28, 0, 0.75, 0), Position = UDim2.new(0.69, 0, 0.125, 0), Text = lineEnabled and "ON" or "OFF", BackgroundColor3 = lineEnabled and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40), TextColor3 = Color3.new(1,1,1), Font = Enum.Font.SciFi, TextSize = 17, Parent = lineRow})
-Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = lineToggle})
-lineToggle.MouseButton1Click:Connect(function()
-    Toggleline()
-    lineToggle.Text = lineEnabled and "ON" or "OFF"
-    lineToggle.BackgroundColor3 = lineEnabled and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(200, 40, 40)
-end)
 
     local keybindsHeader = Create("TextLabel", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Text = "  CUSTOM KEYBINDS", TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 21, TextXAlignment = Enum.TextXAlignment.Left, Parent = scroll})
 
@@ -7860,26 +8106,7 @@ end)
         rebindButton.MouseButton1Click:Connect(function() RebindingAbility = kb.ab end)
     end
 
-    local setsRow = Create("Frame", {Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1, Parent = scroll})
-    local setsBtn = Create("TextButton", {Size = UDim2.new(0.9, 0, 0, 50), Position = UDim2.new(0.05, 0, 0, 6), Text = " TROCA SET", BackgroundColor3 = setColors[currentSet], TextColor3 = Colors.UI_NEON, Font = Enum.Font.SciFi, TextSize = 21, Parent = setsRow})
-    Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = setsBtn})
-    Create("UIStroke", {Color = Colors.UI_NEON, Thickness = 2.5, Parent = setsBtn})
-        setsBtn.MouseButton1Click:Connect(function()
-    if currentSet == 1 then
-        currentSet = 2
-        setsBtn.BackgroundColor3 = setColors[2]
-        AplicarSet(SET_2)
-    elseif currentSet == 2 then
-        currentSet = 3
-        setsBtn.BackgroundColor3 = setColors[3]
-        AplicarSet(SET_3)
-    else
-        currentSet = 1
-        setsBtn.BackgroundColor3 = setColors[1]
-        AplicarSet(SET_1)
-    end
-    SaveConfig()
-end)
+    Constants.SetUI.Build(gui, scroll) -- botão de sets (preview do boneco) dentro do menu de settings
 
     scroll.CanvasSize = UDim2.new(0, 0, 0, scroll.UIListLayout.AbsoluteContentSize.Y + 160)
 

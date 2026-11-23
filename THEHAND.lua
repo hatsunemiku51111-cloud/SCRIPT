@@ -3950,5 +3950,3 @@ if character then
         fullCleanup(true)
     end)
 end
-
-https://raw.githubusercontent.com/hatsunemiku51111-cloud/SCRIPT/refs/heads/main/antifalldamagescripts.lua

@@ -6713,31 +6713,58 @@ local function makeBrowserScreen()
         task.delay(1.6, function() if id == toastId then toastLbl.Visible = false end end)
     end
 
-    local viewer = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
-    local viewerBack = iconButton(viewer, Icons.back, 16, C.text, UDim2.new(0, 6, 0, 4), UDim2.new(0, 34, 0, 34), 16)
-    local viewerTitle = new("TextLabel", {Position = UDim2.new(0, 44, 0, 4), Size = UDim2.new(1, -54, 0, 34), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    local viewerClip = new("Frame", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundColor3 = C.card, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 16}, viewer)
-    corner(viewerClip, UDim.new(0, 10))
+    local viewer = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
+    local WHITE = Color3.new(1, 1, 1)
+    local viewerClip = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 16}, viewer)
     local viewerImg = new("ImageLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, Image = "", ZIndex = 16}, viewerClip)
     local viewerImg2 = new("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, ImageTransparency = 1, Visible = false, ZIndex = 17}, viewerImg)
-    local viewerSmooth = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 76), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "60 FPS", TextColor3 = Color3.fromRGB(120, 255, 160), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 19}, viewer)
+    local viewerMsg = new("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "Carregando…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 17}, viewer)
+    local viewerTap = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 18}, viewer)
+
+    local vTop = new("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 20}, viewer)
+    local viewerBack = iconButton(vTop, Icons.back, 16, WHITE, UDim2.new(0, 6, 0, 5), UDim2.new(0, 34, 0, 34), 21)
+    local viewerTitle = new("TextLabel", {Position = UDim2.new(0, 46, 0, 0), Size = UDim2.new(1, -140, 1, 0), BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 21}, vTop)
+    local viewerCount = new("TextLabel", {Position = UDim2.new(1, -90, 0, 0), Size = UDim2.new(0, 50, 1, 0), BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(200, 200, 205), Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 21}, vTop)
+    local viewerMore = new("TextButton", {Position = UDim2.new(1, -38, 0, 5), Size = UDim2.new(0, 34, 0, 34), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 21}, vTop)
+    for k = 0, 2 do
+        local dot = new("Frame", {Position = UDim2.new(0.5, -2, 0.5, -11 + k * 9), Size = UDim2.new(0, 4, 0, 4), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 22}, viewerMore)
+        corner(dot, UDim.new(1, 0))
+    end
+
+    local vBot = new("Frame", {Position = UDim2.new(0, 0, 1, -54), Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 20}, viewer)
+    local vBotLbl = new("TextLabel", {Position = UDim2.new(0, 12, 0, 2), Size = UDim2.new(1, -100, 1, -4), BackgroundTransparency = 1, Text = "", RichText = true, TextColor3 = WHITE, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 21}, vBot)
+    local viewerVisit = new("TextButton", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0, 78, 0, 30), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "Visitar", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 21}, vBot)
+    corner(viewerVisit, UDim.new(0, 15))
+
+    local viewerSmooth = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 76), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "60 FPS", TextColor3 = Color3.fromRGB(120, 255, 160), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 21}, viewer)
     corner(viewerSmooth, UDim.new(0, 10))
     new("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, viewerSmooth)
-    local viewerMsg = new("TextLabel", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundTransparency = 1, Text = "Carregando…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 17}, viewer)
-    local viewerTap = new("TextButton", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 18}, viewer)
-    local viewerBadge = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 50), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "GIF", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 19}, viewer)
+    local viewerBadge = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 50), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "GIF", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 21}, viewer)
     corner(viewerBadge, UDim.new(0, 10))
     new("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, viewerBadge)
-    local viewerVisit = new("TextButton", {Position = UDim2.new(0, 8, 1, -88), Size = UDim2.new(0.5, -12, 0, 34), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "VISITAR", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    corner(viewerVisit, UDim.new(0, 17))
-    local viewerCopy = new("TextButton", {Position = UDim2.new(0.5, 4, 1, -88), Size = UDim2.new(0.5, -12, 0, 34), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "COPIAR LINK", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    corner(viewerCopy, UDim.new(0, 17))
-    local viewerGal = new("TextButton", {Position = UDim2.new(0, 8, 1, -46), Size = UDim2.new(0.5, -12, 0, 36), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "GALERIA", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    corner(viewerGal, UDim.new(0, 18))
-    local viewerDl = new("TextButton", {Position = UDim2.new(0.5, 4, 1, -46), Size = UDim2.new(0.5, -12, 0, 36), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "BAIXAR", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    corner(viewerDl, UDim.new(0, 18))
-    local viewerSim = new("TextButton", {Size = UDim2.new(0.33, 0, 0, 34), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "PARECIDAS", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    corner(viewerSim, UDim.new(0, 17))
+
+    local barsOn = true
+    local function setBars(on)
+        barsOn = on
+        vTop.Visible = on
+        vBot.Visible = on
+    end
+    local vMenuLayer = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, Visible = false, ZIndex = 23}, viewer)
+    local vMenu = new("Frame", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 42), Size = UDim2.new(0, 190, 0, 152), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 24}, vMenuLayer)
+    corner(vMenu, UDim.new(0, 12))
+    new("UIStroke", {Color = Color3.fromRGB(70, 72, 76), Thickness = 1}, vMenu)
+    local function vItem(i, text)
+        local b = new("TextButton", {Position = UDim2.new(0, 0, 0, 6 + (i - 1) * 35), Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = true, ZIndex = 25}, vMenu)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 16)}, b)
+        b.MouseButton1Click:Connect(function() vMenuLayer.Visible = false end)
+        return b
+    end
+    local viewerDl = vItem(1, "Baixar imagem")
+    local viewerGal = vItem(2, "Salvar na Galeria")
+    local viewerCopy = vItem(3, "Copiar link da imagem")
+    local viewerSim = vItem(4, "Pesquisar imagem")
+    vMenuLayer.MouseButton1Click:Connect(function() vMenuLayer.Visible = false end)
+    viewerMore.MouseButton1Click:Connect(function() vMenuLayer.Visible = true end)
     local viewerItem, viewerToken = nil, 0
     local gifReady = false
     local gifState = {playing = true, smooth = true}
@@ -6841,24 +6868,19 @@ local function makeBrowserScreen()
         viewerBadge.Visible = false
         viewerSmooth.Visible = false
         viewerImg2.Visible = false
-        local ttl = (item.title ~= "" and item.title) or U.hostOf(item.page or item.url)
-        if list and viewerIdx > 0 then ttl = viewerIdx .. "/" .. #list .. " · " .. ttl end
-        viewerTitle.Text = ttl
+        local host = U.hostOf(item.page or item.url)
+        local ttl = (item.title ~= "" and item.title) or host
+        viewerTitle.Text = host
+        viewerCount.Text = (list and viewerIdx > 0) and (viewerIdx .. "/" .. #list) or ""
+        vBotLbl.Text = "<b>" .. U.esc(ttl) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(host) .. "</font>"
+        vBotLbl.Size = UDim2.new(1, item.page ~= nil and -100 or -20, 1, -4)
         local thumb = imgCache[item.thumb]
         viewerImg.Image = thumb or ""
         viewerMsg.Visible = thumb == nil
         viewerMsg.Text = "Carregando…"
         viewerVisit.Visible = item.page ~= nil
-        local row = {}
-        if item.page ~= nil then row[#row + 1] = viewerVisit end
-        row[#row + 1] = viewerCopy
-        row[#row + 1] = viewerSim
-        local rn = #row
-        local roff = -(16 + (rn - 1) * 6) / rn
-        for k, b in ipairs(row) do
-            b.Size = UDim2.new(1 / rn, roff, 0, 34)
-            b.Position = UDim2.new((k - 1) / rn, 8 + (k - 1) * (6 + roff), 1, -88)
-        end
+        vMenuLayer.Visible = false
+        setBars(true)
         task.spawn(function()
             local a = U.cacheImage(item.url, 8000000)
             if tk ~= viewerToken or not viewer.Visible then return end
@@ -6871,7 +6893,7 @@ local function makeBrowserScreen()
             end
         end)
     end
-    viewerBack.MouseButton1Click:Connect(function() viewer.Visible = false; viewerToken = viewerToken + 1 end)
+    viewerBack.MouseButton1Click:Connect(function() vMenuLayer.Visible = false; viewer.Visible = false; viewerToken = viewerToken + 1 end)
     local vDrag, vPinch, vPinchStart, vLastTap = nil, false, 1, 0
     local function viewerStep(dir)
         if not viewerList then return end
@@ -6884,7 +6906,14 @@ local function makeBrowserScreen()
     end
     viewerTap.InputBegan:Connect(function(i)
         if vPress(i) and not vPinch then
-            vDrag = {input = i, start = i.Position, last = i.Position, t = os.clock(), moved = 0}
+            local d0 = {input = i, start = i.Position, last = i.Position, t = os.clock(), moved = 0}
+            vDrag = d0
+            task.delay(0.5, function()
+                if vDrag == d0 and d0.moved < 8 and not vPinch and vZoom <= 1.05 then
+                    d0.long = true
+                    vMenuLayer.Visible = true
+                end
+            end)
         end
     end)
     viewerTap.InputChanged:Connect(function(i)
@@ -6911,7 +6940,7 @@ local function makeBrowserScreen()
         if i.UserInputType == Enum.UserInputType.Touch and i ~= vDrag.input then return end
         local d = vDrag
         vDrag = nil
-        if not viewer.Visible or vPinch then return end
+        if d.long or not viewer.Visible or vPinch then return end
         local total = (i.Position - d.start) / uiScale()
         if vZoom <= 1.05 and math.abs(total.X) > 50 and math.abs(total.X) > math.abs(total.Y) * 1.3 then
             viewerStep(total.X < 0 and 1 or -1)
@@ -6922,7 +6951,7 @@ local function makeBrowserScreen()
                 applyVZoom()
             else
                 vLastTap = os.clock()
-                toggleGif()
+                setBars(not barsOn)
             end
         end
     end)

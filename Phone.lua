@@ -6143,6 +6143,10 @@ corner(rcClear, UDim.new(1, 0))
 createNavBar(RecentsFrame)
 
 local function makeBrowserScreen()
+    local function uiScale()
+        local ok, v = pcall(function() return phoneUIScale.Scale end)
+        return (ok and tonumber(v)) or 1
+    end
     local C = {
         bg = Color3.fromRGB(32, 33, 36),
         toolbar = Color3.fromRGB(41, 42, 45),
@@ -6229,15 +6233,16 @@ local function makeBrowserScreen()
         local dir = base:match("^(https?://[^%?#]*/)") or (origin .. "/")
         return dir .. href
     end
-    function U.rich(html)
+    function U.rich(html, limit)
         html = html:gsub("<!%-%-.-%-%->", " "):gsub("<head.-</head>", " "):gsub("<script.-</script>", " "):gsub("<style.-</style>", " "):gsub("<noscript.-</noscript>", " "):gsub("<svg.-</svg>", " ")
         html = html:gsub("<[hH][1-6][^>]*>", "\n\1"):gsub("</[hH][1-6]%s*>", "\2\n")
         html = html:gsub("<[lL][iI][^>]*>", "\n• "):gsub("<[bB][rR]%s*/?>", "\n"):gsub("</[pP]%s*>", "\n\n"):gsub("</[dD][iI][vV]%s*>", "\n"):gsub("</[tT][rR]%s*>", "\n")
         html = html:gsub("<[^>]->", " ")
         html = U.decode(html)
         html = html:gsub("[ \t\r]+", " "):gsub("\n +", "\n"):gsub("\n\n\n+", "\n\n"):gsub("^%s+", "")
-        if #html > 8000 then
-            html = html:sub(1, (utf8.offset(html, 8001) or 8001) - 1) .. "…"
+        local lim = limit or 8000
+        if #html > lim then
+            html = html:sub(1, (utf8.offset(html, lim + 1) or (lim + 1)) - 1) .. "…"
         end
         if html == "" then html = "(Esta página não tem conteúdo de texto para exibir.)" end
         html = U.esc(html)
@@ -6711,8 +6716,9 @@ local function makeBrowserScreen()
     local viewer = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
     local viewerBack = iconButton(viewer, Icons.back, 16, C.text, UDim2.new(0, 6, 0, 4), UDim2.new(0, 34, 0, 34), 16)
     local viewerTitle = new("TextLabel", {Position = UDim2.new(0, 44, 0, 4), Size = UDim2.new(1, -54, 0, 34), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
-    local viewerImg = new("ImageLabel", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundColor3 = C.card, BorderSizePixel = 0, ScaleType = Enum.ScaleType.Fit, Image = "", ZIndex = 16}, viewer)
-    corner(viewerImg, UDim.new(0, 10))
+    local viewerClip = new("Frame", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundColor3 = C.card, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 16}, viewer)
+    corner(viewerClip, UDim.new(0, 10))
+    local viewerImg = new("ImageLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, Image = "", ZIndex = 16}, viewerClip)
     local viewerImg2 = new("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, ImageTransparency = 1, Visible = false, ZIndex = 17}, viewerImg)
     local viewerSmooth = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 76), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "60 FPS", TextColor3 = Color3.fromRGB(120, 255, 160), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 19}, viewer)
     corner(viewerSmooth, UDim.new(0, 10))
@@ -6730,6 +6736,8 @@ local function makeBrowserScreen()
     corner(viewerGal, UDim.new(0, 18))
     local viewerDl = new("TextButton", {Position = UDim2.new(0.5, 4, 1, -46), Size = UDim2.new(0.5, -12, 0, 36), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "BAIXAR", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
     corner(viewerDl, UDim.new(0, 18))
+    local viewerSim = new("TextButton", {Size = UDim2.new(0.33, 0, 0, 34), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "PARECIDAS", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    corner(viewerSim, UDim.new(0, 17))
     local viewerItem, viewerToken = nil, 0
     local gifReady = false
     local gifState = {playing = true, smooth = true}
@@ -6739,7 +6747,18 @@ local function makeBrowserScreen()
         gifState.playing = not gifState.playing
         viewerBadge.Text = gifState.playing and "GIF" or "GIF · pausado"
     end
-    viewerTap.MouseButton1Click:Connect(toggleGif)
+    local vZoom, vPanX, vPanY = 1, 0, 0
+    local function applyVZoom()
+        if vZoom <= 1.02 then vZoom, vPanX, vPanY = 1, 0, 0 end
+        local sz = viewerClip.AbsoluteSize / uiScale()
+        local mx = sz.X * (vZoom - 1) / 2
+        local my = sz.Y * (vZoom - 1) / 2
+        vPanX = math.clamp(vPanX, -mx, mx)
+        vPanY = math.clamp(vPanY, -my, my)
+        viewerImg.Size = UDim2.new(vZoom, 0, vZoom, 0)
+        viewerImg.Position = UDim2.new(0.5, vPanX, 0.5, vPanY)
+    end
+    local viewerList, viewerIdx = nil, 0
     viewerBadge.MouseButton1Click:Connect(toggleGif)
     viewerSmooth.MouseButton1Click:Connect(function()
         gifState.smooth = not gifState.smooth
@@ -6803,27 +6822,42 @@ local function makeBrowserScreen()
         Nav.gif.play(viewerImg, viewerImg2, fr.assets, fr.delays, cancelled, gifState)
     end
 
-    local function openViewer(item)
+    local function openViewer(item, list, idx)
         viewerToken = viewerToken + 1
         local tk = viewerToken
         Nav.gif.stop(viewerImg)
         viewerItem = item
+        viewerList, viewerIdx = list, idx or 0
+        if list and not idx then
+            for i, v in ipairs(list) do
+                if v == item then viewerIdx = i break end
+            end
+        end
+        vZoom, vPanX, vPanY = 1, 0, 0
+        applyVZoom()
         gifReady = false
         gifState.playing = true
         viewer.Visible = true
         viewerBadge.Visible = false
         viewerSmooth.Visible = false
         viewerImg2.Visible = false
-        viewerTitle.Text = (item.title ~= "" and item.title) or U.hostOf(item.page or item.url)
+        local ttl = (item.title ~= "" and item.title) or U.hostOf(item.page or item.url)
+        if list and viewerIdx > 0 then ttl = viewerIdx .. "/" .. #list .. " · " .. ttl end
+        viewerTitle.Text = ttl
         local thumb = imgCache[item.thumb]
         viewerImg.Image = thumb or ""
         viewerMsg.Visible = thumb == nil
         viewerMsg.Text = "Carregando…"
         viewerVisit.Visible = item.page ~= nil
-        if item.page ~= nil then
-            viewerCopy.Position, viewerCopy.Size = UDim2.new(0.5, 4, 1, -88), UDim2.new(0.5, -12, 0, 34)
-        else
-            viewerCopy.Position, viewerCopy.Size = UDim2.new(0, 8, 1, -88), UDim2.new(1, -16, 0, 34)
+        local row = {}
+        if item.page ~= nil then row[#row + 1] = viewerVisit end
+        row[#row + 1] = viewerCopy
+        row[#row + 1] = viewerSim
+        local rn = #row
+        local roff = -(16 + (rn - 1) * 6) / rn
+        for k, b in ipairs(row) do
+            b.Size = UDim2.new(1 / rn, roff, 0, 34)
+            b.Position = UDim2.new((k - 1) / rn, 8 + (k - 1) * (6 + roff), 1, -88)
         end
         task.spawn(function()
             local a = U.cacheImage(item.url, 8000000)
@@ -6838,6 +6872,87 @@ local function makeBrowserScreen()
         end)
     end
     viewerBack.MouseButton1Click:Connect(function() viewer.Visible = false; viewerToken = viewerToken + 1 end)
+    local vDrag, vPinch, vPinchStart, vLastTap = nil, false, 1, 0
+    local function viewerStep(dir)
+        if not viewerList then return end
+        local ni = viewerIdx + dir
+        local nx = viewerList[ni]
+        if nx then openViewer(nx, viewerList, ni) else toast(dir > 0 and "Última imagem" or "Primeira imagem") end
+    end
+    local function vPress(i)
+        return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+    end
+    viewerTap.InputBegan:Connect(function(i)
+        if vPress(i) and not vPinch then
+            vDrag = {input = i, start = i.Position, last = i.Position, t = os.clock(), moved = 0}
+        end
+    end)
+    viewerTap.InputChanged:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseWheel then
+            vZoom = math.clamp(vZoom * (1 + 0.15 * i.Position.Z), 1, 5)
+            applyVZoom()
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if not viewer.Visible or not vDrag or vPinch then return end
+        if i.UserInputType == Enum.UserInputType.MouseMovement or (i.UserInputType == Enum.UserInputType.Touch and i == vDrag.input) then
+            local d = (i.Position - vDrag.last) / uiScale()
+            vDrag.last = i.Position
+            vDrag.moved = vDrag.moved + d.Magnitude
+            if vZoom > 1.02 then
+                vPanX = vPanX + d.X
+                vPanY = vPanY + d.Y
+                applyVZoom()
+            end
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if not vDrag or not vPress(i) then return end
+        if i.UserInputType == Enum.UserInputType.Touch and i ~= vDrag.input then return end
+        local d = vDrag
+        vDrag = nil
+        if not viewer.Visible or vPinch then return end
+        local total = (i.Position - d.start) / uiScale()
+        if vZoom <= 1.05 and math.abs(total.X) > 50 and math.abs(total.X) > math.abs(total.Y) * 1.3 then
+            viewerStep(total.X < 0 and 1 or -1)
+        elseif d.moved < 8 and os.clock() - d.t < 0.3 then
+            if os.clock() - vLastTap < 0.3 then
+                vLastTap = 0
+                if vZoom > 1.05 then vZoom, vPanX, vPanY = 1, 0, 0 else vZoom = 2.5 end
+                applyVZoom()
+            else
+                vLastTap = os.clock()
+                toggleGif()
+            end
+        end
+    end)
+    UserInputService.TouchPinch:Connect(function(_, scale, _, state)
+        if not viewer.Visible then return end
+        if state == Enum.UserInputState.Begin then
+            vPinch = true
+            vPinchStart = vZoom
+            vDrag = nil
+        elseif state == Enum.UserInputState.Change then
+            vZoom = math.clamp(vPinchStart * scale, 1, 5)
+            applyVZoom()
+        else
+            vPinch = false
+            applyVZoom()
+        end
+    end)
+    viewerSim.MouseButton1Click:Connect(function()
+        local item = viewerItem
+        if not item then return end
+        local q = tostring(item.title or "")
+        q = q:gsub("%.%w+$", "")
+        q = q:gsub("[_%-]+", " ")
+        q = q:gsub("%s+", " ")
+        q = q:gsub("^%s+", ""):gsub("%s+$", "")
+        if q == "" then toast("Imagem sem título para buscar") return end
+        viewer.Visible = false
+        viewerToken = viewerToken + 1
+        navigate(tabs[cur], {q = q, mode = "images"})
+    end)
     viewerVisit.MouseButton1Click:Connect(function()
         if viewerItem and viewerItem.page then
             viewer.Visible = false
@@ -6925,6 +7040,57 @@ local function makeBrowserScreen()
         local clip = setclipboard or toclipboard
         if viewerItem and type(clip) == "function" then pcall(clip, viewerItem.url); toast("Link da imagem copiado")
         else toast("Clipboard indisponível") end
+    end)
+
+    local selItems, selCount, selMarks = {}, 0, {}
+    local selBar = new("Frame", {AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8), Size = UDim2.new(1, -20, 0, 38), BackgroundColor3 = C.pill, BorderSizePixel = 0, Visible = false, ZIndex = 12}, area)
+    corner(selBar, UDim.new(0, 19))
+    local selLbl = new("TextLabel", {Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(1, -160, 1, 0), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 13}, selBar)
+    local selSave = new("TextButton", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -78, 0.5, 0), Size = UDim2.new(0, 66, 0, 28), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "SALVAR", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 13}, selBar)
+    corner(selSave, UDim.new(0, 14))
+    local selCancel = new("TextButton", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0), Size = UDim2.new(0, 66, 0, 28), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "CANCELAR", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 9, ZIndex = 13}, selBar)
+    corner(selCancel, UDim.new(0, 14))
+    local function refreshSel()
+        selBar.Visible = selCount > 0
+        selLbl.Text = selCount .. (selCount == 1 and " selecionada" or " selecionadas")
+    end
+    local function setSel(it, on)
+        if (selItems[it] == true) == on then return end
+        selItems[it] = on or nil
+        selCount = selCount + (on and 1 or -1)
+        local m = selMarks[it]
+        if m then m.Visible = on end
+        refreshSel()
+    end
+    local function clearSel()
+        for it in pairs(selItems) do
+            local m = selMarks[it]
+            if m then m.Visible = false end
+        end
+        selItems, selCount = {}, 0
+        refreshSel()
+    end
+    selCancel.MouseButton1Click:Connect(clearSel)
+    selSave.MouseButton1Click:Connect(function()
+        if selCount == 0 then return end
+        local list = {}
+        for it in pairs(selItems) do list[#list + 1] = it end
+        clearSel()
+        toast("Salvando " .. #list .. "…")
+        task.spawn(function()
+            local ok = 0
+            for _, it in ipairs(list) do
+                if it.gif or U.maybeGif(it.url) then
+                    saveGifFlow(it)
+                    ok = ok + 1
+                else
+                    U.cacheImage(it.url, 8000000)
+                    local path = imgPath[it.url] or imgPath[it.thumb]
+                    if path and U.sendTo(path, "PHONE/Photos") then ok = ok + 1 end
+                end
+            end
+            toast(ok .. " de " .. #list .. " salvas na Galeria")
+        end)
     end)
 
     local heartBtn
@@ -7017,27 +7183,50 @@ local function makeBrowserScreen()
         local items, gifItems, seen = {}, {}, {}
         local enc = HttpService:UrlEncode(entry.q)
         local IMG_MAX, TARGET = 220, 120
+        local fSize, fType = entry.fSize or "any", entry.fType or "any"
+        local qftParts = {}
+        if fSize ~= "any" then qftParts[#qftParts + 1] = "+filterui:imagesize-" .. fSize end
+        if fType == "png" then qftParts[#qftParts + 1] = "+filterui:imagetype-png"
+        elseif fType == "jpg" then qftParts[#qftParts + 1] = "+filterui:imagetype-jpeg" end
+        local function qftFor(first)
+            local parts = {}
+            if first then parts[1] = first end
+            for _, p in ipairs(qftParts) do parts[#parts + 1] = p end
+            if #parts == 0 then return "&adlt=off" end
+            return "&qft=" .. HttpService:UrlEncode(table.concat(parts)) .. "&adlt=off"
+        end
+        local function typeOk(u)
+            if fType == "any" then return true end
+            local p = tostring(u):lower():gsub("[%?#].*$", "")
+            local ext = p:match("%.(%w+)$")
+            if not ext then return true end
+            if fType == "png" then return ext == "png" end
+            return ext == "jpg" or ext == "jpeg"
+        end
         local function add(list, url, thumb, title, page, isGif)
             thumb = thumb or url
             if type(thumb) ~= "string" or not thumb:match("^https?://") or seen[thumb] then return end
+            if not isGif and not typeOk(url or thumb) then return end
             seen[thumb] = true
             title = U.plain(tostring(title or "")):gsub(utf8.char(0xE000), ""):gsub(utf8.char(0xE001), "")
             list[#list + 1] = {url = url or thumb, thumb = thumb, title = title:sub(1, 80), page = page, gif = isGif or nil}
         end
 
-        local function bingPages(extra, pages, perPage, list, isGif)
+        local function bingPages(extra, pages, perPage, list, isGif, offset, maxN)
+            offset = offset or 0
+            maxN = maxN or IMG_MAX
             local htmls, pending = {}, pages
             for k = 1, pages do
                 task.spawn(function()
-                    local first = (k - 1) * perPage + 1
+                    local first = (k - 1 + offset) * perPage + 1
                     local url
-                    if k == 1 then
+                    if k == 1 and offset == 0 then
                         url = "https://www.bing.com/images/search?q=" .. enc .. "&form=HDRSC2&first=1&count=" .. perPage .. extra
                     else
                         url = "https://www.bing.com/images/async?q=" .. enc .. "&first=" .. first .. "&count=" .. perPage .. "&mmasync=1" .. extra
                     end
                     local h = ""
-                    for _ = 1, 2 do   -- 1 nova tentativa se vier vazio
+                    for _ = 1, 2 do
                         local ok, r = pcall(U.httpGet, url)
                         if ok and type(r) == "string" and #r > 500 then h = r break end
                     end
@@ -7056,7 +7245,7 @@ local function makeBrowserScreen()
                     else
                         add(list, j:match('"murl":"(.-)"'), j:match('"turl":"(.-)"'), j:match('"t":"(.-)"'), j:match('"purl":"(.-)"'), isGif)
                     end
-                    if #list >= IMG_MAX then break end
+                    if #list >= maxN then break end
                 end
             end
         end
@@ -7091,32 +7280,56 @@ local function makeBrowserScreen()
             end)
         end
 
-        -- GIFs animados em paralelo (Bing), para misturar no meio dos resultados
-        local gifDone = false
-        task.spawn(function()
-            pcall(bingPages, "&qft=%2Bfilterui%3Aphoto-animatedgif&adlt=off", 2, 35, gifItems, true)
-            gifDone = true
-        end)
+        local gifDone = fType ~= "any"
+        if not gifDone then
+            task.spawn(function()
+                pcall(bingPages, qftFor("+filterui:photo-animatedgif"), 2, 35, gifItems, true)
+                gifDone = true
+            end)
+        end
 
         local pref = U.engine()
         local order = (pref == "DuckDuckGo") and {"ddg", "bing"} or {"bing", "ddg"}
         for _, src in ipairs(order) do
             if #items >= TARGET then break end
-            if src == "bing" then pcall(bingPages, "&adlt=off", 8, 35, items) else ddgImages() end
+            if src == "bing" then pcall(bingPages, qftFor(), 8, 35, items) else ddgImages() end
         end
         if #items < TARGET then openverse() end
 
         local t0 = os.clock()
         while not gifDone and os.clock() - t0 < 25 do task.wait(0.05) end
 
-        -- intercala: a cada 4 imagens entra 1 GIF
         local out, gi = {}, 1
         for i, it in ipairs(items) do
             out[#out + 1] = it
             if i % 4 == 0 and gifItems[gi] then out[#out + 1] = gifItems[gi]; gi = gi + 1 end
         end
         while gifItems[gi] and #out < IMG_MAX + 30 do out[#out + 1] = gifItems[gi]; gi = gi + 1 end
-        return {kind = "images", title = entry.q, items = out, preview = "Imagens: " .. entry.q}
+
+        local bingOff, gifOff = 8, 2
+        local function more()
+            local fresh, freshGifs = {}, {}
+            local gDone = fType ~= "any"
+            if not gDone then
+                task.spawn(function()
+                    pcall(bingPages, qftFor("+filterui:photo-animatedgif"), 1, 35, freshGifs, true, gifOff, 35)
+                    gDone = true
+                end)
+            end
+            pcall(bingPages, qftFor(), 4, 35, fresh, false, bingOff, 140)
+            bingOff = bingOff + 4
+            gifOff = gifOff + 1
+            local tm = os.clock()
+            while not gDone and os.clock() - tm < 25 do task.wait(0.05) end
+            local res, g2 = {}, 1
+            for i, it in ipairs(fresh) do
+                res[#res + 1] = it
+                if i % 4 == 0 and freshGifs[g2] then res[#res + 1] = freshGifs[g2]; g2 = g2 + 1 end
+            end
+            while freshGifs[g2] do res[#res + 1] = freshGifs[g2]; g2 = g2 + 1 end
+            return res
+        end
+        return {kind = "images", title = entry.q, items = out, preview = "Imagens: " .. entry.q, more = more}
     end
 
     -- Varios buscadores com fallback automatico: se um falhar/bloquear/vier vazio, tenta o proximo.
@@ -7284,7 +7497,8 @@ local function makeBrowserScreen()
             end
         end
         local rich = U.rich(html)
-        return {kind = "page", title = title:sub(1, 80), rich = rich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
+        local readRich = U.rich(html, 30000)
+        return {kind = "page", title = title:sub(1, 80), rich = rich, readRich = readRich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
     end
 
     loadEntry = function(tab, entry)
@@ -7383,7 +7597,134 @@ local function makeBrowserScreen()
         end
     end
 
+    local richLbls = {}
+    local function markRich(rich, q, cur)
+        local eq = U.esc(q):lower()
+        local out, n, pos, plainLen = {}, 0, {}, 0
+        local i, total = 1, #rich
+        while i <= total do
+            local ts, te = rich:find("<[^>]*>", i)
+            if ts == i then
+                out[#out + 1] = rich:sub(ts, te)
+                i = te + 1
+            else
+                local stop = ts and (ts - 1) or total
+                local text = rich:sub(i, stop)
+                i = stop + 1
+                local low = text:lower()
+                local p = 1
+                while true do
+                    local a, b = low:find(eq, p, true)
+                    if not a then
+                        out[#out + 1] = text:sub(p)
+                        break
+                    end
+                    out[#out + 1] = text:sub(p, a - 1)
+                    n = n + 1
+                    pos[n] = plainLen + a
+                    out[#out + 1] = '<mark color="' .. (n == cur and "#ff9800" or "#fdd835") .. '" transparency="0.35">' .. text:sub(a, b) .. "</mark>"
+                    p = b + 1
+                end
+                plainLen = plainLen + #text
+            end
+        end
+        return table.concat(out), n, pos, plainLen
+    end
+    local findBar = new("Frame", {Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, Visible = false, ZIndex = 12}, area)
+    local findBox = new("TextBox", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -150, 0, 26), BackgroundColor3 = C.pill, BorderSizePixel = 0, Text = "", PlaceholderText = "Buscar na página", PlaceholderColor3 = C.sub, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13}, findBar)
+    corner(findBox, UDim.new(0, 13))
+    new("UIPadding", {PaddingLeft = UDim.new(0, 10)}, findBox)
+    local findCnt = new("TextLabel", {Position = UDim2.new(1, -140, 0, 4), Size = UDim2.new(0, 44, 0, 26), BackgroundTransparency = 1, Text = "0/0", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 10, ZIndex = 13}, findBar)
+    local function findBtn(x, w, txt)
+        local b = new("TextButton", {Position = UDim2.new(1, x, 0, 4), Size = UDim2.new(0, w, 0, 26), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = txt, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 13}, findBar)
+        corner(b, UDim.new(0, 13))
+        return b
+    end
+    local findPrev, findNext, findX = findBtn(-94, 28, "<"), findBtn(-64, 28, ">"), findBtn(-34, 28, "X")
+    local findQ, findIdx, findTotal = "", 0, 0
+    local function paintFind(scroll)
+        if findQ == "" then
+            for _, r in ipairs(richLbls) do
+                if r.lbl.Parent then r.lbl.Text = r.base end
+            end
+            findIdx, findTotal = 0, 0
+            findCnt.Text = "0/0"
+            return
+        end
+        local total = 0
+        for _, r in ipairs(richLbls) do
+            local _, n = markRich(r.base, findQ, 0)
+            total = total + n
+        end
+        findTotal = total
+        if total == 0 then findIdx = 0
+        elseif findIdx < 1 or findIdx > total then findIdx = 1 end
+        local prefix, target = 0, nil
+        for _, r in ipairs(richLbls) do
+            local cur = findIdx - prefix
+            local txt, n, pos, plen = markRich(r.base, findQ, cur)
+            if r.lbl.Parent then r.lbl.Text = txt end
+            if cur >= 1 and cur <= n then target = {lbl = r.lbl, pos = pos[cur], plen = plen} end
+            prefix = prefix + n
+        end
+        findCnt.Text = findIdx .. "/" .. total
+        if scroll and target then
+            task.defer(function()
+                if not target.lbl.Parent then return end
+                local y = (target.lbl.AbsolutePosition.Y - pageView.AbsolutePosition.Y) / uiScale() + pageView.CanvasPosition.Y + (target.pos / math.max(1, target.plen)) * (target.lbl.AbsoluteSize.Y / uiScale())
+                pageView.CanvasPosition = Vector2.new(0, math.max(0, y - 50))
+            end)
+        end
+    end
+    local function openFind()
+        if #richLbls == 0 then toast("Busca disponível em páginas de texto") return end
+        findBar.Visible = true
+        pageView.Position = UDim2.new(0, 0, 0, 34)
+        pageView.Size = UDim2.new(1, 0, 1, -34)
+        findBox:CaptureFocus()
+    end
+    local function closeFind()
+        findBar.Visible = false
+        pageView.Position = UDim2.new(0, 0, 0, 0)
+        pageView.Size = UDim2.new(1, 0, 1, 0)
+        findQ = ""
+        findBox.Text = ""
+        paintFind(false)
+    end
+    findBox:GetPropertyChangedSignal("Text"):Connect(function()
+        findQ = findBox.Text
+        findIdx = 0
+        paintFind(true)
+    end)
+    findNext.MouseButton1Click:Connect(function()
+        if findTotal == 0 then return end
+        findIdx = findIdx + 1
+        if findIdx > findTotal then findIdx = 1 end
+        paintFind(true)
+    end)
+    findPrev.MouseButton1Click:Connect(function()
+        if findTotal == 0 then return end
+        findIdx = findIdx - 1
+        if findIdx < 1 then findIdx = findTotal end
+        paintFind(true)
+    end)
+    findBox.FocusLost:Connect(function(enter)
+        if enter and findTotal > 0 then
+            findIdx = findIdx + 1
+            if findIdx > findTotal then findIdx = 1 end
+            paintFind(true)
+        end
+    end)
+    findX.MouseButton1Click:Connect(closeFind)
+
     local function buildPage(entry)
+        if findBar.Visible then closeFind() end
+        clearSel()
+        selMarks = {}
+        richLbls = {}
+        local rd = entry.reader and entry.view and entry.view.kind == "page"
+        pageView.BackgroundTransparency = rd and 0 or 1
+        pageView.BackgroundColor3 = Color3.fromRGB(245, 238, 222)
         for _, c in ipairs(pageView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
         local order = 0
         local function add(inst)
@@ -7417,28 +7758,83 @@ local function makeBrowserScreen()
             b.MouseButton1Click:Connect(onClick)
         end
 
+        local favActive = 0
+        local function loadFav(holder, url)
+            local host = U.hostOf(url)
+            local furl = "https://www.google.com/s2/favicons?domain=" .. host .. "&sz=64"
+            task.spawn(function()
+                while favActive >= 4 do task.wait(0.05) end
+                if not holder.Parent then return end
+                favActive = favActive + 1
+                local a = U.cacheImage(furl, 200000)
+                favActive = favActive - 1
+                if a and holder.Parent then
+                    for _, c in ipairs(holder:GetChildren()) do
+                        if c:IsA("TextLabel") then c.Visible = false end
+                    end
+                    holder.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
+                    holder.ClipsDescendants = true
+                    new("ImageLabel", {Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BackgroundTransparency = 1, Image = a, ZIndex = holder.ZIndex + 2}, holder)
+                end
+            end)
+        end
+        local function siteCard(rich, url, onClick)
+            local b = card(rich, onClick)
+            local pad = b:FindFirstChildOfClass("UIPadding")
+            if pad then pad.PaddingLeft = UDim.new(0, 40) end
+            local fav = favicon(b, url, 22, 6)
+            fav.Position = UDim2.new(0, -30, 0, 0)
+            loadFav(fav, url)
+            return b
+        end
+
         local function imageGrid(items)
             local grid = add(new("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, ZIndex = 5}))
             local tiles = {}
-            for i, it in ipairs(items) do
-                local tile = new("TextButton", {LayoutOrder = i, BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ClipsDescendants = true, ZIndex = 5}, grid)
+            local NCOL, GAP = 4, 4
+            local lastW, layoutPending = -1, false
+
+            local function mkTile(it)
+                local tile = new("TextButton", {LayoutOrder = #tiles + 1, BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ClipsDescendants = true, ZIndex = 5}, grid)
                 corner(tile, UDim.new(0, 6))
                 local img = new("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop, Image = "", ImageTransparency = 1, ZIndex = 6}, tile)
                 corner(img, UDim.new(0, 6))
                 new("TextLabel", {Name = "Ph", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 14, ZIndex = 5}, tile)
                 local cap = new("TextLabel", {AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 12), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0, Text = it.title ~= "" and it.title or U.hostOf(it.page or it.url), TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.Gotham, TextSize = 7, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8}, tile)
                 new("UIPadding", {PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3)}, cap)
-                tile.MouseButton1Click:Connect(function() openViewer(it) end)
                 if it.gif or (it.url or ""):lower():match("%.gif") then
                     local gb = new("TextLabel", {Position = UDim2.new(0, 3, 0, 3), Size = UDim2.new(0, 20, 0, 11), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.25, BorderSizePixel = 0, Text = "GIF", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 7, ZIndex = 8}, tile)
                     corner(gb, UDim.new(0, 5))
                 end
+                local mark = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.accent, BackgroundTransparency = 0.6, BorderSizePixel = 0, Visible = selItems[it] == true, ZIndex = 9}, tile)
+                corner(mark, UDim.new(0, 6))
+                new("UIStroke", {Color = C.blue, Thickness = 2}, mark)
+                local ck = new("TextLabel", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -3, 0, 3), Size = UDim2.new(0, 16, 0, 16), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "✓", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 10}, mark)
+                corner(ck, UDim.new(1, 0))
+                selMarks[it] = mark
+                local holdId, justHeld, y0 = 0, false, 0
+                tile.MouseButton1Down:Connect(function()
+                    holdId = holdId + 1
+                    justHeld = false
+                    local id = holdId
+                    y0 = pageView.CanvasPosition.Y
+                    task.delay(0.45, function()
+                        if id ~= holdId or not tile.Parent then return end
+                        if math.abs(pageView.CanvasPosition.Y - y0) > 6 then return end
+                        justHeld = true
+                        setSel(it, not selItems[it])
+                    end)
+                end)
+                tile.MouseButton1Up:Connect(function() holdId = holdId + 1 end)
+                tile.MouseLeave:Connect(function() holdId = holdId + 1 end)
+                tile.MouseButton1Click:Connect(function()
+                    if justHeld then justHeld = false return end
+                    if selCount > 0 then setSel(it, not selItems[it]) return end
+                    openViewer(it, items)
+                end)
                 table.insert(tiles, {tile = tile, img = img, item = it})
             end
 
-            -- mosaico: 4 colunas, cada foto com a proporcao real; a proxima vai na coluna mais curta
-            local NCOL, GAP = 4, 4
-            local lastW, layoutPending = -1, false
             local function relayout()
                 local W = grid.AbsoluteSize.X
                 if W <= 0 then W = 250 end
@@ -7469,14 +7865,13 @@ local function makeBrowserScreen()
             grid:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
                 if grid.AbsoluteSize.X ~= lastW then schedule() end
             end)
-            relayout()
 
             local nextI = 0
             local function worker()
                 while true do
                     nextI = nextI + 1
                     local t = tiles[nextI]
-                    if not t then break end
+                    if not t then nextI = nextI - 1 break end
                     if t.img.Parent then
                         local a = U.cacheImage(t.item.thumb)
                         if t.img.Parent then
@@ -7495,7 +7890,19 @@ local function makeBrowserScreen()
                     end
                 end
             end
-            for _ = 1, 8 do task.spawn(worker) end
+            local function startWorkers()
+                for _ = 1, 8 do task.spawn(worker) end
+            end
+            for _, it in ipairs(items) do mkTile(it) end
+            relayout()
+            startWorkers()
+            return {
+                append = function(newItems)
+                    for _, it in ipairs(newItems) do mkTile(it) end
+                    schedule()
+                    startWorkers()
+                end,
+            }
         end
         if entry.q then
             local bar = add(new("Frame", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, ZIndex = 5}))
@@ -7530,7 +7937,34 @@ local function makeBrowserScreen()
                 label("Não encontrei imagens. Tente outra pesquisa.", 11, C.sub, Enum.Font.Gotham)
                 return
             end
-            imageGrid(view.items)
+            local g = imageGrid(view.items)
+            if view.more then
+                local foot = label("Role para carregar mais…", 10, C.sub, Enum.Font.Gotham, 26)
+                foot.TextXAlignment = Enum.TextXAlignment.Center
+                local function check()
+                    if view.loading or view.exhausted or not foot.Parent or not pageView.Visible then return end
+                    if pageView.CanvasPosition.Y + pageView.AbsoluteSize.Y < pageView.AbsoluteCanvasSize.Y - 260 * uiScale() then return end
+                    view.loading = true
+                    foot.Text = "Carregando mais…"
+                    task.spawn(function()
+                        local okM, newItems = pcall(view.more)
+                        view.loading = false
+                        if okM and type(newItems) == "table" and #newItems > 0 then
+                            for _, it in ipairs(newItems) do view.items[#view.items + 1] = it end
+                            if foot.Parent then
+                                g.append(newItems)
+                                foot.Text = "Role para carregar mais…"
+                                task.defer(check)
+                            end
+                        else
+                            view.exhausted = true
+                            if foot.Parent then foot.Text = "Fim dos resultados" end
+                        end
+                    end)
+                end
+                pageView:GetPropertyChangedSignal("CanvasPosition"):Connect(check)
+                task.defer(check)
+            end
         elseif view.kind == "image" then
             label("<b>Imagem</b>", 15, C.text, Enum.Font.Gotham)
             label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
@@ -7553,16 +7987,49 @@ local function makeBrowserScreen()
             for _, it in ipairs(view.items) do
                 local rich = '<font color="#8ab4f8"><b>' .. U.esc(it.name) .. '</b></font>\n<font color="#81c995" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>"
                 if it.snippet and it.snippet ~= "" then rich = rich .. '\n<font color="#9aa0a6" size="10">' .. U.esc(it.snippet) .. "</font>" end
-                card(rich, function() navigate(tabs[cur], {url = it.url}) end)
+                siteCard(rich, it.url, function() navigate(tabs[cur], {url = it.url}) end)
             end
         else
+            if entry.reader then
+                local rs = phoneSettings.readerSize or 14
+                local ink = Color3.fromRGB(52, 44, 34)
+                local rbar = add(new("Frame", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, ZIndex = 5}))
+                new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, rbar)
+                local function rbtn(i, txt, w, fn)
+                    local b = new("TextButton", {LayoutOrder = i, Size = UDim2.new(0, w, 0, 26), BackgroundColor3 = Color3.fromRGB(226, 216, 194), BorderSizePixel = 0, Text = txt, TextColor3 = ink, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 6}, rbar)
+                    corner(b, UDim.new(0, 13))
+                    b.MouseButton1Click:Connect(fn)
+                end
+                rbtn(1, "A-", 40, function() phoneSettings.readerSize = math.max(10, rs - 1); saveSettings(); render() end)
+                rbtn(2, "A+", 40, function() phoneSettings.readerSize = math.min(24, rs + 1); saveSettings(); render() end)
+                rbtn(3, "SAIR", 56, function() entry.reader = nil; render() end)
+                label("<b>" .. U.esc(view.title) .. "</b>", rs + 5, ink, Enum.Font.GothamBold)
+                local txt = (view.readRich or view.rich):gsub("#8ab4f8", "#8a4b08")
+                local chunk, chunks = "", {}
+                for para in (txt .. "\n\n"):gmatch("(.-)\n\n") do
+                    if #chunk + #para > 2500 and chunk ~= "" then
+                        chunks[#chunks + 1] = chunk
+                        chunk = ""
+                    end
+                    chunk = chunk .. (chunk ~= "" and "\n\n" or "") .. para
+                end
+                if chunk ~= "" then chunks[#chunks + 1] = chunk end
+                for _, ch in ipairs(chunks) do
+                    local l = label(ch, rs, ink, Enum.Font.Gotham)
+                    l.LineHeight = 1.2
+                    richLbls[#richLbls + 1] = {lbl = l, base = ch}
+                end
+                return
+            end
             local head = add(new("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = C.card, BorderSizePixel = 0, ZIndex = 5}))
             corner(head, UDim.new(0, 10))
             local fav = favicon(head, entry.url, 26, 6)
             fav.Position = UDim2.new(0, 9, 0.5, -13)
+            loadFav(fav, entry.url)
             new("TextLabel", {Position = UDim2.new(0, 44, 0, 5), Size = UDim2.new(1, -52, 0, 18), BackgroundTransparency = 1, Text = view.title, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
             new("TextLabel", {Position = UDim2.new(0, 44, 0, 23), Size = UDim2.new(1, -52, 0, 16), BackgroundTransparency = 1, Text = U.hostOf(entry.url), TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
-            label(view.rich, 12, C.text, Enum.Font.Gotham)
+            local rl = label(view.rich, 12, C.text, Enum.Font.Gotham)
+            richLbls = {{lbl = rl, base = view.rich}}
             if view.images and #view.images > 0 then
                 label("<b>IMAGENS DESTA PÁGINA (" .. #view.images .. ")</b>", 10, C.blue, Enum.Font.Gotham)
                 imageGrid(view.images)
@@ -7570,7 +8037,7 @@ local function makeBrowserScreen()
             if #view.items > 0 then
                 label("<b>LINKS DESTA PÁGINA (" .. #view.items .. ")</b>", 10, C.blue, Enum.Font.Gotham)
                 for _, it in ipairs(view.items) do
-                    card("<b>" .. U.esc(it.name) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>", function() navigate(tabs[cur], {url = it.url}) end)
+                    siteCard("<b>" .. U.esc(it.name) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>", it.url, function() navigate(tabs[cur], {url = it.url}) end)
                 end
             end
         end
@@ -7580,6 +8047,7 @@ local function makeBrowserScreen()
         local e = curEntry()
         updateChrome()
         if e.ntp then
+            if findBar.Visible then closeFind() end
             pageView.Visible = false
             ntpView.Visible = true
             buildNtp()
@@ -7747,7 +8215,7 @@ local function makeBrowserScreen()
 
     local menuLayer = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false, ZIndex = 28}, frame)
     corner(menuLayer, UDim.new(0, 28))
-    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 78), Size = UDim2.new(0, 200, 0, 318), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
+    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 36), Size = UDim2.new(0, 200, 0, 386), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
     corner(menu, UDim.new(0, 14))
     new("UIStroke", {Color = Color3.fromRGB(70, 72, 76), Thickness = 1}, menu)
 
@@ -7809,6 +8277,14 @@ local function makeBrowserScreen()
         local e = curEntry()
         if e and e.q then reload() end
     end)
+    menuItem("Modo leitura", 318, function()
+        local e = curEntry()
+        if not (e.view and e.view.kind == "page") then toast("Abra uma página de texto") return end
+        e.reader = (not e.reader) or nil
+        render()
+        toast(e.reader and "Modo leitura ligado" or "Modo leitura desligado")
+    end)
+    menuItem("Buscar na página", 352, function() openFind() end)
 
     backBtn.MouseButton1Click:Connect(function()
         setMenu(false)

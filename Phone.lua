@@ -138,6 +138,7 @@ local currentWallpaper = phoneSettings.wallpaper or defaultSettings.wallpaper
 local HotbarFrame, hotbarUIScale, phoneSlot, selectedFrame
 local PhoneHome, homeBg
 local MusicAppIcon, StopwatchAppIcon, ConfigAppIcon, GalleryAppIcon
+local WebBrowserIcon
 local MainFrame, refreshFiles, stopMusic
 local StopwatchFrame, resetStopwatch
 local ConfigFrame, cfgGoBack, cfgReset
@@ -1676,6 +1677,7 @@ StopwatchAppIcon = createAppIcon("Cronômetro", Icons.stopwatch, Color3.fromRGB(
 ConfigAppIcon = createAppIcon("Config", Icons.gear, Color3.fromRGB(120, 120, 130), UDim2.new(0, 165, 0, 0))
 GalleryAppIcon = createAppIcon("Galeria", Icons.gallery, Color3.fromRGB(180, 80, 220), UDim2.new(0, 5, 0, 100))
 Nav.gps.icon = createAppIcon("GPS", Icons.gps, Color3.fromRGB(46, 190, 120), UDim2.new(0, 85, 0, 100))
+WebBrowserIcon = createAppIcon("Navegador", Icons.search, Color3.fromRGB(35, 145, 205), UDim2.new(0, 5, 0, 200))
 
 createNavBar(PhoneHome)
 
@@ -5399,6 +5401,731 @@ corner(rcClear, UDim.new(1, 0))
 
 createNavBar(RecentsFrame)
 
+-- ---------- NAVEGADOR (estilo Chrome) ----------
+-- Abas, barra de endereço com pílula, menu ⋮, seletor de abas, favoritos, histórico,
+-- página Nova Guia com atalhos, barra de progresso e página de erro.
+-- Tocar em qualquer link (resultado, link da página, favorito) abre direto no Web Direto da aba atual.
+-- Limitação: Roblox não possui WebView; o conteúdo é exibido como texto formatado (sem JS/CSS).
+local function makeBrowserScreen()
+    local C = {
+        bg = Color3.fromRGB(32, 33, 36),
+        toolbar = Color3.fromRGB(41, 42, 45),
+        pill = Color3.fromRGB(60, 64, 67),
+        card = Color3.fromRGB(48, 49, 52),
+        text = Color3.fromRGB(232, 234, 237),
+        sub = Color3.fromRGB(154, 160, 166),
+        blue = Color3.fromRGB(138, 180, 248),
+        accent = Color3.fromRGB(66, 133, 244),
+        red = Color3.fromRGB(242, 139, 130),
+    }
+    local PAL = {
+        Color3.fromRGB(66, 133, 244), Color3.fromRGB(234, 67, 53), Color3.fromRGB(251, 188, 5),
+        Color3.fromRGB(52, 168, 83), Color3.fromRGB(171, 71, 188), Color3.fromRGB(0, 172, 193),
+    }
+    local DEFAULT_BOOKMARKS = {
+        {name = "Wikipedia", url = "https://pt.wikipedia.org/"},
+        {name = "Roblox", url = "https://www.roblox.com/"},
+        {name = "GitHub", url = "https://github.com/"},
+        {name = "Reddit", url = "https://old.reddit.com/"},
+        {name = "YouTube", url = "https://www.youtube.com/"},
+        {name = "DuckDuckGo", url = "https://html.duckduckgo.com/html/"},
+        {name = "Hacker News", url = "https://news.ycombinator.com/"},
+        {name = "Bing", url = "https://www.bing.com/"},
+    }
+
+    local function new(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        if parent then o.Parent = parent end
+        return o
+    end
+
+    -- ---------- utilitários de texto / rede ----------
+    local U = {}
+    function U.httpGet(url)
+        local req = request or http_request or (syn and syn.request)
+        if type(req) == "function" then
+            local response = req({Url = url, Method = "GET", Headers = { ["User-Agent"] = "Mozilla/5.0" }})
+            if type(response) == "table" and response.Body then return response.Body end
+            error("Resposta HTTP vazia")
+        end
+        if game.HttpGet then return game:HttpGet(url) end
+        error("Seu ambiente não disponibiliza uma função HTTP GET")
+    end
+    function U.decode(t)
+        t = t:gsub("&nbsp;", " "):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&#39;", "'"):gsub("&amp;", "&")
+        t = t:gsub("&#(%d+);", function(n) return utf8.char(tonumber(n)) end)
+        return t
+    end
+    function U.plain(s)
+        s = s:gsub("<[^>]->", " ")
+        s = U.decode(s)
+        s = s:gsub("%s+", " ")
+        s = s:gsub("^%s+", ""):gsub("%s+$", "")
+        return s
+    end
+    function U.urlDecode(s)
+        return (s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+    end
+    function U.esc(s)
+        s = s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+        return s
+    end
+    function U.hostOf(url)
+        local h = url:match("^https?://([^/%?#]+)") or url
+        h = h:gsub("^www%.", "")
+        return h
+    end
+    function U.looksLikeUrl(t)
+        if t:match("^https?://") then return true end
+        if t:find("%s") then return false end
+        return t:match("^[%w%-%.]+%.%a%a+") ~= nil
+    end
+    function U.resolve(base, href)
+        href = href:gsub("&amp;", "&"):gsub("^%s+", ""):gsub("%s+$", "")
+        if href == "" or href:sub(1, 1) == "#" or href:match("^javascript:") or href:match("^mailto:") or href:match("^tel:") or href:match("^data:") then return nil end
+        if href:match("^https?://") then return href end
+        if href:sub(1, 2) == "//" then return "https:" .. href end
+        local origin = base:match("^(https?://[^/%?#]+)")
+        if not origin then return nil end
+        if href:sub(1, 1) == "/" then return origin .. href end
+        local dir = base:match("^(https?://[^%?#]*/)") or (origin .. "/")
+        return dir .. href
+    end
+    function U.rich(html)
+        html = html:gsub("<!%-%-.-%-%->", " "):gsub("<head.-</head>", " "):gsub("<script.-</script>", " "):gsub("<style.-</style>", " "):gsub("<noscript.-</noscript>", " "):gsub("<svg.-</svg>", " ")
+        html = html:gsub("<[hH][1-6][^>]*>", "\n\1"):gsub("</[hH][1-6]%s*>", "\2\n")
+        html = html:gsub("<[lL][iI][^>]*>", "\n• "):gsub("<[bB][rR]%s*/?>", "\n"):gsub("</[pP]%s*>", "\n\n"):gsub("</[dD][iI][vV]%s*>", "\n"):gsub("</[tT][rR]%s*>", "\n")
+        html = html:gsub("<[^>]->", " ")
+        html = U.decode(html)
+        html = html:gsub("[ \t\r]+", " "):gsub("\n +", "\n"):gsub("\n\n\n+", "\n\n"):gsub("^%s+", "")
+        if #html > 8000 then
+            html = html:sub(1, (utf8.offset(html, 8001) or 8001) - 1) .. "…"
+        end
+        if html == "" then html = "(Esta página não tem conteúdo de texto para exibir.)" end
+        html = U.esc(html)
+        html = html:gsub("\1", '<b><font color="#8ab4f8">'):gsub("\2", "</font></b>")
+        return html
+    end
+    function U.hash(s)
+        local n = 0
+        for i = 1, #s do n = n + s:byte(i) end
+        return n
+    end
+
+    -- ---------- estado ----------
+    local tabs, cur = {}, 1
+    local render, navigate, loadEntry, reload, showEntry, refreshSwitcher, closeOverlays, openPanel, toast
+    local function newTab() return {hist = {{ntp = true, state = "done"}}, pos = 1} end
+    tabs[1] = newTab()
+    local function curEntry() local t = tabs[cur]; return t.hist[t.pos] end
+
+    local function bookmarks()
+        if type(phoneSettings.browserBookmarks) ~= "table" then
+            phoneSettings.browserBookmarks = {}
+            for _, b in ipairs(DEFAULT_BOOKMARKS) do table.insert(phoneSettings.browserBookmarks, {name = b.name, url = b.url}) end
+            saveSettings()
+        end
+        return phoneSettings.browserBookmarks
+    end
+    local function history()
+        if type(phoneSettings.browserHistory) ~= "table" then phoneSettings.browserHistory = {} end
+        return phoneSettings.browserHistory
+    end
+    local function isBookmarked(url)
+        if not url then return false end
+        for i, b in ipairs(bookmarks()) do if b.url == url then return true, i end end
+        return false
+    end
+
+    -- ---------- ícones próprios ----------
+    local function lockIcon(parent, S, color, z)
+        local c = new("Frame", {Size = UDim2.new(0, S, 0, S), BackgroundTransparency = 1, ZIndex = z}, parent)
+        local sh = new("Frame", {Size = UDim2.new(0, S * 0.5, 0, S * 0.6), Position = UDim2.new(0.25, 0, 0.02, 0), BackgroundTransparency = 1, ZIndex = z}, c)
+        corner(sh, UDim.new(0.5, 0))
+        new("UIStroke", {Color = color, Thickness = 1.5}, sh)
+        local body = new("Frame", {Size = UDim2.new(0, S * 0.8, 0, S * 0.5), Position = UDim2.new(0.1, 0, 0.46, 0), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = z}, c)
+        corner(body, UDim.new(0, 2))
+        return c
+    end
+    local function favicon(parent, label, size, z)
+        local clean = label:gsub("^https?://", "")
+        clean = clean:gsub("^www%.", "")
+        local letter = (clean:match("%a") or clean:match("%w") or "?"):upper()
+        local f = new("Frame", {Size = UDim2.new(0, size, 0, size), BackgroundColor3 = PAL[(U.hash(clean) % #PAL) + 1], BorderSizePixel = 0, ZIndex = z}, parent)
+        corner(f, UDim.new(1, 0))
+        new("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = letter, TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = math.max(8, math.floor(size * 0.5)), ZIndex = z + 1}, f)
+        return f
+    end
+    local function iconButton(parent, fn, S, color, pos, size, z)
+        local b = new("TextButton", {Position = pos, Size = size, BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = z}, parent)
+        Icons.put(b, fn, S, color, z + 1)
+        return b
+    end
+
+    -- ---------- moldura e barra superior ----------
+    local frame = new("Frame", {
+        Name = "WebBrowserFrame", Size = UDim2.new(0, 280, 0, 440), Position = PhoneHome.Position,
+        BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Active = true,
+    }, ScreenGui)
+    corner(frame, UDim.new(0, 28))
+    Nav.shell.create(frame)
+    Nav.status.create(frame)
+
+    local tbTop = new("Frame", {Size = UDim2.new(1, 0, 0, 60), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 3}, frame)
+    corner(tbTop, UDim.new(0, 28))
+    new("Frame", {Position = UDim2.new(0, 0, 0, 30), Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 3}, frame)
+
+    local pill = new("Frame", {Position = UDim2.new(0, 8, 0, 40), Size = UDim2.new(0, 192, 0, 34), BackgroundColor3 = C.pill, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 6}, frame)
+    corner(pill, UDim.new(0, 17))
+    local siteBtn = new("TextButton", {Position = UDim2.new(0, 6, 0, 5), Size = UDim2.new(0, 24, 0, 24), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 7}, pill)
+    local address = new("TextBox", {
+        Name = "AddressOrSearch", Position = UDim2.new(0, 32, 0, 0), Size = UDim2.new(1, -62, 1, 0), BackgroundTransparency = 1,
+        Text = "", PlaceholderText = "Pesquisar ou URL", PlaceholderColor3 = C.sub, TextColor3 = C.text,
+        ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        ClipsDescendants = true, ZIndex = 7,
+    }, pill)
+    local reloadBtn = new("TextButton", {Position = UDim2.new(1, -30, 0, 3), Size = UDim2.new(0, 28, 0, 28), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 7}, pill)
+
+    local tabBtn = iconButton(frame, Icons.recents, 22, C.text, UDim2.new(0, 204, 0, 40), UDim2.new(0, 34, 0, 34), 6)
+    local tabCount = new("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "1", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 9}, tabBtn)
+    local menuBtn = iconButton(frame, Icons.dotsV, 18, C.text, UDim2.new(0, 240, 0, 40), UDim2.new(0, 32, 0, 34), 6)
+
+    local progress = new("Frame", {Position = UDim2.new(0, 0, 0, 82), Size = UDim2.new(0, 0, 0, 2), BackgroundColor3 = C.accent, BorderSizePixel = 0, Visible = false, ZIndex = 12}, frame)
+    local progToken = 0
+    local function progStart()
+        progToken = progToken + 1
+        progress.Visible = true
+        progress.Size = UDim2.new(0, 0, 0, 2)
+        TweenService:Create(progress, TweenInfo.new(6, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0.85, 0, 0, 2)}):Play()
+    end
+    local function progDone()
+        progToken = progToken + 1
+        local t = progToken
+        progress.Visible = true
+        TweenService:Create(progress, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 0, 2)}):Play()
+        task.delay(0.35, function() if t == progToken then progress.Visible = false end end)
+    end
+
+    -- ---------- área de conteúdo ----------
+    local area = new("Frame", {Position = UDim2.new(0, 0, 0, 84), Size = UDim2.new(1, 0, 1, -122), BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 3}, frame)
+    local ntpView = new("ScrollingFrame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 300), ZIndex = 4}, area)
+    local pageView = new("ScrollingFrame", {Name = "WebContent", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 4}, area)
+    new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)}, pageView)
+    new("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 12), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, pageView)
+
+    local toastLbl = new("TextLabel", {
+        AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -46), Size = UDim2.new(0, 0, 0, 26), AutomaticSize = Enum.AutomaticSize.X,
+        BackgroundColor3 = Color3.fromRGB(60, 64, 67), Text = "", TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, Visible = false, ZIndex = 40,
+    }, frame)
+    corner(toastLbl, UDim.new(0, 13))
+    new("UIPadding", {PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14)}, toastLbl)
+    local toastId = 0
+    toast = function(msg)
+        toastId = toastId + 1
+        local id = toastId
+        toastLbl.Text = msg
+        toastLbl.Visible = true
+        task.delay(1.6, function() if id == toastId then toastLbl.Visible = false end end)
+    end
+
+    -- ---------- barra: estado visual ----------
+    local heartBtn -- definido no menu
+    local function displayText(e)
+        if e.ntp then return "" end
+        if e.q then return e.q end
+        return U.hostOf(e.url)
+    end
+    local function fullText(e)
+        if e.ntp then return "" end
+        return e.q or e.url
+    end
+    local function updateChrome()
+        local e = curEntry()
+        tabCount.Text = tostring(#tabs)
+        if not address:IsFocused() then address.Text = displayText(e) end
+        if e.url then
+            Icons.put(siteBtn, lockIcon, 14, e.url:match("^https://") and C.sub or C.red, 8)
+        else
+            Icons.put(siteBtn, Icons.search, 14, C.sub, 8)
+        end
+        Icons.put(reloadBtn, e.state == "loading" and Icons.close or Icons.reset, 14, C.text, 8)
+        reloadBtn.Visible = not e.ntp
+        if e.state == "loading" then
+            if not progress.Visible then progStart() end
+        elseif progress.Visible and progress.Size.X.Scale < 1 then
+            progress.Visible = false
+        end
+    end
+
+    -- ---------- carregamento ----------
+    local function fetchEntry(entry)
+        if entry.q then
+            local html = U.httpGet("https://html.duckduckgo.com/html/?q=" .. HttpService:UrlEncode(entry.q))
+            local raw, snips, items, seen = {}, {}, {}, {}
+            for href, label in html:gmatch('class="result__a" href="(.-)"[^>]*>(.-)</a>') do
+                table.insert(raw, {href, label})
+            end
+            for s in html:gmatch('class="result__snippet"[^>]*>(.-)</a>') do table.insert(snips, U.plain(s)) end
+            local paired = (#snips == #raw)
+            for i, r in ipairs(raw) do
+                local link = r[1]:gsub("&amp;", "&")
+                local real = link:match("uddg=([^&]+)")
+                if real then link = U.urlDecode(real) elseif link:sub(1, 2) == "//" then link = "https:" .. link end
+                local name = U.plain(r[2])
+                if name ~= "" and link:match("^https?://") and not link:find("duckduckgo.com/y.js", 1, true) and not seen[link] then
+                    seen[link] = true
+                    table.insert(items, {name = name:sub(1, 90), url = link, snippet = paired and snips[i]:sub(1, 130) or nil})
+                    if #items >= 10 then break end
+                end
+            end
+            return {kind = "search", title = entry.q, items = items, preview = "Pesquisa: " .. entry.q}
+        end
+        local html = U.httpGet(entry.url)
+        local title = html:match("<[tT][iI][tT][lL][eE][^>]*>(.-)</[tT][iI][tT][lL][eE]>")
+        title = title and U.plain(title) or ""
+        if title == "" then title = U.hostOf(entry.url) end
+        local items, seen = {}, {}
+        for href, label in html:gmatch('<a%s[^>]-href="(.-)"[^>]*>(.-)</a>') do
+            local link = U.resolve(entry.url, href)
+            if link and not seen[link] then
+                local name = U.plain(label)
+                if name ~= "" then
+                    seen[link] = true
+                    table.insert(items, {name = name:sub(1, 70), url = link})
+                    if #items >= 30 then break end
+                end
+            end
+        end
+        local rich = U.rich(html)
+        return {kind = "page", title = title:sub(1, 80), rich = rich, items = items, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
+    end
+
+    loadEntry = function(tab, entry)
+        entry.rid = (entry.rid or 0) + 1
+        local id = entry.rid
+        entry.state = "loading"
+        entry.view, entry.err = nil, nil
+        if tabs[cur] == tab and tab.hist[tab.pos] == entry then render() end
+        task.spawn(function()
+            local ok, res = pcall(fetchEntry, entry)
+            if entry.rid ~= id then return end
+            if ok then
+                entry.view, entry.state, entry.title = res, "done", res.title
+                if entry.url and res.kind == "page" then
+                    local h = history()
+                    if not (h[1] and h[1].url == entry.url) then
+                        table.insert(h, 1, {title = res.title, url = entry.url})
+                        while #h > 80 do table.remove(h) end
+                        saveSettings()
+                    end
+                end
+            else
+                entry.state, entry.err = "error", tostring(res)
+            end
+            if tabs[cur] == tab and tab.hist[tab.pos] == entry then
+                render()
+                progDone()
+            end
+        end)
+    end
+
+    navigate = function(tab, entry)
+        for i = #tab.hist, tab.pos + 1, -1 do table.remove(tab.hist, i) end
+        table.insert(tab.hist, entry)
+        tab.pos = #tab.hist
+        loadEntry(tab, entry)
+    end
+
+    reload = function()
+        local tab = tabs[cur]
+        local e = curEntry()
+        if e.ntp then render() else loadEntry(tab, e) end
+    end
+
+    local function stopLoad()
+        local e = curEntry()
+        e.rid = (e.rid or 0) + 1
+        if e.state == "loading" then e.state = "stopped" end
+        progress.Visible = false
+        render()
+    end
+
+    showEntry = function(tab)
+        local e = tab.hist[tab.pos]
+        if e.ntp or e.state == "done" or e.state == "loading" then render() else loadEntry(tab, e) end
+    end
+
+    local function runInput(text)
+        text = text:gsub("^%s+", ""):gsub("%s+$", "")
+        if text == "" then return end
+        if U.looksLikeUrl(text) then
+            local url = text
+            if not url:match("^https?://") then url = "https://" .. url end
+            navigate(tabs[cur], {url = url})
+        else
+            navigate(tabs[cur], {q = text})
+        end
+    end
+
+    -- ---------- Nova Guia ----------
+    local function buildNtp()
+        for _, c in ipairs(ntpView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
+        new("TextLabel", {
+            Name = "Dyn", Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, RichText = true,
+            Text = '<font color="#4285F4">T</font><font color="#EA4335">Z</font><font color="#FBBC05">E</font>',
+            Font = Enum.Font.GothamBold, TextSize = 46, TextColor3 = C.text, ZIndex = 5,
+        }, ntpView)
+        local box = new("TextButton", {Name = "Dyn", Position = UDim2.new(0, 14, 0, 92), Size = UDim2.new(1, -28, 0, 40), BackgroundColor3 = C.pill, Text = "", AutoButtonColor = true, ZIndex = 5}, ntpView)
+        corner(box, UDim.new(0, 20))
+        local ic = new("Frame", {Position = UDim2.new(0, 12, 0.5, -9), Size = UDim2.new(0, 18, 0, 18), BackgroundTransparency = 1, ZIndex = 6}, box)
+        Icons.put(ic, Icons.search, 16, C.sub, 7)
+        new("TextLabel", {Position = UDim2.new(0, 38, 0, 0), Size = UDim2.new(1, -46, 1, 0), BackgroundTransparency = 1, Text = "Pesquisar ou digitar URL", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6}, box)
+        box.MouseButton1Click:Connect(function() address:CaptureFocus() end)
+
+        local grid = new("Frame", {Name = "Dyn", Position = UDim2.new(0, 8, 0, 152), Size = UDim2.new(0, 264, 0, 150), BackgroundTransparency = 1, ZIndex = 5}, ntpView)
+        new("UIGridLayout", {CellSize = UDim2.new(0, 62, 0, 68), CellPadding = UDim2.new(0, 4, 0, 6), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, grid)
+        for i, b in ipairs(bookmarks()) do
+            if i > 8 then break end
+            local cell = new("TextButton", {Text = "", BackgroundTransparency = 1, AutoButtonColor = false, LayoutOrder = i, ZIndex = 5}, grid)
+            local fav = favicon(cell, b.url, 40, 6)
+            fav.Position = UDim2.new(0.5, -20, 0, 2)
+            new("TextLabel", {Position = UDim2.new(0, 0, 0, 46), Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = b.name, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, cell)
+            cell.MouseButton1Click:Connect(function() navigate(tabs[cur], {url = b.url}) end)
+        end
+    end
+
+    -- ---------- página / resultados ----------
+    local function buildPage(entry)
+        for _, c in ipairs(pageView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
+        local order = 0
+        local function add(inst)
+            order = order + 1
+            inst.LayoutOrder = order
+            inst.Name = "Dyn"
+            inst.Parent = pageView
+            return inst
+        end
+        local function label(text, size, color, font, h)
+            return add(new("TextLabel", {
+                Size = UDim2.new(1, 0, 0, h or 0), AutomaticSize = h and Enum.AutomaticSize.None or Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+                Text = text, TextColor3 = color, Font = font or Enum.Font.Gotham, TextSize = size, TextWrapped = true, RichText = true,
+                TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 5,
+            }))
+        end
+        local function card(rich, onClick)
+            local b = add(new("TextButton", {
+                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.card, BorderSizePixel = 0, AutoButtonColor = true,
+                RichText = true, Text = rich, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true,
+                TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 5,
+            }))
+            corner(b, UDim.new(0, 10))
+            new("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, b)
+            b.MouseButton1Click:Connect(onClick)
+            return b
+        end
+        local function button(text, onClick)
+            local b = add(new("TextButton", {Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = text, TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 5}))
+            corner(b, UDim.new(0, 18))
+            b.MouseButton1Click:Connect(onClick)
+        end
+
+        if entry.state == "loading" then
+            label("Carregando…\n" .. (entry.url or entry.q or ""), 12, C.sub, Enum.Font.Gotham, 90)
+            return
+        end
+        if entry.state ~= "done" then
+            local title = entry.state == "stopped" and "Carregamento interrompido" or "Não foi possível acessar este site"
+            label("<b>" .. title .. "</b>", 15, C.text, Enum.Font.Gotham)
+            label(U.esc(entry.url and U.hostOf(entry.url) or (entry.q or "")), 11, C.blue, Enum.Font.Gotham)
+            if entry.err then
+                label("Verifique se o ambiente permite requisições HTTP e se o site aceita acesso externo.\n\n" .. U.esc(entry.err:sub(1, 160)), 10, C.sub, Enum.Font.Gotham)
+            end
+            button("TENTAR NOVAMENTE", reload)
+            return
+        end
+        local view = entry.view
+        if view.kind == "search" then
+            label("Resultados para <b>" .. U.esc(entry.q) .. "</b>", 12, C.text, Enum.Font.Gotham)
+            if #view.items == 0 then
+                label("Não encontrei resultados. Tente outra pesquisa ou digite um endereço.", 11, C.sub, Enum.Font.Gotham)
+            end
+            for _, it in ipairs(view.items) do
+                local rich = '<font color="#8ab4f8"><b>' .. U.esc(it.name) .. '</b></font>\n<font color="#81c995" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>"
+                if it.snippet and it.snippet ~= "" then rich = rich .. '\n<font color="#9aa0a6" size="10">' .. U.esc(it.snippet) .. "</font>" end
+                card(rich, function() navigate(tabs[cur], {url = it.url}) end)
+            end
+        else
+            local head = add(new("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = C.card, BorderSizePixel = 0, ZIndex = 5}))
+            corner(head, UDim.new(0, 10))
+            local fav = favicon(head, entry.url, 26, 6)
+            fav.Position = UDim2.new(0, 9, 0.5, -13)
+            new("TextLabel", {Position = UDim2.new(0, 44, 0, 5), Size = UDim2.new(1, -52, 0, 18), BackgroundTransparency = 1, Text = view.title, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
+            new("TextLabel", {Position = UDim2.new(0, 44, 0, 23), Size = UDim2.new(1, -52, 0, 16), BackgroundTransparency = 1, Text = U.hostOf(entry.url), TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
+            label(view.rich, 12, C.text, Enum.Font.Gotham)
+            if #view.items > 0 then
+                label("<b>LINKS DESTA PÁGINA (" .. #view.items .. ")</b>", 10, C.blue, Enum.Font.Gotham)
+                for _, it in ipairs(view.items) do
+                    card("<b>" .. U.esc(it.name) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>", function() navigate(tabs[cur], {url = it.url}) end)
+                end
+            end
+        end
+    end
+
+    render = function()
+        local e = curEntry()
+        updateChrome()
+        if e.ntp then
+            pageView.Visible = false
+            ntpView.Visible = true
+            buildNtp()
+        else
+            ntpView.Visible = false
+            pageView.Visible = true
+            buildPage(e)
+            pageView.CanvasPosition = Vector2.new(0, 0)
+        end
+        if refreshSwitcher then refreshSwitcher(true) end
+    end
+
+    -- ---------- seletor de abas ----------
+    local switcher = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
+    new("TextLabel", {Name = "SwTitle", Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(0.5, 0, 0, 30), BackgroundTransparency = 1, Text = "1 guia", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 16}, switcher)
+    local swNew = new("TextButton", {Position = UDim2.new(1, -108, 0, 8), Size = UDim2.new(0, 98, 0, 26), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "+ NOVA GUIA", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 16}, switcher)
+    corner(swNew, UDim.new(0, 13))
+    local swList = new("ScrollingFrame", {Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 1, -42), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 16}, switcher)
+    new("UIGridLayout", {CellSize = UDim2.new(0, 122, 0, 116), CellPadding = UDim2.new(0, 8, 0, 8), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, swList)
+    new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 10)}, swList)
+
+    local function tabTitle(t)
+        local e = t.hist[t.pos]
+        if e.ntp then return "Nova guia" end
+        return e.title or (e.q and ("Pesquisa: " .. e.q)) or U.hostOf(e.url)
+    end
+    local function switchTo(i)
+        cur = i
+        switcher.Visible = false
+        showEntry(tabs[cur])
+    end
+    local function closeTab(i)
+        table.remove(tabs, i)
+        if #tabs == 0 then tabs[1] = newTab() end
+        if i < cur then cur = cur - 1 end
+        if cur > #tabs then cur = #tabs end
+        if cur < 1 then cur = 1 end
+        render()
+        refreshSwitcher(true)
+    end
+    refreshSwitcher = function(onlyIfVisible)
+        if onlyIfVisible and not switcher.Visible then return end
+        for _, c in ipairs(swList:GetChildren()) do if c.Name == "TabCard" then c:Destroy() end end
+        switcher:FindFirstChild("SwTitle").Text = #tabs .. (#tabs == 1 and " guia" or " guias")
+        for i, t in ipairs(tabs) do
+            local e = t.hist[t.pos]
+            local card = new("TextButton", {Name = "TabCard", LayoutOrder = i, BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "", AutoButtonColor = true, ZIndex = 17}, swList)
+            corner(card, UDim.new(0, 12))
+            if i == cur then new("UIStroke", {Color = C.accent, Thickness = 2}, card) end
+            favicon(card, e.url or e.q or "Nova", 18, 18).Position = UDim2.new(0, 8, 0, 8)
+            new("TextLabel", {Position = UDim2.new(0, 32, 0, 6), Size = UDim2.new(1, -62, 0, 22), BackgroundTransparency = 1, Text = tabTitle(t), TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 18}, card)
+            local body = (e.view and e.view.preview) or (e.ntp and "TZE\nPesquisar ou digitar URL" or (e.url or e.q or ""))
+            new("TextLabel", {Position = UDim2.new(0, 8, 0, 34), Size = UDim2.new(1, -16, 1, -42), BackgroundTransparency = 1, Text = body, TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 18}, card)
+            local x = iconButton(card, Icons.close, 12, C.text, UDim2.new(1, -28, 0, 5), UDim2.new(0, 24, 0, 24), 19)
+            card.MouseButton1Click:Connect(function() switchTo(i) end)
+            x.MouseButton1Click:Connect(function() closeTab(i) end)
+        end
+    end
+    swNew.MouseButton1Click:Connect(function()
+        table.insert(tabs, newTab())
+        cur = #tabs
+        switcher.Visible = false
+        render()
+    end)
+
+    -- ---------- favoritos / histórico (painel) ----------
+    local panel = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
+    local panelBack = iconButton(panel, Icons.back, 16, C.text, UDim2.new(0, 6, 0, 4), UDim2.new(0, 34, 0, 34), 16)
+    local panelTitle = new("TextLabel", {Position = UDim2.new(0, 44, 0, 4), Size = UDim2.new(1, -140, 0, 34), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 16}, panel)
+    local panelClear = new("TextButton", {Position = UDim2.new(1, -82, 0, 8), Size = UDim2.new(0, 72, 0, 26), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "LIMPAR", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 16}, panel)
+    corner(panelClear, UDim.new(0, 13))
+    local panelList = new("ScrollingFrame", {Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 1, -42), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 16}, panel)
+    new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5)}, panelList)
+    new("UIPadding", {PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, panelList)
+    local panelKind = "fav"
+
+    local function fillPanel()
+        for _, c in ipairs(panelList:GetChildren()) do if c.Name == "Row" or c.Name == "Empty" then c:Destroy() end end
+        local data = panelKind == "fav" and bookmarks() or history()
+        panelTitle.Text = panelKind == "fav" and "Favoritos" or "Histórico"
+        panelClear.Visible = panelKind == "hist"
+        if #data == 0 then
+            new("TextLabel", {Name = "Empty", Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, Text = panelKind == "fav" and "Nenhum favorito ainda." or "Histórico vazio.", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, ZIndex = 17}, panelList)
+            return
+        end
+        for i, it in ipairs(data) do
+            local name = it.name or it.title or U.hostOf(it.url)
+            local row = new("TextButton", {
+                Name = "Row", LayoutOrder = i, Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.card, BorderSizePixel = 0, AutoButtonColor = true, RichText = true,
+                Text = "<b>" .. U.esc(name:sub(1, 30)) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(U.hostOf(it.url):sub(1, 34)) .. "</font>",
+                TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 17,
+            }, panelList)
+            corner(row, UDim.new(0, 10))
+            new("UIPadding", {PaddingLeft = UDim.new(0, 44), PaddingRight = UDim.new(0, panelKind == "fav" and 34 or 8)}, row)
+            favicon(row, it.url, 24, 18).Position = UDim2.new(0, -34, 0.5, -12)
+            row.MouseButton1Click:Connect(function()
+                closeOverlays()
+                navigate(tabs[cur], {url = it.url})
+            end)
+            if panelKind == "fav" then
+                local x = iconButton(row, Icons.close, 12, C.sub, UDim2.new(1, -62, 0.5, -12), UDim2.new(0, 24, 0, 24), 18)
+                x.MouseButton1Click:Connect(function()
+                    table.remove(bookmarks(), i)
+                    saveSettings()
+                    fillPanel()
+                end)
+            end
+        end
+    end
+    openPanel = function(kind)
+        panelKind = kind
+        panel.Visible = true
+        fillPanel()
+    end
+    panelBack.MouseButton1Click:Connect(function() panel.Visible = false end)
+    panelClear.MouseButton1Click:Connect(function()
+        phoneSettings.browserHistory = {}
+        saveSettings()
+        fillPanel()
+        toast("Histórico limpo")
+    end)
+
+    -- ---------- menu ⋮ ----------
+    local menuLayer = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false, ZIndex = 28}, frame)
+    corner(menuLayer, UDim.new(0, 28))
+    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 78), Size = UDim2.new(0, 200, 0, 216), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
+    corner(menu, UDim.new(0, 14))
+    new("UIStroke", {Color = Color3.fromRGB(70, 72, 76), Thickness = 1}, menu)
+
+    local backBtn = iconButton(menu, Icons.back, 18, C.text, UDim2.new(0, 0, 0, 2), UDim2.new(0, 50, 0, 38), 31)
+    local fwdBtn = iconButton(menu, Icons.arrowRight, 18, C.text, UDim2.new(0, 50, 0, 2), UDim2.new(0, 50, 0, 38), 31)
+    heartBtn = iconButton(menu, Icons.heart, 18, C.text, UDim2.new(0, 100, 0, 2), UDim2.new(0, 50, 0, 38), 31)
+    local reBtn = iconButton(menu, Icons.reset, 18, C.text, UDim2.new(0, 150, 0, 2), UDim2.new(0, 50, 0, 38), 31)
+    new("Frame", {Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromRGB(70, 72, 76), BorderSizePixel = 0, ZIndex = 31}, menu)
+
+    local function setMenu(open)
+        menuLayer.Visible = open
+        if open then
+            address:ReleaseFocus()
+            local t = tabs[cur]
+            local e = curEntry()
+            Icons.put(fwdBtn, Icons.arrowRight, 18, t.pos < #t.hist and C.text or Color3.fromRGB(95, 99, 104), 32)
+            Icons.put(heartBtn, Icons.heart, 18, isBookmarked(e.url) and C.red or C.text, 32)
+        end
+    end
+    local function menuItem(text, y, fn)
+        local b = new("TextButton", {Position = UDim2.new(0, 0, 0, y), Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = true, ZIndex = 31}, menu)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 16)}, b)
+        b.MouseButton1Click:Connect(function() setMenu(false); fn() end)
+    end
+    menuItem("Nova guia", 46, function()
+        table.insert(tabs, newTab())
+        cur = #tabs
+        render()
+    end)
+    menuItem("Favoritos", 80, function() openPanel("fav") end)
+    menuItem("Histórico", 114, function() openPanel("hist") end)
+    menuItem("Copiar URL", 148, function()
+        local e = curEntry()
+        local clip = setclipboard or toclipboard
+        if not e.url then toast("Nenhuma URL para copiar")
+        elseif type(clip) == "function" then pcall(clip, e.url); toast("Link copiado")
+        else toast("Clipboard indisponível") end
+    end)
+    menuItem("Limpar histórico", 182, function()
+        phoneSettings.browserHistory = {}
+        saveSettings()
+        toast("Histórico limpo")
+    end)
+
+    backBtn.MouseButton1Click:Connect(function()
+        setMenu(false)
+        if Nav.web.goBack() == false then showScreen("home", true) end
+    end)
+    fwdBtn.MouseButton1Click:Connect(function()
+        setMenu(false)
+        local t = tabs[cur]
+        if t.pos < #t.hist then t.pos = t.pos + 1; showEntry(t) end
+    end)
+    heartBtn.MouseButton1Click:Connect(function()
+        setMenu(false)
+        local e = curEntry()
+        if not e.url then toast("Abra uma página para favoritar"); return end
+        local yes, idx = isBookmarked(e.url)
+        if yes then
+            table.remove(bookmarks(), idx)
+            toast("Favorito removido")
+        else
+            table.insert(bookmarks(), {name = (e.title or U.hostOf(e.url)):sub(1, 24), url = e.url})
+            toast("Adicionado aos favoritos")
+        end
+        saveSettings()
+        if curEntry().ntp then render() end
+    end)
+    reBtn.MouseButton1Click:Connect(function() setMenu(false); reload() end)
+    menuLayer.MouseButton1Click:Connect(function() setMenu(false) end)
+    menuBtn.MouseButton1Click:Connect(function() setMenu(not menuLayer.Visible) end)
+
+    closeOverlays = function()
+        menuLayer.Visible = false
+        switcher.Visible = false
+        panel.Visible = false
+    end
+
+    tabBtn.MouseButton1Click:Connect(function()
+        address:ReleaseFocus()
+        if switcher.Visible then
+            switcher.Visible = false
+        else
+            panel.Visible = false
+            switcher.Visible = true
+            refreshSwitcher()
+        end
+    end)
+
+    -- ---------- endereço ----------
+    address.Focused:Connect(function()
+        address.Text = fullText(curEntry())
+        task.defer(function()
+            pcall(function()
+                address.SelectionStart = 1
+                address.CursorPosition = #address.Text + 1
+            end)
+        end)
+    end)
+    address.FocusLost:Connect(function(enter)
+        if enter then runInput(address.Text) end
+        updateChrome()
+    end)
+    reloadBtn.MouseButton1Click:Connect(function()
+        if curEntry().state == "loading" then stopLoad() else reload() end
+    end)
+
+    -- voltar do sistema: fecha painéis / volta no histórico; false = sair para a tela inicial
+    Nav.web = {}
+    Nav.web.goBack = function()
+        if menuLayer.Visible or switcher.Visible or panel.Visible then closeOverlays(); return true end
+        if address:IsFocused() then address:ReleaseFocus(); return true end
+        local t = tabs[cur]
+        if t.pos > 1 then t.pos = t.pos - 1; showEntry(t); return true end
+        return false
+    end
+
+    createNavBar(frame)
+    render()
+    return frame
+end
+
+local WebBrowserFrame = makeBrowserScreen()
+
 -- ---------- registro das telas ----------
 screens.home      = {frame = PhoneHome}
 screens.music     = {frame = MainFrame,      app = true, name = "Música",     color = Color3.fromRGB(0, 180, 255),  icon = Icons.music,     onOpen = function() refreshFiles() end, onClose = function() stopMusic() end}
@@ -5406,6 +6133,7 @@ screens.stopwatch = {frame = StopwatchFrame, app = true, name = "Cronômetro", c
 screens.config    = {frame = ConfigFrame,    app = true, name = "Config",     color = Color3.fromRGB(120, 120, 130), icon = Icons.gear, onOpen = function() if cfgReset then cfgReset() end end}
 screens.gallery   = {frame = GalleryFrame,   app = true, name = "Galeria",    color = Color3.fromRGB(180, 80, 220), icon = Icons.gallery,   onOpen = function() refreshPhotos() end}
 screens.gps       = {frame = Nav.gps.frame,  app = true, name = "GPS",       color = Color3.fromRGB(46, 190, 120), icon = Icons.gps, onOpen = function() Nav.gps.onOpen() end, onClose = function() Nav.gps.onClose() end}
+screens.web       = {frame = WebBrowserFrame, app = true, name = "Navegador", color = Color3.fromRGB(35,145,205), icon = Icons.search}
 screens.recents   = {frame = RecentsFrame,   onOpen = function() rcBg.Image = currentWallpaper end}
 
 -- ---------- apps abertos ----------
@@ -5600,6 +6328,7 @@ function Nav.back()
     end
     if currentScreen == "config" and cfgGoBack and cfgGoBack() then return end
     if currentScreen == "gps" and Nav.gps.goBack and Nav.gps.goBack() then return end
+    if currentScreen == "web" and Nav.web and Nav.web.goBack and Nav.web.goBack() then return end
     if currentScreen == "gallery" and isInPhotoViewer then
         if isPhotoMenuOpen then closePhotoMenu() else exitPhotoViewer() end
         return
@@ -5621,6 +6350,7 @@ StopwatchAppIcon.MouseButton1Click:Connect(function() showScreen("stopwatch", tr
 ConfigAppIcon.MouseButton1Click:Connect(function() showScreen("config", true) end)
 GalleryAppIcon.MouseButton1Click:Connect(function() showScreen("gallery", true) end)
 Nav.gps.icon.MouseButton1Click:Connect(function() showScreen("gps", true) end)
+WebBrowserIcon.MouseButton1Click:Connect(function() showScreen("web", true) end)
 
 -- ###################### ANIMAÇÃO DE BOOT (REWORK) ######################
 -- Toca UMA vez por servidor: na primeira vez que o celular é aberto depois de entrar.

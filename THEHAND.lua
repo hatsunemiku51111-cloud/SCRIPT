@@ -155,15 +155,33 @@ local IDLE_VARIANT_SETTINGS = {
 
 local idleVariant_Track = nil
 local idleVariant_Timer = 0
-local idleVariant_Active = false
+local idleVariant_Active = false      -- true = a animação está tocando agora
+local idleVariant_StartedAt = 0
+local idleVariant_Extras = {}         -- som e balão de fala criados (para cancelar junto com a animação)
+local idleVariant_LastPos = nil
+
+-- Cancela tudo na hora (animação + som + balão): usado quando o personagem se mexe
+local function cancelIdleVariant()
+    if idleVariant_Track then
+        pcall(function() idleVariant_Track:Stop(0.2) end)
+        idleVariant_Track = nil
+    end
+    for _, o in ipairs(idleVariant_Extras) do
+        pcall(function()
+            if o:IsA("Sound") then o:Stop() end
+            o:Destroy()
+        end)
+    end
+    idleVariant_Extras = {}
+    idleVariant_Active = false
+end
 
 local function playIdleVariant()
     if not hum or not character then return end
     
-    if idleVariant_Track then
-        pcall(function() idleVariant_Track:Stop() end)
-        idleVariant_Track = nil
-    end
+    cancelIdleVariant()
+    idleVariant_Active = true
+    idleVariant_StartedAt = os.clock()
     
     local anim = Instance.new("Animation")
     anim.AnimationId = IDLE_VARIANT_SETTINGS.AnimId
@@ -183,6 +201,7 @@ local function playIdleVariant()
     sound.Parent = head or character:FindFirstChild("HumanoidRootPart") or workspace
     sound:Play()
     game.Debris:AddItem(sound, 6)
+    idleVariant_Extras[#idleVariant_Extras + 1] = sound
     
     if head then
         local billboard = Instance.new("BillboardGui")
@@ -197,6 +216,7 @@ local function playIdleVariant()
         billboard.LightInfluence = 0
         billboard.MaxDistance = 100
         billboard.Parent = head
+        idleVariant_Extras[#idleVariant_Extras + 1] = billboard
 
         local imageLabel = Instance.new("ImageLabel")
         imageLabel.BackgroundTransparency = 1
@@ -254,14 +274,32 @@ local function playIdleVariant()
         end)
     end
     
-    if idleVariant_Track then
-        idleVariant_Track.Stopped:Once(function()
-            idleVariant_Track = nil
-            if idleVariant_Active then
-                idleVariant_Timer = 0
-            end
-        end)
-    end
+end
+
+-- "Parado de verdade": sem input de movimento, sem velocidade (nem vertical), no chão,
+-- sem pular/cair/sentar/escalar/nadar e sem ser empurrado/teleportado (mede a posição real).
+local STILL_STATES = {
+    [Enum.HumanoidStateType.Running] = true,
+    [Enum.HumanoidStateType.RunningNoPhysics] = true,
+    [Enum.HumanoidStateType.Landed] = true,
+}
+
+local function isReallyStill(root, deltaTime)
+    if hum.Health <= 0 then return false end
+    if hum.MoveDirection.Magnitude > 0.05 then return false end
+    if hum.Sit or hum.PlatformStand then return false end
+    if hum.FloorMaterial == Enum.Material.Air then return false end
+    if not STILL_STATES[hum:GetState()] then return false end
+
+    if root.AssemblyLinearVelocity.Magnitude > 1.5 then return false end
+
+    -- velocidade pode ser 0 em alguns jogos (movido por CFrame/seat): confere o deslocamento real
+    local pos = root.Position
+    local moved = idleVariant_LastPos and (pos - idleVariant_LastPos).Magnitude or 0
+    idleVariant_LastPos = pos
+    if deltaTime > 0 and (moved / deltaTime) > 1.5 then return false end
+
+    return true
 end
 
 local function checkIdleStatus(deltaTime)
@@ -270,29 +308,28 @@ local function checkIdleStatus(deltaTime)
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root then return end
     
-    local speed = Vector3.new(root.Velocity.X, 0, root.Velocity.Z).Magnitude
-    
-    if speed > 2 then
+    -- Qualquer movimento: zera a contagem e corta a animação/som/balão na hora
+    if not isReallyStill(root, deltaTime) then
         idleVariant_Timer = 0
-        idleVariant_Active = false
-        
-        if idleVariant_Track then
-            pcall(function() idleVariant_Track:Stop() end)
-            idleVariant_Track = nil
+        if idleVariant_Active then cancelIdleVariant() end
+        return
+    end
+    
+    -- Tocando: não conta tempo. Quando termina, agenda a próxima (mais WaitTime parado)
+    if idleVariant_Active then
+        local t = idleVariant_Track
+        if (not t) or ((not t.IsPlaying) and (os.clock() - idleVariant_StartedAt) > 0.6) then
+            cancelIdleVariant()
+            idleVariant_Timer = 0
         end
         return
     end
     
     idleVariant_Timer = idleVariant_Timer + deltaTime
     
-    if idleVariant_Timer >= IDLE_VARIANT_SETTINGS.WaitTime and not idleVariant_Active then
-        idleVariant_Active = true
-        playIdleVariant()
-    end
-    
-    if idleVariant_Timer >= IDLE_VARIANT_SETTINGS.WaitTime and idleVariant_Active and not idleVariant_Track then
-        idleVariant_Active = false
+    if idleVariant_Timer >= IDLE_VARIANT_SETTINGS.WaitTime then
         idleVariant_Timer = 0
+        playIdleVariant()
     end
 end
 
@@ -303,11 +340,8 @@ end)
 
 player.CharacterAdded:Connect(function(newChar)
     idleVariant_Timer = 0
-    idleVariant_Active = false
-    if idleVariant_Track then
-        pcall(function() idleVariant_Track:Stop() end)
-        idleVariant_Track = nil
-    end
+    idleVariant_LastPos = nil
+    cancelIdleVariant()
 end)
 
 -- =========================================================
@@ -415,11 +449,7 @@ end
 
 local function cleanupCustomAnims()
     idleVariant_Timer = 0
-    idleVariant_Active = false
-    if idleVariant_Track then
-        pcall(function() idleVariant_Track:Stop() end)
-        idleVariant_Track = nil
-    end
+    cancelIdleVariant()
 
     if sRunTrack_anim then 
         pcall(function() sRunTrack_anim:Stop() end) 
@@ -1779,6 +1809,8 @@ local HAND_POSE = {
     FadeIn        = 0.04, -- tempo para entrar na pose
     FadeOut       = 0.12, -- tempo para sair da pose
     Intensity     = 1.0,  -- multiplicador geral dos ângulos
+    KillTracks    = true, -- para tracks de animação do Stand enquanto a pose roda (evita briga com o Animator)
+    Debug         = false, -- true = mostra o painel de diagnóstico na tela durante o Erase (útil se a pose falhar em algum jogo)
 }
 
 local V3d = Vector3.new
@@ -2007,6 +2039,42 @@ local function hpEval(frames, t)
     return pose
 end
 
+-- Rigs novos (AnimationConstraint) não têm Part0/Part1/C0: usam Attachment0/Attachment1.
+-- Attachment0.CFrame faz o papel do C0 e Attachment1.CFrame o do C1.
+local function hpParts(m)
+    if m:IsA("AnimationConstraint") then
+        local a0, a1 = m.Attachment0, m.Attachment1
+        return a0 and a0.Parent, a1 and a1.Parent
+    end
+    return m.Part0, m.Part1
+end
+
+local function hpValid(m)
+    if not m.Parent then return false end
+    local p0, p1 = hpParts(m)
+    return p0 ~= nil and p1 ~= nil
+end
+
+local function hpGetC0(m)
+    if m:IsA("AnimationConstraint") then
+        local a = m.Attachment0
+        return a and a.CFrame or CFrame.new()
+    end
+    return m.C0
+end
+
+local function hpSetC0(m, cf)
+    if m:IsA("AnimationConstraint") then
+        local a = m.Attachment0
+        if a then a.CFrame = cf end
+    else
+        m.C0 = cf
+    end
+end
+
+-- IsKinematic original das AnimationConstraint (para restaurar no fim)
+local HAND_KIN = setmetatable({}, { __mode = "k" })
+
 local function hpJoints(ch)
     local map = {
         root  = { "LowerTorso" },
@@ -2027,38 +2095,121 @@ local function hpJoints(ch)
     }
     local J = {}
     for _, d in ipairs(ch:GetDescendants()) do
-        if d:IsA("Motor6D") and d.Part0 and d.Part1 then
-            for key, names in pairs(map) do
-                if not J[key] then
-                    for _, n in ipairs(names) do
-                        if d.Part1.Name == n then J[key] = d end
+        if d:IsA("JointInstance") or d:IsA("AnimationConstraint") then
+            local p0, p1 = hpParts(d)
+            if p0 and p1 then
+                for key, names in pairs(map) do
+                    if not J[key] then
+                        for _, n in ipairs(names) do
+                            if p1.Name == n then J[key] = d end
+                        end
                     end
                 end
+                -- R6: o RootJoint liga HumanoidRootPart -> Torso
+                if not J.root and p0.Name == "HumanoidRootPart" and p1.Name == "Torso" then
+                    J.root = d
+                end
             end
-            -- R6: o RootJoint liga HumanoidRootPart -> Torso
-            if not J.root and d.Part0.Name == "HumanoidRootPart" and d.Part1.Name == "Torso" then
-                J.root = d
-            end
+        end
+    end
+    -- AnimationConstraint: força modo cinemático (move a peça direto, sem depender de física/força)
+    for _, m in pairs(J) do
+        if m:IsA("AnimationConstraint") and HAND_KIN[m] == nil then
+            pcall(function()
+                HAND_KIN[m] = m.IsKinematic
+                m.IsKinematic = true
+            end)
         end
     end
     return J
 end
 
-local HandPose = { J = nil, char = nil, t0 = 0, w = 0, fading = false, fadeTime = 0.3, bound = false, frames = nil, speed = 1, fadeIn = 0.05 }
+local HandPose = { J = nil, char = nil, t0 = 0, w = 0, fading = false, fadeTime = 0.3, bound = false, frames = nil, speed = 1, fadeIn = 0.05, lastClock = 0, lastScan = 0, conns = nil }
 local HAND_BIND = "TheHandEraseAnim"
 
+-- ============================================================
+-- v2 ROBUSTA (funciona em jogos "complexos", não só nos básicos)
+-- Antes: a pose escrevia Motor6D.Transform uma vez por frame (RenderStepped).
+--   Em muitos jogos o Animator ou scripts do próprio jogo reescrevem o Transform
+--   depois de nós, e a pose some/pisca.
+-- Agora:
+--   1) a pose é aplicada no C0 do Motor6D (o Animator e os scripts do jogo NÃO mexem em C0);
+--   2) é reaplicada em 3 pontos do frame (RenderStep final + Stepped + Heartbeat);
+--   3) enquanto a pose roda, qualquer track de animação tocando no Stand é parada;
+--   4) se o jogo trocar/remover Motor6D, as juntas são re-escaneadas sozinhas.
+-- ============================================================
+
+-- C0 original de cada Motor6D (tabela fraca): guardado UMA vez e nunca sobrescrito
+local HAND_BASE_C0 = setmetatable({}, { __mode = "k" })
+local HAND_LAST_C0 = setmetatable({}, { __mode = "k" })
+local HAND_DIAG = { overwritten = 0, steps = 0, text = "" }
+
+local function hpShowDiag(text)
+    if not HAND_POSE.Debug then return end
+    pcall(function()
+        local pg = player:FindFirstChildOfClass("PlayerGui")
+        if not pg then return end
+        local g = pg:FindFirstChild("TheHandPoseDiag")
+        if not g then
+            g = Instance.new("ScreenGui")
+            g.Name = "TheHandPoseDiag"
+            g.ResetOnSpawn = false
+            g.IgnoreGuiInset = true
+            g.DisplayOrder = 9999
+            local l = Instance.new("TextLabel")
+            l.Name = "L"
+            l.Size = UDim2.new(0, 330, 0, 150)
+            l.Position = UDim2.new(0, 6, 0, 40)
+            l.BackgroundColor3 = Color3.new(0, 0, 0)
+            l.BackgroundTransparency = 0.35
+            l.TextColor3 = Color3.new(1, 1, 1)
+            l.TextXAlignment = Enum.TextXAlignment.Left
+            l.TextYAlignment = Enum.TextYAlignment.Top
+            l.Font = Enum.Font.Code
+            l.TextSize = 13
+            l.Parent = g
+            g.Parent = pg
+        end
+        g.L.Text = text
+    end)
+end
+
 local function hpApply(m, rotDeg, offset, w)
-    local c0 = m.C0 - m.C0.Position
+    local base = HAND_BASE_C0[m]
+    if not base then
+        base = hpGetC0(m)
+        HAND_BASE_C0[m] = base
+    end
+    local c0 = base - base.Position
     local A = CFrame.Angles(math.rad(rotDeg.X), math.rad(rotDeg.Y), math.rad(rotDeg.Z))
     if offset then A = CFrame.new(offset) * A end
     local T = c0:Inverse() * A * c0
-    m.Transform = CFrame.new():Lerp(T, w)
+    hpSetC0(m, base * CFrame.new():Lerp(T, w))
+    HAND_LAST_C0[m] = hpGetC0(m)
+end
+
+local function hpDisconnect()
+    if HandPose.conns then
+        for _, c in ipairs(HandPose.conns) do
+            pcall(function() c:Disconnect() end)
+        end
+        HandPose.conns = nil
+    end
 end
 
 function HandPose.reset()
     if HandPose.J then
         for _, m in pairs(HandPose.J) do
-            if m.Parent then m.Transform = CFrame.new() end
+            if m.Parent then
+                local base = HAND_BASE_C0[m]
+                if base then hpSetC0(m, base) end
+                if m:IsA("Motor6D") or m:IsA("AnimationConstraint") then m.Transform = CFrame.new() end
+                if m:IsA("AnimationConstraint") and HAND_KIN[m] ~= nil then
+                    local k = HAND_KIN[m]
+                    HAND_KIN[m] = nil
+                    pcall(function() m.IsKinematic = k end)
+                end
+            end
         end
     end
     HandPose.J, HandPose.char = nil, nil
@@ -2069,6 +2220,7 @@ function HandPose.stopNow()
         pcall(function() RunService:UnbindFromRenderStep(HAND_BIND) end)
         HandPose.bound = false
     end
+    hpDisconnect()
     HandPose.reset()
     HandPose.fading = false
     HandPose.w = 0
@@ -2080,61 +2232,157 @@ function HandPose.stop(fade)
     HandPose.fadeTime = math.max(fade or HAND_POSE.FadeOut, 0.01)
 end
 
+-- Um passo da pose. Pode rodar até 3x por frame (tempo/peso são baseados em os.clock, então é seguro).
+local function hpStep(isMain)
+    if not HandPose.bound then return end
+
+    local char = HandPose.char
+    if not char or not char.Parent then
+        HandPose.stopNow()
+        return
+    end
+
+    local now = os.clock()
+    local dt = math.clamp(now - HandPose.lastClock, 0, 0.1)
+    HandPose.lastClock = now
+
+    local rate = HandPose.fading and (1 / HandPose.fadeTime) or (1 / math.max(HAND_POSE.FadeIn, 0.01))
+    local goal = HandPose.fading and 0 or 1
+    HandPose.w = HandPose.w + math.clamp(goal - HandPose.w, -rate * dt, rate * dt)
+    if HandPose.fading and HandPose.w <= 0.001 then
+        HandPose.stopNow()
+        return
+    end
+
+    -- Animator do Stand brigando com a pose: para qualquer track enquanto o golpe roda
+    if isMain and HAND_POSE.KillTracks and not HandPose.fading then
+        local sh = char:FindFirstChildOfClass("Humanoid")
+        local an = sh and sh:FindFirstChildOfClass("Animator")
+        if an then
+            for _, tr in ipairs(an:GetPlayingAnimationTracks()) do
+                pcall(function() tr:Stop(0) end)
+            end
+        end
+    end
+
+    -- O jogo trocou/removeu algum Motor6D? Re-escaneia (no máx. 1x a cada 0.2s)
+    local J = HandPose.J
+    local broken = false
+    for _, m in pairs(J) do
+        if not hpValid(m) then broken = true break end
+    end
+    if broken and now - HandPose.lastScan > 0.2 then
+        HandPose.lastScan = now
+        J = hpJoints(char)
+        HandPose.J = J
+    end
+
+    if HAND_POSE.Debug then
+        for _, m in pairs(J) do
+            local last = HAND_LAST_C0[m]
+            if last and hpGetC0(m) ~= last then HAND_DIAG.overwritten += 1 end
+        end
+    end
+
+    local t = (now - HandPose.t0) * HandPose.speed
+    local pose = hpEval(HandPose.frames, t)
+
+    -- Vida extra procedural: respiração/flutuação o tempo todo + tremor da mão no auge do apagamento
+    pose.waist = pose.waist + V3d(math.sin(t * 9) * 1.5, math.sin(t * 6) * 2, 0)
+    pose.neck  = pose.neck  + V3d(0, math.sin(t * 7 + 1) * 2, 0)
+    pose.lsh   = pose.lsh   + V3d(math.sin(t * 8) * 2, 0, math.sin(t * 6) * 2)
+    local shake = math.clamp(1 - math.abs(t - 1.0) / 0.35, 0, 1) -- pico em ~1.0s
+    if shake > 0 then
+        pose.rwr = pose.rwr + V3d(math.sin(t * 70) * 7, math.sin(t * 53) * 5, math.sin(t * 61) * 4) * shake
+        pose.rel = pose.rel + V3d(math.sin(t * 64) * 3, 0, 0) * shake
+    end
+    local w = hpSmooth(math.clamp(HandPose.w, 0, 1))
+    local mul = HAND_POSE.Intensity
+
+    for key, m in pairs(J) do
+        if hpValid(m) and key ~= "root" then
+            local r = pose[key]
+            if r then hpApply(m, r * mul, nil, w) end
+        end
+    end
+
+    -- agachada (e, no R6, a inclinação do tronco) pelo RootJoint
+    local root = J.root
+    if root and root.Parent then
+        local rot = J.waist and V3d() or (pose.waist * mul)
+        hpApply(root, rot, V3d(0, -pose.crouch * mul, 0), w)
+    end
+
+    if HAND_POSE.Debug and isMain then
+        HAND_DIAG.steps += 1
+        if HAND_DIAG.steps % 6 == 0 then
+            local n, miss = 0, {}
+            for _, k in ipairs({ "root", "waist", "neck", "rsh", "rel", "rwr", "lsh", "lel", "lwr", "rh", "rk", "lh", "lk" }) do
+                if J[k] then n += 1 else miss[#miss + 1] = k end
+            end
+            local sh = char:FindFirstChildOfClass("Humanoid")
+            local an = sh and sh:FindFirstChildOfClass("Animator")
+            local sr = char:FindFirstChild("HumanoidRootPart")
+            local ex = J.rsh or J.waist
+            hpShowDiag(string.format(
+                "[TheHand Pose]\nt=%.2f  w=%.2f  passos=%d\njuntas=%d  faltando=%s\nC0 sobrescrito por outro script: %d\nStand no workspace=%s  root anchored=%s\nAnimator=%s  tracks=%d  HP=%s\nrsh.C0 mudou do base=%s",
+                t, w, HAND_DIAG.steps, n, #miss > 0 and table.concat(miss, ",") or "nenhuma",
+                HAND_DIAG.overwritten, tostring(char:IsDescendantOf(workspace)),
+                tostring(sr and sr.Anchored), tostring(an ~= nil), an and #an:GetPlayingAnimationTracks() or -1,
+                tostring(sh and sh.Health), tostring(ex and HAND_BASE_C0[ex] ~= nil and hpGetC0(ex) ~= HAND_BASE_C0[ex])))
+        end
+    end
+end
+
 function HandPose.start(char, frames, speed)
     HandPose.stopNow()
     if not char then return false end
     local J = hpJoints(char)
-    if not (J.root or J.waist or J.rsh) then return false end
+
+    if HAND_POSE.Debug then
+        local found, missing = {}, {}
+        for _, k in ipairs({ "root", "waist", "neck", "rsh", "rel", "rwr", "lsh", "lel", "lwr", "rh", "rk", "lh", "lk" }) do
+            if J[k] then found[#found + 1] = k else missing[#missing + 1] = k end
+        end
+        print("[TheHand][Pose] juntas OK: " .. table.concat(found, ",") .. " | faltando: " .. table.concat(missing, ","))
+    end
+
+    if not (J.root or J.waist or J.rsh) then
+        warn("[TheHand] Pose procedural: nenhum Motor6D encontrado no Stand (rig diferente?)")
+        local cls, parts, jn = {}, 0, {}
+        for _, d in ipairs(char:GetDescendants()) do
+            cls[d.ClassName] = (cls[d.ClassName] or 0) + 1
+            if d:IsA("BasePart") then
+                parts += 1
+                if #jn < 8 then jn[#jn + 1] = d.Name end
+            end
+        end
+        local cl = {}
+        for k, v in pairs(cls) do
+            if k:find("Weld") or k:find("Motor") or k:find("Joint") or k:find("Constraint") or k == "Humanoid" or k == "Animator" or k == "Bone" or k == "MeshPart" or k == "Part" then
+                cl[#cl + 1] = k .. "=" .. v
+            end
+        end
+        hpShowDiag("[TheHand Pose]\nSTART FALHOU: sem juntas\nStand=" .. char.Name .. " (" .. char.ClassName .. ")\npartes=" .. parts .. "\n" .. table.concat(cl, " ") .. "\n" .. table.concat(jn, ","))
+        return false
+    end
+
     HandPose.J, HandPose.char = J, char
     HandPose.frames, HandPose.speed = frames, speed or 1
     HandPose.t0 = os.clock()
+    HandPose.lastClock = HandPose.t0
+    HandPose.lastScan = 0
+    HAND_DIAG.overwritten, HAND_DIAG.steps = 0, 0
     HandPose.w = 0
     HandPose.fading = false
     HandPose.bound = true
 
-    RunService:BindToRenderStep(HAND_BIND, Enum.RenderPriority.Camera.Value - 1, function(dt)
-        if not HandPose.char or not HandPose.char.Parent then
-            HandPose.stopNow()
-            return
-        end
-        local rate = HandPose.fading and (1 / HandPose.fadeTime) or (1 / math.max(HAND_POSE.FadeIn, 0.01))
-        local goal = HandPose.fading and 0 or 1
-        HandPose.w = HandPose.w + math.clamp(goal - HandPose.w, -rate * dt, rate * dt)
-        if HandPose.fading and HandPose.w <= 0.001 then
-            HandPose.stopNow()
-            return
-        end
-
-        local t = (os.clock() - HandPose.t0) * HandPose.speed
-        local pose = hpEval(HandPose.frames, t)
-
-        -- Vida extra procedural: respiração/flutuação o tempo todo + tremor da mão no auge do apagamento
-        pose.waist = pose.waist + V3d(math.sin(t * 9) * 1.5, math.sin(t * 6) * 2, 0)
-        pose.neck  = pose.neck  + V3d(0, math.sin(t * 7 + 1) * 2, 0)
-        pose.lsh   = pose.lsh   + V3d(math.sin(t * 8) * 2, 0, math.sin(t * 6) * 2)
-        local shake = math.clamp(1 - math.abs(t - 1.0) / 0.35, 0, 1) -- pico em ~1.0s
-        if shake > 0 then
-            pose.rwr = pose.rwr + V3d(math.sin(t * 70) * 7, math.sin(t * 53) * 5, math.sin(t * 61) * 4) * shake
-            pose.rel = pose.rel + V3d(math.sin(t * 64) * 3, 0, 0) * shake
-        end
-        local w = hpSmooth(math.clamp(HandPose.w, 0, 1))
-        local mul = HAND_POSE.Intensity
-        local J = HandPose.J
-
-        for key, m in pairs(J) do
-            if m.Parent and m.Part0 and m.Part1 and key ~= "root" then
-                local r = pose[key]
-                if r then hpApply(m, r * mul, nil, w) end
-            end
-        end
-
-        -- agachada (e, no R6, a inclinação do tronco) pelo RootJoint
-        local root = J.root
-        if root and root.Parent then
-            local rot = J.waist and V3d() or (pose.waist * mul)
-            hpApply(root, rot, V3d(0, -pose.crouch * mul, 0), w)
-        end
-    end)
+    -- 3 pontos do frame: o ÚLTIMO a escrever antes do render é quem aparece na tela
+    RunService:BindToRenderStep(HAND_BIND, Enum.RenderPriority.Last.Value, function() hpStep(true) end)
+    HandPose.conns = {
+        RunService.Stepped:Connect(function() hpStep(false) end),
+        RunService.Heartbeat:Connect(function() hpStep(false) end),
+    }
     return true
 end
 
@@ -2251,11 +2499,111 @@ local function hitShake(duration, intensity)
     end)
 end
 
+-- ============================================================
+-- ALCANCE DO STAND (igual ao anime: cada Stand tem um alcance a partir do usuário)
+-- ============================================================
+local ERASE_RANGE = {
+    Range         = 30,    -- alcance do Stand (studs) a partir de VOCÊ: só dá pra apagar alvos dentro dessa área
+    LeashExtra    = 6,     -- tolerância: se o alvo fugir, o Stand ainda persegue até Range + isso (depois perde o alvo)
+    StandDistance = 3.5,   -- distância do Stand ao alvo na hora do golpe (perto!)
+    StandHeight   = 2.5,   -- altura do Stand em relação ao alvo
+    Follow        = true,  -- Stand persegue o alvo se ele estiver andando
+    LeadTime      = 0.12,  -- antecipa o movimento do alvo (segundos)
+    ShowArea      = true,  -- mostra a área de alcance no chão enquanto o Stand está ativo
+    AreaColor     = Color3.fromRGB(0, 200, 255),
+    AreaSegments  = 48,    -- tracinhos da borda
+}
+
+local RangeArea = { folder = nil, disc = nil, segs = {}, alpha = 0, flash = 0, spin = 0 }
+
+local function rangeAreaDestroy()
+    if RangeArea.folder then
+        pcall(function() RangeArea.folder:Destroy() end)
+    end
+    RangeArea.folder, RangeArea.disc, RangeArea.segs = nil, nil, {}
+end
+
+local function rangeAreaBuild()
+    rangeAreaDestroy()
+    local R = ERASE_RANGE.Range
+    local folder = Instance.new("Folder")
+    folder.Name = "TheHandRangeArea"
+
+    local function neon(size, transp)
+        local part = Instance.new("Part")
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+        part.CastShadow = false
+        part.Material = Enum.Material.Neon
+        part.Color = ERASE_RANGE.AreaColor
+        part.Size = size
+        part.Transparency = transp
+        part.Parent = folder
+        return part
+    end
+
+    local disc = neon(Vector3.new(0.1, R * 2, R * 2), 1)
+    disc.Shape = Enum.PartType.Cylinder
+    RangeArea.disc = disc
+
+    local n = ERASE_RANGE.AreaSegments
+    local len = (2 * math.pi * R / n) * 0.62
+    for i = 1, n do
+        RangeArea.segs[i] = neon(Vector3.new(0.28, 0.14, len), 1)
+    end
+
+    folder.Parent = workspace
+    RangeArea.folder = folder
+end
+
+RunService.Heartbeat:Connect(function(dt)
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local want = ERASE_RANGE.ShowArea and isStandActive and root ~= nil and hum ~= nil and hum.Health > 0
+    RangeArea.alpha = math.clamp(RangeArea.alpha + (want and 1 or -1) * dt * 4, 0, 1)
+    RangeArea.flash = math.max(0, RangeArea.flash - dt * 2)
+
+    if RangeArea.alpha <= 0 then
+        if RangeArea.folder then rangeAreaDestroy() end
+        return
+    end
+    if not root then return end
+    if not RangeArea.folder or not RangeArea.folder.Parent then rangeAreaBuild() end
+
+    -- posição do chão embaixo do jogador
+    local gpos = root.Position - Vector3.new(0, (hum.HipHeight or 2) + root.Size.Y / 2, 0)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = { character, RangeArea.folder, currentStand }
+    local hit = workspace:Raycast(root.Position, Vector3.new(0, -12, 0), rp)
+    if hit then gpos = hit.Position end
+    gpos = gpos + Vector3.new(0, 0.12, 0)
+
+    local a, f = RangeArea.alpha, RangeArea.flash
+    local R = ERASE_RANGE.Range
+
+    RangeArea.disc.CFrame = CFrame.new(gpos) * CFrame.Angles(0, 0, math.pi / 2)
+    RangeArea.disc.Transparency = math.clamp(1 - (0.07 * a + 0.28 * f), 0, 1)
+
+    RangeArea.spin += dt * 0.12
+    local n = #RangeArea.segs
+    local segT = math.clamp(0.45 + 0.55 * (1 - a) - 0.4 * f, 0, 1)
+    for i, seg in ipairs(RangeArea.segs) do
+        local ang = (i / n) * math.pi * 2 + RangeArea.spin
+        local pos = gpos + Vector3.new(math.cos(ang) * R, 0.05, math.sin(ang) * R)
+        seg.CFrame = CFrame.lookAt(pos, pos + Vector3.new(-math.sin(ang), 0, math.cos(ang)))
+        seg.Transparency = segT
+    end
+end)
+
+player.CharacterAdded:Connect(rangeAreaDestroy)
+
 local function performErase()
     if not canUseStrict("Erase") then return end
     if not isStandActive or not currentStand or isAttacking then return end
     
-    local targetRoot = getClosestTarget(30) 
+    local targetRoot = getClosestTarget(ERASE_RANGE.Range)
     
     if not targetRoot then
         -- 🗯️ Balão de fala "KUSO!"
@@ -2274,7 +2622,8 @@ local function performErase()
         lastUsed["Erase"] = tick()
         showCooldownOnButton(eraseBtn, "Erase")
         
-        print("❌ Nenhum alvo encontrado em 30 metros")
+        RangeArea.flash = 1  -- a área pisca: nada dentro do alcance
+        print("❌ Nenhum alvo dentro do alcance (" .. ERASE_RANGE.Range .. " studs)")
         return
     end
     
@@ -2308,15 +2657,46 @@ local function performErase()
     -- Animação procedural CONTÍNUA: começa já no dash e só termina no retorno (sem tempo morto)
     HandPose.start(currentStand, pickEraseVariant(), 1)
     
-    local targetPos = targetRoot.Position
-    local directionToTarget = (targetPos - charRoot.Position).Unit
-    local standDestination = targetPos - directionToTarget * 5
-    standDestination = Vector3.new(standDestination.X, targetPos.Y + 3, standDestination.Z)
-    local lookAtTarget = CFrame.lookAt(standDestination, targetPos)
-    
+    -- Destino VIVO: acompanha o alvo se ele estiver andando, fica perto dele e nunca passa do alcance
+    local lastTargetPos = targetRoot.Position
+    local function eraseDestinationCF()
+        local alive = targetRoot and targetRoot.Parent
+        if alive then lastTargetPos = targetRoot.Position end
+        local tp = lastTargetPos
+        local cp = charRoot.Position
+        local lead = Vector3.zero
+        if ERASE_RANGE.Follow and alive then
+            local v = targetRoot.AssemblyLinearVelocity
+            lead = Vector3.new(v.X, 0, v.Z) * ERASE_RANGE.LeadTime
+        end
+        local aim = tp + lead
+        local flat = Vector3.new(aim.X - cp.X, 0, aim.Z - cp.Z)
+        local dir = flat.Magnitude > 0.1 and flat.Unit or charRoot.CFrame.LookVector
+        local dest = aim - dir * ERASE_RANGE.StandDistance
+        dest = Vector3.new(dest.X, tp.Y + ERASE_RANGE.StandHeight, dest.Z)
+        -- trela: o Stand não passa do alcance (a partir de você)
+        local off = dest - cp
+        local maxR = ERASE_RANGE.Range + ERASE_RANGE.LeashExtra
+        if off.Magnitude > maxR then dest = cp + off.Unit * maxR end
+        if (tp - dest).Magnitude < 0.5 then dest = dest - dir * 0.5 end
+        return CFrame.lookAt(dest, tp)
+    end
+
+    local flightDist = (eraseDestinationCF().Position - sRoot.Position).Magnitude
+    local flightDur = math.clamp(flightDist / 90, 0.25, 0.45)
+
     dustBurst(sRoot.Position, 3)  -- explosão de partida
-    standFlight(currentStand, sRoot, lookAtTarget, 0.4, easeOutQuad, 3, 4)
+    standFlight(currentStand, sRoot, eraseDestinationCF, flightDur, easeOutQuad, 3, 4)
     dustBurst(sRoot.Position, 4)  -- impacto na chegada
+
+    -- Depois de chegar, continua colado no alvo (se ele andar, o Stand anda junto) até a hora de voltar
+    local followConn
+    if ERASE_RANGE.Follow then
+        followConn = RunService.Heartbeat:Connect(function(dt)
+            if not (sRoot and sRoot.Parent) then return end
+            sRoot.CFrame = sRoot.CFrame:Lerp(eraseDestinationCF(), math.clamp(dt * 18, 0, 1))
+        end)
+    end
     
 -- =============================================
 -- FASE 2: GOLPE (a pose procedural já está rodando desde o dash)
@@ -2431,12 +2811,25 @@ local ERASE_END_T = HAND_POSE.TotalDuration - 0.35  -- instante em que o stand c
     -- Espera o instante exato em que a mão do stand passa pelo alvo (meio da varrida) e dispara
     -- o shake + o apagamento juntos, sincronizados com a animação.
     task.wait(math.max(0, (HandPose.t0 + HAND_HIT_T) - os.clock()))
-    hitShake(0.28, 1.6)
+    -- O golpe só acerta se o alvo ainda está dentro do alcance E a mão do Stand chegou perto dele
+    local erasedHit = false
+    if targetRoot and targetRoot.Parent then
+        local inRange = (targetRoot.Position - charRoot.Position).Magnitude <= ERASE_RANGE.Range + ERASE_RANGE.LeashExtra
+        local closeEnough = (sRoot.Position - targetRoot.Position).Magnitude <= ERASE_RANGE.StandDistance + 5
+        erasedHit = inRange and closeEnough
+    end
+    if erasedHit then
+        hitShake(0.28, 1.6)
+    else
+        RangeArea.flash = 1
+        showSpeechBubble(ASSETS.KUSO_IMAGE, "right", 1.3)  -- alvo escapou do alcance
+    end
 
     -- =============================================
 -- FASE 3: VFX E FLING (RODA EM PARALELO!)
 -- =============================================
 task.spawn(function()
+    if not erasedHit then return end
     
     ativarNoClipTemporario()
     
@@ -2553,6 +2946,7 @@ task.spawn(function()
     -- Espera a animação de erase terminar
     task.wait(math.max(0, (HandPose.t0 + ERASE_END_T) - os.clock()))
     
+    if followConn then followConn:Disconnect() followConn = nil end
     -- (a pose continua no retorno; ela termina sozinha ao fim da timeline)
     
     -- Limpa trails

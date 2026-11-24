@@ -1,14 +1,3 @@
---[[
-    TZE PHONE V8 - versão reestruturada + navegação estilo celular + app de Música refeito
-    * V8: ANIMAÇÃO DE BOOT (rework: power-on, anel de progresso, glitch + brilho, saudação digitada) na 1ª abertura -> Nav.boot.play() (teste: Nav.boot.done = false)
-    * V8: app GPS (ViewportFrame visto de cima + players em tempo real) -> bloco GPS (+ grade, X/Y/Z e ping real do GPS_APP)
-    * V8: CARCAÇA estilo iOS (sem orelhas) -> Nav.shell.create(frame) | cor em Config > Cor da carcaça
-    * V8: BARRA DE STATUS (relógio, FPS, sinal, bateria) em TODOS os apps -> Nav.status.create(frame)
-    * Cada app fica dentro de um bloco  do ... end  (evita o limite de 200 locals do Luau)
-    * Tudo roda dentro de xpcall: se algo falhar, o erro aparece no console com "[TZE PHONE]"
-    * TODOS os ícones são desenhados com formas de UI (tabela Icons) - nenhum emoji/símbolo de texto | Navegação: Voltar / Início / Recentes ou Gestos
-    * Para ADICIONAR algo novo: coloque dentro de um bloco  do ... end  (veja o final do arquivo)
-]]
 local __ok, __err = xpcall(function()
 
 if not game:IsLoaded() then
@@ -30,21 +19,18 @@ local writefile = writefile or function() end
 local readfile = readfile or function() return "" end
 local delfile = delfile or function() end
 
--- =========================================================
--- CRIA PASTAS
--- =========================================================
 local function criarPastasPhone()
     pcall(function()
         if not isfolder("PHONE") then makefolder("PHONE") end
         if not isfolder("PHONE/Music") then makefolder("PHONE/Music") end
         if not isfolder("PHONE/Photos") then makefolder("PHONE/Photos") end
+        if not isfolder("PHONE/Cache") then makefolder("PHONE/Cache") end
+        if not isfolder("PHONE/Downloads") then makefolder("PHONE/Downloads") end
+        if not isfolder("PHONE/Notes") then makefolder("PHONE/Notes") end
     end)
 end
 criarPastasPhone()
 
--- =========================================================
--- SETTINGS PERSISTENTES
--- =========================================================
 local HttpService = game:GetService("HttpService")
 local SETTINGS_PATH = "PHONE/settings.json"
 
@@ -55,9 +41,9 @@ local defaultSettings = {
     gestureNav = false,
     flashlightEnabled = false,
     volume = 1,
-    wallpaper = "rbxassetid://12506271392", -- padrão
+    wallpaper = "rbxassetid://12506271392",
     phonePosition = {X = 1, Y = 0.5, XOffset = -300, YOffset = -220},
-    hotbarPosition = {X = 0.5, Y = 0, XOffset = -24, YOffset = 12} -- CENTRO SUPERIOR
+    hotbarPosition = {X = 0.5, Y = 0, XOffset = -24, YOffset = 12}
 }
 
 local phoneSettings = {}
@@ -86,15 +72,12 @@ local function saveSettings()
 end
 
 loadSettings()
-if not phoneSettings.statusBarMigrated then -- V8: liga o FPS na barra uma vez
+if not phoneSettings.statusBarMigrated then
     phoneSettings.fpsEnabled = true
     phoneSettings.statusBarMigrated = true
     saveSettings()
 end
 
--- =========================================================
--- SERVIÇOS E VARIÁVEIS
--- =========================================================
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -102,7 +85,6 @@ local Stats = game:GetService("Stats")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
 
--- Onde colocar as GUIs: gethui() > CoreGui > PlayerGui (o que funcionar no seu executor)
 local GUI_PARENT = (function()
     local okH, h = pcall(function() return gethui and gethui() end)
     if okH and h then return h end
@@ -120,6 +102,17 @@ local function destroyOld(name)
     end
 end
 
+local function httpGetBody(url)
+    local req = request or http_request or (syn and syn.request)
+    if type(req) == "function" then
+        local response = req({Url = url, Method = "GET", Headers = {["User-Agent"] = "Mozilla/5.0"}})
+        if type(response) == "table" and response.Body then return response.Body end
+        error("Resposta HTTP vazia", 0)
+    end
+    if game.HttpGet then return game:HttpGet(url) end
+    error("Seu ambiente não disponibiliza uma função HTTP GET", 0)
+end
+
 local isTouchDevice = UserInputService.TouchEnabled
 local Character, Humanoid
 local isPhoneOpen = false
@@ -129,12 +122,6 @@ local phoneFlashlight = nil
 local currentVolume = phoneSettings.volume or 1
 local currentWallpaper = phoneSettings.wallpaper or defaultSettings.wallpaper
 
--- =========================================================
--- VARIÁVEIS COMPARTILHADAS ENTRE OS BLOCOS (forward declarations)
--- Cada app roda dentro de um bloco do ... end, então os locals dele
--- somem no final do bloco e NÃO estouram o limite de 200 locals.
--- Só o que precisa ser visto por outros blocos é declarado aqui.
--- =========================================================
 local HotbarFrame, hotbarUIScale, phoneSlot, selectedFrame
 local PhoneHome, homeBg
 local MusicAppIcon, StopwatchAppIcon, ConfigAppIcon, GalleryAppIcon
@@ -145,16 +132,6 @@ local ConfigFrame, cfgGoBack, cfgReset
 local GalleryFrame, refreshPhotos, exitPhotoViewer, closePhotoMenu
 local isPhotoMenuOpen = false
 
-
--- =========================================================
--- BIBLIOTECA DE ÍCONES DESENHADOS (só formas de UI: sem emoji, sem imagem)
--- Draw  = primitivas (linha, círculo, anel, retângulo arredondado)
--- Icons = ícones prontos (back, home, recents, close, phone, music, stopwatch, gear, gallery,
---         play, pause, next, prev, shuffle, repeatAll, repeatOne, arrowRight, volUp, volDown,
---         search, folder, note, heart, reset, dotsV, info, wallpaper, tower, chevronRight, flag, gauge, torch, gesture)
--- Helpers: Icons.put (ícone dentro de botão) | Icons.text (ícone + texto) | Icons.empty (estado vazio) | Icons.searchField
--- Para criar um ícone novo: copie um modelo de Icons.xxx e desenhe numa grade 24x24.
--- =========================================================
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 local WHITE = Color3.new(1, 1, 1)
 
@@ -187,7 +164,6 @@ function Draw.line(parent, x1, y1, x2, y2, th, color, z)
     return Draw.box(parent, (x1 + x2) / 2, (y1 + y2) / 2, len, th, math.deg(atan2(dy, dx)), color, z, UDim.new(1, 0))
 end
 
--- d = diâmetro visual total. thickness = nil -> preenchido; com valor -> só o anel
 function Draw.circle(parent, cx, cy, d, color, thickness, z)
     local size = thickness and (d - 2 * thickness) or d
     local f = Draw.box(parent, cx, cy, size, size, 0, color, z, UDim.new(1, 0))
@@ -215,7 +191,6 @@ function Draw.rrect(parent, cx, cy, w, h, r, color, thickness, z)
     return f
 end
 
--- triângulo preenchido (fatias verticais finas)
 function Draw.poly3(parent, p1, p2, p3, color, z)
     local pts = {p1, p2, p3}
     local minx, maxx = math.huge, -math.huge
@@ -243,13 +218,11 @@ function Draw.poly3(parent, p1, p2, p3, color, z)
     end
 end
 
--- quadrilátero preenchido (2 triângulos): p1..p4 em ordem em volta
 function Draw.quad(parent, p1, p2, p3, p4, color, z)
     Draw.poly3(parent, p1, p2, p3, color, z)
     Draw.poly3(parent, p1, p3, p4, color, z)
 end
 
--- arco (ângulos em graus; 0 = direita, 90 = baixo, -90 = cima)
 function Draw.arc(parent, cx, cy, r, a0, a1, th, color, z)
     local n = math.max(4, math.ceil(math.abs(a1 - a0) / 18))
     local px, py
@@ -261,7 +234,6 @@ function Draw.arc(parent, cx, cy, r, a0, a1, th, color, z)
     end
 end
 
--- ponta de seta: (tx,ty) = ponta, (dx,dy) = direção para onde aponta
 function Draw.arrowHead(parent, tx, ty, dx, dy, size, th, color, z)
     local ang = atan2(dy, dx)
     for _, off in ipairs({150, -150}) do
@@ -282,7 +254,7 @@ local function iconRoot(parent, S)
     return c, S / 24
 end
 
-local function T(v, u) return math.max(1.2, v * u) end -- espessura mínima
+local function T(v, u) return math.max(1.2, v * u) end
 
 function Icons.back(parent, S, color, z)
     local c, u = iconRoot(parent, S)
@@ -582,7 +554,6 @@ function Icons.gesture(parent, S, color, z)
     return c
 end
 
--- ícone centralizado dentro de um botão/label (zera o Text do host)
 function Icons.put(host, fn, S, color, z)
     local old = host:FindFirstChild("IconHolder")
     if old then old:Destroy() end
@@ -594,9 +565,6 @@ function Icons.put(host, fn, S, color, z)
     return ic
 end
 
--- ícone + texto dentro de um botão/label.
--- o = {icon, iconSize, color, text, textColor, font, textSize, gap, align = "center"|"left", pad}
--- retorna ui com ui.set(fn, texto, cor) e ui.setColor(corTexto, corIcone)
 function Icons.text(host, o)
     local z = o.z or ((host.ZIndex or 1) + 1)
     local S = o.iconSize or 16
@@ -668,7 +636,6 @@ function Icons.text(host, o)
     return ui
 end
 
--- estado vazio: ícone no topo + texto embaixo (host = TextLabel com Text já definido)
 function Icons.empty(host, fn, S, color, z)
     z = z or ((host.ZIndex or 1) + 1)
     local txt = host.Text
@@ -690,7 +657,6 @@ function Icons.empty(host, fn, S, color, z)
     return ic
 end
 
--- lupa à esquerda de uma caixa de pesquisa
 function Icons.searchField(box, S, left, color)
     local ic = Icons.search(box, S, color or Color3.fromRGB(150, 150, 170), (box.ZIndex or 1) + 1)
     ic.AnchorPoint = Vector2.new(0, 0.5)
@@ -708,11 +674,725 @@ function Icons.setColor(root, color)
     end
 end
 
--- =========================================================
--- BARRA DE NAVEGAÇÃO (3 botões OU gestos)
---   Nav.back / Nav.home / Nav.recents são definidos no bloco de navegação
--- =========================================================
 local Nav = {home = function() end, back = function() end, recents = function() end, gps = {}}
+
+-- ============================================================
+--  GIF LOCAL: decodificador de GIF + cache de quadros (PNG)
+--  Roblox nao anima .gif; aqui o GIF e decodificado em Lua,
+--  cada quadro vira um PNG em PHONE/GifFrames/<chave>/ e a
+--  Galeria/Navegador trocam os quadros para animar.
+-- ============================================================
+Nav.gif = (function()
+    local Gif = {}
+    local bit = bit32
+    local floor = math.floor
+    local unpack = table.unpack or unpack
+    local tcreate = table.create or function(n, v)
+        local t = {}
+        for i = 1, n do t[i] = v end
+        return t
+    end
+    local GIF_DIR = "PHONE/GifFrames"
+
+    function Gif.hash(str)
+        local h1, h2 = 5381, 52711
+        for i = 1, #str do
+            local c = str:byte(i)
+            h1 = (h1 * 33 + c) % 4294967296
+            h2 = (h2 * 31 + c) % 4294967291
+        end
+        return string.format("%08x%08x", h1, h2)
+    end
+
+    -- FIX (GIFs se misturando): a chave do cache NAO pode depender so do nome do arquivo.
+    -- Dois GIFs com o mesmo nome (ou um GIF regravado) reaproveitavam quadros antigos.
+    -- A impressao digital usa o tamanho + amostras espalhadas do conteudo.
+    function Gif.fingerprint(data)
+        local n = #data
+        local h1, h2 = n % 4294967296, 7919
+        local function feed(c)
+            h1 = (h1 * 33 + c) % 4294967296
+            h2 = (h2 * 31 + c) % 4294967291
+        end
+        for i = 1, math.min(n, 64) do feed(data:byte(i)) end
+        local step = math.max(1, floor(n / 127))
+        for i = 65, n, step do feed(data:byte(i)) end
+        for i = math.max(1, n - 63), n do feed(data:byte(i)) end
+        return n .. "_" .. string.format("%08x%08x", h1, h2)
+    end
+
+    function Gif.keyFor(name, data)
+        return Gif.hash(tostring(name) .. "|" .. Gif.fingerprint(data))
+    end
+
+    ---------------------------------------------------------------- PNG
+    local crcTable
+    local function crc32(s)
+        if not crcTable then
+            crcTable = {}
+            for n = 0, 255 do
+                local c = n
+                for _ = 1, 8 do
+                    if bit.band(c, 1) == 1 then c = bit.bxor(0xEDB88320, bit.rshift(c, 1))
+                    else c = bit.rshift(c, 1) end
+                end
+                crcTable[n + 1] = c
+            end
+        end
+        local c = 0xFFFFFFFF
+        local tb = crcTable
+        for i = 1, #s do
+            c = bit.bxor(tb[bit.band(bit.bxor(c, s:byte(i)), 255) + 1], bit.rshift(c, 8))
+        end
+        return bit.bxor(c, 0xFFFFFFFF)
+    end
+
+    local function be32(n)
+        return string.char(floor(n / 16777216) % 256, floor(n / 65536) % 256, floor(n / 256) % 256, n % 256)
+    end
+
+    local function adler32(s)
+        local a, b = 1, 0
+        local len = #s
+        local i = 1
+        while i <= len do
+            local j = math.min(i + 3799, len)
+            for k = i, j do
+                a = a + s:byte(k)
+                b = b + a
+            end
+            a = a % 65521
+            b = b % 65521
+            i = j + 1
+        end
+        return b * 65536 + a
+    end
+
+    -- zlib "stored" (sem compressao): simples e 100% valido
+    local function zlibStore(raw)
+        local out = {"\120\1"}
+        local len = #raw
+        local pos = 1
+        while pos <= len do
+            local n = math.min(65535, len - pos + 1)
+            local final = (pos + n > len) and 1 or 0
+            local nn = 65535 - n
+            out[#out + 1] = string.char(final, n % 256, floor(n / 256), nn % 256, floor(nn / 256))
+            out[#out + 1] = raw:sub(pos, pos + n - 1)
+            pos = pos + n
+        end
+        out[#out + 1] = be32(adler32(raw))
+        return table.concat(out)
+    end
+
+    local function chunk(kind, body)
+        return be32(#body) .. kind .. body .. be32(crc32(kind .. body))
+    end
+
+    -- canvas: array de inteiros r + g*256 + b*65536 (ou -1 = transparente)
+    -- <=256 cores: PNG indexado (1 byte/pixel, ~4x menor). Senao: RGBA.
+    local function encodePng(canvas, W, ow, oh, xmap, ymap)
+        local map, plist, count, overflow = {}, {}, 0, false
+        for oy = 1, oh do
+            local base = ymap[oy] * W
+            for ox = 1, ow do
+                local v = canvas[base + xmap[ox]]
+                if map[v] == nil then
+                    count = count + 1
+                    if count > 256 then overflow = true; break end
+                    map[v] = count
+                    plist[count] = v
+                end
+            end
+            if overflow then break end
+        end
+        local rows = {}
+        if not overflow then
+            for oy = 1, oh do
+                local t = {0}
+                local base = ymap[oy] * W
+                for ox = 1, ow do t[ox + 1] = map[canvas[base + xmap[ox]]] - 1 end
+                rows[oy] = string.char(unpack(t))
+            end
+            local pl, tr = {}, {}
+            for i = 1, count do
+                local v = plist[i]
+                if v < 0 then
+                    pl[i] = "\0\0\0"; tr[i] = "\0"
+                else
+                    local r = v % 256
+                    local v2 = (v - r) / 256
+                    local g = v2 % 256
+                    pl[i] = string.char(r, g, (v2 - g) / 256); tr[i] = "\255"
+                end
+            end
+            local ihdr = be32(ow) .. be32(oh) .. "\8\3\0\0\0"
+            return "\137PNG\13\10\26\10" .. chunk("IHDR", ihdr) .. chunk("PLTE", table.concat(pl)) .. chunk("tRNS", table.concat(tr)) .. chunk("IDAT", zlibStore(table.concat(rows))) .. chunk("IEND", "")
+        end
+        for oy = 1, oh do
+            local t = {0}
+            local n = 1
+            local base = ymap[oy] * W
+            for ox = 1, ow do
+                local v = canvas[base + xmap[ox]]
+                if v < 0 then
+                    t[n + 1] = 0; t[n + 2] = 0; t[n + 3] = 0; t[n + 4] = 0
+                else
+                    local r = v % 256
+                    local v2 = (v - r) / 256
+                    local g = v2 % 256
+                    t[n + 1] = r; t[n + 2] = g; t[n + 3] = (v2 - g) / 256; t[n + 4] = 255
+                end
+                n = n + 4
+            end
+            rows[oy] = string.char(unpack(t))
+        end
+        local ihdr = be32(ow) .. be32(oh) .. "\8\6\0\0\0"
+        return "\137PNG\13\10\26\10" .. chunk("IHDR", ihdr) .. chunk("IDAT", zlibStore(table.concat(rows))) .. chunk("IEND", "")
+    end
+
+    ---------------------------------------------------------------- GIF
+    local function u16(d, p) return d:byte(p) + d:byte(p + 1) * 256 end
+
+    local function buildPal(data, off, count)
+        local pal = {}
+        for i = 0, count - 1 do
+            local p = off + i * 3
+            pal[i + 1] = data:byte(p) + data:byte(p + 1) * 256 + data:byte(p + 2) * 65536
+        end
+        return pal
+    end
+
+    local function scan(data)
+        if #data < 14 or data:sub(1, 3) ~= "GIF" then return nil end
+        local W, H = u16(data, 7), u16(data, 9)
+        local flags = data:byte(11)
+        local pos = 14
+        local gpal
+        if flags >= 128 then
+            local cnt = bit.lshift(1, (flags % 8) + 1)
+            gpal = buildPal(data, pos, cnt)
+            pos = pos + 3 * cnt
+        end
+        local frames = {}
+        local gce = {disposal = 0, delay = 10, trans = nil}
+        local len = #data
+        while pos <= len do
+            local c = data:byte(pos)
+            if c == 0x21 then
+                if data:byte(pos + 1) == 0xF9 and data:byte(pos + 2) == 4 then
+                    local pk = data:byte(pos + 3)
+                    local dl = u16(data, pos + 4)
+                    if dl <= 1 then dl = 10 end
+                    gce = {disposal = bit.band(bit.rshift(pk, 2), 7), delay = dl, trans = (bit.band(pk, 1) == 1) and data:byte(pos + 6) or nil}
+                end
+                pos = pos + 2
+                while pos <= len do
+                    local sz = data:byte(pos)
+                    if sz == 0 then pos = pos + 1; break end
+                    pos = pos + 1 + sz
+                end
+            elseif c == 0x2C then
+                local f = {x = u16(data, pos + 1), y = u16(data, pos + 3), w = u16(data, pos + 5), h = u16(data, pos + 7)}
+                local pk = data:byte(pos + 9)
+                pos = pos + 10
+                f.interlaced = bit.band(pk, 64) ~= 0
+                if pk >= 128 then
+                    local cnt = bit.lshift(1, (pk % 8) + 1)
+                    f.pal = buildPal(data, pos, cnt)
+                    pos = pos + 3 * cnt
+                end
+                f.minCode = data:byte(pos)
+                pos = pos + 1
+                local parts = {}
+                while pos <= len do
+                    local sz = data:byte(pos)
+                    if sz == nil or sz == 0 then pos = pos + 1; break end
+                    parts[#parts + 1] = data:sub(pos + 1, pos + sz)
+                    pos = pos + 1 + sz
+                end
+                f.parts = parts
+                f.disposal, f.delay, f.trans = gce.disposal, gce.delay, gce.trans
+                frames[#frames + 1] = f
+                gce = {disposal = 0, delay = 10, trans = nil}
+            else
+                break
+            end
+        end
+        if #frames < 1 then return nil end
+        return {w = W, h = H, gpal = gpal, frames = frames}
+    end
+
+    local function lzw(parts, minCode, npix, yield)
+        local data = table.concat(parts)
+        local clear = bit.lshift(1, minCode)
+        local eoi = clear + 1
+        local codeSize = minCode + 1
+        local mask = bit.lshift(1, codeSize) - 1
+        local nextCode = eoi + 1
+        local prefix, suffix = {}, {}
+        local out = tcreate(npix, 0)
+        local op = 0
+        local bitbuf, bits, pos, dl = 0, 0, 1, #data
+        local old, first = nil, 0
+        local stack = {}
+        local tick = 0
+        while op < npix do
+            while bits < codeSize and pos <= dl do
+                bitbuf = bit.bor(bitbuf, bit.lshift(data:byte(pos), bits))
+                pos = pos + 1
+                bits = bits + 8
+            end
+            if bits < codeSize then break end
+            local code = bit.band(bitbuf, mask)
+            bitbuf = bit.rshift(bitbuf, codeSize)
+            bits = bits - codeSize
+            if code == clear then
+                codeSize = minCode + 1
+                mask = bit.lshift(1, codeSize) - 1
+                nextCode = eoi + 1
+                old = nil
+            elseif code == eoi then
+                break
+            elseif old == nil then
+                op = op + 1
+                out[op] = code
+                old = code
+                first = code
+            else
+                local inCode = code
+                local sp = 0
+                if code >= nextCode then
+                    sp = 1
+                    stack[1] = first
+                    code = old
+                end
+                while code >= clear do
+                    sp = sp + 1
+                    stack[sp] = suffix[code]
+                    code = prefix[code]
+                end
+                first = code
+                sp = sp + 1
+                stack[sp] = first
+                if nextCode < 4096 then
+                    prefix[nextCode] = old
+                    suffix[nextCode] = first
+                    nextCode = nextCode + 1
+                    if bit.band(nextCode, mask) == 0 and nextCode < 4096 then
+                        codeSize = codeSize + 1
+                        mask = bit.lshift(1, codeSize) - 1
+                    end
+                end
+                while sp > 0 do
+                    op = op + 1
+                    out[op] = stack[sp]
+                    sp = sp - 1
+                end
+                old = inCode
+            end
+            tick = tick + 1
+            if tick >= 20000 then
+                tick = 0
+                if yield then yield() end
+            end
+        end
+        return out
+    end
+
+    local function rowMap(h, interlaced)
+        local map = {}
+        if not interlaced then
+            for i = 1, h do map[i] = i - 1 end
+            return map
+        end
+        local r = 0
+        local passes = {{0, 8}, {4, 8}, {2, 4}, {1, 2}}
+        for _, p in ipairs(passes) do
+            local y = p[1]
+            while y < h do
+                r = r + 1
+                map[r] = y
+                y = y + p[2]
+            end
+        end
+        return map
+    end
+
+    local function copyCanvas(t, n)
+        local c = tcreate(n, -1)
+        for i = 1, n do c[i] = t[i] end
+        return c
+    end
+
+    -- opts: maxFrames (0=todos), maxDim (480), yield, cancelled, onProg, firstOnly, budget (segundos)
+    local function decodeInner(data, opts)
+        local g = scan(data)
+        if not g then error("GIF invalido", 0) end
+        local W, H = g.w, g.h
+        if W < 1 or H < 1 then error("GIF vazio", 0) end
+        local n = #g.frames
+        -- maxFrames = 0 significa "todos os quadros"; padrao passou a ser todos
+        local maxFrames = opts.firstOnly and 1 or (opts.maxFrames or 0)
+        if maxFrames <= 0 then maxFrames = n end   -- 0 = sem limite = todos os quadros
+        local maxDim = opts.maxDim or 480
+        local scale = math.min(1, maxDim / math.max(W, H))
+        local ow, oh = math.max(1, floor(W * scale)), math.max(1, floor(H * scale))
+        -- orcamento de memoria de video: reduz quadros so se necessario
+        if opts.pixelBudget then
+            maxFrames = math.max(2, math.min(maxFrames, floor(opts.pixelBudget / (ow * oh))))
+        end
+        -- step = 1 garante que nenhum quadro e pulado (a menos que pixelBudget force)
+        local step = math.max(1, math.ceil(n / maxFrames))
+        local xmap, ymap = {}, {}
+        for x = 1, ow do xmap[x] = math.min(W, floor((x - 0.5) / scale) + 1) end
+        for y = 1, oh do ymap[y] = math.min(H - 1, floor((y - 0.5) / scale)) end
+
+        local total = W * H
+        local canvas = tcreate(total, -1)
+        local pending = nil
+        local pngs, delays = {}, {}
+        local acc = 0
+        local t0 = os.clock()
+        local budget = opts.budget or 240
+        local yield = opts.yield
+        for k = 1, n do
+            if opts.cancelled and opts.cancelled() then error("cancelado", 0) end
+            local f = g.frames[k]
+            -- descarte do quadro anterior
+            if pending then
+                if pending.kind == 2 then
+                    for y = pending.y, math.min(H, pending.y + pending.h) - 1 do
+                        local base = y * W
+                        for x = pending.x, math.min(W, pending.x + pending.w) - 1 do
+                            canvas[base + x + 1] = -1
+                        end
+                    end
+                elseif pending.kind == 3 and pending.snap then
+                    canvas = pending.snap
+                end
+                pending = nil
+            end
+            local snap = nil
+            if f.disposal == 3 then snap = copyCanvas(canvas, total) end
+
+            local pal = f.pal or g.gpal or {}
+            local out = lzw(f.parts, f.minCode, f.w * f.h, yield)
+            local rows = rowMap(f.h, f.interlaced)
+            local fw, trans = f.w, f.trans
+            for sr = 1, f.h do
+                local y = f.y + rows[sr]
+                if y >= 0 and y < H then
+                    local base = (sr - 1) * fw
+                    local cb = y * W
+                    for x = 0, fw - 1 do
+                        local px = f.x + x
+                        if px < W then
+                            local idx = out[base + x + 1]
+                            if idx ~= trans then
+                                local v = pal[idx + 1]
+                                if v then canvas[cb + px + 1] = v end
+                            end
+                        end
+                    end
+                end
+            end
+            pending = {kind = f.disposal, x = f.x, y = f.y, w = f.w, h = f.h, snap = snap}
+
+            -- amostragem: um quadro a cada `step` (soma os atrasos do grupo)
+            if (k - 1) % step == 0 then
+                pngs[#pngs + 1] = encodePng(canvas, W, ow, oh, xmap, ymap)
+                delays[#pngs] = 0
+                acc = #pngs
+            end
+            if acc > 0 then delays[acc] = delays[acc] + f.delay / 100 end
+            if opts.onProg then opts.onProg(k, n) end
+            if opts.firstOnly and #pngs >= 1 then break end
+            if yield then yield() end
+            if os.clock() - t0 > budget and #pngs >= 2 then break end
+        end
+        return {frames = pngs, delays = delays, w = ow, h = oh, n = n, srcW = W, srcH = H}
+    end
+
+    function Gif.decode(data, opts)
+        local ok, res = pcall(decodeInner, data, opts or {})
+        if ok then return res end
+        return nil, tostring(res)
+    end
+
+    ---------------------------------------------------------------- cache em disco
+    local function ensureDir(sub)
+        pcall(function()
+            if not isfolder("PHONE") then makefolder("PHONE") end
+            if not isfolder(GIF_DIR) then makefolder(GIF_DIR) end
+            if sub and not isfolder(GIF_DIR .. "/" .. sub) then makefolder(GIF_DIR .. "/" .. sub) end
+        end)
+    end
+
+    -- gifName: nome legivel do GIF (ex: "gato_dancando.gif") para pasta amigavel.
+    -- A pasta real continua sendo GIF_DIR/key (hash) para evitar colisoes,
+    -- mas salvamos o nome em meta.txt para exibicao.
+    local assetMemo = {}
+    local baking = {}
+
+    local function bakeInner(key, data, opts, gifName)
+        local res, err = Gif.decode(data, opts)
+        if not res then return nil, err end
+        ensureDir(key)
+        local dir = GIF_DIR .. "/" .. key
+        -- apaga o meta antigo: so existe meta quando TODOS os quadros foram gravados
+        pcall(function()
+            if isfile(dir .. "/meta.txt") then delfile(dir .. "/meta.txt") end
+        end)
+        local paths, ds = {}, {}
+        for i, png in ipairs(res.frames) do
+            local p = dir .. "/" .. key .. "_f" .. i .. ".png"
+            assetMemo[p] = nil   -- nunca reutilizar asset antigo do mesmo caminho
+            if not pcall(writefile, p, png) then return nil, "writefile indisponivel" end
+            paths[i] = p
+            ds[i] = string.format("%.3f", res.delays[i])
+        end
+        -- v5: inclui nome legivel do GIF na 1a linha do meta
+        local nameLine = tostring(gifName or key):gsub("[%c\n]", "_")
+        pcall(writefile, dir .. "/meta.txt",
+            "v5 " .. #data .. " " .. #paths .. " " .. res.w .. " " .. res.h .. " " .. nameLine .. "\n" .. table.concat(ds, ","))
+        return {key = key, name = nameLine, dir = dir, paths = paths, delays = res.delays, w = res.w, h = res.h, srcLen = #data}
+    end
+
+    -- FIX: trava por chave. Antes, Galeria + "salvar na galeria" podiam decodificar o MESMO
+    -- GIF ao mesmo tempo, escrevendo nos mesmos arquivos (e decodificando de novo).
+    function Gif.bake(key, data, opts, gifName)
+        if baking[key] then
+            local t0 = os.clock()
+            while baking[key] and os.clock() - t0 < 90 do
+                if opts and opts.cancelled and opts.cancelled() then return nil, "cancelado" end
+                task.wait(0.1)
+            end
+            local info = Gif.load(key, #data)
+            if info then return info end
+            if baking[key] then return nil, "ocupado" end
+        end
+        baking[key] = true
+        local ok, info, err = pcall(bakeInner, key, data, opts, gifName)
+        baking[key] = nil
+        if not ok then return nil, tostring(info) end
+        return info, err
+    end
+
+    -- copia quadros ja prontos de outra chave (muito mais rapido que decodificar de novo)
+    function Gif.clone(srcKey, dstKey, srcLen, gifName)
+        local src = Gif.load(srcKey, srcLen)
+        if not src then return nil end
+        local already = Gif.load(dstKey, srcLen)
+        if already then return already end
+        if baking[dstKey] then return nil end
+        baking[dstKey] = true
+        local result
+        local ok = pcall(function()
+            ensureDir(dstKey)
+            local dir = GIF_DIR .. "/" .. dstKey
+            pcall(function()
+                if isfile(dir .. "/meta.txt") then delfile(dir .. "/meta.txt") end
+            end)
+            local paths, ds = {}, {}
+            for i, sp in ipairs(src.paths) do
+                local okR, png = pcall(readfile, sp)
+                if not okR or type(png) ~= "string" then error("ler quadro") end
+                local p = dir .. "/" .. dstKey .. "_f" .. i .. ".png"
+                assetMemo[p] = nil
+                if not pcall(writefile, p, png) then error("gravar quadro") end
+                paths[i] = p
+                ds[i] = string.format("%.3f", src.delays[i] or 0.1)
+                if i % 8 == 0 then task.wait() end
+            end
+            local nameLine = tostring(gifName or dstKey):gsub("[%c\n]", "_")
+            writefile(dir .. "/meta.txt",
+                "v5 " .. srcLen .. " " .. #paths .. " " .. src.w .. " " .. src.h .. " " .. nameLine .. "\n" .. table.concat(ds, ","))
+            result = {key = dstKey, name = nameLine, dir = dir, paths = paths, delays = src.delays, w = src.w, h = src.h, srcLen = srcLen}
+        end)
+        baking[dstKey] = nil
+        if ok then return result end
+        return nil
+    end
+
+    function Gif.load(key, expectLen)
+        local dir = GIF_DIR .. "/" .. key
+        local mp = dir .. "/meta.txt"
+        local okF, has = pcall(isfile, mp)
+        if not (okF and has) then return nil end
+        local okR, txt = pcall(readfile, mp)
+        if not okR or type(txt) ~= "string" then return nil end
+        -- suporta v4 (sem nome) e v5 (com nome)
+        local len, n, w, h, namePart, ds
+        len, n, w, h, namePart, ds = txt:match("^v5 (%d+) (%d+) (%d+) (%d+) ([^\n]+)\n(.*)$")
+        if not len then
+            -- fallback v4
+            len, n, w, h, ds = txt:match("^v4 (%d+) (%d+) (%d+) (%d+)\n(.*)$")
+            namePart = key
+        end
+        if not len then return nil end
+        len, n = tonumber(len), tonumber(n)
+        if expectLen and len ~= expectLen then return nil end
+        local paths, delays = {}, {}
+        for i = 1, n do paths[i] = dir .. "/" .. key .. "_f" .. i .. ".png" end
+        for v in (ds or ""):gmatch("[%d%.]+") do delays[#delays + 1] = tonumber(v) end
+        local okA, hasA = pcall(isfile, paths[n])
+        if not (okA and hasA) then return nil end
+        return {key = key, name = namePart or key, dir = dir, paths = paths, delays = delays, w = tonumber(w), h = tonumber(h), srcLen = len}
+    end
+
+    -- miniatura rapida (so o 1o quadro) para a grade da Galeria
+    function Gif.thumbPath(key)
+        local info = Gif.load(key)
+        if info then return info.paths[1] end
+        local p = GIF_DIR .. "/" .. key .. "/" .. key .. "_thumb.png"
+        local okF, has = pcall(isfile, p)
+        if okF and has then return p end
+        return nil
+    end
+
+    function Gif.makeThumb(key, data, opts)
+        opts = opts or {}
+        opts.firstOnly = true
+        local res = Gif.decode(data, opts)
+        if not res or not res.frames[1] then return nil end
+        ensureDir(key)
+        local p = GIF_DIR .. "/" .. key .. "/" .. key .. "_thumb.png"
+        if pcall(writefile, p, res.frames[1]) then return p end
+        return nil
+    end
+
+    function Gif.asset(path)
+        if assetMemo[path] then return assetMemo[path] end
+        local ok, a = pcall(getcustomasset, path)
+        if ok and type(a) == "string" and a ~= "" then assetMemo[path] = a; return a end
+        return nil
+    end
+
+    function Gif.assets(info)
+        local list = {}
+        for i, p in ipairs(info.paths) do
+            local a = Gif.asset(p)
+            if not a then return nil end
+            list[i] = a
+        end
+        return list
+    end
+
+    -- pre-carga com limite de tempo: PreloadAsync pode nunca retornar em alguns executores
+    function Gif.preload(assets, timeout)
+        local done = false
+        task.spawn(function()
+            pcall(function() game:GetService("ContentProvider"):PreloadAsync(assets) end)
+            done = true
+        end)
+        local t0 = os.clock()
+        while not done and os.clock() - t0 < (timeout or 1.5) do task.wait(0.05) end
+    end
+
+    -- Reproducao a 60 Hz (Heartbeat): relogio acumulado + mistura suave entre quadros.
+    -- state = {playing = bool, smooth = bool}; `over` = ImageLabel por cima (filho do principal)
+    -- FIX: checa cancelled() ANTES de qualquer escrita na imagem para evitar
+    -- que um Heartbeat antigo pinte o ImageLabel com o GIF errado.
+    -- FIX: so UMA reproducao por ImageLabel. Iniciar um GIF novo derruba o anterior na hora
+    -- (antes o Heartbeat velho so morria no proximo frame e podia pintar/limpar o GIF novo).
+    local playing = setmetatable({}, {__mode = "k"})
+    function Gif.stop(img)
+        local s = playing[img]
+        if s then
+            s.dead = true
+            if s.conn then s.conn:Disconnect() end
+            playing[img] = nil
+        end
+    end
+
+    function Gif.play(img, over, assets, delays, cancelled, state)
+        local RS = game:GetService("RunService")
+        local n = #assets
+        local idx, t = 1, 0
+        Gif.stop(img)
+        if over then Gif.stop(over) end
+        local session = {dead = false}
+        playing[img] = session
+        -- Nao define img.Image aqui: quem chama ja colocou o 1o quadro (thumb).
+        -- Isso evita flash do frame 1 sobre outro GIF que ainda esta sendo cancelado.
+        local conn
+        conn = RS.Heartbeat:Connect(function(dt)
+            -- substituido por outro GIF: sai SEM mexer na UI (ela ja pertence ao GIF novo)
+            if session.dead then
+                conn:Disconnect()
+                return
+            end
+            -- checagem IMEDIATA antes de qualquer write
+            if cancelled() then
+                conn:Disconnect()
+                if playing[img] == session then playing[img] = nil end
+                -- limpa o overlay para nao vazar quadro por cima do proximo GIF
+                if over then over.Visible = false; over.Image = "" end
+                return
+            end
+            if not state.playing then return end
+            if dt > 0.25 then dt = 0.25 end
+            t = t + dt
+            local d = delays[idx] or 0.1
+            if d <= 0 then d = 0.1 end
+            local changed, guard = false, 0
+            while t >= d and guard < n do
+                t = t - d
+                idx = idx % n + 1
+                d = delays[idx] or 0.1
+                if d <= 0 then d = 0.1 end
+                changed = true
+                guard = guard + 1
+            end
+            if guard >= n then t = 0 end
+            -- segunda checagem apos calcular (loop pesado pode demorar)
+            if session.dead then conn:Disconnect(); return end
+            if cancelled() then
+                conn:Disconnect()
+                if playing[img] == session then playing[img] = nil end
+                if over then over.Visible = false; over.Image = "" end
+                return
+            end
+            if changed then img.Image = assets[idx] end
+            if over then
+                if state.smooth and n > 1 then
+                    local nxt = idx % n + 1
+                    over.Visible = true
+                    if over.Image ~= assets[nxt] then over.Image = assets[nxt] end
+                    over.ImageTransparency = 1 - math.clamp(t / d, 0, 1)
+                else
+                    over.Visible = false
+                end
+            end
+        end)
+        session.conn = conn
+        return session
+    end
+
+    function Gif.remove(key)
+        local dir = GIF_DIR .. "/" .. key
+        pcall(function()
+            for _, f in ipairs(listfiles(dir)) do
+                assetMemo[tostring(f):gsub("\\", "/")] = nil
+                pcall(delfile, f)
+            end
+        end)
+        pcall(function() if delfolder then delfolder(dir) end end)
+    end
+
+    function Gif.purge(prefix)
+        pcall(function()
+            for _, d in ipairs(listfiles(GIF_DIR)) do
+                local name = tostring(d):gsub("\\", "/"):match("([^/]+)$") or ""
+                if name:sub(1, #prefix) == prefix then Gif.remove(name) end
+            end
+        end)
+    end
+
+    return Gif
+end)()
+
 local navBars = {}
 
 local function applyNavMode()
@@ -788,7 +1468,6 @@ local function createNavBar(parent)
     makeBtn("HomeBtn", 0.5, Icons.home, function() Nav.home() end)
     makeBtn("RecentsBtn", 0.8, Icons.recents, function() Nav.recents() end)
 
-    -- modo gestos: pílula + área de toque
     local pill = Instance.new("Frame")
     pill.Name = "GesturePill"
     pill.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -840,7 +1519,7 @@ local function createNavBar(parent)
             TweenService:Create(pill, TweenInfo.new(0.15), {Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
             local dx, dy = i.Position.X - gStart.X, i.Position.Y - gStart.Y
             if dy < -26 and math.abs(dy) > math.abs(dx) then
-                -- deslizar pra cima e SEGURAR = recentes; só deslizar = início
+
                 if os.clock() - gLastMove > 0.35 then Nav.recents() else Nav.home() end
             elseif math.abs(dx) > 36 and math.abs(dx) > math.abs(dy) then
                 Nav.back()
@@ -867,14 +1546,6 @@ local function createNavBar(parent)
     return nb
 end
 
--- =========================================================
--- BARRA DE STATUS  (relógio · FPS ........ sinal · bateria)
---   Nav.status.create(frame)  -> coloca a barra no topo de QUALQUER tela do celular
---   Nav.status.setFps(n)      -> atualiza o FPS em todas as barras
---   Nav.status.applyFps()     -> reaplica a visibilidade do FPS (switch em Config)
---   * Sinal  = ping real do servidor (4 barras)
---   * Bateria = SIMULADA (o Roblox não expõe a bateria do aparelho) - troque batteryLevel() se tiver fonte real
--- =========================================================
 Nav.status = {bars = {}, fps = 0, t0 = os.clock(), running = false}
 
 do
@@ -902,7 +1573,7 @@ do
     end
 
     local function batteryLevel()
-        return math.max(5, 100 - math.floor((os.clock() - SB.t0) / 90)) -- -1% a cada 90 s
+        return math.max(5, 100 - math.floor((os.clock() - SB.t0) / 90))
     end
 
     local function txt(parent, name, pos, size, text, ts, align)
@@ -934,7 +1605,6 @@ do
         bar.Parent = parent
         sb.bar = bar
 
-        -- ESQUERDA: relógio + FPS
         local clock = txt(bar, "Clock", UDim2.new(0, 14, 0, 0), UDim2.new(0, 40, 1, 0), os.date("%H:%M"), 12, Enum.TextXAlignment.Left)
 
         local pill = Instance.new("Frame")
@@ -962,7 +1632,6 @@ do
         tsc.MinTextSize = 5
         tsc.Parent = fpsText
 
-        -- DIREITA: sinal (4 barras)
         local sig = Instance.new("Frame")
         sig.Name = "Signal"
         sig.Size = UDim2.new(0, 14, 0, 10)
@@ -984,7 +1653,6 @@ do
             sigBars[i] = b
         end
 
-        -- DIREITA: % + bateria
         local pct = txt(bar, "BatteryPct", UDim2.new(1, -68, 0, 0), UDim2.new(0, 26, 1, 0), "100", 10, Enum.TextXAlignment.Right)
 
         local bat = Instance.new("Frame")
@@ -1027,7 +1695,6 @@ do
         fill.Parent = body
         corner(fill, UDim.new(0, 2))
 
-        -- atualização (relógio, sinal, bateria)
         local lastSig, lastBat, blink = -1, -1, false
         function sb.refresh()
             clock.Text = os.date("%H:%M")
@@ -1050,7 +1717,7 @@ do
                     BackgroundColor3 = col,
                 })
             end
-            if lastBat <= 15 then -- bateria fraca: pisca
+            if lastBat <= 15 then
                 blink = not blink
                 tween(fill, TweenInfo.new(0.45), {BackgroundTransparency = blink and 0.65 or 0})
             elseif fill.BackgroundTransparency ~= 0 then
@@ -1068,7 +1735,6 @@ do
             tween(pillStroke, TI_FAST, {Color = col})
         end
 
-        -- animação de entrada: sempre que a tela abre, a barra desce suave
         parent:GetPropertyChangedSignal("Visible"):Connect(function()
             if parent.Visible then
                 sb.refresh()
@@ -1111,15 +1777,6 @@ do
     end
 end
 
--- =========================================================
--- CARCAÇA DO CELULAR (estilo iOS)
---   Nav.shell.create(frame)  -> vira o corpo do celular: vidro preto, moldura metálica com brilho,
---                               botões laterais, Dynamic Island com lente, reflexo de vidro e sombra
---   Nav.shell.setTheme(nome) -> titanio | grafite | prata | azul | verde  (salvo em settings.json)
---   Nav.shell.nextTheme()    -> troca para a próxima cor e devolve o nome (usado em Config)
---   Nav.shell.volumeUp/volumeDown -> botões laterais da carcaça (definidos no bloco VOLUME)
--- Tudo desenhado com formas de UI (sem imagens), então nenhuma "orelha"/asset externo.
--- =========================================================
 Nav.shell = {list = {}, order = {"titanio", "grafite", "prata", "azul", "verde"}}
 
 do
@@ -1147,7 +1804,6 @@ do
     function SH.create(frame)
         local s = {btnGrads = {}}
 
-        -- anel (só contorno) que cresce para fora da tela: base de sombra, vidro e moldura
         local function ring(name, inset, shift, radius, thick, color, trans, z)
             local f = Instance.new("Frame")
             f.Name = name
@@ -1166,24 +1822,19 @@ do
             return f, st
         end
 
-        -- sombra suave (3 camadas, deslocada para baixo)
         ring("Shadow1", 11, 6, 39, 6, Color3.new(0, 0, 0), 0.90, 0)
         ring("Shadow2", 17, 7, 45, 8, Color3.new(0, 0, 0), 0.94, 0)
         ring("Shadow3", 25, 8, 53, 10, Color3.new(0, 0, 0), 0.97, 0)
 
-        -- borda de vidro preto ao redor da tela
         ring("Bezel", 0, 0, 28, 6, rgb(6, 6, 8), 0, 1)
 
-        -- moldura metálica com brilho diagonal
         local _, chassisStroke = ring("Chassis", 6, 0, 34, 4, WHITE, 0, 2)
         s.chassisGrad = Instance.new("UIGradient")
         s.chassisGrad.Rotation = 45
         s.chassisGrad.Parent = chassisStroke
 
-        -- fio de luz na aresta externa
         ring("EdgeLight", 10, 0, 38, 1, WHITE, 0.72, 3)
 
-        -- botões laterais: área de toque larga + peça metálica fina; segurar repete a ação
         local function sideButton(name, left, y, h, action, repeating)
             local hit = Instance.new("TextButton")
             hit.Name = name
@@ -1240,7 +1891,6 @@ do
         sideButton("VolDownButton", true, 160, 34, function() if SH.volumeDown then SH.volumeDown() end end, true)
         sideButton("PowerButton", false, 140, 56)
 
-        -- Dynamic Island com lente da câmera e sensor
         local island = Instance.new("Frame")
         island.Name = "Island"
         island.AnchorPoint = Vector2.new(0.5, 0)
@@ -1280,7 +1930,6 @@ do
         glint.Position = UDim2.new(0, 2, 0, 2)
         glint.BackgroundTransparency = 0.25
 
-        -- reflexo de vidro (faixa de luz que cruza a tela quando o app abre)
         local glare = Instance.new("Frame")
         glare.Name = "Glare"
         glare.Size = UDim2.new(1, 0, 1, 0)
@@ -1305,8 +1954,6 @@ do
         })
         bg.Parent = band
 
-        -- indicador de volume estilo iOS (pílula vertical na esquerda da tela)
-        -- recorte do tamanho da tela: o indicador entra e sai por dentro da borda, nunca fica fora da carcaça
         local hudClip = Instance.new("Frame")
         hudClip.Name = "VolumeHUDClip"
         hudClip.Size = UDim2.new(1, 0, 1, 0)
@@ -1399,7 +2046,6 @@ do
         end
         s.apply(SH.current)
 
-        -- animação ao abrir: a ilha "respira" e o reflexo atravessa a tela
         frame:GetPropertyChangedSignal("Visible"):Connect(function()
             if not frame.Visible then return end
             island.Size = UDim2.new(0, 82, 0, 24)
@@ -1444,17 +2090,8 @@ do
     end
 end
 
-
-
-
-
--- =========================================================
--- HOTBAR SÓ DO PHONE (CENTRO SUPERIOR)
--- =========================================================
 destroyOld("TzeCustomHotbar")
 
-
--- ###################### HOTBAR ######################
 do
 
 local HotbarGui = Instance.new("ScreenGui")
@@ -1523,10 +2160,6 @@ selStroke.Parent = selectedFrame
 Instance.new("UICorner", selectedFrame).CornerRadius = UDim.new(0, 10)
 end
 
-
--- =========================================================
--- PHONE SYSTEM
--- =========================================================
 destroyOld("TzeMusicSystem")
 
 local ScreenGui = Instance.new("ScreenGui")
@@ -1566,7 +2199,6 @@ local currentPhotoIndex = 0
 local photoList = {}
 local filteredPhotoList = {}
 
--- ###################### HOME ######################
 do
 PhoneHome = Instance.new("Frame")
 PhoneHome.Name = "PhoneHome"
@@ -1577,10 +2209,9 @@ PhoneHome.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 PhoneHome.BorderSizePixel = 0
 PhoneHome.Visible = false
 PhoneHome.Active = true
-PhoneHome.Draggable = false -- FIXO
+PhoneHome.Draggable = false
 PhoneHome.Parent = ScreenGui
 Instance.new("UICorner", PhoneHome).CornerRadius = UDim.new(0, 28)
-
 
 homeBg = Instance.new("ImageLabel")
 homeBg.Name = "Wallpaper"
@@ -1616,8 +2247,12 @@ homeTitle.TextSize = 22
 homeTitle.ZIndex = 5
 homeTitle.Parent = PhoneHome
 
-local appsContainer = Instance.new("Frame")
-appsContainer.Size = UDim2.new(1, -40, 0, 280)
+local appsContainer = Instance.new("ScrollingFrame")
+appsContainer.Size = UDim2.new(1, -40, 0, 285)
+appsContainer.CanvasSize = UDim2.new(0, 0, 0, 396)
+appsContainer.ScrollBarThickness = 0
+appsContainer.ScrollingDirection = Enum.ScrollingDirection.Y
+appsContainer.BorderSizePixel = 0
 appsContainer.Position = UDim2.new(0, 20, 0, 110)
 appsContainer.BackgroundTransparency = 1
 appsContainer.ZIndex = 5
@@ -1659,7 +2294,6 @@ local function createAppIcon(name, drawIcon, color, pos)
     nameLabel.ZIndex = 7
     nameLabel.Parent = icon
 
-    -- animação de toque (afunda e volta, igual celular)
     icon.MouseButton1Down:Connect(function()
         TweenService:Create(bg, TweenInfo.new(0.1), {Size = UDim2.new(0, 58, 0, 58), Position = UDim2.new(0.5, -29, 0, 3)}):Play()
     end)
@@ -1679,9 +2313,9 @@ GalleryAppIcon = createAppIcon("Galeria", Icons.gallery, Color3.fromRGB(180, 80,
 Nav.gps.icon = createAppIcon("GPS", Icons.gps, Color3.fromRGB(46, 190, 120), UDim2.new(0, 85, 0, 100))
 WebBrowserIcon = createAppIcon("Navegador", Icons.search, Color3.fromRGB(35, 145, 205), UDim2.new(0, 5, 0, 200))
 
-createNavBar(PhoneHome)
+Nav.__mkIconFn = createAppIcon
 
--- FPS (relógio, sinal e bateria são atualizados pela própria barra de status)
+createNavBar(PhoneHome)
 
 local frameCount = 0
 local lastFpsUpdate = os.clock()
@@ -1698,10 +2332,6 @@ RunService.RenderStepped:Connect(function()
 end)
 end
 
-
--- ###################### VOLUME ######################
--- Controlado pelos botões FÍSICOS da carcaça (lado esquerdo): segurar repete, passo de 10%.
--- Mostra o indicador de volume na tela e aplica na música tocando.
 do
     local function step(delta)
         currentVolume = math.clamp(math.floor((currentVolume + delta) * 10 + 0.5) / 10, 0, 1)
@@ -1714,20 +2344,6 @@ do
     Nav.shell.volumeDown = function() step(-0.1) end
 end
 
-
--- ###################### MÚSICA (rework V7) ######################
--- App de música refeito do zero:
---   * 3 abas: Biblioteca | Tocando | Sound ID (com indicador deslizante)
---   * Cor de destaque automática por faixa (muda suave a cada música)
---   * Aba "Tocando": disco girando + brilho que pulsa + visualizador de 32 barras,
---     barra de progresso com seek (clique/arraste), play/pause grande, anterior/próxima,
---     shuffle (com pilha de voltar) e repeat em 3 modos (off / todas / uma)
---   * Biblioteca: busca com botão limpar, filtro de favoritas, ordenação A-Z / Z-A,
---     equalizador animado na faixa atual, coração para favoritar (salvo no settings.json)
---   * Sound ID: histórico dos últimos IDs (salvo), nome do áudio buscado automaticamente
---   * Mini player nas abas Biblioteca/Sound ID para controlar sem sair da lista
---   * Suporta .mp3 e .ogg em PHONE/Music
--- API externa mantida: MainFrame, refreshFiles(), stopMusic(), currentSound
 do
 local GREEN = Color3.fromRGB(50, 205, 50)
 local CARD = Color3.fromRGB(22, 22, 28)
@@ -1740,7 +2356,6 @@ local FONT, FONTB, FONTM, FONTC = Enum.Font.Gotham, Enum.Font.GothamBold, Enum.F
 local LEFT, RIGHT = Enum.TextXAlignment.Left, Enum.TextXAlignment.Right
 local MarketplaceService = game:GetService("MarketplaceService")
 
--- ---------- helpers ----------
 local function mk(class, props, parent)
     local o = Instance.new(class)
     for k, v in pairs(props) do o[k] = v end
@@ -1765,7 +2380,6 @@ local function isMove(i)
     return i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch
 end
 
--- ícone # (aba Sound ID), desenhado igual aos outros
 function Icons.hash(parent, S, color, z)
     local c, u = iconRoot(parent, S)
     local th = T(2.2, u)
@@ -1776,7 +2390,6 @@ function Icons.hash(parent, S, color, z)
     return c
 end
 
--- ---------- dados salvos ----------
 if type(phoneSettings.musicFavs) ~= "table" then phoneSettings.musicFavs = {} end
 do
     local fixed = {}
@@ -1791,13 +2404,12 @@ do
     phoneSettings.musicIds = fixed
 end
 
--- ---------- estado ----------
 shuffleMode = phoneSettings.musicShuffle == true
-local repeatState = math.clamp(tonumber(phoneSettings.musicRepeat) or 0, 0, 2) -- 0 off | 1 todas | 2 uma
+local repeatState = math.clamp(tonumber(phoneSettings.musicRepeat) or 0, 0, 2)
 local sortAsc = phoneSettings.musicSortDesc ~= true
 local onlyFavs = false
 local activeTab = "library"
-local status = "idle" -- idle | loading | playing | paused | failed
+local status = "idle"
 local currentItem = nil
 local queue, queueIdx = {}, 0
 local shuffleStack = {}
@@ -1813,7 +2425,6 @@ local UI = {}
 local setTab, updateMini, layoutLists, updateList, updateHistory, updateTrackUI, refreshToggles
 local onEnded, playItem, stepTrack, togglePlay
 
--- ---------- cor de destaque (suave) ----------
 local accentCur, accentTar = GREEN, GREEN
 local accentTargets = {}
 
@@ -1839,7 +2450,6 @@ local function setAccent(c)
     refreshToggles()
 end
 
--- ---------- favoritos ----------
 local function isFav(name)
     return phoneSettings.musicFavs[name] == true
 end
@@ -1853,9 +2463,6 @@ local function toggleFav(name)
     saveSettings()
 end
 
--- =========================================================
--- INTERFACE
--- =========================================================
 MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 280, 0, 440)
 MainFrame.Position = PhoneHome.Position
@@ -1868,8 +2475,6 @@ MainFrame.Parent = ScreenGui
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 28)
 mk("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(19, 19, 26), Color3.fromRGB(9, 9, 12)), Rotation = 90}, MainFrame)
 
-
--- brilho colorido no topo (segue a cor da faixa)
 UI.tint = mk("Frame", {Size = UDim2.new(1, 0, 0, 250), BackgroundColor3 = GREEN, BorderSizePixel = 0, ZIndex = 1}, MainFrame)
 corner(UI.tint, UDim.new(0, 28))
 mk("UIGradient", {Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 1)}), Rotation = 90}, UI.tint)
@@ -1878,7 +2483,6 @@ trackAccent(UI.tint, "BackgroundColor3")
 Nav.shell.create(MainFrame)
 Nav.status.create(MainFrame)
 
--- ---------- cabeçalho ----------
 local TopBar = mk("Frame", {Size = UDim2.new(1, 0, 0, 38), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1}, MainFrame)
 local logo = mk("Frame", {Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(0, 14, 0.5, -14), BorderSizePixel = 0}, TopBar)
 corner(logo, UDim.new(0, 9))
@@ -1888,7 +2492,6 @@ mk("TextLabel", {Size = UDim2.new(0, 110, 0, 28), Position = UDim2.new(0, 50, 0.
 UI.count = mk("TextLabel", {Size = UDim2.new(0, 84, 0, 22), Position = UDim2.new(1, -98, 0.5, -11), BackgroundColor3 = CARD, BorderSizePixel = 0, Text = "0 faixas", TextColor3 = SUBC, Font = FONTM, TextSize = 11}, TopBar)
 corner(UI.count, UDim.new(1, 0))
 
--- ---------- abas ----------
 local TabBar = mk("Frame", {Size = UDim2.new(1, -24, 0, 32), Position = UDim2.new(0, 12, 0, 82), BackgroundColor3 = CARD, BorderSizePixel = 0}, MainFrame)
 corner(TabBar, UDim.new(0, 12))
 UI.indicator = mk("Frame", {Size = UDim2.new(1 / 3, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BorderSizePixel = 0, ZIndex = 2}, TabBar)
@@ -1908,21 +2511,17 @@ for i, td in ipairs(tabDefs) do
     b.MouseButton1Click:Connect(function() setTab(td.id) end)
 end
 
--- ---------- telas (views) ----------
 local function mkView()
     return mk("Frame", {Size = UDim2.new(1, 0, 0, 282), Position = UDim2.new(0, 0, 0, 120), BackgroundTransparency = 1, Visible = false}, MainFrame)
 end
 UI.views = {library = mkView(), player = mkView(), id = mkView()}
 
--- =========================================================
--- ABA: BIBLIOTECA
--- =========================================================
 do
     local V = UI.views.library
     local wrap = mk("Frame", {Size = UDim2.new(1, -56, 0, 30), Position = UDim2.new(0, 12, 0, 0), BackgroundColor3 = CARD, BorderSizePixel = 0}, V)
     corner(wrap, UDim.new(0, 10))
     Icons.searchField(wrap, 15, 10)
-    UI.search = mk("TextBox", {Size = UDim2.new(1, -62, 1, 0), Position = UDim2.new(0, 32, 0, 0), BackgroundTransparency = 1, PlaceholderText = "Pesquisar música...", PlaceholderColor3 = MUTED, Text = "", TextColor3 = WHITE, Font = FONT, TextSize = 13, TextXAlignment = LEFT, ClearTextOnFocus = false}, wrap)
+    UI.search = mk("TextBox", {Size = UDim2.new(1, -62, 1, 0), Position = UDim2.new(0, 32, 0, 0), BackgroundTransparency = 1, PlaceholderText = "Pesquisar música...", PlaceholderColor3 = MUTED, Text = "", TextColor3 = WHITE, Font = FONT, TextSize = 13, TextXAlignment = LEFT, ClearTextOnFocus = false, ClipsDescendants = true, TextWrapped = false}, wrap)
     UI.clear = mkBtn(wrap, UDim2.new(0, 24, 0, 24), UDim2.new(1, -28, 0.5, -12), 3)
     UI.clear.Visible = false
     Icons.put(UI.clear, Icons.close, 12, SUBC, 4)
@@ -1939,19 +2538,14 @@ do
     mk("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, UI.list)
 end
 
--- =========================================================
--- ABA: TOCANDO
--- =========================================================
 do
     local V = UI.views.player
 
-    -- brilho (pulsa com o volume da música)
     local glow = mk("Frame", {Size = UDim2.new(0, 106, 0, 106), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 52), BackgroundTransparency = 1}, V)
     corner(glow, UDim.new(1, 0))
     UI.glow = mk("UIStroke", {Thickness = 2, Transparency = 0.7}, glow)
     trackAccent(UI.glow, "Color")
 
-    -- disco
     UI.disc = mk("Frame", {Size = UDim2.new(0, 92, 0, 92), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 52), BackgroundColor3 = Color3.fromRGB(16, 16, 20), BorderSizePixel = 0}, V)
     corner(UI.disc, UDim.new(1, 0))
     mk("UIStroke", {Color = Color3.fromRGB(48, 48, 60), Thickness = 1.5}, UI.disc)
@@ -1967,12 +2561,10 @@ do
     local shine = mk("Frame", {Size = UDim2.new(0, 7, 0, 7), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 8), BackgroundColor3 = WHITE, BackgroundTransparency = 0.65, BorderSizePixel = 0}, UI.disc)
     corner(shine, UDim.new(1, 0))
 
-    -- título / subtítulo / coração
     UI.ptitle = mk("TextLabel", {Size = UDim2.new(1, -84, 0, 22), Position = UDim2.new(0, 42, 0, 104), BackgroundTransparency = 1, Text = "Nenhuma música", TextColor3 = WHITE, Font = FONTB, TextSize = 16, TextTruncate = Enum.TextTruncate.AtEnd}, V)
     UI.psub = mk("TextLabel", {Size = UDim2.new(1, -40, 0, 16), Position = UDim2.new(0, 20, 0, 126), BackgroundTransparency = 1, Text = "", TextColor3 = SUBC, Font = FONT, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd}, V)
     UI.pheart = mkBtn(V, UDim2.new(0, 28, 0, 28), UDim2.new(1, -40, 0, 101), 3)
 
-    -- visualizador (32 barras)
     local viz = mk("Frame", {Size = UDim2.new(1, -24, 0, 30), Position = UDim2.new(0, 12, 0, 148), BackgroundTransparency = 1}, V)
     UI.bars, UI.barVals = {}, {}
     for i = 1, 32 do
@@ -1983,7 +2575,6 @@ do
         UI.barVals[i] = 3
     end
 
-    -- barra de progresso (seek)
     UI.seekHit = mk("TextButton", {Size = UDim2.new(1, -24, 0, 22), Position = UDim2.new(0, 12, 0, 184), BackgroundTransparency = 1, Text = "", AutoButtonColor = false}, V)
     local track = mk("Frame", {Size = UDim2.new(1, 0, 0, 4), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = CARD2, BorderSizePixel = 0}, UI.seekHit)
     corner(track, UDim.new(1, 0))
@@ -1996,7 +2587,6 @@ do
     UI.timeL = mk("TextLabel", {Size = UDim2.new(0.5, -14, 0, 12), Position = UDim2.new(0, 14, 0, 208), BackgroundTransparency = 1, Text = "00:00", TextColor3 = SUBC, Font = FONTC, TextSize = 10, TextXAlignment = LEFT}, V)
     UI.timeR = mk("TextLabel", {Size = UDim2.new(0.5, -14, 0, 12), Position = UDim2.new(0.5, 0, 0, 208), BackgroundTransparency = 1, Text = "00:00", TextColor3 = SUBC, Font = FONTC, TextSize = 10, TextXAlignment = RIGHT}, V)
 
-    -- controles
     local ctrls = mk("Frame", {Size = UDim2.new(1, -24, 0, 54), Position = UDim2.new(0, 12, 0, 224), BackgroundTransparency = 1}, V)
     local function ctl(frac, w, h, bg)
         local b = mk("TextButton", {Size = UDim2.new(0, w, 0, h), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(frac, 0, 0.5, 0), BackgroundColor3 = bg or CARD, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 2}, ctrls)
@@ -2013,9 +2603,6 @@ do
     Icons.put(UI.next, Icons.next, 20, WHITE, 3)
 end
 
--- =========================================================
--- MINI PLAYER (aparece nas abas Biblioteca / Sound ID)
--- =========================================================
 do
     UI.mini = mk("Frame", {Size = UDim2.new(1, -24, 0, 52), Position = UDim2.new(0, 12, 0, 342), BackgroundColor3 = CARD, BorderSizePixel = 0, Visible = false, ZIndex = 10}, MainFrame)
     corner(UI.mini, UDim.new(0, 16))
@@ -2041,9 +2628,6 @@ do
     trackAccent(UI.mfill, "BackgroundColor3")
 end
 
--- =========================================================
--- ABA: SOUND ID
--- =========================================================
 do
     local V = UI.views.id
     mk("TextLabel", {Size = UDim2.new(1, -24, 0, 14), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = "SOUND ID DO ROBLOX", TextColor3 = SUBC, Font = FONTB, TextSize = 10, TextXAlignment = LEFT}, V)
@@ -2054,20 +2638,25 @@ do
     corner(UI.idPlay, UDim.new(0, 10))
     trackAccent(UI.idPlay, "BackgroundColor3")
 
-    mk("TextLabel", {Size = UDim2.new(0.5, -14, 0, 14), Position = UDim2.new(0, 14, 0, 62), BackgroundTransparency = 1, Text = "RECENTES", TextColor3 = SUBC, Font = FONTB, TextSize = 10, TextXAlignment = LEFT}, V)
-    UI.clearHist = mk("TextButton", {Size = UDim2.new(0, 60, 0, 14), Position = UDim2.new(1, -72, 0, 62), BackgroundTransparency = 1, Text = "Limpar", Font = FONTB, TextSize = 11, TextXAlignment = RIGHT, AutoButtonColor = false}, V)
+    mk("TextLabel", {Size = UDim2.new(1, -24, 0, 14), Position = UDim2.new(0, 14, 0, 58), BackgroundTransparency = 1, Text = "LINK DE ÁUDIO (MP3/OGG)", TextColor3 = SUBC, Font = FONTB, TextSize = 10, TextXAlignment = LEFT}, V)
+    UI.urlInput = mk("TextBox", {Size = UDim2.new(1, -98, 0, 34), Position = UDim2.new(0, 12, 0, 74), BackgroundColor3 = CARD, BorderSizePixel = 0, PlaceholderText = "https://site.com/musica.mp3", PlaceholderColor3 = MUTED, Text = "", TextColor3 = WHITE, Font = FONT, TextSize = 12, TextXAlignment = LEFT, ClearTextOnFocus = false, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, ClipsDescendants = true}, V)
+    corner(UI.urlInput, UDim.new(0, 10))
+    mk("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)}, UI.urlInput)
+    UI.urlPlay = mk("TextButton", {Size = UDim2.new(0, 70, 0, 34), Position = UDim2.new(1, -82, 0, 74), BorderSizePixel = 0, Text = "Baixar", TextColor3 = DARK, Font = FONTB, TextSize = 13, AutoButtonColor = false}, V)
+    corner(UI.urlPlay, UDim.new(0, 10))
+    trackAccent(UI.urlPlay, "BackgroundColor3")
+
+    mk("TextLabel", {Size = UDim2.new(0.5, -14, 0, 14), Position = UDim2.new(0, 14, 0, 116), BackgroundTransparency = 1, Text = "RECENTES", TextColor3 = SUBC, Font = FONTB, TextSize = 10, TextXAlignment = LEFT}, V)
+    UI.clearHist = mk("TextButton", {Size = UDim2.new(0, 60, 0, 14), Position = UDim2.new(1, -72, 0, 116), BackgroundTransparency = 1, Text = "Limpar", Font = FONTB, TextSize = 11, TextXAlignment = RIGHT, AutoButtonColor = false}, V)
     trackAccent(UI.clearHist, "TextColor3")
 
-    UI.idList = mk("ScrollingFrame", {Size = UDim2.new(1, -24, 0, 136), Position = UDim2.new(0, 12, 0, 82), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y}, V)
+    UI.idList = mk("ScrollingFrame", {Size = UDim2.new(1, -24, 0, 84), Position = UDim2.new(0, 12, 0, 134), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y}, V)
     trackAccent(UI.idList, "ScrollBarImageColor3")
     mk("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, UI.idList)
 end
 
 createNavBar(MainFrame)
 
--- =========================================================
--- LÓGICA: textos / ícones de estado
--- =========================================================
 local function emptyBox(parent, text, iconFn)
     local f = mk("Frame", {Size = UDim2.new(1, -6, 0, 78), BackgroundColor3 = CARD, BorderSizePixel = 0}, parent)
     corner(f, UDim.new(0, 12))
@@ -2142,9 +2731,6 @@ setTab = function(id, instant)
     updateMini()
 end
 
--- =========================================================
--- LÓGICA: lista da biblioteca
--- =========================================================
 updateList = function()
     for _, v in ipairs(UI.list:GetChildren()) do
         if v:IsA("GuiObject") then v:Destroy() end
@@ -2216,9 +2802,6 @@ updateList = function()
     end
 end
 
--- =========================================================
--- LÓGICA: histórico de Sound IDs
--- =========================================================
 updateHistory = function()
     for _, v in ipairs(UI.idList:GetChildren()) do
         if v:IsA("GuiObject") then v:Destroy() end
@@ -2255,9 +2838,6 @@ updateHistory = function()
     end
 end
 
--- =========================================================
--- LÓGICA: reprodução
--- =========================================================
 local function stopSound()
     playToken += 1
     if currentSound then
@@ -2309,7 +2889,6 @@ playItem = function(item, q, idx)
         if token == playToken then onEnded() end
     end)
 
-    -- espera carregar (até 10s); se não carregar, mostra falha
     task.spawn(function()
         local t0 = os.clock()
         while token == playToken and snd.TimeLength <= 0 and os.clock() - t0 < 10 do
@@ -2360,7 +2939,7 @@ onEnded = function()
     local n = #queue
     if n == 0 then return end
     if repeatState == 0 and not shuffleMode and queueIdx >= n then
-        -- fim da fila: fica parado no início, pronto para tocar de novo
+
         atEnd = true
         isPaused = true
         status = "paused"
@@ -2402,7 +2981,6 @@ togglePlay = function()
     updateMini()
 end
 
--- usado pelo "fechar app" nos Recentes
 function stopMusic()
     stopSound()
     isPaused = false
@@ -2445,7 +3023,6 @@ function refreshFiles()
     updateList()
 end
 
--- toca um Sound ID (valida, guarda no histórico, busca o nome do áudio)
 function UI.playId(raw)
     local clean = tostring(raw or ""):gsub("%D", "")
     if clean == "" or #clean > 19 then
@@ -2490,9 +3067,55 @@ function UI.playId(raw)
     end
 end
 
--- =========================================================
--- EVENTOS
--- =========================================================
+function UI.playUrl(raw)
+    local url = tostring(raw or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local function flash()
+        UI.urlInput.BackgroundColor3 = Color3.fromRGB(95, 32, 44)
+        TweenService:Create(UI.urlInput, TweenInfo.new(0.6), {BackgroundColor3 = CARD}):Play()
+    end
+    if not url:match("^https?://") then flash() return end
+    if UI.urlBusy then return end
+    UI.urlBusy = true
+    UI.urlPlay.Text = "..."
+    task.spawn(function()
+        local okG, body = pcall(httpGetBody, url)
+        local ext
+        if okG and type(body) == "string" and #body > 200 then
+            if body:sub(1, 4) == "OggS" then
+                ext = "ogg"
+            elseif body:sub(1, 3) == "ID3" or (body:byte(1) == 255 and (body:byte(2) or 0) >= 224) then
+                ext = "mp3"
+            end
+        end
+        local fileName
+        if ext then
+            local base = url:match("^https?://[^?#]*/([^/?#]+)") or "audio"
+            base = base:gsub("%.%w+$", "")
+            base = base:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+            base = base:gsub("[^%w%-_ ]", "_")
+            base = base:sub(1, 48)
+            if base == "" then base = "audio" end
+            pcall(function()
+                if not isfolder("PHONE") then makefolder("PHONE") end
+                if not isfolder("PHONE/Music") then makefolder("PHONE/Music") end
+            end)
+            fileName = base .. "." .. ext
+            if not pcall(writefile, "PHONE/Music/" .. fileName, body) then fileName = nil end
+        end
+        UI.urlBusy = false
+        UI.urlPlay.Text = "Baixar"
+        if not fileName then flash() return end
+        UI.urlInput.Text = ""
+        refreshFiles()
+        for i, it in ipairs(mp3List) do
+            if (it.path or ""):match("([^/\\]+)$") == fileName then
+                playItem(it, mp3List, i)
+                break
+            end
+        end
+    end)
+end
+
 UI.search:GetPropertyChangedSignal("Text"):Connect(function()
     UI.clear.Visible = UI.search.Text ~= ""
     updateList()
@@ -2542,7 +3165,6 @@ UI.rep.MouseButton1Click:Connect(function()
     refreshToggles()
 end)
 
--- Sound ID
 UI.idInput:GetPropertyChangedSignal("Text"):Connect(function()
     local clean = UI.idInput.Text:gsub("%D", "")
     if clean ~= UI.idInput.Text then UI.idInput.Text = clean end
@@ -2551,13 +3173,18 @@ UI.idInput.FocusLost:Connect(function(enter)
     if enter and UI.idInput.Text ~= "" then UI.playId(UI.idInput.Text) end
 end)
 UI.idPlay.MouseButton1Click:Connect(function() UI.playId(UI.idInput.Text) end)
+UI.urlInput.Focused:Connect(function() UI.urlInput.TextTruncate = Enum.TextTruncate.None end)
+UI.urlInput.FocusLost:Connect(function(enter)
+    UI.urlInput.TextTruncate = Enum.TextTruncate.AtEnd
+    if enter then UI.playUrl(UI.urlInput.Text) end
+end)
+UI.urlPlay.MouseButton1Click:Connect(function() UI.playUrl(UI.urlInput.Text) end)
 UI.clearHist.MouseButton1Click:Connect(function()
     phoneSettings.musicIds = {}
     saveSettings()
     updateHistory()
 end)
 
--- seek (clique e arraste na barra)
 local function seekFromX(x)
     local w = math.max(UI.seekHit.AbsoluteSize.X, 1)
     seekAlpha = math.clamp((x - UI.seekHit.AbsolutePosition.X) / w, 0, 1)
@@ -2583,12 +3210,9 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- =========================================================
--- ANIMAÇÃO (um único loop; só trabalha com a tela de música visível)
--- =========================================================
 local clock = 0
 RunService.RenderStepped:Connect(function(dt)
-    -- transição suave da cor de destaque
+
     if accentCur ~= accentTar then
         accentCur = accentCur:Lerp(accentTar, math.min(1, dt * 7))
         if math.abs(accentCur.R - accentTar.R) + math.abs(accentCur.G - accentTar.G) + math.abs(accentCur.B - accentTar.B) < 0.01 then
@@ -2645,7 +3269,6 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ---------- início ----------
 refreshToggles()
 updateTrackUI()
 updateHistory()
@@ -2653,8 +3276,6 @@ updateList()
 setTab("library", true)
 end
 
-
--- ###################### CRONÔMETRO ######################
 do
 StopwatchFrame = Instance.new("Frame")
 StopwatchFrame.Name = "StopwatchFrame"
@@ -2667,7 +3288,6 @@ StopwatchFrame.Active = true
 StopwatchFrame.Draggable = false
 StopwatchFrame.Parent = ScreenGui
 Instance.new("UICorner", StopwatchFrame).CornerRadius = UDim.new(0, 28)
-
 
 Nav.shell.create(StopwatchFrame)
 Nav.status.create(StopwatchFrame)
@@ -2683,9 +3303,6 @@ swTitle.TextSize = 20
 swTitle.Parent = StopwatchFrame
 Icons.text(swTitle, {icon = Icons.stopwatch, iconSize = 24, gap = 8, color = Color3.fromRGB(255, 140, 30), text = "Cronômetro"})
 
--- ================= CRONÔMETRO (rework) =================
--- mostrador circular com 60 marcas (acendem a cada segundo) + ponto orbitando o anel,
--- botões redondos Volta/Reset e Iniciar/Pausar, lista de voltas (melhor = verde, pior = vermelho)
 local C = {
     green = Color3.fromRGB(50, 205, 50), orange = Color3.fromRGB(255, 140, 30),
     red = Color3.fromRGB(255, 95, 95), gray = Color3.fromRGB(120, 120, 140),
@@ -2710,7 +3327,6 @@ local function mkLabel(parent, text, size, font, color, pos, sz, z)
     return l
 end
 
--- ---------- mostrador ----------
 W.dial = Instance.new("Frame")
 W.dial.Name = "Dial"
 W.dial.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2759,7 +3375,6 @@ W.cs.AnchorPoint = Vector2.new(0.5, 0.5)
 W.lap = mkLabel(W.dial, "", 10, Enum.Font.GothamMedium, C.gray, UDim2.new(0, 75, 0, 104), UDim2.new(0, 100, 0, 14), 3)
 W.lap.AnchorPoint = Vector2.new(0.5, 0.5)
 
--- ---------- botões redondos ----------
 local function roundBtn2(cx, labelText)
     local b = Instance.new("TextButton")
     b.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2784,7 +3399,6 @@ end
 W.left, W.leftLbl = roundBtn2(90, "Volta")
 W.right, W.rightLbl = roundBtn2(190, "Iniciar")
 
--- ---------- lista de voltas ----------
 W.list = Instance.new("ScrollingFrame")
 W.list.Position = UDim2.new(0, 14, 0, 320)
 W.list.Size = UDim2.new(1, -28, 0, 74)
@@ -2811,7 +3425,6 @@ Icons.empty(W.empty, Icons.flag, 16, Color3.fromRGB(110, 110, 130), 4)
 
 createNavBar(StopwatchFrame)
 
--- ---------- estado ----------
 local swRunning = false
 local swStartTime = 0
 local swElapsed = 0
@@ -2825,7 +3438,6 @@ local function curElapsed()
     return swElapsed
 end
 
--- texto grande (MM:SS, H:MM:SS ou Dd HH:MM:SS) e o tamanho da fonte
 local function fmtMain(t)
     local total = math.floor(t)
     local h = math.floor(total / 3600)
@@ -2897,7 +3509,6 @@ local function applyState()
     paint(curElapsed())
 end
 
--- ---------- voltas ----------
 local function addLapRow(order, idx, delta, total, col)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 22)
@@ -2939,7 +3550,6 @@ local function renderLaps()
     W.list.CanvasPosition = Vector2.new(0, 0)
 end
 
--- ---------- ações ----------
 W.right.MouseButton1Click:Connect(function()
     if swRunning then
         swElapsed = swElapsed + (os.clock() - swStartTime)
@@ -2982,8 +3592,6 @@ renderLaps()
 applyState()
 end
 
-
--- ###################### CONFIG ######################
 do
 ConfigFrame = Instance.new("Frame")
 ConfigFrame.Name = "ConfigFrame"
@@ -2996,7 +3604,6 @@ ConfigFrame.Active = true
 ConfigFrame.Draggable = false
 ConfigFrame.Parent = ScreenGui
 Instance.new("UICorner", ConfigFrame).CornerRadius = UDim.new(0, 28)
-
 
 Nav.shell.create(ConfigFrame)
 Nav.status.create(ConfigFrame)
@@ -3012,9 +3619,6 @@ cfgTitle.TextSize = 20
 cfgTitle.Parent = ConfigFrame
 Icons.text(cfgTitle, {icon = Icons.gear, iconSize = 22, gap = 8, color = Color3.fromRGB(170, 170, 185), text = "Configurações"})
 
--- ================= CONFIG (rework: estilo "Ajustes" de celular) =================
--- página principal com perfil + grupos (Geral / Personalização / Sistema),
--- subpáginas Wallpaper e Servidor (botão Voltar do app e da barra de navegação)
 local K = {
     card = Color3.fromRGB(30, 30, 36), sub = Color3.fromRGB(150, 150, 165),
     green = Color3.fromRGB(50, 205, 50), off = Color3.fromRGB(62, 62, 70),
@@ -3045,7 +3649,6 @@ local function cl(parent, text, size, font, color, pos, sz, xAlign)
     return l
 end
 
--- ---------- cabeçalho das subpáginas ----------
 local subHeader = Instance.new("Frame")
 subHeader.BackgroundTransparency = 1
 subHeader.Position = UDim2.new(0, 0, 0, 45)
@@ -3075,7 +3678,6 @@ backBtn.ZIndex = 3
 backBtn.Parent = subHeader
 Icons.text(backBtn, {icon = Icons.back, iconSize = 16, gap = 2, pad = 0, align = "left", color = K.green, text = "Voltar"})
 
--- ---------- páginas ----------
 local function newPage()
     local pg = Instance.new("ScrollingFrame")
     pg.Size = UDim2.new(1, 0, 1, 0)
@@ -3115,7 +3717,6 @@ local function sectionLabel(page, text, order)
     pd.Parent = l
 end
 
--- ---------- grupos e linhas ----------
 local function newGroup(page, order)
     local g = Instance.new("Frame")
     g.Size = UDim2.new(1, 0, 0, 0)
@@ -3186,7 +3787,6 @@ local function makeSwitch(row, default, cb)
     end)
 end
 
--- o = {icon, tile, title, sub, kind = "switch"|"chevron"|"value", state, onToggle, onClick, value}
 local function addRow(g, o)
     if g.count > 0 then addDivider(g, o.tile and 52 or 14) end
     g.count = g.count + 1
@@ -3254,7 +3854,6 @@ local function addRow(g, o)
     return ui
 end
 
--- ---------- navegação entre páginas ----------
 local pages = {main = mainPage, wallpaper = wpPage, server = srvPage}
 local pageState = {}
 local currentPage = "main"
@@ -3313,8 +3912,6 @@ end
 
 backBtn.MouseButton1Click:Connect(function() cfgGoBack() end)
 
--- =================== PÁGINA PRINCIPAL ===================
--- cartão de perfil
 local prof = Instance.new("Frame")
 prof.Size = UDim2.new(1, 0, 0, 62)
 prof.BackgroundColor3 = K.card
@@ -3333,7 +3930,6 @@ local av = cl(avatar, string.upper(string.sub(Player.DisplayName ~= "" and Playe
 cl(prof, Player.DisplayName ~= "" and Player.DisplayName or Player.Name, 15, Enum.Font.GothamBold, WHITE, UDim2.new(0, 62, 0, 12), UDim2.new(1, -74, 0, 20))
 cl(prof, "@" .. Player.Name, 11, Enum.Font.Gotham, K.sub, UDim2.new(0, 62, 0, 33), UDim2.new(1, -74, 0, 16))
 
--- GERAL
 sectionLabel(mainPage, "GERAL", 2)
 local gGeral = newGroup(mainPage, 3)
 addRow(gGeral, {icon = Icons.gauge, tile = Color3.fromRGB(50, 205, 50), title = "FPS Counter", sub = "Mostra o FPS na barra de status",
@@ -3369,7 +3965,6 @@ addRow(gGeral, {icon = Icons.gesture, tile = Color3.fromRGB(60, 130, 255), title
         applyNavMode()
     end})
 
--- PERSONALIZAÇÃO
 sectionLabel(mainPage, "PERSONALIZAÇÃO", 4)
 local gPers = newGroup(mainPage, 5)
 addRow(gPers, {icon = Icons.gallery, tile = Color3.fromRGB(180, 80, 220), title = "Wallpaper", kind = "chevron",
@@ -3380,13 +3975,11 @@ caseRow = addRow(gPers, {icon = Icons.phone, tile = Color3.fromRGB(235, 140, 60)
         caseRow.value.Text = Nav.shell.nextTheme()
     end})
 
--- SISTEMA
 sectionLabel(mainPage, "SISTEMA", 6)
 local gSys = newGroup(mainPage, 7)
 addRow(gSys, {icon = Icons.tower, tile = Color3.fromRGB(0, 170, 210), title = "Info do Servidor", kind = "chevron",
     onClick = function() showPage("server", true) end})
 
--- =================== PÁGINA WALLPAPER ===================
 local wpPrevCard = Instance.new("Frame")
 wpPrevCard.Size = UDim2.new(1, 0, 0, 150)
 wpPrevCard.BackgroundColor3 = K.card
@@ -3467,7 +4060,6 @@ wpResetBtn.MouseButton1Click:Connect(function()
     wpInput.Text = ""
 end)
 
--- =================== PÁGINA SERVIDOR ===================
 local gSrv = newGroup(srvPage, 1)
 local srv = {
     players = addRow(gSrv, {title = "Jogadores", kind = "value", value = "-"}),
@@ -3485,7 +4077,6 @@ local function fmtOnline(sec)
     return string.format("%02d:%02d", m, s)
 end
 
--- OBS: NÃO usa game.PrivateServerId (no cliente isso enche o console de avisos)
 function updateServer()
     local ping = 0
     pcall(function()
@@ -3513,10 +4104,8 @@ showPage("main", false)
 createNavBar(ConfigFrame)
 end
 
-
--- ###################### GALERIA (rework V3) ######################
 do
--- Galeria V2: grade 3 colunas, favoritos, zoom (pinça / toque duplo / roda), arrastar, deslizar pra trocar, slideshow
+
 local ACC = Color3.fromRGB(180, 80, 220)
 local DARK = Color3.fromRGB(22, 22, 28)
 local STAGE_W, STAGE_H = 264, 268
@@ -3524,7 +4113,7 @@ local STAGE_W, STAGE_H = 264, 268
 phoneSettings.favorites = type(phoneSettings.favorites) == "table" and phoneSettings.favorites or {}
 local favs = phoneSettings.favorites
 
-local tabMode = "all"        -- "all" | "favs"
+local tabMode = "all"
 local gridToken = 0
 local zoom, panX, panY = 1, 0, 0
 local assetCache = {}
@@ -3539,7 +4128,41 @@ local function getAsset(path)
     return nil
 end
 
--- ---------- janela ----------
+-- GIF: Roblox nao anima .gif, entao os quadros sao decodificados em PNG (Nav.gif)
+local Gif = Nav.gif
+local gifToken = 0
+local gifState = {playing = true, smooth = true}
+
+-- 1o quadro do GIF (miniatura / papel de parede); gera na hora se ainda nao existir
+-- FIX: a chave do cache vem do NOME + CONTEUDO do arquivo (nao so do nome), memorizada por caminho.
+-- Assim GIFs diferentes com o mesmo nome nunca dividem a mesma pasta de quadros.
+local gifKeyMemo = {}
+local function gifKeyFor(photo, data)
+    local m = gifKeyMemo[photo.path]
+    if m then return m end
+    if type(data) ~= "string" then
+        local okR, d = pcall(readfile, photo.path)
+        if not okR or type(d) ~= "string" then return nil end
+        data = d
+    end
+    local key = Gif.keyFor(photo.file, data)
+    gifKeyMemo[photo.path] = key
+    return key
+end
+
+local function gifThumbAsset(photo)
+    local key = gifKeyFor(photo)
+    if not key then return nil end
+    local p = Gif.thumbPath(key)
+    if not p then
+        local okR, data = pcall(readfile, photo.path)
+        if okR and type(data) == "string" and #data > 20 then
+            p = Gif.makeThumb(key, data, {maxDim = 160, yield = task.wait})
+        end
+    end
+    return p and Gif.asset(p) or nil
+end
+
 GalleryFrame = Instance.new("Frame")
 GalleryFrame.Name = "GalleryFrame"
 GalleryFrame.Size = UDim2.new(0, 280, 0, 440)
@@ -3551,11 +4174,9 @@ GalleryFrame.Active = true
 GalleryFrame.Parent = ScreenGui
 corner(GalleryFrame, UDim.new(0, 28))
 
-
 Nav.shell.create(GalleryFrame)
 Nav.status.create(GalleryFrame)
 
--- ---------- cabeçalho ----------
 local galTitle = Instance.new("TextLabel")
 galTitle.Size = UDim2.new(0.6, 0, 0, 28)
 galTitle.Position = UDim2.new(0, 16, 0, 40)
@@ -3616,9 +4237,21 @@ PhotoSearchBox.PlaceholderColor3 = Color3.fromRGB(110, 110, 130)
 PhotoSearchBox.Font = Enum.Font.Gotham
 PhotoSearchBox.TextSize = 12
 PhotoSearchBox.ClearTextOnFocus = false
+PhotoSearchBox.TextXAlignment = Enum.TextXAlignment.Left
+PhotoSearchBox.TextWrapped = false
+PhotoSearchBox.ClipsDescendants = true
+do
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 34)
+    pad.PaddingRight = UDim.new(0, 14)
+    pad.Parent = PhotoSearchBox
+end
 PhotoSearchBox.Parent = GalleryFrame
 corner(PhotoSearchBox, UDim.new(1, 0))
-Icons.searchField(PhotoSearchBox, 14, 12)
+do
+    local lupa = Icons.searchField(PhotoSearchBox, 14, 12)
+    lupa.Position = UDim2.new(0, 12 - 34, 0.5, 0)
+end
 
 local PhotoScrollList = Instance.new("ScrollingFrame")
 PhotoScrollList.Size = UDim2.new(1, -16, 0, 252)
@@ -3637,7 +4270,6 @@ grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 grid.SortOrder = Enum.SortOrder.LayoutOrder
 grid.Parent = PhotoScrollList
 
--- ---------- visualizador ----------
 local PhotoViewerView = Instance.new("Frame")
 PhotoViewerView.Name = "PhotoViewerView"
 PhotoViewerView.Size = UDim2.new(1, 0, 1, 0)
@@ -3698,6 +4330,73 @@ PhotoDisplay.BackgroundTransparency = 1
 PhotoDisplay.ScaleType = Enum.ScaleType.Fit
 PhotoDisplay.Parent = stage
 
+local gifBadge = Instance.new("TextButton")
+gifBadge.Name = "GifBadge"
+gifBadge.AnchorPoint = Vector2.new(1, 0)
+gifBadge.Position = UDim2.new(1, -8, 0, 8)
+gifBadge.Size = UDim2.new(0, 0, 0, 22)
+gifBadge.AutomaticSize = Enum.AutomaticSize.X
+gifBadge.BackgroundColor3 = Color3.new(0, 0, 0)
+gifBadge.BackgroundTransparency = 0.3
+gifBadge.BorderSizePixel = 0
+gifBadge.Text = "GIF"
+gifBadge.TextColor3 = Color3.new(1, 1, 1)
+gifBadge.Font = Enum.Font.GothamBold
+gifBadge.TextSize = 10
+gifBadge.AutoButtonColor = false
+gifBadge.Visible = false
+gifBadge.ZIndex = 8
+gifBadge.Parent = stage
+corner(gifBadge, UDim.new(0, 11))
+do
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 9)
+    pad.PaddingRight = UDim.new(0, 9)
+    pad.Parent = gifBadge
+end
+
+local PhotoDisplay2 = Instance.new("ImageLabel")
+PhotoDisplay2.Name = "PhotoDisplay2"
+PhotoDisplay2.Size = UDim2.new(1, 0, 1, 0)
+PhotoDisplay2.BackgroundTransparency = 1
+PhotoDisplay2.ScaleType = Enum.ScaleType.Fit
+PhotoDisplay2.ImageTransparency = 1
+PhotoDisplay2.Visible = false
+PhotoDisplay2.ZIndex = 2
+PhotoDisplay2.Parent = PhotoDisplay
+
+local gifSmooth = Instance.new("TextButton")
+gifSmooth.Name = "GifSmooth"
+gifSmooth.AnchorPoint = Vector2.new(1, 0)
+gifSmooth.Position = UDim2.new(1, -8, 0, 34)
+gifSmooth.Size = UDim2.new(0, 0, 0, 22)
+gifSmooth.AutomaticSize = Enum.AutomaticSize.X
+gifSmooth.BackgroundColor3 = Color3.new(0, 0, 0)
+gifSmooth.BackgroundTransparency = 0.3
+gifSmooth.BorderSizePixel = 0
+gifSmooth.Text = "60 FPS"
+gifSmooth.TextColor3 = Color3.fromRGB(120, 255, 160)
+gifSmooth.Font = Enum.Font.GothamBold
+gifSmooth.TextSize = 10
+gifSmooth.AutoButtonColor = false
+gifSmooth.Visible = false
+gifSmooth.ZIndex = 8
+gifSmooth.Parent = stage
+corner(gifSmooth, UDim.new(0, 11))
+do
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 9)
+    pad.PaddingRight = UDim.new(0, 9)
+    pad.Parent = gifSmooth
+end
+
+local function hideGifUI()
+    gifBadge.Visible = false
+    gifSmooth.Visible = false
+    PhotoDisplay2.Visible = false
+    PhotoDisplay2.Image = ""
+end
+
 local touchArea = Instance.new("TextButton")
 touchArea.Size = UDim2.new(1, 0, 1, 0)
 touchArea.BackgroundTransparency = 1
@@ -3734,7 +4433,6 @@ Icons.put(prevPhotoBtn, Icons.back, 18, WHITE)
 Icons.put(favBtn, Icons.heart, 18, Color3.fromRGB(140, 140, 160))
 Icons.put(nextPhotoBtn, Icons.chevronRight, 18, WHITE)
 
--- ---------- menu ⋮ (cartão moderno com fundo escurecido) ----------
 local menuBackdrop = Instance.new("TextButton")
 menuBackdrop.Size = UDim2.new(1, 0, 1, 0)
 menuBackdrop.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -3871,7 +4569,6 @@ infoPad.PaddingLeft = UDim.new(0, 8)
 infoPad.PaddingRight = UDim.new(0, 8)
 infoPad.Parent = infoText
 
--- confirmação de exclusão (aparece no lugar do botão)
 local confirmRow = Instance.new("Frame")
 confirmRow.Size = UDim2.new(1, 0, 0, 38)
 confirmRow.BackgroundTransparency = 1
@@ -3939,7 +4636,6 @@ cancelDelBtn.MouseButton1Click:Connect(function()
     deletePhotoMenuBtn.Visible = true
 end)
 
--- ---------- zoom / pan ----------
 local function applyTransform()
     local maxX = (zoom - 1) * STAGE_W / 2
     local maxY = (zoom - 1) * STAGE_H / 2
@@ -3953,7 +4649,6 @@ local function resetZoom()
     applyTransform()
 end
 
--- ---------- favoritos ----------
 local function keyOf(photo) return photo.file end
 local function refreshFavBtn()
     local p = filteredPhotoList[currentPhotoIndex]
@@ -3968,6 +4663,9 @@ local updatePhotoList
 local openPhotoByIndex
 
 function exitPhotoViewer()
+    gifToken = gifToken + 1
+    Gif.stop(PhotoDisplay)
+    hideGifUI()
     isInPhotoViewer = false
     closePhotoMenu()
     PhotoViewerView.Visible = false
@@ -3976,6 +4674,65 @@ function exitPhotoViewer()
     currentPhotoIndex = 0
     resetZoom()
 end
+
+local function startGif(photo, tk)
+    -- FIX: limpa imediatamente o display e o overlay antes de spawnar,
+    -- garantindo que o Heartbeat do GIF anterior nao escreva mais nada visivel.
+    PhotoDisplay.Image = ""
+    PhotoDisplay.ImageTransparency = 1
+    PhotoDisplay2.Visible = false
+    PhotoDisplay2.Image = ""
+    gifBadge.Visible = true
+    gifBadge.Text = "GIF · lendo…"
+    task.spawn(function()
+        local function cancelled() return tk ~= gifToken or not PhotoViewerView.Visible end
+        local okR, data = pcall(readfile, photo.path)
+        if cancelled() then return end
+        if not okR or type(data) ~= "string" or #data < 20 then gifBadge.Text = "GIF · erro"; return end
+        gifKeyMemo[photo.path] = nil   -- recalcula com o conteudo que acabou de ser lido
+        local key = gifKeyFor(photo, data)
+        -- mostra o 1o quadro enquanto prepara a animacao
+        local tp = Gif.thumbPath(key)
+        local ta = tp and Gif.asset(tp)
+        if ta and not cancelled() then PhotoDisplay.ImageTransparency = 0; PhotoDisplay.Image = ta end
+        local info, bakeErr = Gif.load(key, #data)
+        if not info then
+            -- maxFrames = 0 = todos os quadros; maxDim = 480
+            info, bakeErr = Gif.bake(key, data, {
+                maxFrames = 0, maxDim = 480, pixelBudget = 48000000, yield = task.wait, cancelled = cancelled,
+                onProg = function(d, t) if not cancelled() then gifBadge.Text = "GIF · " .. d .. "/" .. t end end,
+            }, photo.file)   -- passa nome do arquivo para pasta legivel
+        end
+        if cancelled() then return end
+        if not info then gifBadge.Text = "GIF · erro: " .. tostring(bakeErr or "?"):sub(1, 40); return end
+        local assets = Gif.assets(info)
+        if not assets then gifBadge.Text = "GIF · sem getcustomasset"; return end
+        if #assets < 2 then gifBadge.Text = "GIF"; PhotoDisplay.ImageTransparency = 0; PhotoDisplay.Image = assets[1]; return end
+        Gif.preload(assets, 1.5)
+        if cancelled() then return end
+        -- mostra 1o quadro antes de conectar o Heartbeat (sem flash)
+        PhotoDisplay.ImageTransparency = 0
+        PhotoDisplay.Image = assets[1]
+        gifState.playing = true
+        gifBadge.Text = "GIF"
+        gifSmooth.Text = gifState.smooth and "60 FPS" or "ORIGINAL"
+        gifSmooth.TextColor3 = gifState.smooth and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(190, 190, 200)
+        gifSmooth.Visible = true
+        Gif.play(PhotoDisplay, PhotoDisplay2, assets, info.delays, cancelled, gifState)
+    end)
+end
+
+gifBadge.MouseButton1Click:Connect(function()
+    if gifBadge.Text ~= "GIF" and gifBadge.Text ~= "GIF · pausado" then return end
+    gifState.playing = not gifState.playing
+    gifBadge.Text = gifState.playing and "GIF" or "GIF · pausado"
+end)
+
+gifSmooth.MouseButton1Click:Connect(function()
+    gifState.smooth = not gifState.smooth
+    gifSmooth.Text = gifState.smooth and "60 FPS" or "ORIGINAL"
+    gifSmooth.TextColor3 = gifState.smooth and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(190, 190, 200)
+end)
 
 function openPhotoByIndex(idx)
     if #filteredPhotoList == 0 then return end
@@ -3990,6 +4747,19 @@ function openPhotoByIndex(idx)
     counter.Text = idx .. " / " .. #filteredPhotoList
     resetZoom()
     refreshFavBtn()
+    gifToken = gifToken + 1
+    -- FIX: incrementa token ANTES de limpar/spawnar para garantir que
+    -- qualquer Heartbeat antigo veja o token novo e pare imediatamente.
+    Gif.stop(PhotoDisplay)
+    PhotoDisplay.Image = ""
+    PhotoDisplay.ImageTransparency = 1
+    PhotoDisplay2.Visible = false
+    PhotoDisplay2.Image = ""
+    hideGifUI()
+    if photo.isGif then
+        startGif(photo, gifToken)
+        return
+    end
     local a = getAsset(photo.path)
     if a then
         PhotoDisplay.ImageTransparency = 1
@@ -4019,6 +4789,11 @@ confirmDelBtn.MouseButton1Click:Connect(function()
     local photo = filteredPhotoList[currentPhotoIndex]
     if not photo then return end
     pcall(delfile, photo.path)
+    if photo.isGif then
+        local k = gifKeyMemo[photo.path]
+        if k then Gif.remove(k) end
+        gifKeyMemo[photo.path] = nil
+    end
     favs[keyOf(photo)] = nil
     saveSettings()
     for i, p in ipairs(photoList) do
@@ -4041,7 +4816,8 @@ end)
 setWallpaperMenuBtn.MouseButton1Click:Connect(function()
     local photo = filteredPhotoList[currentPhotoIndex]
     if not photo then return end
-    local a = getAsset(photo.path)
+    local a
+    if photo.isGif then a = gifThumbAsset(photo) else a = getAsset(photo.path) end
     if a then
         currentWallpaper = a
         phoneSettings.wallpaper = a
@@ -4051,7 +4827,6 @@ setWallpaperMenuBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ---------- gestos no visualizador ----------
 local drag = nil
 local pinching, pinchStart = false, 1
 local function isPress(i)
@@ -4122,7 +4897,6 @@ UserInputService.TouchPinch:Connect(function(_, scale, _, state)
     end
 end)
 
--- ---------- grade ----------
 local function setTab(mode)
     tabMode = mode
     tabAll.BackgroundTransparency = mode == "all" and 0 or 1
@@ -4187,17 +4961,33 @@ function updatePhotoList()
             local heart = Icons.heart(cell, 14, Color3.fromRGB(255, 70, 100), 4)
             heart.Position = UDim2.new(1, -24, 1, -24)
         end
+        if photo.isGif then
+            local gb = Instance.new("TextLabel")
+            gb.Size = UDim2.new(0, 28, 0, 14)
+            gb.Position = UDim2.new(0, 5, 0, 5)
+            gb.BackgroundColor3 = Color3.new(0, 0, 0)
+            gb.BackgroundTransparency = 0.25
+            gb.BorderSizePixel = 0
+            gb.Text = "GIF"
+            gb.TextColor3 = Color3.new(1, 1, 1)
+            gb.Font = Enum.Font.GothamBold
+            gb.TextSize = 9
+            gb.ZIndex = 3
+            gb.Parent = cell
+            corner(gb, UDim.new(0, 7))
+        end
         cell.MouseButton1Click:Connect(function() openPhotoByIndex(idx) end)
         cells[idx] = cell
     end
     task.wait()
     PhotoScrollList.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 8)
 
-    -- miniaturas carregam aos poucos (sem travar com muitas fotos)
     task.spawn(function()
         for idx, cell in ipairs(cells) do
             if token ~= gridToken then return end
-            local a = getAsset(filteredPhotoList[idx].path)
+            local ph = filteredPhotoList[idx]
+            local a
+            if ph.isGif then a = gifThumbAsset(ph) else a = getAsset(ph.path) end
             if a and cell.Parent then
                 cell.Image = a
                 TweenService:Create(cell, TweenInfo.new(0.25), {ImageTransparency = 0}):Play()
@@ -4223,7 +5013,7 @@ function refreshPhotos()
                         seen[norm:lower()] = true
                         local fileName = norm:match("([^/]+)$") or norm
                         local name = fileName:gsub("%.%w+$", "")
-                        table.insert(photoList, {name = name, file = fileName, path = file})
+                        table.insert(photoList, {name = name, file = fileName, path = file, isGif = (ext == "gif")})
                     end
                 end
             end
@@ -4240,16 +5030,6 @@ PhotoSearchBox:GetPropertyChangedSignal("Text"):Connect(updatePhotoList)
 createNavBar(GalleryFrame)
 end
 
-
--- ###################### GPS ######################
--- Mapa visto de CIMA dentro de um ViewportFrame + todos os players do jogo em tempo real.
---   * Mapa: cópia leve das peças do Workspace (até 5000, as maiores primeiro) + terreno amostrado por raycast
---           (o ViewportFrame não renderiza Terrain, então ele vira uma grade de blocos coloridos)
---   * Câmera quase ortográfica (FOV 16) olhando reto para baixo, centrada em você / no player seguido / no arrasto
---   * Marcadores com foto do avatar, nome, seta de direção (você) e setas na borda para quem está fora da tela
---   * Lista de players com distância; tocar seleciona, segue e desenha a linha de rota com distância e tempo
---   * Controles: zoom +/-, recentralizar, bússola (Norte fixo <-> direção do personagem), modo dia/noite, recarregar mapa
--- Tudo está dentro de uma função para não gastar locals do limite de 200 do arquivo.
 do
 local function buildGPS()
     local GPS = Nav.gps
@@ -4278,9 +5058,8 @@ local function buildGPS()
         myPos = nil, myLook = Vector3.new(0, 0, -1),
     }
     local entries = {}
-    local selectPlayer -- declarada antes; definida mais abaixo
+    local selectPlayer
 
-    -- ---------- helpers ----------
     local function txt(parent, text, size, font, color, pos, sz, align, z)
         local l = Instance.new("TextLabel")
         l.BackgroundTransparency = 1
@@ -4336,7 +5115,6 @@ local function buildGPS()
         return math.floor(sec / 60) .. " min " .. math.floor(sec % 60) .. " s"
     end
 
-    -- ---------- janela ----------
     local GPSFrame = Instance.new("Frame")
     GPSFrame.Name = "GPSFrame"
     GPSFrame.Size = UDim2.new(0, 280, 0, 440)
@@ -4352,7 +5130,6 @@ local function buildGPS()
     createNavBar(GPSFrame)
     GPS.frame = GPSFrame
 
-    -- ---------- cabeçalho ----------
     local gIcon = Icons.gps(GPSFrame, 22, ACC, 3)
     gIcon.Position = UDim2.new(0, 14, 0, 40)
     txt(GPSFrame, "GPS", 20, Enum.Font.GothamBold, WHITE, UDim2.new(0, 42, 0, 38), UDim2.new(0, 70, 0, 26), nil, 3)
@@ -4366,7 +5143,6 @@ local function buildGPS()
     local refreshIcon = Icons.reset(refreshBtn, 14, WHITE, 5)
     refreshIcon.Position = UDim2.new(0.5, -7, 0.5, -7)
 
-    -- ---------- mapa (ViewportFrame) ----------
     local holder = Instance.new("Frame")
     holder.Name = "MapHolder"
     holder.Position = UDim2.new(0, 10, 0, 68)
@@ -4427,7 +5203,6 @@ local function buildGPS()
     markerLayer.ZIndex = 5
     markerLayer.Parent = holder
 
-    -- linha de rota até o player selecionado
     local routeLine = Instance.new("Frame")
     routeLine.Name = "RouteLine"
     routeLine.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4460,7 +5235,6 @@ local function buildGPS()
     chipPad.PaddingRight = UDim.new(0, 8)
     chipPad.Parent = routeChip
 
-    -- ---------- controles sobre o mapa ----------
     local compassBtn, compassStroke = roundBtn(holder, UDim2.new(0, 8, 0, 8), 30, 10)
     local compassRot = Instance.new("Frame")
     compassRot.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4488,7 +5262,6 @@ local function buildGPS()
     Draw.circle(recenter, 15, 15, 15, WHITE, 2, 12)
     Draw.circle(recenter, 15, 15, 5, WHITE, nil, 12)
 
-    -- chip de modo (Você / Seguindo / Livre)
     local modeChip = Instance.new("TextLabel")
     modeChip.AnchorPoint = Vector2.new(0.5, 0)
     modeChip.AutomaticSize = Enum.AutomaticSize.X
@@ -4509,7 +5282,6 @@ local function buildGPS()
     modePad.PaddingRight = UDim.new(0, 10)
     modePad.Parent = modeChip
 
-    -- escala + coordenadas
     local scaleText = txt(holder, "100 studs", 9, Enum.Font.GothamBold, WHITE, UDim2.new(0, 12, 1, -34), UDim2.new(0, 90, 0, 12), nil, 10)
     scaleText.TextStrokeTransparency = 0.45
     local scaleBar = Instance.new("Frame")
@@ -4532,7 +5304,6 @@ local function buildGPS()
     local coordText = txt(holder, "X 0  Y 0  Z 0", 9, Enum.Font.GothamMedium, WHITE, UDim2.new(1, -142, 1, -22), UDim2.new(0, 130, 0, 12), Enum.TextXAlignment.Right, 10)
     coordText.TextStrokeTransparency = 0.45
 
-    -- grade de referência (do GPS_APP): 3 linhas verticais + 3 horizontais, por baixo dos marcadores
     local gridLayer = Instance.new("Frame")
     gridLayer.Name = "Grid"
     gridLayer.Size = UDim2.new(1, 0, 1, 0)
@@ -4559,7 +5330,6 @@ local function buildGPS()
         h.Parent = gridLayer
     end
 
-    -- chip de ping real (Stats > Data Ping), canto superior esquerdo do mapa
     local pingChip = txt(holder, "-- ms", 9, Enum.Font.GothamBold, ACC, UDim2.new(0, 8, 0, 10), UDim2.new(0, 50, 0, 20), Enum.TextXAlignment.Center, 10)
     pingChip.BackgroundTransparency = 0.2
     pingChip.BackgroundColor3 = CARD
@@ -4571,11 +5341,9 @@ local function buildGPS()
         pingChip.TextColor3 = v < 80 and ACC or (v < 160 and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(255, 80, 80))
     end
 
-    -- aviso de mapa vazio
     local emptyNote = txt(holder, "Sem estruturas para mostrar", 11, Enum.Font.GothamMedium, SUB, UDim2.new(0, 0, 0.5, 30), UDim2.new(1, 0, 0, 18), Enum.TextXAlignment.Center, 4)
     emptyNote.Visible = false
 
-    -- ---------- tela de carregamento do mapa ----------
     local loading = Instance.new("CanvasGroup")
     loading.Name = "Loading"
     loading.Size = UDim2.new(1, 0, 1, 0)
@@ -4614,7 +5382,6 @@ local function buildGPS()
         if text then loadTxt.Text = text end
     end
 
-    -- ---------- lista de players ----------
     local listFrame = Instance.new("ScrollingFrame")
     listFrame.Name = "PlayerList"
     listFrame.Position = UDim2.new(0, 10, 0, 294)
@@ -4632,7 +5399,6 @@ local function buildGPS()
     listLayout.Padding = UDim.new(0, 5)
     listLayout.Parent = listFrame
 
-    -- ---------- estilo dia / noite ----------
     local function drawStyleIcon()
         styleIcon:ClearAllChildren()
         if S.night then
@@ -4667,7 +5433,6 @@ local function buildGPS()
     end
     applyCompassState()
 
-    -- ---------- jogadores: marcadores + linhas da lista ----------
     local function makeMarker(plr)
         local isMe = plr == Player
         local accent = isMe and ME or Color3.fromHSV((plr.UserId % 360) / 360, 0.62, 1)
@@ -4871,7 +5636,6 @@ local function buildGPS()
         countChip.Text = n .. (n == 1 and " jogador" or " jogadores")
     end
 
-    -- ---------- construção do mapa ----------
     local function buildTerrain(my)
         local terrain = Workspace:FindFirstChildOfClass("Terrain")
         if not terrain then return end
@@ -4884,7 +5648,7 @@ local function buildGPS()
             local mn, mx = ext.Min, ext.Max
             local ex0, ex1 = mn.X * 4, (mx.X + 1) * 4
             local ez0, ez1 = mn.Z * 4, (mx.Z + 1) * 4
-            if ex1 - ex0 <= 4 or ez1 - ez0 <= 4 then return end -- sem terreno
+            if ex1 - ex0 <= 4 or ez1 - ez0 <= 4 then return end
             minX, maxX = math.max(minX, ex0), math.min(maxX, ex1)
             minZ, maxZ = math.max(minZ, ez0), math.min(maxZ, ez1)
             minY, maxY = mn.Y * 4, (mx.Y + 1) * 4
@@ -4934,7 +5698,6 @@ local function buildGPS()
         loading.GroupTransparency = 0
         setProgress(0, "Mapeando...")
 
-        -- 1) coleta as peças candidatas
         local cand = {}
         local desc = Workspace:GetDescendants()
         local total = #desc
@@ -4959,12 +5722,10 @@ local function buildGPS()
         end
         table.sort(cand, function(a, b) return a[2] > b[2] end)
 
-        -- 2) terreno (grade de blocos por raycast)
         setProgress(0.3, "Lendo o terreno...")
         buildTerrain(my)
         if S.token ~= my then return end
 
-        -- 3) clona as peças (sem filhos pesados)
         local n = math.min(#cand, MAX_PARTS)
         for i = 1, n do
             if S.token ~= my then return end
@@ -4995,7 +5756,6 @@ local function buildGPS()
         tw:Play()
     end
 
-    -- ---------- atualização por frame ----------
     local lastInfo = 0
     local NICE = {5, 10, 20, 50, 100, 200, 500, 1000, 2000}
 
@@ -5033,7 +5793,6 @@ local function buildGPS()
         end
         if not S.myPos then return end
 
-        -- alvo da câmera
         local tPos = S.myPos
         if S.free then
             tPos = S.panCenter
@@ -5052,7 +5811,6 @@ local function buildGPS()
             S.up = u.Unit
         end
 
-        -- câmera olhando reto para baixo (quase ortográfica)
         local alt = (S.span / 2) / TAN_HALF
         local eye = Vector3.new(S.center.X, S.center.Y + alt, S.center.Z)
         local up = S.up
@@ -5060,7 +5818,6 @@ local function buildGPS()
         S.right = right
         cam.CFrame = CFrame.lookAt(eye, eye + Vector3.new(0, -1, 0), up)
 
-        -- marcadores
         local sel = S.selected
         local t = os.clock()
         for plr, e in pairs(entries) do
@@ -5092,7 +5849,6 @@ local function buildGPS()
                 m.root.Position = UDim2.new(0, cx, 0, cy)
                 m.name.Visible = inside and not m.isMe and (S.span <= 420 or plr == sel)
 
-                -- seta: direção do personagem (você) ou direção do player fora da tela
                 local nx, ny
                 if m.isMe and inside then
                     local f = r.CFrame.LookVector
@@ -5121,7 +5877,6 @@ local function buildGPS()
             end
         end
 
-        -- linha de rota até o selecionado
         local meE = entries[Player]
         local selE = sel and entries[sel]
         if selE and meE and selE.px and meE.px and sel ~= Player then
@@ -5146,7 +5901,6 @@ local function buildGPS()
             routeChip.Visible = false
         end
 
-        -- bússola, escala e coordenadas
         local north = Vector3.new(0, 0, -1)
         compassRot.Rotation = math.deg(math.atan2(north:Dot(right), north:Dot(up)))
         local kg = MAP_H / S.span
@@ -5166,7 +5920,6 @@ local function buildGPS()
         end
     end
 
-    -- ---------- interação ----------
     local function setZoom(i)
         S.spanIdx = math.clamp(i, 1, #SPANS)
         S.targetSpan = SPANS[S.spanIdx]
@@ -5196,7 +5949,6 @@ local function buildGPS()
         task.spawn(buildMap)
     end)
 
-    -- arrastar para mover o mapa (vira "Mapa livre")
     local dragging, lastPos, moved = false, nil, 0
     local function isPress(i)
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
@@ -5230,7 +5982,6 @@ local function buildGPS()
         if isPress(i) then dragging = false end
     end)
 
-    -- só gasta processamento enquanto a tela do GPS está visível
     local conn
     GPSFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         if GPSFrame.Visible then
@@ -5247,7 +5998,6 @@ local function buildGPS()
     updateCount()
     refreshSelection()
 
-    -- ---------- API usada pela navegação ----------
     function GPS.onOpen()
         S.snap = true
         updateInfo()
@@ -5260,7 +6010,7 @@ local function buildGPS()
         S.selected, S.followPlr, S.free = nil, nil, false
         refreshSelection()
     end
-    function GPS.goBack() -- botão Voltar: sai de "seguindo/livre" antes de fechar o app
+    function GPS.goBack()
         if S.selected or S.followPlr or S.free then
             S.selected, S.followPlr, S.free = nil, nil, false
             refreshSelection()
@@ -5272,17 +6022,10 @@ end
 buildGPS()
 end
 
-
--- ###################### NAVEGAÇÃO / RECENTES / ABRIR-FECHAR / ARRASTAR ######################
 do
--- =========================================================
--- SISTEMA DE NAVEGAÇÃO (estilo celular de verdade)
---   Voltar   : fecha menu da foto -> fecha foto -> volta pro início
---   Início   : vai pra tela inicial (apps continuam abertos em segundo plano)
---   Recentes : seletor de apps (toque abre | X ou deslizar pra cima fecha)
--- =========================================================
+
 local screens = {}
-local openApps = {}          -- ids, mais recente primeiro
+local openApps = {}
 local currentScreen = "home"
 local prevScreen = "home"
 local showScreen
@@ -5301,7 +6044,6 @@ local function updateNavState()
     end
 end
 
--- ---------- TELA DE RECENTES ----------
 local RecentsFrame = Instance.new("Frame")
 RecentsFrame.Name = "RecentsFrame"
 RecentsFrame.Size = UDim2.new(0, 280, 0, 440)
@@ -5312,7 +6054,6 @@ RecentsFrame.Visible = false
 RecentsFrame.Active = true
 RecentsFrame.Parent = ScreenGui
 corner(RecentsFrame, UDim.new(0, 28))
-
 
 local rcBg = Instance.new("ImageLabel")
 rcBg.Size = UDim2.new(1, 0, 1, 0)
@@ -5401,11 +6142,6 @@ corner(rcClear, UDim.new(1, 0))
 
 createNavBar(RecentsFrame)
 
--- ---------- NAVEGADOR (estilo Chrome) ----------
--- Abas, barra de endereço com pílula, menu ⋮, seletor de abas, favoritos, histórico,
--- página Nova Guia com atalhos, barra de progresso e página de erro.
--- Tocar em qualquer link (resultado, link da página, favorito) abre direto no Web Direto da aba atual.
--- Limitação: Roblox não possui WebView; o conteúdo é exibido como texto formatado (sem JS/CSS).
 local function makeBrowserScreen()
     local C = {
         bg = Color3.fromRGB(32, 33, 36),
@@ -5440,12 +6176,13 @@ local function makeBrowserScreen()
         return o
     end
 
-    -- ---------- utilitários de texto / rede ----------
     local U = {}
     function U.httpGet(url)
         local req = request or http_request or (syn and syn.request)
         if type(req) == "function" then
-            local response = req({Url = url, Method = "GET", Headers = { ["User-Agent"] = "Mozilla/5.0" }})
+            local headers = { ["User-Agent"] = "Mozilla/5.0" }
+            if url:find("bing.com", 1, true) then headers["Cookie"] = "SRCHHPGUSR=ADLT=OFF" end   -- SafeSearch desligado
+            local response = req({Url = url, Method = "GET", Headers = headers})
             if type(response) == "table" and response.Body then return response.Body end
             error("Resposta HTTP vazia")
         end
@@ -5513,7 +6250,349 @@ local function makeBrowserScreen()
         return n
     end
 
-    -- ---------- estado ----------
+    local CACHE_DIR = "PHONE/Cache"
+    local imgCache = {}
+    local imgPath = {}
+    local imgKind, gifMeta = {}, {}
+    local hasAssetFn = true
+    function U.hash2(str)
+        local h1, h2 = 5381, 52711
+        for i = 1, #str do
+            local c = str:byte(i)
+            h1 = (h1 * 33 + c) % 4294967296
+            h2 = (h2 * 31 + c) % 4294967291
+        end
+        return string.format("%08x%08x", h1, h2)
+    end
+    local PROXIES = {"https://wsrv.nl/", "https://images.weserv.nl/"}
+    local IMG_EXT = {png = true, jpg = true, jpeg = true, jfif = true, gif = true, webp = true, bmp = true, avif = true, svg = true, ico = true, tif = true, tiff = true, heic = true}
+    function U.imgExt(b)
+        if b:sub(1, 4) == "\137PNG" then return "png" end
+        if b:sub(1, 3) == "\255\216\255" then return "jpg" end
+        return nil
+    end
+    local HEIF = {avif = true, avis = true, heic = true, heix = true, mif1 = true, msf1 = true}
+    function U.sniff(b)
+        local h = b:sub(1, 12)
+        if h:sub(1, 4) == "\137PNG" then return "png" end
+        if h:sub(1, 3) == "\255\216\255" then return "jpg" end
+        if h:sub(1, 3) == "GIF" then return "gif" end
+        if h:sub(1, 4) == "RIFF" and h:sub(9, 12) == "WEBP" then return "webp" end
+        if h:sub(1, 2) == "BM" then return "bmp" end
+        if h:sub(5, 8) == "ftyp" and HEIF[h:sub(9, 12)] then return "avif" end
+        if h:sub(1, 2) == "II" and h:byte(3) == 42 and h:byte(4) == 0 then return "tiff" end
+        if h:sub(1, 2) == "MM" and h:byte(3) == 0 and h:byte(4) == 42 then return "tiff" end
+        if h:byte(1) == 0 and h:byte(2) == 0 and h:byte(3) == 1 and h:byte(4) == 0 then return "ico" end
+        if b:sub(1, 800):lower():find("<svg", 1, true) then return "svg" end
+        return nil
+    end
+    function U.parseGif(b)
+        if #b < 20 or b:sub(1, 3) ~= "GIF" then return nil end
+        local w = b:byte(7) + b:byte(8) * 256
+        local h = b:byte(9) + b:byte(10) * 256
+        local flags = b:byte(11)
+        local pos = 14
+        if flags >= 128 then pos = pos + 3 * math.floor(2 ^ ((flags % 8) + 1)) end
+        local delays, n, pending, len = {}, 0, 10, #b
+        while pos <= len do
+            local c = b:byte(pos)
+            if c == 0x21 then
+                if b:byte(pos + 1) == 0xF9 and b:byte(pos + 2) == 4 then
+                    pending = (b:byte(pos + 4) or 10) + (b:byte(pos + 5) or 0) * 256
+                    if pending <= 1 then pending = 10 end
+                end
+                pos = pos + 2
+                while pos <= len do
+                    local sz = b:byte(pos)
+                    if sz == 0 then pos = pos + 1; break end
+                    pos = pos + 1 + sz
+                end
+            elseif c == 0x2C then
+                local f = b:byte(pos + 9) or 0
+                pos = pos + 10
+                if f >= 128 then pos = pos + 3 * math.floor(2 ^ ((f % 8) + 1)) end
+                pos = pos + 1
+                while pos <= len do
+                    local sz = b:byte(pos)
+                    if sz == 0 then pos = pos + 1; break end
+                    pos = pos + 1 + sz
+                end
+                n = n + 1
+                delays[n] = pending
+                pending = 10
+            else
+                break
+            end
+        end
+        if n < 1 then return nil end
+        return {w = w, h = h, n = n, delays = delays}
+    end
+    function U.proxy(url, extra, p)
+        return (PROXIES[p or 1] or PROXIES[1]) .. "?url=" .. HttpService:UrlEncode(url) .. (extra or "")
+    end
+    function U.ensureCache()
+        pcall(function()
+            if not isfolder("PHONE") then makefolder("PHONE") end
+            if not isfolder(CACHE_DIR) then makefolder(CACHE_DIR) end
+        end)
+    end
+    function U.cachedAsset(key)
+        for _, ext in ipairs({"jpg", "png"}) do
+            local path = CACHE_DIR .. "/" .. key .. "." .. ext
+            local okF, has = pcall(isfile, path)
+            if okF and has then
+                local okA, a = pcall(getcustomasset, path)
+                if okA and type(a) == "string" and a ~= "" then return a, path end
+            end
+        end
+        return nil
+    end
+    function U.storeBody(body, key)
+        local ext = U.imgExt(body)
+        if not ext then return nil end
+        U.ensureCache()
+        local path = CACHE_DIR .. "/" .. key .. "." .. ext
+        if not pcall(writefile, path, body) then return nil end
+        local okA, a = pcall(getcustomasset, path)
+        if okA and type(a) == "string" and a ~= "" then return a, path end
+        hasAssetFn = false
+        return nil
+    end
+    function U.saveMeta(url, m)
+        U.ensureCache()
+        pcall(writefile, CACHE_DIR .. "/" .. U.hash2(url) .. ".gifmeta", m.w .. " " .. m.h .. " " .. m.n .. "\n" .. table.concat(m.delays, ","))
+    end
+    function U.cacheImage(url, maxBytes)
+        if type(url) ~= "string" or url == "" then return nil end
+        if imgCache[url] then return imgCache[url] end
+        U.ensureCache()
+        local key = U.hash2(url)
+        local a, path = U.cachedAsset(key)
+        if a then imgCache[url] = a; imgPath[url] = path; return a end
+        local limit = maxBytes or 4000000
+        local okG, body = pcall(U.httpGet, url)
+        if okG and type(body) == "string" and #body >= 100 then
+            local kind = U.sniff(body)
+            imgKind[url] = kind
+            if kind == "gif" then
+                U.rememberGif(url, body)
+                local m = U.parseGif(body)
+                if m then gifMeta[url] = m; U.saveMeta(url, m) end
+            end
+            if (kind == "png" or kind == "jpg") and #body <= limit then
+                a, path = U.storeBody(body, key)
+                if a then imgCache[url] = a; imgPath[url] = path; return a end
+            end
+        end
+        if not hasAssetFn then return nil end
+        -- GIF / WebP / AVIF / BMP / SVG / imagem grande demais / site que bloqueia hotlink: converte pelo proxy
+        for p = 1, #PROXIES do
+            local okP, pb = pcall(U.httpGet, U.proxy(url, "&output=png&w=1024&we", p))
+            if okP and type(pb) == "string" then
+                a, path = U.storeBody(pb, key)
+                if a then imgCache[url] = a; imgPath[url] = path; return a end
+            end
+        end
+        return nil
+    end
+    function U.gifMeta(url)
+        if gifMeta[url] then return gifMeta[url] end
+        if gifMeta[url] == false then return nil end
+        local mpath = CACHE_DIR .. "/" .. U.hash2(url) .. ".gifmeta"
+        local okF, has = pcall(isfile, mpath)
+        if okF and has then
+            local okR, txt = pcall(readfile, mpath)
+            if okR and type(txt) == "string" then
+                local w, h, n, ds = txt:match("^(%d+) (%d+) (%d+)\n(.*)$")
+                if w then
+                    local d = {}
+                    for v in ds:gmatch("%d+") do d[#d + 1] = tonumber(v) end
+                    gifMeta[url] = {w = tonumber(w), h = tonumber(h), n = tonumber(n), delays = d}
+                    return gifMeta[url]
+                end
+            end
+        end
+        local okG, body = pcall(U.httpGet, url)
+        local m = okG and type(body) == "string" and U.parseGif(body) or nil
+        if not m then gifMeta[url] = false; return nil end
+        gifMeta[url] = m
+        U.saveMeta(url, m)
+        return m
+    end
+    function U.maybeGif(url)
+        if gifMeta[url] == false then return false end
+        if imgKind[url] == "gif" or gifMeta[url] then return true end
+        if url:lower():match("%.gif") then return true end
+        local okF, has = pcall(isfile, CACHE_DIR .. "/" .. U.hash2(url) .. ".gifmeta")
+        return okF and has == true
+    end
+    -- cache em memoria dos ultimos GIFs baixados: ver, baixar e salvar na Galeria usam 1 download so
+    local gifBodies, gifBodyOrder = {}, {}
+    function U.rememberGif(url, body)
+        if type(body) ~= "string" or body:sub(1, 3) ~= "GIF" then return end
+        if not gifBodies[url] then
+            gifBodyOrder[#gifBodyOrder + 1] = url
+            if #gifBodyOrder > 4 then
+                local old = table.remove(gifBodyOrder, 1)
+                gifBodies[old] = nil
+            end
+        end
+        gifBodies[url] = body
+    end
+    function U.gifBody(url)
+        local b = gifBodies[url]
+        if b then return b end
+        local okG, body = pcall(U.httpGet, url)
+        if okG and type(body) == "string" and body:sub(1, 3) == "GIF" then
+            U.rememberGif(url, body)
+            return body
+        end
+        return nil
+    end
+    -- baixa ate 24 quadros do GIF (um PNG por quadro, via proxy) e devolve {assets, delays}
+    function U.gifFrames(url, meta, onProg, cancelled)
+        local n, MAXF = meta.n, 24
+        local step = math.max(1, math.ceil(n / MAXF))
+        local idx, dl, i = {}, {}, 1
+        while i <= n do
+            local sum = 0
+            for k = i, math.min(i + step - 1, n) do sum = sum + (meta.delays[k] or 10) end
+            idx[#idx + 1] = i
+            dl[#dl + 1] = sum
+            i = i + step
+        end
+        local total, assets, done, nextJ = #idx, {}, 0, 0
+        local key = U.hash2(url)
+        local width = math.max(64, math.min(meta.w, 280))
+        local function worker()
+            while true do
+                if cancelled() then return end
+                nextJ = nextJ + 1
+                local j = nextJ
+                if j > total then return end
+                local fkey = key .. "_f" .. idx[j]
+                local a = U.cachedAsset(fkey)
+                if not a then
+                    for p = 1, #PROXIES do
+                        local okP, pb = pcall(U.httpGet, U.proxy(url, "&page=" .. (idx[j] - 1) .. "&output=png&w=" .. width .. "&we", p))
+                        if okP and type(pb) == "string" then
+                            a = U.storeBody(pb, fkey)
+                            if a then break end
+                        end
+                    end
+                end
+                assets[j] = a or false
+                done = done + 1
+                onProg(done, total)
+            end
+        end
+        local running = 4
+        for _ = 1, 4 do
+            task.spawn(function() worker(); running = running - 1 end)
+        end
+        local t0 = os.clock()
+        while running > 0 and os.clock() - t0 < 60 and not cancelled() do task.wait(0.1) end
+        local out, delays, last = {}, {}, nil
+        for j = 1, total do
+            local a = assets[j] or last
+            if a then
+                out[#out + 1] = a
+                delays[#delays + 1] = dl[j] / 100
+                last = a
+            end
+        end
+        if #out < 2 then return nil end
+        return {assets = out, delays = delays}
+    end
+
+    local DL_DIR = "PHONE/Downloads"
+    local DL_EXT = {mp3 = true, ogg = true, png = true, jpg = true, jpeg = true, txt = true, lua = true, json = true, zip = true, pdf = true, mp4 = true, rbxm = true, rbxl = true, csv = true}
+    function U.ensureDl()
+        pcall(function()
+            if not isfolder("PHONE") then makefolder("PHONE") end
+            if not isfolder(DL_DIR) then makefolder(DL_DIR) end
+        end)
+    end
+    function U.fileExt(url)
+        local path = url:match("^https?://[^/?#]+/([^?#]*)")
+        if not path then return nil end
+        local ext = path:match("([^/]+)$") and path:match("%.(%w+)$")
+        return ext and ext:lower() or nil
+    end
+    function U.fileName(url, ext)
+        local seg = url:match("^https?://[^?#]*/([^/?#]+)") or ("arquivo." .. ext)
+        seg = (U.urlDecode(seg):gsub("[^%w%-%._ ]", "_"))
+        seg = seg:sub(1, 60)
+        if seg == "" then seg = "arquivo." .. ext end
+        return seg
+    end
+    function U.humanSize(n)
+        if n >= 1048576 then return string.format("%.1f MB", n / 1048576) end
+        if n >= 1024 then return string.format("%.1f KB", n / 1024) end
+        return n .. " B"
+    end
+    function U.download(url, ext)
+        U.ensureDl()
+        local body = U.httpGet(url)
+        if type(body) ~= "string" or #body == 0 then error("Arquivo vazio") end
+        local name = U.fileName(url, ext)
+        local path = DL_DIR .. "/" .. name
+        local okF, has = pcall(isfile, path)
+        if okF and has then
+            name = os.time() .. "_" .. name
+            path = DL_DIR .. "/" .. name
+        end
+        if not pcall(writefile, path, body) then error("Não foi possível salvar (writefile indisponível)") end
+        return {kind = "download", title = name, name = name, path = path, ext = ext, size = #body, preview = "Download: " .. name}
+    end
+    -- FIX: nunca sobrescreve um arquivo diferente com o mesmo nome (isso misturava GIFs/fotos).
+    -- Se o destino ja tem EXATAMENTE o mesmo conteudo, nao copia de novo (retorna true).
+    function U.sendTo(path, dir)
+        local okR, data = pcall(readfile, path)
+        if not okR or type(data) ~= "string" or data == "" then return false end
+        pcall(function() if not isfolder(dir) then makefolder(dir) end end)
+        local name = path:match("([^/\\]+)$") or "arquivo"
+        local target = dir .. "/" .. name
+        local okF, has = pcall(isfile, target)
+        if okF and has then
+            local okD, old = pcall(readfile, target)
+            if okD and old == data then return true, target end
+            local base, ext = name:match("^(.*)%.(%w+)$")
+            if not base then base, ext = name, nil end
+            local fp = Nav.gif.fingerprint(data):match("_(%x+)$") or tostring(os.time())
+            name = base .. "_" .. fp:sub(1, 6) .. (ext and ("." .. ext) or "")
+            target = dir .. "/" .. name
+            local okF2, has2 = pcall(isfile, target)
+            if okF2 and has2 then
+                local okD2, old2 = pcall(readfile, target)
+                if okD2 and old2 == data then return true, target end
+            end
+        end
+        return (pcall(writefile, target, data)), target
+    end
+    function U.purgeCache()
+        imgCache = {}
+        gifMeta = {}
+        pcall(Nav.gif.purge, "br_")
+        local n = 0
+        pcall(function()
+            for _, f in ipairs(listfiles(CACHE_DIR)) do
+                if pcall(delfile, f) then n = n + 1 end
+            end
+        end)
+        return n
+    end
+    pcall(function()
+        U.ensureCache()
+        if #listfiles(CACHE_DIR) > 1500 then U.purgeCache() end
+        -- quadros de GIF do navegador ocupam muito disco: limpa quando passar de 40 pastas
+        local nBr = 0
+        for _, d in ipairs(listfiles("PHONE/GifFrames")) do
+            if (tostring(d):gsub("\\", "/"):match("([^/]+)$") or ""):sub(1, 3) == "br_" then nBr = nBr + 1 end
+        end
+        if nBr > 40 then pcall(Nav.gif.purge, "br_") end
+    end)
+
     local tabs, cur = {}, 1
     local render, navigate, loadEntry, reload, showEntry, refreshSwitcher, closeOverlays, openPanel, toast
     local function newTab() return {hist = {{ntp = true, state = "done"}}, pos = 1} end
@@ -5538,7 +6617,6 @@ local function makeBrowserScreen()
         return false
     end
 
-    -- ---------- ícones próprios ----------
     local function lockIcon(parent, S, color, z)
         local c = new("Frame", {Size = UDim2.new(0, S, 0, S), BackgroundTransparency = 1, ZIndex = z}, parent)
         local sh = new("Frame", {Size = UDim2.new(0, S * 0.5, 0, S * 0.6), Position = UDim2.new(0.25, 0, 0.02, 0), BackgroundTransparency = 1, ZIndex = z}, c)
@@ -5563,7 +6641,6 @@ local function makeBrowserScreen()
         return b
     end
 
-    -- ---------- moldura e barra superior ----------
     local frame = new("Frame", {
         Name = "WebBrowserFrame", Size = UDim2.new(0, 280, 0, 440), Position = PhoneHome.Position,
         BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Active = true,
@@ -5583,6 +6660,7 @@ local function makeBrowserScreen()
         Name = "AddressOrSearch", Position = UDim2.new(0, 32, 0, 0), Size = UDim2.new(1, -62, 1, 0), BackgroundTransparency = 1,
         Text = "", PlaceholderText = "Pesquisar ou URL", PlaceholderColor3 = C.sub, TextColor3 = C.text,
         ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
         ClipsDescendants = true, ZIndex = 7,
     }, pill)
     local reloadBtn = new("TextButton", {Position = UDim2.new(1, -30, 0, 3), Size = UDim2.new(0, 28, 0, 28), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 7}, pill)
@@ -5607,18 +6685,19 @@ local function makeBrowserScreen()
         task.delay(0.35, function() if t == progToken then progress.Visible = false end end)
     end
 
-    -- ---------- área de conteúdo ----------
     local area = new("Frame", {Position = UDim2.new(0, 0, 0, 84), Size = UDim2.new(1, 0, 1, -122), BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 3}, frame)
-    local ntpView = new("ScrollingFrame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 300), ZIndex = 4}, area)
-    local pageView = new("ScrollingFrame", {Name = "WebContent", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 4}, area)
+    local ntpView = new("ScrollingFrame", {ClipsDescendants = true, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 300), ZIndex = 4}, area)
+    local pageView = new("ScrollingFrame", {Name = "WebContent", ClipsDescendants = true, ScrollingDirection = Enum.ScrollingDirection.Y, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 4}, area)
     new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)}, pageView)
     new("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 12), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, pageView)
 
     local toastLbl = new("TextLabel", {
         AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -46), Size = UDim2.new(0, 0, 0, 26), AutomaticSize = Enum.AutomaticSize.X,
         BackgroundColor3 = Color3.fromRGB(60, 64, 67), Text = "", TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, Visible = false, ZIndex = 40,
+        TextTruncate = Enum.TextTruncate.AtEnd, ClipsDescendants = true,
     }, frame)
     corner(toastLbl, UDim.new(0, 13))
+    new("UISizeConstraint", {MaxSize = Vector2.new(244, 26)}, toastLbl)
     new("UIPadding", {PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14)}, toastLbl)
     local toastId = 0
     toast = function(msg)
@@ -5629,8 +6708,226 @@ local function makeBrowserScreen()
         task.delay(1.6, function() if id == toastId then toastLbl.Visible = false end end)
     end
 
-    -- ---------- barra: estado visual ----------
-    local heartBtn -- definido no menu
+    local viewer = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
+    local viewerBack = iconButton(viewer, Icons.back, 16, C.text, UDim2.new(0, 6, 0, 4), UDim2.new(0, 34, 0, 34), 16)
+    local viewerTitle = new("TextLabel", {Position = UDim2.new(0, 44, 0, 4), Size = UDim2.new(1, -54, 0, 34), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    local viewerImg = new("ImageLabel", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundColor3 = C.card, BorderSizePixel = 0, ScaleType = Enum.ScaleType.Fit, Image = "", ZIndex = 16}, viewer)
+    corner(viewerImg, UDim.new(0, 10))
+    local viewerImg2 = new("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, ImageTransparency = 1, Visible = false, ZIndex = 17}, viewerImg)
+    local viewerSmooth = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 76), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "60 FPS", TextColor3 = Color3.fromRGB(120, 255, 160), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 19}, viewer)
+    corner(viewerSmooth, UDim.new(0, 10))
+    new("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, viewerSmooth)
+    local viewerMsg = new("TextLabel", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundTransparency = 1, Text = "Carregando…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 17}, viewer)
+    local viewerTap = new("TextButton", {Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(1, -16, 1, -140), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 18}, viewer)
+    local viewerBadge = new("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 50), Size = UDim2.new(0, 0, 0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = "GIF", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, Visible = false, AutoButtonColor = false, ZIndex = 19}, viewer)
+    corner(viewerBadge, UDim.new(0, 10))
+    new("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, viewerBadge)
+    local viewerVisit = new("TextButton", {Position = UDim2.new(0, 8, 1, -88), Size = UDim2.new(0.5, -12, 0, 34), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "VISITAR", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    corner(viewerVisit, UDim.new(0, 17))
+    local viewerCopy = new("TextButton", {Position = UDim2.new(0.5, 4, 1, -88), Size = UDim2.new(0.5, -12, 0, 34), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "COPIAR LINK", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    corner(viewerCopy, UDim.new(0, 17))
+    local viewerGal = new("TextButton", {Position = UDim2.new(0, 8, 1, -46), Size = UDim2.new(0.5, -12, 0, 36), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "GALERIA", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    corner(viewerGal, UDim.new(0, 18))
+    local viewerDl = new("TextButton", {Position = UDim2.new(0.5, 4, 1, -46), Size = UDim2.new(0.5, -12, 0, 36), BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "BAIXAR", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 16}, viewer)
+    corner(viewerDl, UDim.new(0, 18))
+    local viewerItem, viewerToken = nil, 0
+    local gifReady = false
+    local gifState = {playing = true, smooth = true}
+
+    local function toggleGif()
+        if not gifReady then return end
+        gifState.playing = not gifState.playing
+        viewerBadge.Text = gifState.playing and "GIF" or "GIF · pausado"
+    end
+    viewerTap.MouseButton1Click:Connect(toggleGif)
+    viewerBadge.MouseButton1Click:Connect(toggleGif)
+    viewerSmooth.MouseButton1Click:Connect(function()
+        gifState.smooth = not gifState.smooth
+        viewerSmooth.Text = gifState.smooth and "60 FPS" or "ORIGINAL"
+        viewerSmooth.TextColor3 = gifState.smooth and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(190, 190, 200)
+    end)
+
+    local function playGif(item, tk)
+        local url = item.url
+        local function cancelled() return tk ~= viewerToken or not viewer.Visible end
+        -- FIX: limpa overlay imediatamente antes de qualquer await
+        viewerImg2.Visible = false
+        viewerImg2.Image = ""
+        viewerBadge.Visible = true
+        viewerBadge.Text = "GIF · lendo…"
+        local fr
+        -- 1) decodificador local (nao depende de proxy)
+        -- cache por URL: se os quadros ja foram gerados antes, toca direto (sem baixar o GIF de novo)
+        local key = "br_" .. U.hash2(url)
+        local info = Nav.gif.load(key)
+        local body
+        if not info then
+            body = U.gifBody(url)   -- reaproveita o download ja feito (nao baixa de novo)
+            if cancelled() then return end
+        end
+        if info or body then
+            if not info then
+                -- maxFrames = 0 = todos os quadros
+                info = Nav.gif.bake(key, body, {
+                    maxFrames = 0, maxDim = 480, pixelBudget = 48000000, yield = task.wait, cancelled = cancelled,
+                    onProg = function(d, t) if not cancelled() then viewerBadge.Text = "GIF · " .. d .. "/" .. t end end,
+                }, url:match("([^/]+%.gif)") or key)
+            end
+            if cancelled() then return end
+            if info and #info.paths >= 2 then
+                local assets = Nav.gif.assets(info)
+                if assets then fr = {assets = assets, delays = info.delays} end
+            end
+        end
+        -- 2) reserva: quadros via proxy
+        if not fr then
+            local meta = U.gifMeta(url)
+            if cancelled() then return end
+            if not meta or meta.n < 2 then viewerBadge.Visible = false; return end
+            viewerBadge.Text = "GIF · 0/" .. math.min(meta.n, 24)
+            fr = U.gifFrames(url, meta, function(done, total)
+                if not cancelled() then viewerBadge.Text = "GIF · " .. done .. "/" .. total end
+            end, cancelled)
+            if cancelled() then return end
+        end
+        if not fr then viewerBadge.Text = "GIF · sem animação"; return end
+        Nav.gif.preload(fr.assets, 1.5)
+        if cancelled() then return end
+        gifReady = true
+        gifState.playing = true
+        viewerBadge.Text = "GIF"
+        viewerMsg.Visible = false
+        viewerSmooth.Text = gifState.smooth and "60 FPS" or "ORIGINAL"
+        viewerSmooth.TextColor3 = gifState.smooth and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(190, 190, 200)
+        viewerSmooth.Visible = true
+        Nav.gif.play(viewerImg, viewerImg2, fr.assets, fr.delays, cancelled, gifState)
+    end
+
+    local function openViewer(item)
+        viewerToken = viewerToken + 1
+        local tk = viewerToken
+        Nav.gif.stop(viewerImg)
+        viewerItem = item
+        gifReady = false
+        gifState.playing = true
+        viewer.Visible = true
+        viewerBadge.Visible = false
+        viewerSmooth.Visible = false
+        viewerImg2.Visible = false
+        viewerTitle.Text = (item.title ~= "" and item.title) or U.hostOf(item.page or item.url)
+        local thumb = imgCache[item.thumb]
+        viewerImg.Image = thumb or ""
+        viewerMsg.Visible = thumb == nil
+        viewerMsg.Text = "Carregando…"
+        viewerVisit.Visible = item.page ~= nil
+        if item.page ~= nil then
+            viewerCopy.Position, viewerCopy.Size = UDim2.new(0.5, 4, 1, -88), UDim2.new(0.5, -12, 0, 34)
+        else
+            viewerCopy.Position, viewerCopy.Size = UDim2.new(0, 8, 1, -88), UDim2.new(1, -16, 0, 34)
+        end
+        task.spawn(function()
+            local a = U.cacheImage(item.url, 8000000)
+            if tk ~= viewerToken or not viewer.Visible then return end
+            if a then
+                viewerImg.Image = a
+                viewerMsg.Visible = false
+                if U.maybeGif(item.url) then playGif(item, tk) end
+            elseif not thumb then
+                viewerMsg.Text = hasAssetFn and "Não foi possível carregar esta imagem." or "Seu executor não tem getcustomasset: não dá para exibir imagens."
+            end
+        end)
+    end
+    viewerBack.MouseButton1Click:Connect(function() viewer.Visible = false; viewerToken = viewerToken + 1 end)
+    viewerVisit.MouseButton1Click:Connect(function()
+        if viewerItem and viewerItem.page then
+            viewer.Visible = false
+            navigate(tabs[cur], {url = viewerItem.page})
+        end
+    end)
+    local function itemBaseName(item)
+        local base = ((item.title or ""):gsub("[^%w%-_ ]", "_")):sub(1, 40)
+        if base:gsub("[_ ]", "") == "" then base = U.hash2(item.url) end
+        return base
+    end
+    local function saveStaticToGallery(item)
+        local path = imgPath[item.url] or imgPath[item.thumb]
+        if not path then toast("Imagem ainda carregando") return end
+        toast(U.sendTo(path, "PHONE/Photos") and "Salvo na Galeria" or "Falha ao copiar")
+    end
+
+    -- FIX (precisava baixar duas vezes): UM unico fluxo para GIF.
+    -- Baixa 1x (cache em memoria), grava em Downloads E na Galeria com nome fixo por URL
+    -- (tocar de novo nao duplica; GIFs diferentes com o mesmo titulo nao colidem) e deixa
+    -- os quadros prontos, copiando do cache do navegador em vez de decodificar de novo.
+    local savedGif, savingGif = {}, {}
+    local function saveGifFlow(item)
+        local url = item.url
+        if savedGif[url] then toast("GIF já está na Galeria e em Downloads") return end
+        if savingGif[url] then toast("Ainda salvando este GIF…") return end
+        savingGif[url] = true
+        toast("Salvando GIF…")
+        task.spawn(function()
+            local body = U.gifBody(url)
+            if not body then
+                savingGif[url] = nil
+                saveStaticToGallery(item)   -- nao era GIF de verdade
+                return
+            end
+            local fname = itemBaseName(item) .. "_" .. U.hash2(url):sub(1, 6) .. ".gif"
+            pcall(function()
+                if not isfolder("PHONE") then makefolder("PHONE") end
+                if not isfolder("PHONE/Photos") then makefolder("PHONE/Photos") end
+            end)
+            U.ensureDl()
+            local okP = pcall(writefile, "PHONE/Photos/" .. fname, body)
+            local okD = pcall(writefile, DL_DIR .. "/" .. fname, body)
+            if not okP then
+                savingGif[url] = nil
+                toast("Falha ao salvar o GIF")
+                return
+            end
+            -- quadros prontos para a Galeria tocar na hora (mesma chave que a Galeria calcula)
+            local gkey = Nav.gif.keyFor(fname, body)
+            if not Nav.gif.load(gkey, #body) then
+                local srcKey = "br_" .. U.hash2(url)
+                local info = Nav.gif.clone(srcKey, gkey, #body, fname)
+                if not info then
+                    toast("Preparando quadros…")
+                    Nav.gif.bake(gkey, body, {maxFrames = 0, maxDim = 480, pixelBudget = 48000000, yield = task.wait}, fname)
+                end
+            end
+            savingGif[url] = nil
+            savedGif[url] = fname
+            toast(okD and "GIF salvo na Galeria e em Downloads" or "GIF salvo na Galeria")
+        end)
+    end
+
+    viewerDl.MouseButton1Click:Connect(function()
+        local item = viewerItem
+        if not item then return end
+        if U.maybeGif(item.url) then saveGifFlow(item) return end
+        local path = imgPath[item.url] or imgPath[item.thumb]
+        if not path then toast("Imagem ainda carregando") return end
+        U.ensureDl()
+        local ext = path:match("%.(%w+)$") or "jpg"
+        local okR, data = pcall(readfile, path)
+        local target = DL_DIR .. "/" .. itemBaseName(item) .. "." .. ext
+        if okR and type(data) == "string" and pcall(writefile, target, data) then toast("Salvo em Downloads")
+        else toast("Falha ao salvar") end
+    end)
+    viewerGal.MouseButton1Click:Connect(function()
+        local item = viewerItem
+        if not item then return end
+        if not (U.maybeGif(item.url) or item.gif) then saveStaticToGallery(item) return end
+        saveGifFlow(item)
+    end)
+    viewerCopy.MouseButton1Click:Connect(function()
+        local clip = setclipboard or toclipboard
+        if viewerItem and type(clip) == "function" then pcall(clip, viewerItem.url); toast("Link da imagem copiado")
+        else toast("Clipboard indisponível") end
+    end)
+
+    local heartBtn
     local function displayText(e)
         if e.ntp then return "" end
         if e.q then return e.q end
@@ -5658,29 +6955,300 @@ local function makeBrowserScreen()
         end
     end
 
-    -- ---------- carregamento ----------
-    local function fetchEntry(entry)
-        if entry.q then
-            local html = U.httpGet("https://html.duckduckgo.com/html/?q=" .. HttpService:UrlEncode(entry.q))
-            local raw, snips, items, seen = {}, {}, {}, {}
-            for href, label in html:gmatch('class="result__a" href="(.-)"[^>]*>(.-)</a>') do
-                table.insert(raw, {href, label})
-            end
-            for s in html:gmatch('class="result__snippet"[^>]*>(.-)</a>') do table.insert(snips, U.plain(s)) end
-            local paired = (#snips == #raw)
-            for i, r in ipairs(raw) do
-                local link = r[1]:gsub("&amp;", "&")
-                local real = link:match("uddg=([^&]+)")
-                if real then link = U.urlDecode(real) elseif link:sub(1, 2) == "//" then link = "https:" .. link end
-                local name = U.plain(r[2])
-                if name ~= "" and link:match("^https?://") and not link:find("duckduckgo.com/y.js", 1, true) and not seen[link] then
-                    seen[link] = true
-                    table.insert(items, {name = name:sub(1, 90), url = link, snippet = paired and snips[i]:sub(1, 130) or nil})
-                    if #items >= 10 then break end
+    -- Buscadores disponiveis (escolha no menu de 3 pontinhos). "Auto" = tenta todos em ordem.
+    U.ENGINES = {"Auto", "DuckDuckGo", "Bing", "DuckDuckGo Lite", "Mojeek", "Wikipedia"}
+    function U.engine()
+        local e = phoneSettings.searchEngine
+        for _, n in ipairs(U.ENGINES) do if n == e then return e end end
+        return "Auto"
+    end
+
+    -- Dimensoes (largura, altura) de PNG/JPEG lidas do proprio arquivo: usadas no layout em mosaico
+    U.imgDims = {}
+    function U.parseDims(b)
+        if b:sub(1, 8) == "\137PNG\r\n\26\n" and #b >= 24 then
+            local w = b:byte(17) * 16777216 + b:byte(18) * 65536 + b:byte(19) * 256 + b:byte(20)
+            local h = b:byte(21) * 16777216 + b:byte(22) * 65536 + b:byte(23) * 256 + b:byte(24)
+            return w, h
+        end
+        if b:byte(1) == 0xFF and b:byte(2) == 0xD8 then
+            local i, n = 3, #b
+            while i < n - 8 do
+                if b:byte(i) ~= 0xFF then
+                    i = i + 1
+                else
+                    local m = b:byte(i + 1)
+                    if m == 0xFF then
+                        i = i + 1
+                    elseif m == 0xD8 or m == 0x01 or (m >= 0xD0 and m <= 0xD7) then
+                        i = i + 2
+                    else
+                        local len = b:byte(i + 2) * 256 + b:byte(i + 3)
+                        if m >= 0xC0 and m <= 0xCF and m ~= 0xC4 and m ~= 0xC8 and m ~= 0xCC then
+                            return b:byte(i + 7) * 256 + b:byte(i + 8), b:byte(i + 5) * 256 + b:byte(i + 6)
+                        end
+                        i = i + 2 + len
+                    end
                 end
             end
-            return {kind = "search", title = entry.q, items = items, preview = "Pesquisa: " .. entry.q}
         end
+        return nil
+    end
+    function U.dimsFor(url)
+        local d = U.imgDims[url]
+        if d then return d[1], d[2] end
+        local path = imgPath[url]
+        if path then
+            local okR, b = pcall(readfile, path)
+            if okR and type(b) == "string" then
+                local w, h = U.parseDims(b)
+                if w and h and w > 0 and h > 0 then
+                    U.imgDims[url] = {w, h}
+                    return w, h
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Busca de imagens: junta varias fontes (Bing + DuckDuckGo + Openverse), SafeSearch desligado,
+    -- e mistura GIFs animados no meio das imagens (sem categoria separada).
+    local function fetchImages(entry)
+        local items, gifItems, seen = {}, {}, {}
+        local enc = HttpService:UrlEncode(entry.q)
+        local IMG_MAX, TARGET = 220, 120
+        local function add(list, url, thumb, title, page, isGif)
+            thumb = thumb or url
+            if type(thumb) ~= "string" or not thumb:match("^https?://") or seen[thumb] then return end
+            seen[thumb] = true
+            title = U.plain(tostring(title or "")):gsub(utf8.char(0xE000), ""):gsub(utf8.char(0xE001), "")
+            list[#list + 1] = {url = url or thumb, thumb = thumb, title = title:sub(1, 80), page = page, gif = isGif or nil}
+        end
+
+        local function bingPages(extra, pages, perPage, list, isGif)
+            local htmls, pending = {}, pages
+            for k = 1, pages do
+                task.spawn(function()
+                    local first = (k - 1) * perPage + 1
+                    local url
+                    if k == 1 then
+                        url = "https://www.bing.com/images/search?q=" .. enc .. "&form=HDRSC2&first=1&count=" .. perPage .. extra
+                    else
+                        url = "https://www.bing.com/images/async?q=" .. enc .. "&first=" .. first .. "&count=" .. perPage .. "&mmasync=1" .. extra
+                    end
+                    local h = ""
+                    for _ = 1, 2 do   -- 1 nova tentativa se vier vazio
+                        local ok, r = pcall(U.httpGet, url)
+                        if ok and type(r) == "string" and #r > 500 then h = r break end
+                    end
+                    htmls[k] = h
+                    pending = pending - 1
+                end)
+            end
+            local t0 = os.clock()
+            while pending > 0 and os.clock() - t0 < 25 do task.wait(0.05) end
+            for k = 1, pages do
+                for m in (htmls[k] or ""):gmatch('%sm="(.-)"') do
+                    local j = U.decode(m)
+                    local okJ, d = pcall(function() return HttpService:JSONDecode(j) end)
+                    if okJ and type(d) == "table" then
+                        add(list, d.murl, d.turl, d.t or d.desc, d.purl, isGif)
+                    else
+                        add(list, j:match('"murl":"(.-)"'), j:match('"turl":"(.-)"'), j:match('"t":"(.-)"'), j:match('"purl":"(.-)"'), isGif)
+                    end
+                    if #list >= IMG_MAX then break end
+                end
+            end
+        end
+
+        local function ddgImages()
+            pcall(function()
+                local page = U.httpGet("https://duckduckgo.com/?q=" .. enc .. "&iax=images&ia=images&kp=-2")
+                local vqd = page:match('vqd="([^"]+)"') or page:match("vqd=([%d%-]+)&")
+                if not vqd then return end
+                for _, s in ipairs({0, 100, 200}) do
+                    local okJ, js = pcall(U.httpGet, "https://duckduckgo.com/i.js?l=wt-wt&o=json&q=" .. enc .. "&vqd=" .. vqd .. "&f=,,,,,&p=-1&s=" .. s)
+                    if okJ and type(js) == "string" then
+                        local okD, d = pcall(function() return HttpService:JSONDecode(js) end)
+                        if okD and type(d) == "table" then
+                            for _, r in ipairs(d.results or {}) do
+                                add(items, r.image, r.thumbnail, r.title, r.url)
+                            end
+                        end
+                    end
+                    if #items >= IMG_MAX then break end
+                end
+            end)
+        end
+
+        local function openverse()
+            pcall(function()
+                local js = U.httpGet("https://api.openverse.org/v1/images/?page_size=100&mature=true&q=" .. enc)
+                local d = HttpService:JSONDecode(js)
+                for _, r in ipairs(d.results or {}) do
+                    add(items, r.url, r.thumbnail or r.url, r.title, r.foreign_landing_url)
+                end
+            end)
+        end
+
+        -- GIFs animados em paralelo (Bing), para misturar no meio dos resultados
+        local gifDone = false
+        task.spawn(function()
+            pcall(bingPages, "&qft=%2Bfilterui%3Aphoto-animatedgif&adlt=off", 2, 35, gifItems, true)
+            gifDone = true
+        end)
+
+        local pref = U.engine()
+        local order = (pref == "DuckDuckGo") and {"ddg", "bing"} or {"bing", "ddg"}
+        for _, src in ipairs(order) do
+            if #items >= TARGET then break end
+            if src == "bing" then pcall(bingPages, "&adlt=off", 8, 35, items) else ddgImages() end
+        end
+        if #items < TARGET then openverse() end
+
+        local t0 = os.clock()
+        while not gifDone and os.clock() - t0 < 25 do task.wait(0.05) end
+
+        -- intercala: a cada 4 imagens entra 1 GIF
+        local out, gi = {}, 1
+        for i, it in ipairs(items) do
+            out[#out + 1] = it
+            if i % 4 == 0 and gifItems[gi] then out[#out + 1] = gifItems[gi]; gi = gi + 1 end
+        end
+        while gifItems[gi] and #out < IMG_MAX + 30 do out[#out + 1] = gifItems[gi]; gi = gi + 1 end
+        return {kind = "images", title = entry.q, items = out, preview = "Imagens: " .. entry.q}
+    end
+
+    -- Varios buscadores com fallback automatico: se um falhar/bloquear/vier vazio, tenta o proximo.
+    local function b64dec(s)
+        s = s:gsub("%-", "+"):gsub("_", "/")
+        local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        local out, bits, n = {}, 0, 0
+        for i = 1, #s do
+            local v = chars:find(s:sub(i, i), 1, true)
+            if v then
+                bits = bits * 64 + (v - 1)
+                n = n + 6
+                if n >= 8 then
+                    n = n - 8
+                    local b = math.floor(bits / 2 ^ n)
+                    bits = bits - b * 2 ^ n
+                    out[#out + 1] = string.char(b)
+                end
+            end
+        end
+        return table.concat(out)
+    end
+
+    local function cleanLink(href)
+        local link = U.decode(href)
+        local real = link:match("uddg=([^&]+)")
+        if real then return U.urlDecode(real) end
+        if link:find("bing.com/ck/a", 1, true) then
+            local u = link:match("[&?]u=a1([%w%-_]+)")
+            if u then
+                local d = b64dec(u)
+                if d:match("^https?://") then return d end
+            end
+        end
+        if link:sub(1, 2) == "//" then link = "https:" .. link end
+        return link
+    end
+
+    local function collect(pairsList, snips)
+        local items, seen = {}, {}
+        local paired = snips and (#snips == #pairsList)
+        for i, r in ipairs(pairsList) do
+            local link = cleanLink(r[1])
+            local name = U.plain(r[2])
+            if name ~= "" and link:match("^https?://") and not link:find("duckduckgo.com/y.js", 1, true) and not seen[link] then
+                seen[link] = true
+                items[#items + 1] = {name = name:sub(1, 90), url = link, snippet = paired and snips[i] and snips[i]:sub(1, 130) or nil}
+                if #items >= 10 then break end
+            end
+        end
+        return items
+    end
+
+    local SEARCH_ENGINES = {
+        {name = "DuckDuckGo", run = function(q)
+            local html = U.httpGet("https://html.duckduckgo.com/html/?kp=-2&q=" .. HttpService:UrlEncode(q))
+            local raw, snips = {}, {}
+            for href, label in html:gmatch('class="result__a" href="(.-)"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
+            for s in html:gmatch('class="result__snippet"[^>]*>(.-)</a>') do snips[#snips + 1] = U.plain(s) end
+            return collect(raw, snips)
+        end},
+        {name = "Bing", run = function(q)
+            local html = U.httpGet("https://www.bing.com/search?q=" .. HttpService:UrlEncode(q) .. "&setlang=pt-BR&adlt=off")
+            local raw, snips = {}, {}
+            for block in html:gmatch('<li class="b_algo.-</li>') do
+                local href, label = block:match('<h2[^>]*><a[^>]-href="(.-)"[^>]*>(.-)</a>')
+                if href then
+                    raw[#raw + 1] = {href, label}
+                    snips[#snips + 1] = U.plain(block:match("<p[^>]*>(.-)</p>") or "")
+                end
+            end
+            return collect(raw, snips)
+        end},
+        {name = "DuckDuckGo Lite", run = function(q)
+            local html = U.httpGet("https://lite.duckduckgo.com/lite/?kp=-2&q=" .. HttpService:UrlEncode(q))
+            local raw, snips = {}, {}
+            for href, label in html:gmatch("<a[^>]-href=\"(.-)\"[^>]-class=['\"]result%-link['\"][^>]*>(.-)</a>") do raw[#raw + 1] = {href, label} end
+            for s in html:gmatch("class=['\"]result%-snippet['\"][^>]*>(.-)</td>") do snips[#snips + 1] = U.plain(s) end
+            return collect(raw, snips)
+        end},
+        {name = "Mojeek", run = function(q)
+            local html = U.httpGet("https://www.mojeek.com/search?safe=0&q=" .. HttpService:UrlEncode(q))
+            local raw, snips = {}, {}
+            for href, label in html:gmatch('<a[^>]-class="title"[^>]-href="(.-)"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
+            if #raw == 0 then
+                for href, label in html:gmatch('<a[^>]-href="(.-)"[^>]-class="title"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
+            end
+            for s in html:gmatch('<p class="s">(.-)</p>') do snips[#snips + 1] = U.plain(s) end
+            return collect(raw, snips)
+        end},
+        {name = "Wikipedia", run = function(q)
+            local js = U.httpGet("https://pt.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=10&srsearch=" .. HttpService:UrlEncode(q))
+            local d = HttpService:JSONDecode(js)
+            local items = {}
+            for _, r in ipairs(d.query and d.query.search or {}) do
+                items[#items + 1] = {name = tostring(r.title), url = "https://pt.wikipedia.org/wiki/" .. tostring(r.title):gsub(" ", "_"), snippet = U.plain(tostring(r.snippet or "")):sub(1, 130)}
+            end
+            return items
+        end},
+    }
+
+    local function fetchWebSearch(q)
+        local lastErr, anyOk = nil, false
+        local pref, list = U.engine(), {}
+        for _, e in ipairs(SEARCH_ENGINES) do if e.name == pref then list[#list + 1] = e end end
+        for _, e in ipairs(SEARCH_ENGINES) do if e.name ~= pref then list[#list + 1] = e end end
+        for _, eng in ipairs(list) do
+            local ok, res = pcall(eng.run, q)
+            if ok then
+                anyOk = true
+                if type(res) == "table" and #res > 0 then return res, eng.name end
+            else
+                lastErr = res
+            end
+        end
+        if not anyOk and lastErr then error(lastErr, 0) end
+        return {}, nil
+    end
+
+    local function fetchEntry(entry)
+        if entry.q and (entry.mode == "images") then return fetchImages(entry) end
+        if entry.q then
+            local items, used = fetchWebSearch(entry.q)
+            return {kind = "search", title = entry.q, items = items, preview = "Pesquisa: " .. entry.q .. (used and (" · " .. used) or "")}
+        end
+        local imgExt0 = U.fileExt(entry.url)
+        if imgExt0 and IMG_EXT[imgExt0] then
+            local nm = U.fileName(entry.url, imgExt0)
+            return {kind = "image", title = nm, name = nm, url = entry.url, preview = "Imagem: " .. nm}
+        end
+        local dlExt = U.fileExt(entry.url)
+        if dlExt and DL_EXT[dlExt] then return U.download(entry.url, dlExt) end
         local html = U.httpGet(entry.url)
         local title = html:match("<[tT][iI][tT][lL][eE][^>]*>(.-)</[tT][iI][tT][lL][eE]>")
         title = title and U.plain(title) or ""
@@ -5697,8 +7265,26 @@ local function makeBrowserScreen()
                 end
             end
         end
+        local imgs, seenImg = {}, {}
+        for tag in html:gmatch("<[iI][mM][gG][^>]->") do
+            local s = tag:match('[%s"]data%-src="(.-)"') or tag:match('[%s"]data%-original="(.-)"') or tag:match('[%s"]src="(.-)"') or tag:match("[%s']src='(.-)'")
+            if not s then
+                local ss = tag:match('srcset="(.-)"')
+                if ss then s = ss:match("^%s*(%S+)") end
+            end
+            if s then
+                local link = U.resolve(entry.url, s)
+                local low = link and link:lower() or ""
+                if link and not seenImg[link] and not low:find("pixel", 1, true) and not low:find("spacer", 1, true) and not low:find("1x1", 1, true) and not low:match("%.ico") then
+                    seenImg[link] = true
+                    local alt = tag:match('alt="(.-)"') or ""
+                    table.insert(imgs, {url = link, thumb = link, title = U.plain(alt):sub(1, 80), gif = low:match("%.gif") ~= nil or nil})
+                    if #imgs >= 30 then break end
+                end
+            end
+        end
         local rich = U.rich(html)
-        return {kind = "page", title = title:sub(1, 80), rich = rich, items = items, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
+        return {kind = "page", title = title:sub(1, 80), rich = rich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
     end
 
     loadEntry = function(tab, entry)
@@ -5712,6 +7298,9 @@ local function makeBrowserScreen()
             if entry.rid ~= id then return end
             if ok then
                 entry.view, entry.state, entry.title = res, "done", res.title
+                if res.kind == "image" and tabs[cur] == tab and tab.hist[tab.pos] == entry then
+                    task.defer(function() openViewer({url = res.url, thumb = res.url, title = res.title}) end)
+                end
                 if entry.url and res.kind == "page" then
                     local h = history()
                     if not (h[1] and h[1].url == entry.url) then
@@ -5768,7 +7357,6 @@ local function makeBrowserScreen()
         end
     end
 
-    -- ---------- Nova Guia ----------
     local function buildNtp()
         for _, c in ipairs(ntpView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
         new("TextLabel", {
@@ -5780,7 +7368,7 @@ local function makeBrowserScreen()
         corner(box, UDim.new(0, 20))
         local ic = new("Frame", {Position = UDim2.new(0, 12, 0.5, -9), Size = UDim2.new(0, 18, 0, 18), BackgroundTransparency = 1, ZIndex = 6}, box)
         Icons.put(ic, Icons.search, 16, C.sub, 7)
-        new("TextLabel", {Position = UDim2.new(0, 38, 0, 0), Size = UDim2.new(1, -46, 1, 0), BackgroundTransparency = 1, Text = "Pesquisar ou digitar URL", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6}, box)
+        new("TextLabel", {Position = UDim2.new(0, 38, 0, 0), Size = UDim2.new(1, -46, 1, 0), BackgroundTransparency = 1, Text = "Pesquisar ou digitar URL", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, box)
         box.MouseButton1Click:Connect(function() address:CaptureFocus() end)
 
         local grid = new("Frame", {Name = "Dyn", Position = UDim2.new(0, 8, 0, 152), Size = UDim2.new(0, 264, 0, 150), BackgroundTransparency = 1, ZIndex = 5}, ntpView)
@@ -5795,7 +7383,6 @@ local function makeBrowserScreen()
         end
     end
 
-    -- ---------- página / resultados ----------
     local function buildPage(entry)
         for _, c in ipairs(pageView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
         local order = 0
@@ -5816,7 +7403,7 @@ local function makeBrowserScreen()
         local function card(rich, onClick)
             local b = add(new("TextButton", {
                 Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.card, BorderSizePixel = 0, AutoButtonColor = true,
-                RichText = true, Text = rich, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true,
+                ClipsDescendants = true, RichText = true, Text = rich, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true,
                 TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 5,
             }))
             corner(b, UDim.new(0, 10))
@@ -5830,8 +7417,101 @@ local function makeBrowserScreen()
             b.MouseButton1Click:Connect(onClick)
         end
 
+        local function imageGrid(items)
+            local grid = add(new("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, ZIndex = 5}))
+            local tiles = {}
+            for i, it in ipairs(items) do
+                local tile = new("TextButton", {LayoutOrder = i, BackgroundColor3 = C.card, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ClipsDescendants = true, ZIndex = 5}, grid)
+                corner(tile, UDim.new(0, 6))
+                local img = new("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop, Image = "", ImageTransparency = 1, ZIndex = 6}, tile)
+                corner(img, UDim.new(0, 6))
+                new("TextLabel", {Name = "Ph", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 14, ZIndex = 5}, tile)
+                local cap = new("TextLabel", {AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 12), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0, Text = it.title ~= "" and it.title or U.hostOf(it.page or it.url), TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.Gotham, TextSize = 7, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8}, tile)
+                new("UIPadding", {PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3)}, cap)
+                tile.MouseButton1Click:Connect(function() openViewer(it) end)
+                if it.gif or (it.url or ""):lower():match("%.gif") then
+                    local gb = new("TextLabel", {Position = UDim2.new(0, 3, 0, 3), Size = UDim2.new(0, 20, 0, 11), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.25, BorderSizePixel = 0, Text = "GIF", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 7, ZIndex = 8}, tile)
+                    corner(gb, UDim.new(0, 5))
+                end
+                table.insert(tiles, {tile = tile, img = img, item = it})
+            end
+
+            -- mosaico: 4 colunas, cada foto com a proporcao real; a proxima vai na coluna mais curta
+            local NCOL, GAP = 4, 4
+            local lastW, layoutPending = -1, false
+            local function relayout()
+                local W = grid.AbsoluteSize.X
+                if W <= 0 then W = 250 end
+                lastW = grid.AbsoluteSize.X
+                local colW = (W - (NCOL - 1) * GAP) / NCOL
+                local hs = {}
+                for c = 1, NCOL do hs[c] = 0 end
+                for _, t in ipairs(tiles) do
+                    local c = 1
+                    for k = 2, NCOL do if hs[k] < hs[c] - 0.5 then c = k end end
+                    local h = math.floor(colW * math.clamp(t.ar or 1, 0.55, 2))
+                    t.tile.Position = UDim2.new((c - 1) / NCOL, (c - 1) * GAP / NCOL * 1, 0, hs[c])
+                    t.tile.Size = UDim2.new(1 / NCOL, -(NCOL - 1) * GAP / NCOL, 0, h)
+                    hs[c] = hs[c] + h + GAP
+                end
+                local tall = 0
+                for c = 1, NCOL do if hs[c] > tall then tall = hs[c] end end
+                grid.Size = UDim2.new(1, 0, 0, tall)
+            end
+            local function schedule()
+                if layoutPending then return end
+                layoutPending = true
+                task.defer(function()
+                    layoutPending = false
+                    relayout()
+                end)
+            end
+            grid:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                if grid.AbsoluteSize.X ~= lastW then schedule() end
+            end)
+            relayout()
+
+            local nextI = 0
+            local function worker()
+                while true do
+                    nextI = nextI + 1
+                    local t = tiles[nextI]
+                    if not t then break end
+                    if t.img.Parent then
+                        local a = U.cacheImage(t.item.thumb)
+                        if t.img.Parent then
+                            local ph = t.tile:FindFirstChild("Ph")
+                            if a then
+                                t.img.Image = a
+                                TweenService:Create(t.img, TweenInfo.new(0.2), {ImageTransparency = 0}):Play()
+                                if ph then ph:Destroy() end
+                                local iw, ih = U.dimsFor(t.item.thumb)
+                                if iw and ih then t.ar = ih / iw; schedule() end
+                            elseif ph then
+                                ph.Text = hasAssetFn and "×" or "sem getcustomasset"
+                                ph.TextSize = hasAssetFn and 14 or 8
+                            end
+                        end
+                    end
+                end
+            end
+            for _ = 1, 8 do task.spawn(worker) end
+        end
+        if entry.q then
+            local bar = add(new("Frame", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, ZIndex = 5}))
+            new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, bar)
+            for i, cat in ipairs({{"Tudo", nil}, {"Imagens", "images"}}) do
+                local on = (entry.mode == cat[2])
+                local chip = new("TextButton", {LayoutOrder = i, Size = UDim2.new(0, 76, 0, 26), BackgroundColor3 = on and C.accent or C.card, BorderSizePixel = 0, Text = cat[1], TextColor3 = on and Color3.new(1, 1, 1) or C.text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 6}, bar)
+                corner(chip, UDim.new(0, 13))
+                chip.MouseButton1Click:Connect(function()
+                    if on then return end
+                    navigate(tabs[cur], {q = entry.q, mode = cat[2]})
+                end)
+            end
+        end
         if entry.state == "loading" then
-            label("Carregando…\n" .. (entry.url or entry.q or ""), 12, C.sub, Enum.Font.Gotham, 90)
+            label("Carregando…\n" .. U.esc((entry.url or entry.q or ""):sub(1, 120)), 12, C.sub, Enum.Font.Gotham, 90)
             return
         end
         if entry.state ~= "done" then
@@ -5845,7 +7525,27 @@ local function makeBrowserScreen()
             return
         end
         local view = entry.view
-        if view.kind == "search" then
+        if view.kind == "images" then
+            if #view.items == 0 then
+                label("Não encontrei imagens. Tente outra pesquisa.", 11, C.sub, Enum.Font.Gotham)
+                return
+            end
+            imageGrid(view.items)
+        elseif view.kind == "image" then
+            label("<b>Imagem</b>", 15, C.text, Enum.Font.Gotham)
+            label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
+            button("ABRIR IMAGEM", function() openViewer({url = view.url, thumb = view.url, title = view.title}) end)
+        elseif view.kind == "download" then
+            label("<b>Download concluído</b>", 15, C.text, Enum.Font.Gotham)
+            label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
+            label("Tamanho: " .. U.humanSize(view.size) .. "\nSalvo em: " .. U.esc(view.path), 10, C.sub, Enum.Font.Gotham)
+            if view.ext == "mp3" or view.ext == "ogg" then
+                button("ENVIAR PARA MÚSICA", function() toast(U.sendTo(view.path, "PHONE/Music") and "Enviado para Música" or "Falha ao copiar") end)
+            elseif view.ext == "png" or view.ext == "jpg" or view.ext == "jpeg" or view.ext == "gif" then
+                button("SALVAR NA GALERIA", function() toast(U.sendTo(view.path, "PHONE/Photos") and "Salvo na Galeria" or "Falha ao copiar") end)
+            end
+            button("VER DOWNLOADS", function() openPanel("dl") end)
+        elseif view.kind == "search" then
             label("Resultados para <b>" .. U.esc(entry.q) .. "</b>", 12, C.text, Enum.Font.Gotham)
             if #view.items == 0 then
                 label("Não encontrei resultados. Tente outra pesquisa ou digite um endereço.", 11, C.sub, Enum.Font.Gotham)
@@ -5863,6 +7563,10 @@ local function makeBrowserScreen()
             new("TextLabel", {Position = UDim2.new(0, 44, 0, 5), Size = UDim2.new(1, -52, 0, 18), BackgroundTransparency = 1, Text = view.title, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
             new("TextLabel", {Position = UDim2.new(0, 44, 0, 23), Size = UDim2.new(1, -52, 0, 16), BackgroundTransparency = 1, Text = U.hostOf(entry.url), TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, head)
             label(view.rich, 12, C.text, Enum.Font.Gotham)
+            if view.images and #view.images > 0 then
+                label("<b>IMAGENS DESTA PÁGINA (" .. #view.images .. ")</b>", 10, C.blue, Enum.Font.Gotham)
+                imageGrid(view.images)
+            end
             if #view.items > 0 then
                 label("<b>LINKS DESTA PÁGINA (" .. #view.items .. ")</b>", 10, C.blue, Enum.Font.Gotham)
                 for _, it in ipairs(view.items) do
@@ -5888,7 +7592,6 @@ local function makeBrowserScreen()
         if refreshSwitcher then refreshSwitcher(true) end
     end
 
-    -- ---------- seletor de abas ----------
     local switcher = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
     new("TextLabel", {Name = "SwTitle", Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(0.5, 0, 0, 30), BackgroundTransparency = 1, Text = "1 guia", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 16}, switcher)
     local swNew = new("TextButton", {Position = UDim2.new(1, -108, 0, 8), Size = UDim2.new(0, 98, 0, 26), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "+ NOVA GUIA", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 16}, switcher)
@@ -5941,7 +7644,6 @@ local function makeBrowserScreen()
         render()
     end)
 
-    -- ---------- favoritos / histórico (painel) ----------
     local panel = new("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, ZIndex = 15}, area)
     local panelBack = iconButton(panel, Icons.back, 16, C.text, UDim2.new(0, 6, 0, 4), UDim2.new(0, 34, 0, 34), 16)
     local panelTitle = new("TextLabel", {Position = UDim2.new(0, 44, 0, 4), Size = UDim2.new(1, -140, 0, 34), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 16}, panel)
@@ -5954,6 +7656,43 @@ local function makeBrowserScreen()
 
     local function fillPanel()
         for _, c in ipairs(panelList:GetChildren()) do if c.Name == "Row" or c.Name == "Empty" then c:Destroy() end end
+        if panelKind == "dl" then
+            panelTitle.Text = "Downloads"
+            panelClear.Visible = true
+            local files = {}
+            pcall(function()
+                for _, f in ipairs(listfiles(DL_DIR)) do table.insert(files, tostring(f)) end
+            end)
+            if #files == 0 then
+                new("TextLabel", {Name = "Empty", Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, Text = "Nenhum download ainda.", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 12, ZIndex = 17}, panelList)
+                return
+            end
+            for i, f in ipairs(files) do
+                local name = f:match("([^/\\]+)$") or f
+                local ext = (name:match("%.(%w+)$") or ""):lower()
+                local isAudio = ext == "mp3" or ext == "ogg"
+                local isImg = ext == "png" or ext == "jpg" or ext == "jpeg" or ext == "gif"
+                local hint = isAudio and "Toque para enviar à Música" or (isImg and "Toque para salvar na Galeria" or "PHONE/Downloads")
+                local row = new("TextButton", {
+                    Name = "Row", LayoutOrder = i, Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.card, BorderSizePixel = 0, AutoButtonColor = true, RichText = true,
+                    Text = "<b>" .. U.esc(name:sub(1, 30)) .. '</b>\n<font color="#9aa0a6" size="10">' .. U.esc(hint) .. "</font>",
+                    TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 17,
+                }, panelList)
+                corner(row, UDim.new(0, 10))
+                new("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 34)}, row)
+                row.MouseButton1Click:Connect(function()
+                    if isAudio then toast(U.sendTo(f, "PHONE/Music") and "Enviado para Música" or "Falha ao copiar")
+                    elseif isImg then toast(U.sendTo(f, "PHONE/Photos") and "Salvo na Galeria" or "Falha ao copiar")
+                    else toast(f) end
+                end)
+                local x = iconButton(row, Icons.close, 12, C.sub, UDim2.new(1, -62, 0.5, -12), UDim2.new(0, 24, 0, 24), 18)
+                x.MouseButton1Click:Connect(function()
+                    pcall(delfile, f)
+                    fillPanel()
+                end)
+            end
+            return
+        end
         local data = panelKind == "fav" and bookmarks() or history()
         panelTitle.Text = panelKind == "fav" and "Favoritos" or "Histórico"
         panelClear.Visible = panelKind == "hist"
@@ -5992,16 +7731,23 @@ local function makeBrowserScreen()
     end
     panelBack.MouseButton1Click:Connect(function() panel.Visible = false end)
     panelClear.MouseButton1Click:Connect(function()
+        if panelKind == "dl" then
+            pcall(function()
+                for _, f in ipairs(listfiles(DL_DIR)) do pcall(delfile, f) end
+            end)
+            fillPanel()
+            toast("Downloads apagados")
+            return
+        end
         phoneSettings.browserHistory = {}
         saveSettings()
         fillPanel()
         toast("Histórico limpo")
     end)
 
-    -- ---------- menu ⋮ ----------
     local menuLayer = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false, ZIndex = 28}, frame)
     corner(menuLayer, UDim.new(0, 28))
-    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 78), Size = UDim2.new(0, 200, 0, 216), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
+    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 78), Size = UDim2.new(0, 200, 0, 318), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
     corner(menu, UDim.new(0, 14))
     new("UIStroke", {Color = Color3.fromRGB(70, 72, 76), Thickness = 1}, menu)
 
@@ -6011,10 +7757,12 @@ local function makeBrowserScreen()
     local reBtn = iconButton(menu, Icons.reset, 18, C.text, UDim2.new(0, 150, 0, 2), UDim2.new(0, 50, 0, 38), 31)
     new("Frame", {Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromRGB(70, 72, 76), BorderSizePixel = 0, ZIndex = 31}, menu)
 
+    local engBtn
     local function setMenu(open)
         menuLayer.Visible = open
         if open then
             address:ReleaseFocus()
+            if engBtn then engBtn.Text = "Buscador: " .. U.engine() end
             local t = tabs[cur]
             local e = curEntry()
             Icons.put(fwdBtn, Icons.arrowRight, 18, t.pos < #t.hist and C.text or Color3.fromRGB(95, 99, 104), 32)
@@ -6025,6 +7773,7 @@ local function makeBrowserScreen()
         local b = new("TextButton", {Position = UDim2.new(0, 0, 0, y), Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = true, ZIndex = 31}, menu)
         new("UIPadding", {PaddingLeft = UDim.new(0, 16)}, b)
         b.MouseButton1Click:Connect(function() setMenu(false); fn() end)
+        return b
     end
     menuItem("Nova guia", 46, function()
         table.insert(tabs, newTab())
@@ -6044,6 +7793,21 @@ local function makeBrowserScreen()
         phoneSettings.browserHistory = {}
         saveSettings()
         toast("Histórico limpo")
+    end)
+    menuItem("Limpar cache de imagens", 216, function()
+        toast("Cache limpo (" .. U.purgeCache() .. " arquivos)")
+        if curEntry().view and curEntry().view.kind == "images" then render() end
+    end)
+    menuItem("Downloads", 250, function() openPanel("dl") end)
+    engBtn = menuItem("Buscador: " .. U.engine(), 284, function()
+        local cur0 = U.engine()
+        local idx = 1
+        for i, n in ipairs(U.ENGINES) do if n == cur0 then idx = i end end
+        phoneSettings.searchEngine = U.ENGINES[idx % #U.ENGINES + 1]
+        saveSettings()
+        toast("Buscador: " .. phoneSettings.searchEngine)
+        local e = curEntry()
+        if e and e.q then reload() end
     end)
 
     backBtn.MouseButton1Click:Connect(function()
@@ -6078,6 +7842,8 @@ local function makeBrowserScreen()
         menuLayer.Visible = false
         switcher.Visible = false
         panel.Visible = false
+        viewer.Visible = false
+        viewerToken = viewerToken + 1
     end
 
     tabBtn.MouseButton1Click:Connect(function()
@@ -6086,13 +7852,14 @@ local function makeBrowserScreen()
             switcher.Visible = false
         else
             panel.Visible = false
+            viewer.Visible = false
             switcher.Visible = true
             refreshSwitcher()
         end
     end)
 
-    -- ---------- endereço ----------
     address.Focused:Connect(function()
+        address.TextTruncate = Enum.TextTruncate.None
         address.Text = fullText(curEntry())
         task.defer(function()
             pcall(function()
@@ -6102,6 +7869,7 @@ local function makeBrowserScreen()
         end)
     end)
     address.FocusLost:Connect(function(enter)
+        address.TextTruncate = Enum.TextTruncate.AtEnd
         if enter then runInput(address.Text) end
         updateChrome()
     end)
@@ -6109,9 +7877,9 @@ local function makeBrowserScreen()
         if curEntry().state == "loading" then stopLoad() else reload() end
     end)
 
-    -- voltar do sistema: fecha painéis / volta no histórico; false = sair para a tela inicial
     Nav.web = {}
     Nav.web.goBack = function()
+        if viewer.Visible then viewer.Visible = false; viewerToken = viewerToken + 1; return true end
         if menuLayer.Visible or switcher.Visible or panel.Visible then closeOverlays(); return true end
         if address:IsFocused() then address:ReleaseFocus(); return true end
         local t = tabs[cur]
@@ -6126,7 +7894,644 @@ end
 
 local WebBrowserFrame = makeBrowserScreen()
 
--- ---------- registro das telas ----------
+do
+    local BG = Color3.fromRGB(15, 15, 20)
+    local CARDC = Color3.fromRGB(30, 30, 38)
+    local SUBC = Color3.fromRGB(150, 150, 165)
+    local TXT = Color3.fromRGB(235, 235, 242)
+
+    local function nw(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        if parent then o.Parent = parent end
+        return o
+    end
+
+    local function makeApp(name)
+        local f = nw("Frame", {Name = name .. "Frame", Size = UDim2.new(0, 280, 0, 440), Position = PhoneHome.Position, BackgroundColor3 = BG, BorderSizePixel = 0, Visible = false, Active = true}, ScreenGui)
+        corner(f, UDim.new(0, 28))
+        Nav.shell.create(f)
+        Nav.status.create(f)
+        return f
+    end
+
+    local function titleBar(frame, iconFn, color, text)
+        local t = nw("TextLabel", {Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0, 46), BackgroundTransparency = 1, Text = text, TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 20, ZIndex = 5}, frame)
+        Icons.text(t, {icon = iconFn, iconSize = 24, gap = 8, color = color, text = text})
+        return t
+    end
+
+    local function mkToast(parent)
+        local lbl = nw("TextLabel", {AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -46), Size = UDim2.new(0, 0, 0, 26), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromRGB(60, 64, 67), Text = "", TextColor3 = WHITE, Font = Enum.Font.Gotham, TextSize = 11, Visible = false, ZIndex = 40, TextTruncate = Enum.TextTruncate.AtEnd, ClipsDescendants = true}, parent)
+        corner(lbl, UDim.new(0, 13))
+        nw("UIPadding", {PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14)}, lbl)
+        nw("UISizeConstraint", {MaxSize = Vector2.new(244, 26)}, lbl)
+        local id = 0
+        return function(msg)
+            id = id + 1
+            local my = id
+            lbl.Text = msg
+            lbl.Visible = true
+            task.delay(1.6, function() if my == id then lbl.Visible = false end end)
+        end
+    end
+
+    function Icons.notepad(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.rrect(c, 12 * u, 12 * u, 16 * u, 19 * u, 3 * u, color, T(2.2, u), z)
+        Draw.line(c, 8 * u, 9 * u, 16 * u, 9 * u, T(1.8, u), color, z)
+        Draw.line(c, 8 * u, 13 * u, 16 * u, 13 * u, T(1.8, u), color, z)
+        Draw.line(c, 8 * u, 17 * u, 13 * u, 17 * u, T(1.8, u), color, z)
+        return c
+    end
+
+    function Icons.plus(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.line(c, 12 * u, 4.5 * u, 12 * u, 19.5 * u, T(2.8, u), color, z)
+        Draw.line(c, 4.5 * u, 12 * u, 19.5 * u, 12 * u, T(2.8, u), color, z)
+        return c
+    end
+
+    function Icons.trash(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.rrect(c, 12 * u, 14 * u, 12 * u, 13 * u, 2.4 * u, color, T(2.1, u), z)
+        Draw.line(c, 4.5 * u, 7 * u, 19.5 * u, 7 * u, T(2.2, u), color, z)
+        Draw.line(c, 9.5 * u, 4 * u, 14.5 * u, 4 * u, T(2.2, u), color, z)
+        return c
+    end
+
+    function Icons.copyDoc(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.rrect(c, 10 * u, 10 * u, 11 * u, 13 * u, 2.4 * u, color, T(2.1, u), z)
+        Draw.rrect(c, 14.5 * u, 14.5 * u, 11 * u, 13 * u, 2.4 * u, color, T(2.1, u), z)
+        return c
+    end
+
+    function Icons.sun(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.circle(c, 12 * u, 12 * u, 9 * u, color, nil, z)
+        for k = 0, 7 do
+            local rad = math.rad(k * 45)
+            local sx, sy = math.sin(rad), -math.cos(rad)
+            Draw.line(c, 12 * u + 7.2 * u * sx, 12 * u + 7.2 * u * sy, 12 * u + 10 * u * sx, 12 * u + 10 * u * sy, T(2, u), color, z)
+        end
+        return c
+    end
+
+    local function cloudShape(c, u, color, z, dx, dy, k)
+        dx, dy, k = dx or 0, dy or 0, k or 1
+        Draw.circle(c, (8.2 * k + dx) * u, (14 * k + dy) * u, 8 * k * u, color, nil, z)
+        Draw.circle(c, (13.6 * k + dx) * u, (11.4 * k + dy) * u, 10 * k * u, color, nil, z)
+        Draw.circle(c, (17.6 * k + dx) * u, (15 * k + dy) * u, 6.6 * k * u, color, nil, z)
+        Draw.rrect(c, (12.4 * k + dx) * u, (16.6 * k + dy) * u, 14.6 * k * u, 6 * k * u, 3 * k * u, color, nil, z)
+    end
+
+    function Icons.cloud(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        cloudShape(c, u, color, z, 0, 0, 1)
+        return c
+    end
+
+    function Icons.weather(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.circle(c, 8 * u, 8 * u, 8 * u, color, nil, z)
+        for k = 0, 4 do
+            local rad = math.rad(-90 + k * 45 - 45)
+            local sx, sy = math.sin(rad + math.pi / 2), -math.cos(rad + math.pi / 2)
+            Draw.line(c, 8 * u + 6 * u * sx, 8 * u + 6 * u * sy, 8 * u + 8.4 * u * sx, 8 * u + 8.4 * u * sy, T(1.8, u), color, z)
+        end
+        cloudShape(c, u, color, z, 2.2, 3, 0.86)
+        return c
+    end
+
+    function Icons.rain(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        cloudShape(c, u, color, z, 0, -3.4, 0.9)
+        for _, x in ipairs({7, 12, 17}) do
+            Draw.line(c, x * u, 17 * u, (x - 1.6) * u, 21 * u, T(1.9, u), color, z)
+        end
+        return c
+    end
+
+    function Icons.snow(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        cloudShape(c, u, color, z, 0, -3.4, 0.9)
+        for _, x in ipairs({7.5, 12, 16.5}) do
+            Draw.circle(c, x * u, 19.5 * u, 2.4 * u, color, nil, z)
+        end
+        return c
+    end
+
+    function Icons.storm(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        cloudShape(c, u, color, z, 0, -3.6, 0.9)
+        Draw.line(c, 13 * u, 15 * u, 10 * u, 19 * u, T(2.2, u), color, z)
+        Draw.line(c, 10 * u, 19 * u, 14 * u, 19 * u, T(2.2, u), color, z)
+        Draw.line(c, 14 * u, 19 * u, 11 * u, 23 * u, T(2.2, u), color, z)
+        return c
+    end
+
+    function Icons.fog(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.line(c, 4 * u, 8 * u, 20 * u, 8 * u, T(2.4, u), color, z)
+        Draw.line(c, 7 * u, 12.5 * u, 22 * u, 12.5 * u, T(2.4, u), color, z)
+        Draw.line(c, 3 * u, 17 * u, 17 * u, 17 * u, T(2.4, u), color, z)
+        return c
+    end
+
+    function Icons.calc(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        Draw.rrect(c, 12 * u, 12 * u, 16 * u, 20 * u, 3 * u, color, T(2.2, u), z)
+        Draw.rrect(c, 12 * u, 7.4 * u, 10 * u, 4 * u, 1 * u, color, nil, z)
+        for _, x in ipairs({8.6, 15.4}) do
+            for _, y in ipairs({13, 17.6}) do
+                Draw.circle(c, x * u, y * u, 2.6 * u, color, nil, z)
+            end
+        end
+        return c
+    end
+
+    local notesHooks = {}
+
+    local function buildNotes()
+        local f = makeApp("Notes")
+        local toast = mkToast(f)
+        local YEL = Color3.fromRGB(245, 190, 50)
+        titleBar(f, Icons.notepad, YEL, "Notas")
+        local NOTES_DIR = "PHONE/Notes"
+        local notes = {}
+        local current
+
+        local listView = nw("Frame", {Position = UDim2.new(0, 0, 0, 84), Size = UDim2.new(1, 0, 0, 312), BackgroundTransparency = 1, ZIndex = 3}, f)
+        local list = nw("ScrollingFrame", {Position = UDim2.new(0, 12, 0, 0), Size = UDim2.new(1, -24, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = YEL, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 4}, listView)
+        nw("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, list)
+
+        local addBtn = nw("TextButton", {Position = UDim2.new(1, -46, 0, 44), Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = YEL, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 6}, f)
+        corner(addBtn, UDim.new(1, 0))
+        Icons.put(addBtn, Icons.plus, 18, Color3.fromRGB(30, 25, 5), 7)
+
+        local editor = nw("Frame", {Position = UDim2.new(0, 0, 0, 84), Size = UDim2.new(1, 0, 0, 312), BackgroundColor3 = BG, BorderSizePixel = 0, Visible = false, ZIndex = 8}, f)
+        local function edBtn(pos, fn)
+            local b = nw("TextButton", {Position = pos, Size = UDim2.new(0, 34, 0, 32), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 9}, editor)
+            Icons.put(b, fn, 18, TXT, 10)
+            return b
+        end
+        local edBack = edBtn(UDim2.new(0, 8, 0, 0), Icons.back)
+        local edTitle = nw("TextLabel", {Position = UDim2.new(0, 44, 0, 0), Size = UDim2.new(1, -130, 0, 32), BackgroundTransparency = 1, Text = "", TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 9}, editor)
+        local edCopy = edBtn(UDim2.new(1, -78, 0, 0), Icons.copyDoc)
+        local edDel = edBtn(UDim2.new(1, -42, 0, 0), Icons.trash)
+        local box = nw("TextBox", {Position = UDim2.new(0, 12, 0, 38), Size = UDim2.new(1, -24, 1, -44), BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = "", PlaceholderText = "Escreva sua nota...", PlaceholderColor3 = SUBC, TextColor3 = TXT, Font = Enum.Font.Gotham, TextSize = 13, TextWrapped = true, MultiLine = true, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ClipsDescendants = true, ZIndex = 9}, editor)
+        corner(box, UDim.new(0, 12))
+        nw("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)}, box)
+
+        local function noteTitle(text)
+            for line in text:gmatch("[^\r\n]+") do
+                local t = line:gsub("^%s+", ""):gsub("%s+$", "")
+                if t ~= "" then return t:sub(1, 40) end
+            end
+            return "Nota vazia"
+        end
+
+        local function loadNotes()
+            local old = notes
+            notes = {}
+            local seen = {}
+            local ok, files = pcall(listfiles, NOTES_DIR)
+            if ok and type(files) == "table" then
+                for _, p in ipairs(files) do
+                    local name = tostring(p):match("([^/\\]+)$") or ""
+                    local id = name:match("^(.+)%.txt$")
+                    if id then
+                        local okR, txt = pcall(readfile, p)
+                        seen[id] = true
+                        table.insert(notes, {id = id, text = (okR and type(txt) == "string") and txt or ""})
+                    end
+                end
+            end
+            for _, n in ipairs(old) do
+                if n.memOnly and not seen[n.id] then table.insert(notes, n) end
+            end
+            table.sort(notes, function(a, b) return a.id > b.id end)
+        end
+
+        local function refreshList()
+            for _, c in ipairs(list:GetChildren()) do
+                if c.Name == "Row" or c.Name == "Empty" then c:Destroy() end
+            end
+            if #notes == 0 then
+                nw("TextLabel", {Name = "Empty", Size = UDim2.new(1, 0, 0, 80), BackgroundTransparency = 1, Text = "Nenhuma nota ainda.\nToque no + para criar.", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 5}, list)
+                return
+            end
+            for i, n in ipairs(notes) do
+                local row = nw("TextButton", {Name = "Row", LayoutOrder = i, Size = UDim2.new(1, -4, 0, 54), BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = "", AutoButtonColor = true, ZIndex = 5}, list)
+                corner(row, UDim.new(0, 12))
+                nw("TextLabel", {Position = UDim2.new(0, 12, 0, 8), Size = UDim2.new(1, -24, 0, 18), BackgroundTransparency = 1, Text = noteTitle(n.text), TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, row)
+                local when = tonumber(n.id:sub(1, 10))
+                local stamp = when and os.date("%d/%m/%Y %H:%M", when) or ""
+                nw("TextLabel", {Position = UDim2.new(0, 12, 0, 28), Size = UDim2.new(1, -24, 0, 16), BackgroundTransparency = 1, Text = stamp .. "  -  " .. #n.text .. " caracteres", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, row)
+                row.MouseButton1Click:Connect(function()
+                    current = n
+                    box.Text = n.text
+                    edTitle.Text = noteTitle(n.text)
+                    listView.Visible = false
+                    addBtn.Visible = false
+                    editor.Visible = true
+                end)
+            end
+        end
+
+        local function removeNote(n)
+            for i, x in ipairs(notes) do
+                if x == n then table.remove(notes, i) break end
+            end
+            pcall(delfile, NOTES_DIR .. "/" .. n.id .. ".txt")
+        end
+
+        local function saveCurrent()
+            if not current then return end
+            local text = box.Text
+            if not text:find("%S") then
+                removeNote(current)
+            else
+                current.text = text
+                local okW = pcall(writefile, NOTES_DIR .. "/" .. current.id .. ".txt", text)
+                current.memOnly = not okW
+            end
+        end
+
+        local function showList()
+            saveCurrent()
+            current = nil
+            editor.Visible = false
+            listView.Visible = true
+            addBtn.Visible = true
+            refreshList()
+        end
+
+        addBtn.MouseButton1Click:Connect(function()
+            pcall(function()
+                if not isfolder("PHONE") then makefolder("PHONE") end
+                if not isfolder(NOTES_DIR) then makefolder(NOTES_DIR) end
+            end)
+            local n = {id = string.format("%010d%03d", os.time(), math.random(0, 999)), text = ""}
+            table.insert(notes, 1, n)
+            current = n
+            box.Text = ""
+            edTitle.Text = "Nova nota"
+            listView.Visible = false
+            addBtn.Visible = false
+            editor.Visible = true
+            box:CaptureFocus()
+        end)
+        box.FocusLost:Connect(function()
+            edTitle.Text = noteTitle(box.Text)
+            saveCurrent()
+        end)
+        edBack.MouseButton1Click:Connect(showList)
+        edCopy.MouseButton1Click:Connect(function()
+            local clip = setclipboard or toclipboard
+            if type(clip) == "function" and box.Text ~= "" then
+                pcall(clip, box.Text)
+                toast("Texto copiado")
+            else
+                toast("Nada para copiar")
+            end
+        end)
+        edDel.MouseButton1Click:Connect(function()
+            if current then removeNote(current) end
+            current = nil
+            toast("Nota apagada")
+            showList()
+        end)
+
+        notesHooks.goBack = function()
+            if editor.Visible then showList() return true end
+            return false
+        end
+        notesHooks.onOpen = function()
+            loadNotes()
+            current = nil
+            editor.Visible = false
+            listView.Visible = true
+            addBtn.Visible = true
+            refreshList()
+        end
+        notesHooks.onClose = saveCurrent
+        return f
+    end
+
+    local weatherHooks = {}
+
+    local function buildWeather()
+        local f = makeApp("Weather")
+        local toast = mkToast(f)
+        local BLUE = Color3.fromRGB(60, 150, 235)
+        titleBar(f, Icons.weather, BLUE, "Clima")
+
+        local cityBox = nw("TextBox", {Position = UDim2.new(0, 12, 0, 84), Size = UDim2.new(1, -92, 0, 34), BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = "", PlaceholderText = "Cidade (ex: São Paulo)", PlaceholderColor3 = SUBC, TextColor3 = TXT, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, ClearTextOnFocus = false, ClipsDescendants = true, ZIndex = 5}, f)
+        corner(cityBox, UDim.new(0, 12))
+        nw("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 8)}, cityBox)
+        local goBtn = nw("TextButton", {Position = UDim2.new(1, -72, 0, 84), Size = UDim2.new(0, 60, 0, 34), BackgroundColor3 = BLUE, BorderSizePixel = 0, Text = "Buscar", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = true, ZIndex = 5}, f)
+        corner(goBtn, UDim.new(0, 12))
+
+        local body = nw("ScrollingFrame", {Position = UDim2.new(0, 12, 0, 126), Size = UDim2.new(1, -24, 0, 270), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = BLUE, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 4}, f)
+        nw("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}, body)
+
+        local DAYS = {"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"}
+        local function wmo(code)
+            code = tonumber(code) or -1
+            local SUN, CLOUD, WATER, ICE = Color3.fromRGB(255, 205, 70), Color3.fromRGB(205, 210, 225), Color3.fromRGB(110, 175, 255), Color3.fromRGB(225, 240, 255)
+            if code == 0 then return "Céu limpo", Icons.sun, SUN end
+            if code == 1 or code == 2 then return "Parcialmente nublado", Icons.weather, SUN end
+            if code == 3 then return "Nublado", Icons.cloud, CLOUD end
+            if code == 45 or code == 48 then return "Neblina", Icons.fog, CLOUD end
+            if (code >= 51 and code <= 57) then return "Garoa", Icons.rain, WATER end
+            if (code >= 61 and code <= 67) or (code >= 80 and code <= 82) then return "Chuva", Icons.rain, WATER end
+            if (code >= 71 and code <= 77) or code == 85 or code == 86 then return "Neve", Icons.snow, ICE end
+            if code >= 95 then return "Tempestade", Icons.storm, Color3.fromRGB(255, 220, 90) end
+            return "Variável", Icons.cloud, CLOUD
+        end
+
+        local order = 0
+        local function add(inst)
+            order = order + 1
+            inst.LayoutOrder = order
+            inst.Name = "Dyn"
+            inst.Parent = body
+            return inst
+        end
+        local function clear()
+            order = 0
+            for _, c in ipairs(body:GetChildren()) do
+                if c.Name == "Dyn" then c:Destroy() end
+            end
+        end
+        local function message(text, color)
+            clear()
+            add(nw("TextLabel", {Size = UDim2.new(1, 0, 0, 70), BackgroundTransparency = 1, Text = text, TextColor3 = color or SUBC, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 5}))
+        end
+
+        local function temp(v)
+            if type(v) ~= "number" then return "--" end
+            return string.format("%d°", math.floor(v + 0.5))
+        end
+
+        local function build(res)
+            clear()
+            local p, w = res.place, res.w
+            local cur = w.current or {}
+            local desc, iconFn, iconColor = wmo(cur.weather_code)
+
+            local hero = add(nw("Frame", {Size = UDim2.new(1, 0, 0, 122), BackgroundColor3 = CARDC, BorderSizePixel = 0, ZIndex = 5}))
+            corner(hero, UDim.new(0, 16))
+            local place = p.name or ""
+            if p.admin1 and p.admin1 ~= "" and p.admin1 ~= p.name then place = place .. ", " .. p.admin1 end
+            nw("TextLabel", {Position = UDim2.new(0, 14, 0, 8), Size = UDim2.new(1, -28, 0, 18), BackgroundTransparency = 1, Text = place, TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, hero)
+            nw("TextLabel", {Position = UDim2.new(0, 14, 0, 28), Size = UDim2.new(1, -28, 0, 14), BackgroundTransparency = 1, Text = p.country or "", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, hero)
+            local ic = iconFn(hero, 54, iconColor, 7)
+            ic.Position = UDim2.new(0, 14, 0, 52)
+            nw("TextLabel", {Position = UDim2.new(0, 78, 0, 44), Size = UDim2.new(0, 110, 0, 50), BackgroundTransparency = 1, Text = temp(cur.temperature_2m), TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 40, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6}, hero)
+            nw("TextLabel", {Position = UDim2.new(0, 14, 1, -24), Size = UDim2.new(1, -28, 0, 18), BackgroundTransparency = 1, Text = desc, TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, hero)
+
+            local stats = add(nw("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundTransparency = 1, ZIndex = 5}))
+            nw("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, stats)
+            local items = {
+                {"Sensação", temp(cur.apparent_temperature)},
+                {"Umidade", type(cur.relative_humidity_2m) == "number" and (math.floor(cur.relative_humidity_2m + 0.5) .. "%") or "--"},
+                {"Vento", type(cur.wind_speed_10m) == "number" and (math.floor(cur.wind_speed_10m + 0.5) .. " km/h") or "--"},
+            }
+            for i, it in ipairs(items) do
+                local card = nw("Frame", {LayoutOrder = i, Size = UDim2.new(1 / 3, -4, 1, 0), BackgroundColor3 = CARDC, BorderSizePixel = 0, ZIndex = 5}, stats)
+                corner(card, UDim.new(0, 12))
+                nw("TextLabel", {Position = UDim2.new(0, 0, 0, 6), Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = it[1], TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 10, ZIndex = 6}, card)
+                nw("TextLabel", {Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, Text = it[2], TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, card)
+            end
+
+            add(nw("TextLabel", {Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = "PRÓXIMOS DIAS", TextColor3 = BLUE, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}))
+            local d = w.daily or {}
+            for i, day in ipairs(d.time or {}) do
+                local y, m, dd = day:match("^(%d+)-(%d+)-(%d+)")
+                local name = day
+                if y then
+                    local t = os.date("*t", os.time({year = tonumber(y), month = tonumber(m), day = tonumber(dd), hour = 12}))
+                    name = DAYS[t.wday] or day
+                end
+                if i == 1 then name = "Hoje" end
+                local _, dIcon, dColor = wmo(d.weather_code and d.weather_code[i])
+                local row = add(nw("Frame", {Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = CARDC, BorderSizePixel = 0, ZIndex = 5}))
+                corner(row, UDim.new(0, 12))
+                nw("TextLabel", {Position = UDim2.new(0, 12, 0, 0), Size = UDim2.new(0, 50, 1, 0), BackgroundTransparency = 1, Text = name, TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6}, row)
+                local di = dIcon(row, 22, dColor, 7)
+                di.Position = UDim2.new(0, 68, 0.5, -11)
+                local mx = d.temperature_2m_max and d.temperature_2m_max[i]
+                local mn = d.temperature_2m_min and d.temperature_2m_min[i]
+                nw("TextLabel", {Position = UDim2.new(0, 100, 0, 0), Size = UDim2.new(0, 80, 1, 0), BackgroundTransparency = 1, Text = temp(mn) .. " / " .. temp(mx), TextColor3 = TXT, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6}, row)
+                local rain = d.precipitation_probability_max and d.precipitation_probability_max[i]
+                nw("TextLabel", {Position = UDim2.new(1, -62, 0, 0), Size = UDim2.new(0, 52, 1, 0), BackgroundTransparency = 1, Text = type(rain) == "number" and (math.floor(rain + 0.5) .. "% chuva") or "", TextColor3 = Color3.fromRGB(110, 175, 255), Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 6}, row)
+            end
+        end
+
+        local token = 0
+        local lastLoad, lastCity = 0, nil
+        local function load(city)
+            city = tostring(city or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if city == "" then
+                message("Digite o nome de uma cidade e toque em Buscar.")
+                return
+            end
+            token = token + 1
+            local my = token
+            message("Buscando previsão...")
+            task.spawn(function()
+                local ok, res = pcall(function()
+                    local g = HttpService:JSONDecode(httpGetBody("https://geocoding-api.open-meteo.com/v1/search?name=" .. HttpService:UrlEncode(city) .. "&count=1&language=pt&format=json"))
+                    local p = g.results and g.results[1]
+                    if not p then error("Cidade não encontrada.", 0) end
+                    local url = "https://api.open-meteo.com/v1/forecast?latitude=" .. p.latitude .. "&longitude=" .. p.longitude
+                        .. "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"
+                        .. "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5"
+                    return {place = p, w = HttpService:JSONDecode(httpGetBody(url))}
+                end)
+                if my ~= token then return end
+                if ok then
+                    phoneSettings.weatherCity = city
+                    saveSettings()
+                    lastLoad, lastCity = os.clock(), city
+                    cityBox.Text = city
+                    build(res)
+                else
+                    message(tostring(res):sub(1, 120), Color3.fromRGB(255, 120, 120))
+                end
+            end)
+        end
+
+        goBtn.MouseButton1Click:Connect(function()
+            cityBox:ReleaseFocus()
+            load(cityBox.Text)
+        end)
+        cityBox.Focused:Connect(function() cityBox.TextTruncate = Enum.TextTruncate.None end)
+        cityBox.FocusLost:Connect(function(enter)
+            cityBox.TextTruncate = Enum.TextTruncate.AtEnd
+            if enter then load(cityBox.Text) end
+        end)
+
+        weatherHooks.onOpen = function()
+            local saved = phoneSettings.weatherCity
+            if type(saved) == "string" and saved ~= "" then
+                if cityBox.Text == "" then cityBox.Text = saved end
+                if lastCity ~= saved or os.clock() - lastLoad > 600 then load(saved) end
+            elseif lastCity == nil then
+                message("Digite o nome de uma cidade e toque em Buscar.")
+            end
+        end
+        return f
+    end
+
+    local function buildCalc()
+        local f = makeApp("Calc")
+        local ORG = Color3.fromRGB(255, 140, 40)
+        titleBar(f, Icons.calc, Color3.fromRGB(240, 100, 70), "Calculadora")
+
+        local exprLbl = nw("TextLabel", {Position = UDim2.new(0, 14, 0, 82), Size = UDim2.new(1, -28, 0, 16), BackgroundTransparency = 1, Text = "", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5}, f)
+        local dispLbl = nw("TextLabel", {Position = UDim2.new(0, 14, 0, 98), Size = UDim2.new(1, -28, 0, 48), BackgroundTransparency = 1, Text = "0", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 40, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5}, f)
+        nw("UITextSizeConstraint", {MaxTextSize = 40, MinTextSize = 14}, dispLbl)
+
+        local cur, acc, op, fresh = "0", nil, nil, true
+
+        local function fmt(n)
+            if n ~= n or n == math.huge or n == -math.huge then return "Erro" end
+            if n == 0 then return "0" end
+            if n == math.floor(n) and math.abs(n) < 1e15 then return string.format("%.0f", n) end
+            return string.format("%.10g", n)
+        end
+        local function compute(a, o, b)
+            if o == "+" then return a + b end
+            if o == "-" then return a - b end
+            if o == "×" then return a * b end
+            if o == "÷" then
+                if b == 0 then return nil end
+                return a / b
+            end
+            return b
+        end
+        local function refresh()
+            dispLbl.Text = cur
+            exprLbl.Text = (acc and op) and (fmt(acc) .. " " .. op) or ""
+        end
+        local function reset()
+            cur, acc, op, fresh = "0", nil, nil, true
+        end
+
+        local function press(k)
+            if cur == "Erro" and k ~= "C" then reset() end
+            if k == "C" then
+                reset()
+            elseif k:match("^%d$") then
+                if fresh then cur = k else cur = (cur == "0") and k or (cur .. k) end
+                if #cur > 14 then cur = cur:sub(1, 14) end
+                fresh = false
+            elseif k == "." then
+                if fresh then cur = "0." elseif not cur:find("%.") then cur = cur .. "." end
+                fresh = false
+            elseif k == "±" then
+                if cur ~= "0" then cur = (cur:sub(1, 1) == "-") and cur:sub(2) or ("-" .. cur) end
+            elseif k == "%" then
+                cur = fmt((tonumber(cur) or 0) / 100)
+                fresh = true
+            elseif k == "=" then
+                if op and acc then
+                    local b = tonumber(cur) or 0
+                    local r = compute(acc, op, b)
+                    exprLbl.Text = fmt(acc) .. " " .. op .. " " .. fmt(b) .. " ="
+                    cur = r and fmt(r) or "Erro"
+                    acc, op, fresh = nil, nil, true
+                    dispLbl.Text = cur
+                    return
+                end
+            else
+                local val = tonumber(cur) or 0
+                if acc and op and not fresh then
+                    local r = compute(acc, op, val)
+                    if not r then
+                        reset()
+                        cur = "Erro"
+                        refresh()
+                        return
+                    end
+                    acc = r
+                    cur = fmt(r)
+                else
+                    acc = val
+                end
+                op = k
+                fresh = true
+            end
+            refresh()
+        end
+
+        local layout = {
+            {{"C", "fn"}, {"±", "fn"}, {"%", "fn"}, {"÷", "op"}},
+            {{"7"}, {"8"}, {"9"}, {"×", "op"}},
+            {{"4"}, {"5"}, {"6"}, {"-", "op"}},
+            {{"1"}, {"2"}, {"3"}, {"+", "op"}},
+            {{"0", "num", 2}, {"."}, {"=", "op"}},
+        }
+        local KW, KH, GAP = 57, 42, 8
+        for r, row in ipairs(layout) do
+            local col = 0
+            for _, def in ipairs(row) do
+                local key, kind, span = def[1], def[2] or "num", def[3] or 1
+                local w = KW * span + GAP * (span - 1)
+                local bg = kind == "op" and ORG or (kind == "fn" and Color3.fromRGB(85, 85, 100) or Color3.fromRGB(48, 48, 60))
+                local b = nw("TextButton", {Position = UDim2.new(0, 14 + col * (KW + GAP), 0, 152 + (r - 1) * (KH + 6)), Size = UDim2.new(0, w, 0, KH), BackgroundColor3 = bg, BorderSizePixel = 0, Text = key, TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = true, ZIndex = 5}, f)
+                corner(b, UDim.new(0, 14))
+                b.MouseButton1Click:Connect(function() press(key) end)
+                col = col + span
+            end
+        end
+        return f
+    end
+
+    local notesFrame = buildNotes()
+    local weatherFrame = buildWeather()
+    local calcFrame = buildCalc()
+    createNavBar(notesFrame)
+    createNavBar(weatherFrame)
+    createNavBar(calcFrame)
+
+    Nav.notes = notesHooks
+
+    screens.notes = {frame = notesFrame, app = true, name = "Notas", color = Color3.fromRGB(245, 190, 50), icon = Icons.notepad, onOpen = function() notesHooks.onOpen() end, onClose = function() notesHooks.onClose() end}
+    screens.weather = {frame = weatherFrame, app = true, name = "Clima", color = Color3.fromRGB(60, 150, 235), icon = Icons.weather, onOpen = function() weatherHooks.onOpen() end}
+    screens.calc = {frame = calcFrame, app = true, name = "Calculadora", color = Color3.fromRGB(240, 100, 70), icon = Icons.calc}
+
+    local function safeAppIcon(label, drawFn, col, pos)
+        local mk = Nav.__mkIconFn or createAppIcon
+        if type(mk) ~= "function" then
+            warn("[TZE PHONE] createAppIcon indisponivel (tipo: " .. typeof(mk) .. ")")
+            return nil
+        end
+        if type(drawFn) ~= "function" then
+            warn("[TZE PHONE] icone '" .. tostring(label) .. "' sem funcao de desenho (tipo: " .. typeof(drawFn) .. ")")
+            return nil
+        end
+        local okIcon, icon = pcall(mk, label, drawFn, col, pos)
+        if not okIcon then
+            warn("[TZE PHONE] falha ao criar icone '" .. tostring(label) .. "': " .. tostring(icon))
+            return nil
+        end
+        return icon
+    end
+
+    local notesIcon = safeAppIcon("Notas", Icons.notepad, Color3.fromRGB(245, 190, 50), UDim2.new(0, 85, 0, 200))
+    local weatherIcon = safeAppIcon("Clima", Icons.weather, Color3.fromRGB(60, 150, 235), UDim2.new(0, 165, 0, 200))
+    local calcIcon = safeAppIcon("Calculadora", Icons.calc, Color3.fromRGB(240, 100, 70), UDim2.new(0, 5, 0, 300))
+    if notesIcon then notesIcon.MouseButton1Click:Connect(function() showScreen("notes", true) end) end
+    if weatherIcon then weatherIcon.MouseButton1Click:Connect(function() showScreen("weather", true) end) end
+    if calcIcon then calcIcon.MouseButton1Click:Connect(function() showScreen("calc", true) end) end
+end
+
+
 screens.home      = {frame = PhoneHome}
 screens.music     = {frame = MainFrame,      app = true, name = "Música",     color = Color3.fromRGB(0, 180, 255),  icon = Icons.music,     onOpen = function() refreshFiles() end, onClose = function() stopMusic() end}
 screens.stopwatch = {frame = StopwatchFrame, app = true, name = "Cronômetro", color = Color3.fromRGB(255, 140, 30), icon = Icons.stopwatch, onClose = function() resetStopwatch() end}
@@ -6136,7 +8541,6 @@ screens.gps       = {frame = Nav.gps.frame,  app = true, name = "GPS",       col
 screens.web       = {frame = WebBrowserFrame, app = true, name = "Navegador", color = Color3.fromRGB(35,145,205), icon = Icons.search}
 screens.recents   = {frame = RecentsFrame,   onOpen = function() rcBg.Image = currentWallpaper end}
 
--- ---------- apps abertos ----------
 local function touchApp(id)
     for i, v in ipairs(openApps) do
         if v == id then table.remove(openApps, i) break end
@@ -6189,7 +8593,6 @@ local function buildCard(id)
     cs.Thickness = 1.2
     cs.Parent = card
 
-    -- cabeçalho: mini ícone + nome + X
     local tile = Instance.new("Frame")
     tile.Size = UDim2.new(0, 24, 0, 24)
     tile.Position = UDim2.new(0, 8, 0, 8)
@@ -6225,7 +8628,6 @@ local function buildCard(id)
     local xi = Icons.close(xBtn, 12, Color3.fromRGB(210, 210, 220), 10)
     xi.Position = UDim2.new(0.5, -6, 0.5, -6)
 
-    -- "print" do app: bloco colorido com o ícone grande
     local body = Instance.new("Frame")
     body.Size = UDim2.new(1, -16, 1, -48)
     body.Position = UDim2.new(0, 8, 0, 40)
@@ -6242,7 +8644,6 @@ local function buildCard(id)
     big.AnchorPoint = Vector2.new(0.5, 0.5)
     big.Position = UDim2.new(0.5, 0, 0.5, 0)
 
-    -- interações: tocar abre | deslizar pra cima fecha | X fecha
     local swipeStart, swipedAt = nil, -10
     local function isPress(i)
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
@@ -6282,11 +8683,10 @@ rcClear.MouseButton1Click:Connect(function()
     for _, id in ipairs(copy) do closeApp(id) end
 end)
 
--- ---------- trocar de tela (com animação de subida) ----------
 function showScreen(id, animate)
     local target = screens[id]
     if not target then return end
-    if id ~= "home" and Nav.boot and Nav.boot.active then return end -- boot tocando: apps bloqueados
+    if id ~= "home" and Nav.boot and Nav.boot.active then return end
     exitPhotoViewer()
     local pos = phonePos()
     for sid, s in pairs(screens) do
@@ -6314,7 +8714,6 @@ function showScreen(id, animate)
     updateNavState()
 end
 
--- ---------- botões do sistema ----------
 function Nav.home()
     if currentScreen == "home" then return end
     showScreen("home", true)
@@ -6329,6 +8728,7 @@ function Nav.back()
     if currentScreen == "config" and cfgGoBack and cfgGoBack() then return end
     if currentScreen == "gps" and Nav.gps.goBack and Nav.gps.goBack() then return end
     if currentScreen == "web" and Nav.web and Nav.web.goBack and Nav.web.goBack() then return end
+    if currentScreen == "notes" and Nav.notes and Nav.notes.goBack and Nav.notes.goBack() then return end
     if currentScreen == "gallery" and isInPhotoViewer then
         if isPhotoMenuOpen then closePhotoMenu() else exitPhotoViewer() end
         return
@@ -6352,14 +8752,6 @@ GalleryAppIcon.MouseButton1Click:Connect(function() showScreen("gallery", true) 
 Nav.gps.icon.MouseButton1Click:Connect(function() showScreen("gps", true) end)
 WebBrowserIcon.MouseButton1Click:Connect(function() showScreen("web", true) end)
 
--- ###################### ANIMAÇÃO DE BOOT (REWORK) ######################
--- Toca UMA vez por servidor: na primeira vez que o celular é aberto depois de entrar.
--- Sequência: power-on (linha de luz) -> anel de pontos surge -> letras T Z E caem com glitch + brilho verde
---            -> "P H O N E" -> anel vira o indicador de progresso (pontos acendem + % + etapas)
---            -> flash do anel -> "Olá, nome" digitado -> some com zoom.
--- Toque na tela depois de 1,5 s para pular. Enquanto toca, os apps ficam bloqueados.
--- Para tocar de novo em testes:  Nav.boot.done = false
--- Tudo dentro de uma função (zero locals novos no escopo do arquivo = sem risco do limite de 200).
 Nav.boot = {done = false, active = false}
 function Nav.boot.play()
     local B = Nav.boot
@@ -6370,13 +8762,12 @@ function Nav.boot.play()
     local ACCL = Color3.fromRGB(150, 255, 150)
     local DIM = Color3.fromRGB(44, 44, 52)
     local GREY = Color3.fromRGB(150, 150, 165)
-    local CY = 0.42 -- altura do centro da logo
+    local CY = 0.42
     local NDOT, RING_R = 36, 86
     local t0 = os.clock()
     local finished = false
     local rnd = math.random
 
-    -- raiz: CanvasGroup (dá pra apagar tudo de uma vez com GroupTransparency)
     local root = Instance.new("CanvasGroup")
     root.Name = "BootScreen"
     root.Size = UDim2.new(1, 0, 1, 0)
@@ -6398,7 +8789,6 @@ function Nav.boot.play()
     local scale = Instance.new("UIScale")
     scale.Parent = content
 
-    -- brilhos pulsando atrás da logo (2 camadas, ritmos diferentes)
     local function makeGlow(size0, size1, tr0, tr1, dur)
         local g = Instance.new("Frame")
         g.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -6416,9 +8806,8 @@ function Nav.boot.play()
     end
     local glowA, glowAt = makeGlow(110, 160, 0.93, 0.86, 1.3)
     local glowB, glowBt = makeGlow(170, 210, 0.97, 0.93, 1.9)
-    glowA.BackgroundTransparency, glowB.BackgroundTransparency = 1, 1 -- entram depois do power-on
+    glowA.BackgroundTransparency, glowB.BackgroundTransparency = 1, 1
 
-    -- linha de varredura (scanline) descendo devagar
     local scan = Instance.new("Frame")
     scan.Size = UDim2.new(1, 0, 0, 36)
     scan.Position = UDim2.new(0, 0, 0, -36)
@@ -6436,7 +8825,6 @@ function Nav.boot.play()
     })
     scanG.Parent = scan
 
-    -- anel de pontos (vira o indicador de progresso)
     local ring = Instance.new("Frame")
     ring.AnchorPoint = Vector2.new(0.5, 0.5)
     ring.Position = UDim2.new(0.5, 0, CY, 0)
@@ -6467,7 +8855,6 @@ function Nav.boot.play()
         TweenService:Create(d, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {BackgroundColor3 = ACCB}):Play()
     end
 
-    -- ondas (anéis que se expandem)
     local function wave(big)
         local c = Instance.new("Frame")
         c.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -6490,7 +8877,6 @@ function Nav.boot.play()
         tw:Play()
     end
 
-    -- partículas subindo (fundo)
     local function spawnParticle()
         local p = Instance.new("Frame")
         local sz = rnd(2, 4)
@@ -6507,7 +8893,6 @@ function Nav.boot.play()
         task.delay(6, function() p:Destroy() end)
     end
 
-    -- logo: letras T Z E
     local logo = Instance.new("Frame")
     logo.AnchorPoint = Vector2.new(0.5, 0.5)
     logo.Position = UDim2.new(0.5, 0, CY, 0)
@@ -6543,7 +8928,7 @@ function Nav.boot.play()
         l.TextTransparency = 1
         l.ZIndex = 104
         l.Parent = holder
-        -- brilho verde que passa por cima da letra
+
         local g = Instance.new("UIGradient")
         g.Rotation = 20
         g.Color = ColorSequence.new({
@@ -6584,7 +8969,6 @@ function Nav.boot.play()
     footer.ZIndex = 103
     footer.Parent = content
 
-    -- saudação (digitada)
     local helloText = "Olá, " .. (Player.DisplayName ~= "" and Player.DisplayName or Player.Name)
     local hello = Instance.new("TextLabel")
     hello.Position = UDim2.new(0, 0, 0.7, 0)
@@ -6608,7 +8992,6 @@ function Nav.boot.play()
     helloLine.Parent = content
     corner(helloLine, UDim.new(1, 0))
 
-    -- etapas + porcentagem
     local loader = Instance.new("CanvasGroup")
     loader.Position = UDim2.new(0, 0, 0.68, 0)
     loader.Size = UDim2.new(1, 0, 0, 44)
@@ -6637,7 +9020,6 @@ function Nav.boot.play()
     pct.ZIndex = 103
     pct.Parent = loader
 
-    -- progresso suave: acende os pontos do anel conforme o valor sobe
     local prog = Instance.new("NumberValue")
     prog.Parent = root
     local lit = 0
@@ -6650,7 +9032,6 @@ function Nav.boot.play()
         end
     end)
 
-    -- saída: some com um leve zoom
     local function finish()
         if finished then return end
         finished = true
@@ -6663,7 +9044,6 @@ function Nav.boot.play()
         root:Destroy()
     end
 
-    -- toque pula (depois de 1,5 s)
     local skipBtn = Instance.new("TextButton")
     skipBtn.Size = UDim2.new(1, 0, 1, 0)
     skipBtn.BackgroundTransparency = 1
@@ -6678,7 +9058,6 @@ function Nav.boot.play()
     local quint = TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local back = TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-    -- tremida rápida (glitch) na logo
     local function glitch()
         for _ = 1, 7 do
             if finished then return end
@@ -6693,9 +9072,8 @@ function Nav.boot.play()
     end
 
     task.spawn(function()
-        if w(0.35) then return end -- espera o celular terminar de subir
+        if w(0.35) then return end
 
-        -- 1) POWER-ON: linha de luz abre a tela
         local line = Instance.new("Frame")
         line.AnchorPoint = Vector2.new(0.5, 0.5)
         line.Position = UDim2.new(0.5, 0, CY, 0)
@@ -6714,7 +9092,6 @@ function Nav.boot.play()
         TweenService:Create(glowA, TweenInfo.new(0.5), {BackgroundTransparency = glowAt}):Play()
         TweenService:Create(glowB, TweenInfo.new(0.5), {BackgroundTransparency = glowBt}):Play()
 
-        -- loops de fundo (só rodam enquanto não terminou)
         task.spawn(function()
             while not finished do
                 scan.Position = UDim2.new(0, 0, 0, -36)
@@ -6738,7 +9115,6 @@ function Nav.boot.play()
             end
         end)
 
-        -- 2) anel de pontos surge em cascata
         task.spawn(function()
             for i = 1, NDOT do
                 if finished then return end
@@ -6749,7 +9125,6 @@ function Nav.boot.play()
         end)
         if w(0.2) then return end
 
-        -- 3) letras caem em sequência (com quique)
         for _, l in ipairs(letters) do
             TweenService:Create(l, back, {TextTransparency = 0, Position = UDim2.new(0, 0, 0, 0)}):Play()
             if w(0.15) then return end
@@ -6758,7 +9133,6 @@ function Nav.boot.play()
         glitch()
         if finished then return end
 
-        -- brilho verde varrendo cada letra
         for i, g in ipairs(shines) do
             local sw = TweenService:Create(g, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
                 {Offset = Vector2.new(1, 0)})
@@ -6771,7 +9145,6 @@ function Nav.boot.play()
         TweenService:Create(footer, TweenInfo.new(0.6), {TextTransparency = 0.45}):Play()
         if w(0.55) then return end
 
-        -- 4) carregamento por etapas (o anel acende)
         TweenService:Create(loader, TweenInfo.new(0.3), {GroupTransparency = 0}):Play()
         local steps = {
             {"Iniciando sistema", 0.5, 0.22},
@@ -6791,7 +9164,6 @@ function Nav.boot.play()
             if w(st[2]) then return end
         end
 
-        -- 5) flash: anel inteiro brilha + onda grande
         wave(true)
         for _, d in ipairs(dots) do
             d.BackgroundColor3 = WHITE
@@ -6801,7 +9173,6 @@ function Nav.boot.play()
             {Size = UDim2.new(0, 168, 0, 67)}):Play()
         if w(0.25) then return end
 
-        -- 6) saudação digitada
         TweenService:Create(loader, TweenInfo.new(0.25), {GroupTransparency = 1}):Play()
         local total = utf8.len(helloText) or #helloText
         for i = 1, total do
@@ -6815,7 +9186,6 @@ function Nav.boot.play()
     end)
 end
 
--- ========== ABRIR / FECHAR O CELULAR ==========
 local function closePhone()
     exitPhotoViewer()
     local target = UDim2.new(1, -300, 1, 80)
@@ -6842,15 +9212,13 @@ local function openPhone()
     showScreen("home", false)
     PhoneHome.Position = UDim2.new(1, -300, 1, 80)
     TweenService:Create(PhoneHome, TweenInfo.new(0.65, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = phonePos()}):Play()
-    if not Nav.boot.done then Nav.boot.play() end -- animação de boot (1ª vez no servidor)
+    if not Nav.boot.done then Nav.boot.play() end
 end
 
 local function togglePhone()
     if isPhoneOpen then closePhone() else openPhone() end
 end
 
-
--- ========== HOLD 0.45s PARA ARRASTAR SÓ O BOTÃO (sistema do LOCK) ==========
 local hold = false
 local canDrag = false
 local isDragging = false
@@ -6924,7 +9292,6 @@ phoneSlot.MouseButton1Click:Connect(function()
     togglePhone()
 end)
 
--- Tecla 0 (PC)
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.Zero or input.KeyCode == Enum.KeyCode.KeypadZero then
@@ -6933,8 +9300,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 end
 
-
--- Character
 local function onCharacterAdded(char)
     Character = char
     Humanoid = char:WaitForChild("Humanoid")
@@ -6959,37 +9324,31 @@ if Player.Character then onCharacterAdded(Player.Character) end
 
 refreshFiles()
 
-
--- ###################### CELULAR 3D NA MÃO (R15 + R6) ######################
--- Modelo 3D do celular (carcaça metálica, vidro, tela com papel de parede + relógio, câmeras, botões)
--- Aparece na mão direita (R15) / no antebraço direito (R6) quando o celular está ABERTO e some quando fecha.
--- V13: braço animado pelo MOTOR DE POSE DO STAND (D10BRAND0) com correção de rig R15/R6.
--- Usa: isPhoneOpen, currentWallpaper, phoneSettings, Nav.shell (cor da carcaça) do script principal.
 do
     local CFG = {
-        ativo       = true,          -- _G.TZE_Phone3D = false desliga em tempo real
-        escala      = 0.8,           -- tamanho do celular
-        balanco     = 0,             -- V14: braço 100% parado (0 = parado | >0 = balanço sutil)
-        -- R15
-        ombro       = 53,            -- graus: braço levantado pra frente
-        cotovelo    = 68,            -- graus: dobra do antebraço (maior = tela mais virada pro rosto)
-        punho       = -21,           -- graus: vira a palma pra cima
-        paraDentro  = 10,            -- graus: braço levemente pra dentro (frente do peito)
-        celularY    = -0.92,         -- posição do celular na mão (negativo = em direção aos dedos)
-        celularZ    = -0.09,         -- deslocamento lateral na mão
-        -- R6 (sem cotovelo/punho): braço reto levantado, celular deitado em cima do antebraço
-        ombroR6       = 78,          -- graus: braço levantado pra frente (R6)
-        paraDentroR6  = -6,          -- graus: Z negativo = braço pra dentro (frente do peito)
-        r6Tilt        = 38,          -- graus: inclinação da tela pro rosto
-        r6Y           = -1.44,       -- posição ao longo do braço (negativo = em direção à ponta)
-        r6X           = -0.22,       -- deslocamento lateral
-        r6Z           = -0.16,       -- afasta/aproxima do braço
-        -- V15: perfis por rig (o Checker de Rig escolhe R15 ou R6 sozinho)
-        giroCelular    = {R15 = 33, R6 = 64},  -- graus que SÓ O CELULAR gira pra DIREITA (negativo = esquerda)
-        celularInclina = {R15 = 26, R6 = 47},  -- V16: inclina o celular (frente/trás)
-        celularRolagem = {R15 = -41, R6 = -1}, -- V16: rola o celular (tela girando no plano)
-        bracoEsq       = {R15 = 27, R6 = 41},  -- graus que o BRAÇO vai pra ESQUERDA
-        sinalGiro      = {R15 = 1,  R6 = -1},  -- corrige o sentido do eixo de cada rig (se girar errado, troque 1 <-> -1)
+        ativo       = true,
+        escala      = 0.8,
+        balanco     = 0,
+
+        ombro       = 53,
+        cotovelo    = 68,
+        punho       = -21,
+        paraDentro  = 10,
+        celularY    = -0.92,
+        celularZ    = -0.09,
+
+        ombroR6       = 78,
+        paraDentroR6  = -6,
+        r6Tilt        = 38,
+        r6Y           = -1.44,
+        r6X           = -0.22,
+        r6Z           = -0.16,
+
+        giroCelular    = {R15 = 33, R6 = 64},
+        celularInclina = {R15 = 26, R6 = 47},
+        celularRolagem = {R15 = -41, R6 = -1},
+        bracoEsq       = {R15 = 27, R6 = 41},
+        sinalGiro      = {R15 = 1,  R6 = -1},
     }
 
     local Players = game:GetService("Players")
@@ -6997,14 +9356,13 @@ do
     local TweenService = game:GetService("TweenService")
     local LP = Players.LocalPlayer
 
-    local W, H, T, R = 0.90, 1.82, 0.10, 0.15     -- largura, altura, espessura, raio dos cantos (studs)
+    local W, H, T, R = 0.90, 1.82, 0.10, 0.15
     local rad = math.rad
 
     local state = {model = nil, parts = {}, alpha = 0, tgt = 0, weld = nil, joints = nil,
                    metalParts = {}, backGlass = nil, screenGui = nil, flash = nil,
                    clock = nil, date = nil, wall = nil, lastWall = nil, lastTheme = nil, char = nil}
 
-    -- ---------- construção ----------
     local function newPart(name, size, cf, color, material, parent)
         local p = Instance.new("Part")
         p.Name = name
@@ -7025,7 +9383,6 @@ do
         return p
     end
 
-    -- placa com cantos arredondados (3 blocos + 4 cilindros), centrada em cf; espessura no eixo Z
     local function slab(name, w, h, t, r, cf, color, material, parent, tag)
         local made = {}
         local function add(n, size, off, isCyl)
@@ -7097,7 +9454,6 @@ do
         grad.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 0)})
         grad.Parent = wall
 
-        -- escurece levemente o topo/baixo para o texto ler bem
         local shade = Instance.new("Frame")
         shade.Size = UDim2.fromScale(1, 1)
         shade.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -7106,7 +9462,6 @@ do
         shade.Parent = wall
         local sc = Instance.new("UICorner"); sc.CornerRadius = UDim.new(0, 56); sc.Parent = shade
 
-        -- ilha dinâmica
         local isl = Instance.new("Frame")
         isl.AnchorPoint = Vector2.new(0.5, 0)
         isl.Position = UDim2.new(0.5, 0, 0, 22)
@@ -7147,7 +9502,6 @@ do
         date.TextSize = 30
         date.Parent = root
 
-        -- ícones de apps (quatro bolhas) + dock
         local cols = {Color3.fromRGB(255, 95, 109), Color3.fromRGB(88, 196, 255), Color3.fromRGB(120, 230, 140), Color3.fromRGB(255, 205, 90)}
         for i = 1, 4 do
             local b = Instance.new("Frame")
@@ -7177,13 +9531,6 @@ do
         state.screenGui, state.wall, state.clock, state.date = sg, wall, clock, date
     end
 
-    -- ============================================================
-    -- 🦴 MOTOR DE POSE DO STAND (portado do D10BRAND0) + CORREÇÃO DE RIG R15 / R6
-    -- Anima as juntas do braço direito pelo C0 com interpolação Hermite/Catmull-Rom,
-    -- reaplicada em 3 pontos do frame (RenderStep Last + Stepped + Heartbeat),
-    -- com re-scan automático das juntas e suporte a Motor6D e AnimationConstraint.
-    -- Ângulos em graus no eixo da peça-pai: braço X+ = para frente | Z+ = abre pro lado
-    -- ============================================================
     local V3d = Vector3.new
     local ZERO3 = V3d()
     local PK = {"rsh", "rel", "rwr"}
@@ -7192,7 +9539,6 @@ do
 
     local function spSmooth(a) return a * a * (3 - 2 * a) end
 
-    -- junções agnósticas: AnimationConstraint usa Attachment0/1, Motor6D usa Part0/Part1
     local function spParts(m)
         if m:IsA("AnimationConstraint") then
             local a0, a1 = m.Attachment0, m.Attachment1
@@ -7221,10 +9567,9 @@ do
         end
     end
 
-    local SP_KIN = setmetatable({}, {__mode = "k"})   -- IsKinematic original
-    local SP_BASE = setmetatable({}, {__mode = "k"})  -- C0 original (guardado UMA vez)
+    local SP_KIN = setmetatable({}, {__mode = "k"})
+    local SP_BASE = setmetatable({}, {__mode = "k"})
 
-    -- acha as juntas do braço direito em R15 (Ombro/Cotovelo/Punho) ou R6 (Right Shoulder)
     local function spJoints(ch)
         local map = {
             rsh = {"RightUpperArm", "Right Arm"},
@@ -7259,10 +9604,6 @@ do
         return J, rig
     end
 
-    -- ============================================================
-    -- 🔍 CHECKER DE RIG: descobre se o personagem é R15 ou R6
-    -- 1) _G.TZE_ForceRig = "R15"/"R6" (força manual)  2) Humanoid.RigType  3) peças do corpo  4) juntas
-    -- ============================================================
     local function detectRig(ch, J)
         local forced = _G.TZE_ForceRig
         if forced == "R15" or forced == "R6" then return forced, "forçado por _G.TZE_ForceRig" end
@@ -7281,7 +9622,6 @@ do
         return nil, "rig não reconhecido"
     end
 
-    -- keyframes Hermite (só as 3 chaves do braço)
     local function spTangent(frames, i, key)
         local f = frames[i]
         if f.hold or i == 1 or i == #frames then return nil end
@@ -7312,19 +9652,18 @@ do
         return pose
     end
 
-    -- pose-alvo "segurando o celular" por rig
     local function phoneFrames(rig)
         local tgt
         if rig == "R6" then
-            -- R6: sem cotovelo/punho -> braço reto levantado, celular deitado em cima do antebraço
+
             tgt = {rsh = V3d(CFG.ombroR6, 0, CFG.paraDentroR6 - CFG.bracoEsq.R6), rel = ZERO3, rwr = ZERO3}
         else
             tgt = {rsh = V3d(CFG.ombro, 0, CFG.paraDentro - CFG.bracoEsq.R15), rel = V3d(CFG.cotovelo, 0, 0), rwr = V3d(0, CFG.punho, 0)}
         end
         return {
             {t = 0.00, rsh = ZERO3, rel = ZERO3, rwr = ZERO3},
-            {t = 0.16, rsh = tgt.rsh * 1.12, rel = tgt.rel * 1.10, rwr = tgt.rwr * 0.9},   -- levanta com leve overshoot
-            {t = 0.34, hold = true, rsh = tgt.rsh, rel = tgt.rel, rwr = tgt.rwr},          -- assenta
+            {t = 0.16, rsh = tgt.rsh * 1.12, rel = tgt.rel * 1.10, rwr = tgt.rwr * 0.9},
+            {t = 0.34, hold = true, rsh = tgt.rsh, rel = tgt.rel, rwr = tgt.rwr},
         }
     end
 
@@ -7339,7 +9678,7 @@ do
         end
         local c0 = base - base.Position
         local A = CFrame.Angles(rad(rotDeg.X), rad(rotDeg.Y), rad(rotDeg.Z))
-        local tf = c0:Inverse() * A * c0     -- rotação no eixo da peça-pai (vale p/ R15 e R6)
+        local tf = c0:Inverse() * A * c0
         spSetC0(m, base * CFrame.new():Lerp(tf, w))
     end
 
@@ -7402,7 +9741,6 @@ do
         SP.w = SP.w + math.clamp(goal - SP.w, -rate * dt, rate * dt)
         if SP.fading and SP.w <= 0.001 then SP.stopNow() return end
 
-        -- o jogo trocou/removeu alguma junta? re-escaneia (no máx. 1x a cada 0.2s)
         local J = SP.J
         local broken = false
         for _, m in pairs(J) do
@@ -7426,7 +9764,7 @@ do
             if spValid(m) then
                 local r = pose[key]
                 if r then spApply(m, r * PP.Intensity, w) end
-                -- V14: a animação do bundle/jogo NÃO mexe mais no braço (zera o Transform em todo ponto do frame)
+
                 if m:IsA("Motor6D") or m:IsA("AnimationConstraint") then
                     SP.lock = true
                     m.Transform = m.Transform:Lerp(CFrame.new(), w)
@@ -7451,7 +9789,7 @@ do
         SP.w = 0
         SP.fading = false
         SP.bound = true
-        -- V14: no instante em que o bundle escreve o Transform do braço, já zera de volta
+
         SP.tconns = {}
         for _, m in pairs(J) do
             if m:IsA("Motor6D") or m:IsA("AnimationConstraint") then
@@ -7474,23 +9812,21 @@ do
         return true
     end
 
-    -- ---------- posição do celular na mão por rig (recalculável ao vivo pelo editor) ----------
     local function computeGrip(rig, hand)
         local s = CFG.escala
         if rig == "R15" then
-            -- palma da mão direita: frente da tela -> -X da mão, topo -> dedos (-Y)
+
             local x = -(hand.Size.X / 2 + (T * s) / 2 - 0.05)
             return CFrame.fromMatrix(Vector3.new(x, CFG.celularY * s, CFG.celularZ),
                 Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), Vector3.new(-1, 0, 0))
         else
-            -- R6: celular deitado sobre o "Right Arm": tela -> -Z do braço, topo -> ponta do braço (-Y)
+
             local z = -(hand.Size.Z / 2 + (T * s) / 2 - 0.05) + CFG.r6Z
             return CFrame.new(CFG.r6X, CFG.r6Y * s, z) * CFrame.Angles(rad(CFG.r6Tilt), 0, 0)
                 * CFrame.fromMatrix(Vector3.new(), Vector3.new(1, 0, 0), Vector3.new(0, -1, 0), Vector3.new(0, 0, -1))
         end
     end
 
-    -- ---------- construção do celular + grip por rig ----------
     local function build(char)
         local J = spJoints(char)
         local rig, why = detectRig(char, J)
@@ -7516,19 +9852,17 @@ do
         local metal = themeColors()
         local met, glass = metal[2], Color3.fromRGB(8, 8, 10)
 
-        -- corpo (moldura metálica)
         local body = slab("Corpo", W, H, T, R, CFrame.new(), met, Enum.Material.Metal, model, state.metalParts)
         local rootPart = body[1]
         model.PrimaryPart = rootPart
-        -- vidro traseiro (cor da carcaça, mais claro)
+
         slab("Traseira", W - 0.05, H - 0.05, 0.012, R - 0.02, CFrame.new(0, 0, -T / 2 - 0.002), metal[1], Enum.Material.SmoothPlastic, model, state.metalParts)
-        -- vidro frontal preto
+
         slab("Vidro", W - 0.05, H - 0.05, 0.012, R - 0.02, CFrame.new(0, 0, T / 2 + 0.002), glass, Enum.Material.Glass, model)
-        -- display
+
         local display = newPart("Display", Vector3.new(W - 0.11, H - 0.11, 0.002), CFrame.new(0, 0, T / 2 + 0.0095), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, model)
         buildScreenGui(display)
 
-        -- módulo de câmeras (traseira = -Z; visto de trás, canto superior esquerdo = +X)
         local cx, cy, cz = 0.14, 0.66, -T / 2 - 0.03
         slab("ModCam", 0.5, 0.5, 0.03, 0.11, CFrame.new(cx, cy, cz), metal[3], Enum.Material.SmoothPlastic, model, state.metalParts)
         local lensPos = {{cx + 0.12, cy + 0.12}, {cx - 0.12, cy + 0.12}, {cx + 0.12, cy - 0.12}}
@@ -7542,18 +9876,15 @@ do
         local pl = Instance.new("PointLight")
         pl.Range = 0; pl.Brightness = 0; pl.Color = Color3.fromRGB(255, 244, 210); pl.Parent = flash
 
-        -- logo na traseira
         local logo = cyl("Logo", 0.2, 0.01, CFrame.new(0, -0.15, -T / 2 - 0.009), Color3.fromRGB(240, 240, 245), Enum.Material.SmoothPlastic, model)
         logo.Transparency = 0.5
 
-        -- botões laterais
         local function btn(n, x, y, h) newPart(n, Vector3.new(0.03, h, 0.05), CFrame.new(x, y, 0), met, Enum.Material.Metal, model) ; table.insert(state.metalParts, state.parts[#state.parts]) end
         btn("Power", W / 2 + 0.008, 0.25, 0.30)
         btn("VolCima", -W / 2 - 0.008, 0.30, 0.20)
         btn("VolBaixo", -W / 2 - 0.008, 0.05, 0.20)
         btn("Acao", -W / 2 - 0.008, 0.55, 0.10)
 
-        -- escala
         if CFG.escala ~= 1 then
             for _, p in ipairs(state.parts) do
                 p.Size = p.Size * CFG.escala
@@ -7561,7 +9892,6 @@ do
             end
         end
 
-        -- solda tudo no corpo
         for _, p in ipairs(state.parts) do
             if p ~= rootPart then
                 local wc = Instance.new("WeldConstraint")
@@ -7580,14 +9910,13 @@ do
         weld.C0 = c0
         weld.Parent = rootPart
         state.weld = weld
-        state.baseC0 = c0          -- V15: posição base na mão (sem giro) — o giro é aplicado por cima, só no celular
+        state.baseC0 = c0
         state.lastGiro = nil
         state.char = char
         state.lastTheme, state.lastWall = nil, nil
         return true
     end
 
-    -- ---------- atualização ----------
     local function setLTM(v)
         for _, p in ipairs(state.parts) do
             if p.Parent then p.LocalTransparencyModifier = v end
@@ -7596,7 +9925,7 @@ do
 
     local lastLTM = -1
     local function refreshVisual(t)
-        -- cor da carcaça (segue Config > Cor da carcaça)
+
         local metal, name = themeColors()
         if state.lastTheme ~= name then
             state.lastTheme = name
@@ -7606,20 +9935,20 @@ do
                 else p.Color = metal[2] end
             end
         end
-        -- papel de parede
+
         local wp = currentWallpaper
         if state.wall and wp and state.lastWall ~= wp then
             state.lastWall = wp
             pcall(function() state.wall.Image = wp end)
         end
-        -- relógio
+
         if state.clock then
             local tm = os.date("%H:%M")
             if state.clock.Text ~= tm then state.clock.Text = tm end
             local dt = os.date("%d/%m")
             if state.date and state.date.Text ~= dt then state.date.Text = dt end
         end
-        -- lanterna na traseira
+
         if state.flash and state.flash.Parent then
             local on = phoneSettings.flashlightEnabled and true or false
             local pl = state.flash:FindFirstChildOfClass("PointLight")
@@ -7628,11 +9957,10 @@ do
         end
     end
 
-    -- avaliador da pose: keyframes Hermite + balanço sutil (balanço só vale p/ R15; no R6 vira só ombro)
     local function makeEval(rig)
         local frames, ver = phoneFrames(rig), state.poseVer
         return function(t)
-            if ver ~= state.poseVer then frames, ver = phoneFrames(rig), state.poseVer end   -- V16: editor ao vivo
+            if ver ~= state.poseVer then frames, ver = phoneFrames(rig), state.poseVer end
             local pose = spEvalFrames(frames, t)
             if CFG.balanco > 0 then
                 local sw = math.sin(os.clock() * 1.6) * CFG.balanco
@@ -7643,37 +9971,34 @@ do
         end
     end
 
-    -- ---------- toolbelt (cintura) ----------
-    -- CFrame do celular preso na lateral direita do quadril, tela virada pra fora
     local function holsterC0(rig, waist)
         local s = CFG.escala
-        -- lateral direita: +X do torso, ligeiramente pra frente e abaixo do centro
-        local offX =  (waist.Size.X / 2) + (W * s) / 2 - 0.05   -- encostar na lateral
-        local offY = -0.10                                          -- abaixo do centro da cintura
-        local offZ = -0.10                                          -- levemente pra frente
-        -- tela virada pra fora (+X do torso), topo do celular pra cima (+Y do torso)
+
+        local offX =  (waist.Size.X / 2) + (W * s) / 2 - 0.05
+        local offY = -0.10
+        local offZ = -0.10
+
         return CFrame.new(offX, offY, offZ)
             * CFrame.fromMatrix(Vector3.new(),
-                Vector3.new(0,  1,  0),   -- topo do celular = +Y do torso
-                Vector3.new(0,  0, -1),   -- frente da tela  = -Z do torso (pra fora)
-                Vector3.new(-1, 0,  0))   -- espessura        = -X
-            * CFrame.Angles(0, 0, rad(-12))  -- leve inclinação pra ficar natural
+                Vector3.new(0,  1,  0),
+                Vector3.new(0,  0, -1),
+                Vector3.new(-1, 0,  0))
+            * CFrame.Angles(0, 0, rad(-12))
     end
 
-    -- troca o Part0 do weld e ajusta C0; chama só quando o alvo realmente muda
     local function reweld(newPart0, newC0)
         if not state.weld or not state.weld.Parent then return end
         state.weld.Part0 = newPart0
         state.weld.C0    = newC0
-        state.lastGiro   = nil   -- força reapply do giro na próxima frame (só vale quando na mão)
+        state.lastGiro   = nil
     end
 
-    local holsterAttached = false   -- rastreia onde o weld está atualmente
+    local holsterAttached = false
 
     local function onStep(dt)
         local char = LP.Character
         if not char then return end
-        if state.rebuildAt and os.clock() >= state.rebuildAt then   -- V16: tamanho mudou no editor
+        if state.rebuildAt and os.clock() >= state.rebuildAt then
             state.rebuildAt = nil
             if state.model then state.model:Destroy(); state.model = nil end
             lastLTM = -1
@@ -7689,15 +10014,14 @@ do
         if math.abs(state.alpha - want) < 0.005 then state.alpha = want end
         local a = state.alpha
 
-        -- V17: toolbelt — celular na cintura quando guardado, na mão quando aberto
         if state.weld and state.rig and state.hand then
             if want == 1 then
-                -- celular aberto → solda na mão
+
                 if holsterAttached then
                     reweld(state.hand, state.baseC0)
                     holsterAttached = false
                 end
-                -- V15: giro do celular (SÓ o celular, via Weld; não mexe no braço)
+
                 local g = tonumber(_G.TZE_PhoneGiro) or CFG.giroCelular[state.rig] or 0
                 g = g * (CFG.sinalGiro[state.rig] or 1)
                 local inc, rol = CFG.celularInclina[state.rig] or 0, CFG.celularRolagem[state.rig] or 0
@@ -7707,7 +10031,7 @@ do
                     state.weld.C0 = state.baseC0 * CFrame.Angles(rad(inc), rad(g), rad(rol))
                 end
             else
-                -- celular guardado → solda na cintura (toolbelt)
+
                 if not holsterAttached then
                     local waistName = (state.rig == "R15") and "LowerTorso" or "Torso"
                     local waist = char:FindFirstChild(waistName)
@@ -7719,20 +10043,18 @@ do
             end
         end
 
-        -- visibilidade: guardado = sempre visível (alpha fixo 1); aberto = fade normal
         local ltm
         if want == 0 and holsterAttached then
-            ltm = 0   -- cintura: sempre visível
+            ltm = 0
         else
             ltm = 1 - a
         end
         if math.abs(ltm - lastLTM) > 0.004 then lastLTM = ltm; setLTM(ltm) end
         if state.screenGui then state.screenGui.Enabled = (want == 1 and a > 0.35) end
 
-        -- pose do braço (motor do Stand): entra ao abrir, sai ao fechar
         if want == 1 then
             if SP.bound and SP.char == char then
-                SP.fading = false                       -- reabriu durante o fade-out: retoma
+                SP.fading = false
             else
                 SP.start(char, makeEval(state.rig))
             end
@@ -7744,15 +10066,9 @@ do
         if a > 0.5 or holsterAttached then refreshVisual(os.clock()) end
     end
 
-    -- ============================================================
-    -- 🛠 EDITOR EM TEMPO REAL (V16)
-    -- Botão 🛠 na lateral esquerda abre o painel. Tudo que você mexe aparece NA HORA no personagem.
-    -- "Exportar" gera o texto com todas as configurações (R15 + R6) pra você me mandar.
-    -- Atalhos: _G.TZE_PhoneEditor() abre/fecha o painel.
-    -- ============================================================
     local function applyLive(kind)
         if kind == "pose" then
-            state.poseVer = (state.poseVer or 0) + 1       -- makeEval recria os keyframes
+            state.poseVer = (state.poseVer or 0) + 1
         elseif kind == "grip" then
             if state.rig and state.hand then
                 state.baseC0 = computeGrip(state.rig, state.hand)
@@ -7761,7 +10077,7 @@ do
         elseif kind == "giro" then
             state.lastGiro = nil
         elseif kind == "scale" then
-            state.rebuildAt = os.clock() + 0.3             -- reconstrói o modelo (debounce)
+            state.rebuildAt = os.clock() + 0.3
         end
     end
 
@@ -7794,7 +10110,6 @@ do
         end
         local DEFAULT = deepCopy(CFG)
 
-        -- ---------- especificações dos sliders ----------
         local function F(key, label, mn, mx, st, live)
             return {label = label, min = mn, max = mx, step = st, live = live,
                 get = function() return CFG[key] end, set = function(v) CFG[key] = v end}
@@ -7834,7 +10149,6 @@ do
             },
         }
 
-        -- ---------- janela ----------
         local gui = mk("ScreenGui", {Name = "TzePhoneEditor", ResetOnSpawn = false, IgnoreGuiInset = true,
             DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling}, GUI_PARENT)
 
@@ -7857,7 +10171,6 @@ do
         end
         fit()
 
-        -- barra de título (arrasta o painel)
         local title = mk("Frame", {BackgroundColor3 = BG2, Size = UDim2.new(1, 0, 0, 36), Active = true}, panel)
         corner(title, 12)
         mk("TextLabel", {BackgroundTransparency = 1, Text = "🛠 Editor do Celular 3D", Font = Enum.Font.GothamBold,
@@ -7869,7 +10182,6 @@ do
         local closeB = mk("TextButton", {Text = "✕", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = TXT,
             BackgroundTransparency = 1, Position = UDim2.new(1, -30, 0, 0), Size = UDim2.fromOffset(30, 36)}, title)
 
-        -- abas
         local tabs, curTab = {}, "R15"
         for i, r in ipairs({"R15", "R6"}) do
             tabs[r] = mk("TextButton", {Text = r, Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = TXT,
@@ -7891,8 +10203,7 @@ do
             BackgroundColor3 = BG2, Position = UDim2.new(1, -92, 1, -44), Size = UDim2.fromOffset(84, 36)}, panel)
         corner(bReset, 8)
 
-        -- ---------- sliders ----------
-        local active          -- slider sendo arrastado
+        local active
         local refreshers = {}
 
         local function makeRow(spec)
@@ -7975,7 +10286,6 @@ do
         end
         for r, b in pairs(tabs) do b.MouseButton1Click:Connect(function() showTab(r) end) end
 
-        -- ---------- exportar ----------
         local ov = mk("Frame", {Visible = false, BackgroundColor3 = BG, Position = UDim2.new(0, 0, 0, 40),
             Size = UDim2.new(1, 0, 1, -40), ZIndex = 20}, panel)
         mk("TextLabel", {BackgroundTransparency = 1, ZIndex = 21, Font = Enum.Font.GothamMedium, TextSize = 11,
@@ -8050,7 +10360,6 @@ do
             showTab(curTab)
         end)
 
-        -- ---------- abrir/fechar, arrastar, drag global ----------
         local function toggle() panel.Visible = not panel.Visible; fit() end
         fab.MouseButton1Click:Connect(toggle)
         closeB.MouseButton1Click:Connect(function() panel.Visible = false end)
@@ -8078,7 +10387,6 @@ do
             end
         end))
 
-        -- mostra o rig detectado e abre a aba certa na primeira detecção
         showTab("R15")
         task.spawn(function()
             local synced = false
@@ -8098,18 +10406,6 @@ do
     LP.CharacterAdded:Connect(function() SP.stopNow(); state.char = nil; state.alpha = 0; lastLTM = -1 end)
     print("[TZE PHONE] Celular 3D carregado (R15 + R6, motor de pose do Stand). Ajuste os valores em CFG se a posição na mão ficar torta.")
 end
-
-
--- ###################### SEUS ADDONS AQUI ######################
--- Copie o modelo abaixo para criar qualquer coisa nova sem estourar o limite de locals:
---[[
-do
-    local meuTexto = Instance.new("TextLabel")
-    meuTexto.Text = "Olá!"
-    meuTexto.Parent = PhoneHome     -- PhoneHome, MainFrame, ConfigFrame, etc. já estão disponíveis
-    -- ícone desenhado:  local ic = Icons.gear(PhoneHome, 24, Color3.new(1,1,1), 10)
-end
-]]
 
 end, function(e) return debug.traceback(tostring(e), 2) end)
 

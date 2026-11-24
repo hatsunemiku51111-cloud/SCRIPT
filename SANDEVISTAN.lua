@@ -8770,52 +8770,86 @@ local function InitDirectionalMovement()
 end
 
 do
+-- ============================================================
+-- GLITCH DA CYBERPSYCHOSIS (BARRA) — ESTILO CYBERPUNK: EDGERUNNERS
+-- ------------------------------------------------------------
+-- SEM níveis fixos e SEM tremer a peça real. Tudo é feito com CLONES das peças do seu boneco
+-- (num ViewportFrame, na mesma câmera do jogo). Os clones ficam SEMPRE colados no corpo:
+-- seguem a peça real todo frame e voltam pro lugar, nunca ficam soltos no mapa.
+-- Os efeitos vão liberando conforme a barra sobe (a intensidade também sobe contínua):
+--   dup   : DUPLICAÇÃO de uma peça (a real fica; o clone pula do lado, pisca, volta)
+--   slide : peça DESLOCADA de forma inteligente (braço/perna escorrega pelo comprimento do
+--           membro ou pro lado, cabeça sai na horizontal, torso fatia de lado). A real some
+--           e volta em degraus, como datamosh
+--   lag   : a peça TRAVA na pose antiga (frame preso) enquanto o resto do corpo continua
+--   tear  : metade do corpo (de cima / de baixo) ou o corpo inteiro duplicado de lado, rasgando
+-- ============================================================
 local PsyGlitch = {
-    START = 22.5, STEP = 5, Active = {}, NextAt = 0,
-    VIEWPORT_START = 60,       -- % da barra: daqui pra cima entra o glitch de ViewportFrame
-    STOP_OLD_GLITCH = false,   -- true = o glitch antigo (tremer/piscar a peça real) PARA em 60% | false = só trava no nível de 60% e continua junto com o do ViewportFrame
-    VIEWPORT_MAX = 75,         -- % da barra onde o glitch de ViewportFrame chega no máximo (sobe de VIEWPORT_START até aqui)
-    CLONE_START = 85,          -- % da barra: daqui pra cima aparecem CLONES do corpo inteiro (ecos) no ViewportFrame
-    ECHO_MIN = 1,              -- quantidade de clones ao mesmo tempo em CLONE_START (sobe até ECHO_MAX em 100%)
-    ECHO_MAX = 4,              -- máximo de clones ao mesmo tempo
-    ECHO_TINT = false,         -- false = clones com a MESMA cor do seu boneco | true = piscam em neon (ciano/magenta/vermelho)
-    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil, echoes = {}, echoNextAt = 0},
+    START = 20,              -- % da barra onde o glitch começa (só duplicação de peça)
+    SLIDE_START = 35,        -- % onde entra o deslocamento de peça (slide)
+    LAG_START = 45,          -- % onde entra a peça travada na pose antiga (lag)
+    TEAR_START = 60,         -- % onde entram os rasgos do corpo (metade de cima/baixo/inteiro)
+    SLICE_START = 50,        -- % onde entram as FATIAS HORIZONTAIS de tela (datamosh / scan glitch)
+    RATE = 1,                -- frequência dos glitches (2 = o dobro, 0.5 = metade)
+    MAX_PART_OFFSET = 1.1,   -- deslocamento máximo de uma peça em studs (em 100% da barra)
+    MAX_ECHO_OFFSET = 1.4,   -- deslocamento máximo dos clones do corpo em studs (em 100%)
+    TINT_CHANCE = 0,         -- chance de o clone piscar em neon (ciano/magenta/vermelho). 0 = sempre a cor real do boneco
+    -- ---- config das fatias horizontais (clone 2D cortado em faixas que saltam pro lado) ----
+    SLICE_COUNT = 4,         -- número de fatias (3–6; 0 = desativa)
+    SLICE_MAX_SHIFT = 0.28,  -- deslocamento máximo de cada fatia em fração da altura do boneco na tela
+    SLICE_CHUNK = 4,         -- pixels de granularidade do deslocamento (visual "travado", estilo Edgerunners)
+    SLICE_LIFE = {0.05, 0.14}, -- {min, max} de vida de cada fatia em segundos
+    SLICE_STILL = 0.38,      -- chance de uma fatia ficar parada (sem deslocar) a cada reroll
+    SLICE_JITTER = 0.03,     -- de quanto em quanto tempo uma fatia reroleia o deslocamento
+    Active = {},             -- (compatibilidade, não usado)
+    VP = {gui = nil, vp = nil, recs = {}, used = {}, map = {}, clone = nil, char = nil, nextAt = 0, conn = nil,
+          echoes = {}, partCount = 0, partCheckAt = 0, buildRetry = 0},
+    -- ---- estado das fatias (ScreenGui separado, sem conflito com o VP de peças) ----
+    SL = {gui = nil, vp = nil, clone = nil, char = nil, conn = nil, slices = {}, template = nil,
+          tmplChar = nil, tmplReals = {}, tmplCount = 0},
 }
 
+local TINTS = {Color3.fromRGB(0, 240, 255), Color3.fromRGB(255, 0, 140), Color3.fromRGB(255, 30, 30)}
+local STEPS = {0, 0.5, 1, 1, 1.35, -0.4}   -- degraus do movimento (travado, estilo glitch)
+
+local function psyP()
+    return math.clamp((State.Psychosis - PsyGlitch.START) / math.max(1, PsyBar.MAX - PsyGlitch.START), 0, 1)
+end
+
 function PsyGlitch.Level()
-    local v = State.Psychosis
-    if v < PsyGlitch.START then return 0 end
-    return math.floor((v - PsyGlitch.START) / PsyGlitch.STEP) + 1
+    if State.Psychosis < PsyGlitch.START then return 0 end
+    return 1 + math.floor(psyP() * 9)
 end
 
-local function psyRestore(rec)
-    if rec.part and rec.part.Parent then rec.part.LocalTransparencyModifier = 0 end
-    if rec.motor and rec.motor.Parent then rec.motor.Transform = rec.lastBase or CFrame.identity end
-    if rec.weld and rec.weld.Parent then rec.weld.C0 = rec.baseC0 end
+-- ---------- classificação da peça (pra deslocar do jeito certo) ----------
+local function psyKind(part)
+    if part:FindFirstAncestorOfClass("Accessory") then return "acc" end
+    local n = part.Name
+    if n == "Head" then return "head" end
+    if n:find("Arm") or n:find("Hand") then return "arm" end
+    if n:find("Leg") or n:find("Foot") then return "leg" end
+    return "torso"
 end
 
-function PsyGlitch.Clear()
-    for key, rec in pairs(PsyGlitch.Active) do
-        psyRestore(rec)
-        PsyGlitch.Active[key] = nil
+-- direção "inteligente" do deslocamento (em mundo) + escala relativa
+local function psyDir(kind, part, cam)
+    local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
+    local sgn = (math.random() < 0.5) and -1 or 1
+    if kind == "head" then
+        return (right * sgn + up * (math.random() * 0.3)).Unit, 0.8      -- cabeça sai na horizontal
+    elseif kind == "arm" then
+        if math.random() < 0.5 then return part.CFrame.UpVector * sgn, 1.0   -- escorrega pelo braço
+        else return (right * sgn + up * 0.2).Unit, 1.0 end                    -- ou joga pro lado
+    elseif kind == "leg" then
+        if math.random() < 0.5 then return part.CFrame.UpVector * sgn, 0.9
+        else return right * sgn, 0.9 end
+    elseif kind == "acc" then
+        return (right * sgn + up * (math.random() * 2 - 1) * 0.8).Unit, 1.2  -- acessório voa mais
     end
+    return right * sgn, 0.7                                                   -- torso: fatia lateral
 end
 
-local function psyJitter(mag, rot)
-    local function r() return (math.random() * 2 - 1) end
-    return CFrame.new(r() * mag, r() * mag, r() * mag)
-        * CFrame.Angles(math.rad(r() * rot), math.rad(r() * rot), math.rad(r() * rot))
-end
-
-
--- ============================================================
--- GLITCH DE VIEWPORTFRAME (a partir de VIEWPORT_START %)
--- Cópia FIEL (mesma cor, textura e malha, sem neon) das peças e acessórios do boneco, na MESMA
--- câmera do jogo. A peça real continua visível e a cópia pula/gira/pisca por cima (duplicação).
--- ============================================================
--- O ViewportFrame recebe um CLONE do personagem INTEIRO (com Humanoid, roupas e cor do corpo, que só
--- renderizam certo dentro de um Model com Humanoid). O clone fica ancorado e escondido; só as peças
--- sorteadas aparecem, seguindo a peça real com deslocamento.
+-- ---------- clone do personagem dentro do ViewportFrame ----------
 local function vpIsJunk(d)
     return d:IsA("LuaSourceContainer") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam")
         or d:IsA("Highlight") or d:IsA("BillboardGui") or d:IsA("ForceField") or d:IsA("Fire") or d:IsA("Smoke")
@@ -8824,13 +8858,14 @@ local function vpIsJunk(d)
 end
 
 local function vpEndRec(r)
-    if r.g and r.g.Parent then r.g.Transparency = 1 end
+    if r.g and r.g.Parent then
+        r.g.Transparency = 1
+        if r.oldColor then r.g.Color = r.oldColor r.g.Material = r.oldMat end
+    end
     if r.src and r.src.Parent then r.src.LocalTransparencyModifier = 0 end
     PsyGlitch.VP.used[r.src] = nil
 end
 
--- ECOS: clones do corpo INTEIRO (a partir de CLONE_START %), congelados na pose do momento,
--- deslocados pro lado, piscando por pouco tempo. O corpo real continua visível.
 local function vpClearEchoes()
     local V = PsyGlitch.VP
     for _, e in ipairs(V.echoes) do
@@ -8847,7 +8882,6 @@ local function vpBuildClone(char)
     if V.clone then V.clone:Destroy() V.clone = nil end
     V.char = char
     -- marca cada peça real com um id; o clone herda o id e o mapa real->cópia nasce por id
-    -- (não depende mais da ordem/quantidade de descendentes, que quebrava com objetos não-clonáveis)
     local byId, n = {}, 0
     for _, d in ipairs(char:GetDescendants()) do
         if d:IsA("BasePart") then
@@ -8856,6 +8890,7 @@ local function vpBuildClone(char)
             d:SetAttribute("PsyVpId", n)
         end
     end
+    V.partCount = n
     local was = char.Archivable
     char.Archivable = true
     local ok, clone = pcall(function() return char:Clone() end)
@@ -8864,7 +8899,7 @@ local function vpBuildClone(char)
         if d.Parent then d:SetAttribute("PsyVpId", nil) end
     end
     if not ok or not clone then
-        warn("[Sandevistan] glitch ViewportFrame: não consegui clonar o personagem")
+        warn("[Sandevistan] glitch da psicose: não consegui clonar o personagem")
         return false
     end
     for _, c in ipairs(clone:GetDescendants()) do
@@ -8880,7 +8915,7 @@ local function vpBuildClone(char)
             c.CanQuery = false
             c.CanTouch = false
             c.CastShadow = false
-            c.Transparency = 1   -- escondido até a peça ser sorteada
+            c.Transparency = 1   -- escondido até ser sorteado
         elseif vpIsJunk(c) then
             c:Destroy()
         end
@@ -8895,7 +8930,9 @@ local function vpBuildClone(char)
     return next(V.map) ~= nil
 end
 
-local function vpSpawnEcho(p2)
+-- ---------- CLONES DO CORPO (rasgo / RGB) ----------
+-- mode: "full" (corpo inteiro) | "upper" (só de cima do corte) | "lower" (só de baixo do corte)
+local function vpSpawnEcho(p, mode, tint, side, life)
     local V = PsyGlitch.VP
     if not V.vp or not V.clone or not V.clone.Parent or not HRP or not HRP.Parent then return end
     local was = V.clone.Archivable
@@ -8910,76 +8947,69 @@ local function vpSpawnEcho(p2)
             if i then ghostById[i] = d end
         end
     end
-    local parts, reals, bases, pj = {}, {}, {}, {}
+    local parts, reals, bases = {}, {}, {}
     for real, g in pairs(V.map) do
         local gp = ghostById[g:GetAttribute("PsyVpId")]
         if gp then
             if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 then
                 gp.CFrame = real.CFrame
-                gp.Transparency = real.Transparency   -- opaco (sem semi-transparência)
+                gp.Transparency = real.Transparency
+                gp.Color = real.Color
+                gp.Material = real.Material
+                if tint then
+                    gp.Color = tint
+                    gp.Material = Enum.Material.Neon
+                end
                 table.insert(parts, gp)
                 table.insert(reals, real)
                 table.insert(bases, real.Transparency)
-                table.insert(pj, Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1))
             else
                 gp.Transparency = 1
             end
         end
     end
-    if PsyGlitch.ECHO_TINT and math.random() < 0.45 then
-        local tints = {Color3.fromRGB(0, 240, 255), Color3.fromRGB(255, 0, 140), Color3.fromRGB(255, 30, 30), Color3.new(1, 1, 1)}
-        local tint = tints[math.random(#tints)]
-        for _, gp in ipairs(parts) do
-            gp.Color = tint
-            gp.Material = Enum.Material.Neon
-        end
-    end
     model.Parent = V.vp
-    local now = os.clock()
     table.insert(V.echoes, {
-        model = model, parts = parts, reals = reals, bases = bases, partJit = pj,
-        born = now, life = 0.3 + math.random() * 0.5,
-        side = (math.random() < 0.5 and -1 or 1) * (1.4 + math.random() * 3 + p2 * 2.5),
-        lift = (math.random() * 2 - 1) * 1.2,
-        rotY = (math.random() * 2 - 1) * (14 + 30 * p2), rotZ = (math.random() * 2 - 1) * (6 + 16 * p2),
-        jx = 0, jy = 0, jmag = 0.5 + 0.8 * p2,
-        nextRoll = 0, blink = false,
+        model = model, parts = parts, reals = reals, bases = bases,
+        born = os.clock(), life = life or (0.12 + math.random() * 0.25),
+        mode = mode, cut = -0.6 + math.random() * 2.0,           -- altura do corte (relativa ao HRP)
+        side = side, lift = (math.random() * 2 - 1) * 0.2,
+        rotY = (math.random() * 2 - 1) * (4 + 10 * p), rotZ = (math.random() * 2 - 1) * (2 + 6 * p),
+        nextRoll = 0, blink = false, k = 0.5, jx = 0,
     })
 end
 
--- cada eco SAI do corpo (deslocamento sobe de 0), buga (pulos, giros, piscadas) e VOLTA pro corpo (0),
--- seguindo o boneco real em todo frame, nunca fica solto no mapa
-local function vpEchoStep(now)
+local function vpEchoStep(now, cam)
     local V = PsyGlitch.VP
-    local cam = Workspace.CurrentCamera
     for i = #V.echoes, 1, -1 do
         local e = V.echoes[i]
         local u = (now - e.born) / e.life
-        if u >= 1 or not e.model.Parent or not cam or not HRP or not HRP.Parent then
+        if u >= 1 or not e.model.Parent or not HRP or not HRP.Parent then
             pcall(function() e.model:Destroy() end)
             table.remove(V.echoes, i)
         else
             if now >= e.nextRoll then
-                e.nextRoll = now + 0.03 + math.random() * 0.04
-                e.blink = math.random() < 0.3
-                if math.random() < 0.4 then
-                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag * 3, (math.random() * 2 - 1) * e.jmag * 1.5   -- pulo brusco
-                else
-                    e.jx, e.jy = (math.random() * 2 - 1) * e.jmag, (math.random() * 2 - 1) * e.jmag * 0.5
-                end
+                e.nextRoll = now + 0.03 + math.random() * 0.035
+                e.blink = math.random() < 0.2
+                e.k = STEPS[math.random(#STEPS)]
+                e.jx = (math.random() * 2 - 1) * 0.1
             end
-            local env = math.sin(math.pi * u)            -- 0 -> 1 -> 0
-            env = math.floor(env * 6 + 0.5) / 6          -- degraus: movimento travado/glitchado
+            local env = math.sin(math.pi * u)            -- 0 -> 1 -> 0 (sai do corpo e volta)
+            env = math.floor(env * 4 + 0.5) / 4          -- degraus
+            local kk = env * math.max(e.k, 0.3)
             local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
-            local offset = right * (e.side * env + e.jx * env) + up * (e.lift * env + e.jy * env)
+            local offset = right * (e.side * kk + e.jx * env) + up * (e.lift * kk)
             local pivot = HRP.CFrame
-            local rot = CFrame.Angles(0, math.rad(e.rotY * env), math.rad(e.rotZ * env))
-            local base = pivot * rot * pivot:Inverse()
-            for k, gp in ipairs(e.parts) do
-                local real = e.reals[k]
+            local base = pivot * CFrame.Angles(0, math.rad(e.rotY * kk), math.rad(e.rotZ * kk)) * pivot:Inverse()
+            local cutY = HRP.Position.Y + e.cut
+            for idx, gp in ipairs(e.parts) do
+                local real = e.reals[idx]
                 if real.Parent then
-                    gp.CFrame = base * real.CFrame + offset + e.partJit[k] * (0.35 * env)
-                    gp.Transparency = e.blink and 1 or e.bases[k]
+                    local show = true
+                    if e.mode == "upper" then show = real.Position.Y >= cutY
+                    elseif e.mode == "lower" then show = real.Position.Y < cutY end
+                    gp.CFrame = base * real.CFrame + offset
+                    gp.Transparency = (e.blink or not show) and 1 or e.bases[idx]
                 else
                     gp.Transparency = 1
                 end
@@ -8988,30 +9018,325 @@ local function vpEchoStep(now)
     end
 end
 
+-- ---------- CLONES DE PEÇA (duplicação / deslocamento / lag) ----------
+local function vpSpawnPart(src, mode, p, now)
+    local V = PsyGlitch.VP
+    local g = V.map[src]
+    local cam = Workspace.CurrentCamera
+    if not g or not g.Parent or not cam then return end
+    local dir, scale = psyDir(psyKind(src), src, cam)
+    local amt = PsyGlitch.MAX_PART_OFFSET * (0.25 + 0.75 * p) * scale * (0.6 + math.random() * 0.4)
+    if mode == "dup" then amt = amt * 0.5 end
+    local rec = {
+        src = src, g = g, mode = mode, born = now,
+        untilT = now + 0.08 + math.random() * 0.17 + p * 0.08,
+        reroll = 0, k = 0, blink = false, showReal = false, rotK = 0,
+        dir = dir, amt = amt, rotDeg = (3 + 9 * p) * ((math.random() < 0.5) and -1 or 1),
+    }
+    if mode == "lag" and HRP and HRP.Parent then
+        rec.rel = HRP.CFrame:ToObjectSpace(src.CFrame)    -- pose congelada relativa ao corpo
+    end
+    if p > 0.3 and math.random() < PsyGlitch.TINT_CHANCE then
+        rec.oldColor, rec.oldMat = g.Color, g.Material
+        g.Color = TINTS[math.random(#TINTS)]
+        g.Material = Enum.Material.Neon
+    end
+    V.used[src] = true
+    table.insert(V.recs, rec)
+end
+
+-- copia a iluminação do mapa pro ViewportFrame (cor do ambiente, cor/brilho da luz e direção sol/lua)
+local function vpSyncLight(vp)
+    local ok = pcall(function()
+        -- ambiente: o boneco fica ao ar livre na maioria das vezes, então usa o OutdoorAmbient
+        -- misturado um pouco com o Ambient (cenas internas)
+        vp.Ambient = Lighting.OutdoorAmbient:Lerp(Lighting.Ambient, 0.35)
+        -- cor da luz: tinge com o ColorShift_Top (cor do sol) e escala pelo Brightness
+        local shift = Lighting.ColorShift_Top
+        local tint = Color3.new(1, 1, 1)
+        if shift.R + shift.G + shift.B > 0.02 then tint = tint:Lerp(shift, 0.5) end
+        local br = math.clamp(Lighting.Brightness / 2, 0.35, 1.3)
+        vp.LightColor = Color3.new(math.min(1, tint.R * br), math.min(1, tint.G * br), math.min(1, tint.B * br))
+        -- direção: sol de dia, lua de noite
+        local dir = Lighting:GetSunDirection()
+        if dir.Y < -0.05 then
+            local moon = Lighting:GetMoonDirection()
+            if moon.Y > dir.Y then dir = moon end
+        end
+        vp.LightDirection = -dir
+    end)
+    return ok
+end
+
+-- ============================================================
+-- FATIAS HORIZONTAIS DA BARRA DE CYBERPHYSICOSIS
+-- Clone do boneco em ViewportFrames recortados por faixa, igual ao Test_Fatias_Glitch.
+-- Ativa a partir de PsyGlitch.SLICE_START % (padrão 50 %) e cresce com a barra.
+-- ============================================================
+
+local SL_TINTS = {
+    Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 255, 255),
+    Color3.fromRGB(0, 240, 255), Color3.fromRGB(255, 0, 140), Color3.fromRGB(255, 30, 30),
+}
+
+local function slIsJunk(d)
+    return d:IsA("LuaSourceContainer") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("Trail")
+        or d:IsA("Beam") or d:IsA("Highlight") or d:IsA("BillboardGui") or d:IsA("ForceField")
+        or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Light")
+        or d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Constraint") or d:IsA("BodyMover")
+end
+
+-- molde: clone do personagem que é copiado para cada faixa
+local function slBuildTemplate(char)
+    local SL = PsyGlitch.SL
+    if SL.template then pcall(function() SL.template:Destroy() end) SL.template = nil end
+    local byId, n = {}, 0
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then
+            n += 1; byId[n] = d; d:SetAttribute("SlPsyId", n)
+        end
+    end
+    local was = char.Archivable
+    char.Archivable = true
+    local ok, clone = pcall(function() return char:Clone() end)
+    char.Archivable = was
+    for _, d in ipairs(byId) do if d.Parent then d:SetAttribute("SlPsyId", nil) end end
+    if not ok or not clone then return false end
+    for _, c in ipairs(clone:GetDescendants()) do
+        if c:IsA("BasePart") then
+            c.Anchored = true; c.CanCollide = false; c.CanQuery = false
+            c.CanTouch = false; c.CastShadow = false
+        elseif slIsJunk(c) then
+            c:Destroy()
+        end
+    end
+    local hum = clone:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    end
+    SL.template, SL.tmplChar, SL.tmplReals, SL.tmplCount = clone, char, byId, n
+    return true
+end
+
+-- cria um clone rápido do template para dentro de um viewport de fatia
+local function slNewSliceClone(vp)
+    local SL = PsyGlitch.SL
+    local m = SL.template:Clone()
+    local list = {}
+    for _, c in ipairs(m:GetDescendants()) do
+        if c:IsA("BasePart") then
+            local id = c:GetAttribute("SlPsyId")
+            local real = id and SL.tmplReals[id]
+            if real then table.insert(list, {real, c}) end
+        end
+    end
+    m.Parent = vp
+    return list
+end
+
+-- garante o ScreenGui + ViewportFrames das fatias
+local function slEnsure()
+    local SL = PsyGlitch.SL
+    local char = Character
+    if not char or not char.Parent then return false end
+    local pg = Player:FindFirstChildOfClass("PlayerGui")
+    if not pg then return false end
+    -- refaz se o personagem mudou ou o template sumiu
+    if SL.tmplChar ~= char or SL.tmplCount == 0 then
+        if not slBuildTemplate(char) then return false end
+    end
+    local n = PsyGlitch.SLICE_COUNT
+    if n <= 0 then return false end
+    -- refaz o gui se necessário
+    if not SL.gui or not SL.gui.Parent or #SL.slices ~= n then
+        -- limpa o antigo
+        if SL.conn then SL.conn:Disconnect() SL.conn = nil end
+        if SL.gui then SL.gui:Destroy() end
+        SL.slices = {}
+        local g = Instance.new("ScreenGui")
+        g.Name = "PsySliceGlitchFX"
+        g.IgnoreGuiInset = true
+        g.ResetOnSpawn = false
+        g.DisplayOrder = 851   -- um acima do PsyViewportGlitch (850)
+        g.Parent = pg
+        local cam = Workspace.CurrentCamera
+        for _ = 1, n do
+            local band = Instance.new("Frame")
+            band.BackgroundTransparency = 1
+            band.BorderSizePixel = 0
+            band.ClipsDescendants = true
+            band.Visible = false
+            band.Parent = g
+            local vpf = Instance.new("ViewportFrame")
+            vpf.BackgroundTransparency = 1
+            vpf.BorderSizePixel = 0
+            vpf.CurrentCamera = cam
+            vpSyncLight(vpf)
+            vpf.Parent = band
+            local pairs_ = slNewSliceClone(vpf)
+            table.insert(SL.slices, {band = band, vpf = vpf, pairs = pairs_, dx = 0, life = 0, jit = 0, y = 0})
+        end
+        SL.gui = g
+    end
+    return true
+end
+
+-- dimensão vertical do boneco na tela (igual ao BodyScreenRange do GLITCH da CyberPsychosis)
+local function slBodyScreenRange()
+    local cam = Workspace.CurrentCamera
+    if not cam or not HRP or not HRP.Parent then return nil end
+    local a = cam:WorldToViewportPoint(HRP.Position + Vector3.new(0, 3.2, 0))
+    local b = cam:WorldToViewportPoint(HRP.Position - Vector3.new(0, 3.2, 0))
+    if a.Z <= 0 and b.Z <= 0 then return nil end
+    return math.min(a.Y, b.Y), math.max(a.Y, b.Y)
+end
+
+-- dispara uma fatia: escolhe y aleatório, largura e deslocamento
+local function slActivate(sl, p)
+    local minY, maxY = slBodyScreenRange()
+    if not minY then return end
+    local bodyH = math.max(40, maxY - minY)
+    local maxH  = math.max(4, math.floor(bodyH * (0.04 + math.random() * 0.14)))
+    local y     = math.floor(minY + math.random() * math.max(1, bodyH - maxH))
+    local maxDx = bodyH * PsyGlitch.SLICE_MAX_SHIFT * (0.3 + 0.7 * p)
+    local rawDx = (math.random() < PsyGlitch.SLICE_STILL and 0 or
+                   ((math.random() < 0.5 and -1 or 1) * (0.25 + math.random() * 0.75) * maxDx))
+    local dx    = math.floor(rawDx / PsyGlitch.SLICE_CHUNK + 0.5) * PsyGlitch.SLICE_CHUNK
+    sl.y    = y
+    sl.dx   = dx
+    sl.life = PsyGlitch.SLICE_LIFE[1] + math.random() * (PsyGlitch.SLICE_LIFE[2] - PsyGlitch.SLICE_LIFE[1])
+    sl.jit  = 0
+    sl.band.Size     = UDim2.new(1, 0, 0, maxH)
+    sl.band.Position = UDim2.fromOffset(dx, y)
+    sl.band.Visible  = true
+    sl.vpf.ImageColor3 = SL_TINTS[math.random(#SL_TINTS)]
+    local vs = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+    sl.vpf.Size     = UDim2.fromOffset(vs.X, vs.Y)
+    sl.vpf.Position = UDim2.fromOffset(0, -y)
+    vpSyncLight(sl.vpf)
+end
+
+-- atualiza fatias a cada frame (chamado pelo RenderStepped da fatia via slStep)
+local function slStep(dt, p)
+    local SL = PsyGlitch.SL
+    local cam = Workspace.CurrentCamera
+    -- sincroniza câmera e luz de todas as fatias ativas
+    for _, sl in ipairs(SL.slices) do
+        if sl.band.Visible then
+            if sl.vpf.CurrentCamera ~= cam then sl.vpf.CurrentCamera = cam end
+            -- atualiza pose (copia do boneco real)
+            for _, pr in ipairs(sl.pairs) do
+                local real, c = pr[1], pr[2]
+                if real.Parent then
+                    c.CFrame = real.CFrame
+                    c.Transparency = real.Transparency
+                else
+                    c.Transparency = 1
+                end
+            end
+            -- timer e jitter de deslocamento
+            sl.life -= dt
+            sl.jit  -= dt
+            if sl.jit <= 0 then
+                sl.jit = PsyGlitch.SLICE_JITTER
+                -- reroleia o dx (vai diminuindo conforme a vida acaba)
+                local factor = math.max(0.1, sl.life / (PsyGlitch.SLICE_LIFE[2]))
+                local newDx
+                if math.random() < PsyGlitch.SLICE_STILL then
+                    newDx = 0
+                else
+                    newDx = sl.dx * (0.5 + math.random() * 0.9) * factor
+                    newDx = math.floor(newDx / PsyGlitch.SLICE_CHUNK + 0.5) * PsyGlitch.SLICE_CHUNK
+                end
+                sl.dx = newDx
+                sl.band.Position = UDim2.fromOffset(newDx, sl.y)
+            end
+            if sl.life <= 0 then
+                sl.band.Visible = false
+            end
+        else
+            -- chance de disparar uma nova fatia proporcional à barra
+            local chance = ({0.008, 0.018, 0.035})[
+                (p < 0.4) and 1 or (p < 0.75) and 2 or 3
+            ] * PsyGlitch.RATE
+            if math.random() < chance then
+                slActivate(sl, p)
+            end
+        end
+    end
+end
+
+-- limpa toda a infra de fatias
+local function slClear()
+    local SL = PsyGlitch.SL
+    if SL.conn then SL.conn:Disconnect() SL.conn = nil end
+    if SL.gui then SL.gui:Destroy() end
+    SL.gui, SL.slices = nil, {}
+    if SL.template then pcall(function() SL.template:Destroy() end) SL.template = nil end
+    SL.tmplChar, SL.tmplReals, SL.tmplCount = nil, {}, 0
+end
+
+-- ponto de entrada chamado pelo PsyGlitch.Update
+local function slUpdate(dt, p)
+    local SL = PsyGlitch.SL
+    if p <= 0 or PsyGlitch.SLICE_COUNT <= 0 then
+        if SL.gui then slClear() end
+        return
+    end
+    if not slEnsure() then return end
+    -- conecta o RenderStepped na primeira vez
+    if not SL.conn then
+        SL.conn = RunService.RenderStepped:Connect(function(rdt)
+            if State.Psychosis < PsyGlitch.SLICE_START or PsyBar.Busy
+                or not Character or not Character.Parent then
+                slClear()
+                return
+            end
+            local pp = math.clamp(
+                (State.Psychosis - PsyGlitch.SLICE_START) / math.max(1, PsyBar.MAX - PsyGlitch.SLICE_START),
+                0, 1)
+            slStep(rdt, pp)
+        end)
+    end
+end
+
+-- ============================================================
+
 local function vpFollow()
     local V = PsyGlitch.VP
     local cam = Workspace.CurrentCamera
     if not cam or not V.vp then return end
     if V.vp.CurrentCamera ~= cam then V.vp.CurrentCamera = cam end
+    vpSyncLight(V.vp)
     local now = os.clock()
-    vpEchoStep(now)
+    vpEchoStep(now, cam)
     for i = #V.recs, 1, -1 do
         local r = V.recs[i]
         if now >= r.untilT or not r.src.Parent or not r.g.Parent then
             vpEndRec(r)
             table.remove(V.recs, i)
         else
+            local u = (now - r.born) / math.max(0.001, r.untilT - r.born)
             if now >= r.reroll then
-                r.reroll = now + 0.03 + math.random() * 0.04
-                r.dx = (math.random() * 2 - 1) * r.mag
-                r.dy = (math.random() * 2 - 1) * r.mag * 0.4
-                r.rot = CFrame.Angles(math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg), math.rad((math.random() * 2 - 1) * r.rotDeg))
-                r.blink = math.random() < 0.1
+                r.reroll = now + 0.035 + math.random() * 0.04
+                r.k = (u > 0.8) and 0 or STEPS[math.random(#STEPS)]   -- no fim sempre volta pro lugar
+                r.blink = math.random() < 0.12
+                r.showReal = math.random() < 0.3
+                r.rotK = math.random() * 2 - 1
             end
-            local right, up = cam.CFrame.RightVector, cam.CFrame.UpVector
-            r.g.CFrame = (r.src.CFrame * r.rot) + right * r.dx + up * r.dy
+            local cf
+            if r.mode == "lag" and r.rel and HRP and HRP.Parent then
+                cf = (HRP.CFrame * r.rel) + r.dir * (r.amt * r.k * 0.25)   -- presa na pose antiga, com tremidinha
+            else
+                cf = (r.src.CFrame * CFrame.Angles(0, 0, math.rad(r.rotDeg * r.rotK * math.max(r.k, 0)))) + r.dir * (r.amt * r.k)
+            end
+            r.g.CFrame = cf
             r.g.Transparency = r.blink and 1 or r.src.Transparency
-            -- a peça real continua VISÍVEL: a cópia glitchada aparece por cima como uma duplicação
+            if r.mode == "slide" then
+                -- a peça real some enquanto o clone está deslocado (e pisca de volta de vez em quando)
+                r.src.LocalTransparencyModifier = r.showReal and 0 or 1
+            end
         end
     end
 end
@@ -9030,9 +9355,7 @@ local function vpEnsure()
     local vp = Instance.new("ViewportFrame")
     vp.Size = UDim2.fromScale(1, 1)
     vp.BackgroundTransparency = 1
-    vp.Ambient = Color3.fromRGB(170, 170, 170)
-    vp.LightColor = Color3.new(1, 1, 1)
-    pcall(function() vp.LightDirection = -Lighting:GetSunDirection() end)
+    vpSyncLight(vp)
     vp.CurrentCamera = Workspace.CurrentCamera
     vp.ZIndex = 5
     vp.Parent = g
@@ -9051,124 +9374,109 @@ function PsyGlitch.ClearViewport()
     if V.conn then V.conn:Disconnect() V.conn = nil end
     if V.gui then V.gui:Destroy() end
     V.gui, V.vp, V.clone, V.char = nil, nil, nil, nil
+    -- também limpa as fatias horizontais
+    slClear()
 end
 
-function PsyGlitch.UpdateViewport(dt)
+function PsyGlitch.Clear()
+    PsyGlitch.ClearViewport()
+    slClear()
+end
+
+-- ---------- sorteio dos eventos ----------
+local function pickType(v)
+    local pool = {{"dup", 40}}
+    if v >= PsyGlitch.SLIDE_START then table.insert(pool, {"slide", 45}) end
+    if v >= PsyGlitch.LAG_START then table.insert(pool, {"lag", 25}) end
+    if v >= PsyGlitch.TEAR_START then table.insert(pool, {"tear", 25}) end
+    local total = 0
+    for _, e in ipairs(pool) do total += e[2] end
+    local roll = math.random() * total
+    for _, e in ipairs(pool) do
+        roll -= e[2]
+        if roll <= 0 then return e[1] end
+    end
+    return "dup"
+end
+
+local function pickTearMode()
+    local r = math.random()
+    if r < 0.4 then return "upper" elseif r < 0.7 then return "lower" end
+    return "full"
+end
+
+function PsyGlitch.Update(dt)
+    if State.Psychosis < PsyGlitch.START or PsyBar.Busy or not Character or not Character.Parent then
+        PsyGlitch.ClearViewport()
+        return
+    end
+    -- fatias horizontais de tela (entram em SLICE_START %)
+    if State.Psychosis >= PsyGlitch.SLICE_START then
+        local sliceP = math.clamp(
+            (State.Psychosis - PsyGlitch.SLICE_START) / math.max(1, PsyBar.MAX - PsyGlitch.SLICE_START),
+            0, 1)
+        slUpdate(dt, sliceP)
+    else
+        slClear()
+    end
     local V = PsyGlitch.VP
     if not vpEnsure() then return end
     if V.char ~= Character or not V.clone or not V.clone.Parent then
-        if os.clock() < (V.buildRetry or 0) then return end
+        if os.clock() < V.buildRetry then return end
         if not vpBuildClone(Character) then
             V.buildRetry = os.clock() + 2
             return
         end
     end
-    local p = math.clamp((State.Psychosis - PsyGlitch.VIEWPORT_START) / math.max(1, PsyGlitch.VIEWPORT_MAX - PsyGlitch.VIEWPORT_START), 0, 1)
-    if State.Psychosis >= PsyGlitch.CLONE_START then
-        local p2 = math.clamp((State.Psychosis - PsyGlitch.CLONE_START) / math.max(1, PsyBar.MAX - PsyGlitch.CLONE_START), 0, 1)
-        local t = os.clock()
-        local maxE = PsyGlitch.ECHO_MIN + math.floor(p2 * (PsyGlitch.ECHO_MAX - PsyGlitch.ECHO_MIN) + 0.5)
-        if t >= V.echoNextAt and #V.echoes < maxE then
-            V.echoNextAt = t + (0.14 - 0.09 * p2) * (0.5 + math.random())
-            for _ = 1, math.min(maxE - #V.echoes, 1 + math.floor(p2 * 2)) do
-                vpSpawnEcho(p2)
-            end
-        end
-    elseif #V.echoes > 0 then
-        vpClearEchoes()
-    end
     local now = os.clock()
-    if now < V.nextAt then return end
-    V.nextAt = now + (0.55 - 0.25 * p) * (0.5 + math.random())
-    local room = 1 + math.floor(p * 3) - #V.recs
-    if room <= 0 then return end
-    local cand = {}
-    for real, g in pairs(V.map) do
-        if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart" and real.Transparency < 0.95 and not V.used[real] then
-            table.insert(cand, real)
-        end
-    end
-    local n = math.min(#cand, room, 1 + math.floor(p * 1.5))
-    for _ = 1, n do
-        local src = table.remove(cand, math.random(#cand))
-        local g = V.map[src]
-        if g and g.Parent then
-            V.used[src] = true
-            table.insert(V.recs, {
-                src = src, g = g,
-                untilT = now + 0.06 + math.random() * 0.12 + p * 0.06,
-                reroll = 0, dx = 0, dy = 0, rot = CFrame.identity, blink = false,
-                mag = 0.12 + 0.5 * p, rotDeg = 3 + 8 * p,
-            })
-        end
-    end
-end
-
-function PsyGlitch.Update(dt)
-    local level = PsyGlitch.Level()
-    if level == 0 or PsyBar.Busy or not Character or not Character.Parent then
-        if next(PsyGlitch.Active) then PsyGlitch.Clear() end
-        PsyGlitch.ClearViewport()
-        return
-    end
-    if State.Psychosis >= PsyGlitch.VIEWPORT_START then
-        PsyGlitch.UpdateViewport(dt)
-        if PsyGlitch.STOP_OLD_GLITCH then
-            if next(PsyGlitch.Active) then PsyGlitch.Clear() end   -- o glitch antigo para aqui
-            return
-        end
-        level = math.floor((PsyGlitch.VIEWPORT_START - PsyGlitch.START) / PsyGlitch.STEP) + 1   -- só trava no nível de 60%
-    else
-        PsyGlitch.ClearViewport()
-    end
-    local now = os.clock()
-    local mag = 0.05 + level * 0.04
-    local rot = level * 2.5
-
-    for key, rec in pairs(PsyGlitch.Active) do
-        if now >= rec.untilT or not rec.part.Parent then
-            psyRestore(rec)
-            PsyGlitch.Active[key] = nil
-        else
-            rec.part.LocalTransparencyModifier = (math.random() < 0.5) and rec.alpha or 0
-            if rec.motor then
-                local cur = rec.motor.Transform
-                if cur ~= rec.applied then rec.lastBase = cur end
-                rec.applied = (rec.lastBase or cur) * psyJitter(mag, rot)
-                rec.motor.Transform = rec.applied
-            elseif rec.weld then
-                rec.weld.C0 = rec.baseC0 * psyJitter(mag, rot)
-            end
-        end
-    end
-
-    if now >= PsyGlitch.NextAt then
-        PsyGlitch.NextAt = now + math.max(0.08, 1.2 - level * 0.07) * (0.5 + math.random())
-        local candidates = {}
+    -- se o visual mudou (acessório novo/removido), refaz o clone
+    if now >= V.partCheckAt then
+        V.partCheckAt = now + 2
+        local n = 0
         for _, d in ipairs(Character:GetDescendants()) do
-            if d:IsA("BasePart") and d ~= HRP and d.Name ~= "HumanoidRootPart" and not PsyGlitch.Active[d] then
-                table.insert(candidates, d)
-            end
+            if d:IsA("BasePart") then n += 1 end
         end
-        local count = math.min(#candidates, 1 + math.floor(level / 3))
-        for _ = 1, count do
-            local idx = math.random(#candidates)
-            local part = table.remove(candidates, idx)
-            local rec = {
-                part = part,
-                untilT = now + 0.06 + math.random() * 0.12 + level * 0.01,
-                alpha = math.clamp(0.4 + level * 0.04 + math.random() * 0.2, 0.4, 1),
-            }
-            local acc = part:FindFirstAncestorOfClass("Accessory")
-            if acc then
-                local w = part:FindFirstChildWhichIsA("Weld")
-                if w and w:IsA("Weld") then rec.weld = w rec.baseC0 = w.C0 end
-            else
-                for _, m in ipairs(Character:GetDescendants()) do
-                    if m:IsA("Motor6D") and m.Part1 == part then rec.motor = m break end
+        if n ~= V.partCount then
+            if not vpBuildClone(Character) then V.buildRetry = now + 2 return end
+        end
+    end
+
+    local v = State.Psychosis
+    local p = psyP()
+    if now < V.nextAt then return end
+    V.nextAt = now + ((1.1 - 0.85 * p) / math.max(0.1, PsyGlitch.RATE)) * (0.4 + math.random() * 1.2)
+
+    -- às vezes vários glitches de uma vez (cluster), mais comum com a barra alta
+    local bursts = 1
+    if math.random() < p * 0.6 then bursts += math.random(1, 1 + math.floor(p * 2)) end
+
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    local maxRecs = 1 + math.floor(p * 3)
+    local maxEchoes = 1 + math.floor(p * 2)
+
+    for _ = 1, bursts do
+        local kind = pickType(v)
+        if kind == "tear" then
+            if #V.echoes < maxEchoes then
+                local sgn = (math.random() < 0.5) and -1 or 1
+                local side = sgn * PsyGlitch.MAX_ECHO_OFFSET * (0.2 + 0.6 * p) * (0.6 + math.random() * 0.4)
+                vpSpawnEcho(p, pickTearMode(), nil, side)
+            end
+        else
+            if #V.recs < maxRecs then
+                local cand = {}
+                for real, g in pairs(V.map) do
+                    if real.Parent and real ~= HRP and real.Name ~= "HumanoidRootPart"
+                        and real.Transparency < 0.95 and real.LocalTransparencyModifier < 0.5
+                        and not V.used[real] and g.Parent then
+                        table.insert(cand, real)
+                    end
+                end
+                if #cand > 0 then
+                    vpSpawnPart(cand[math.random(#cand)], kind, p, now)
                 end
             end
-            PsyGlitch.Active[part] = rec
         end
     end
 end

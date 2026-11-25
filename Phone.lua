@@ -30,7 +30,6 @@ local function criarPastasPhone()
     end)
 end
 criarPastasPhone()
-
 local HttpService = game:GetService("HttpService")
 local SETTINGS_PATH = "PHONE/settings.json"
 
@@ -126,7 +125,7 @@ local HotbarFrame, hotbarUIScale, phoneSlot, selectedFrame
 local PhoneHome, homeBg
 local MusicAppIcon, StopwatchAppIcon, ConfigAppIcon, GalleryAppIcon
 local WebBrowserIcon
-local MainFrame, refreshFiles, stopMusic
+local MainFrame, refreshFiles, stopMusic, restoreMusic
 local StopwatchFrame, resetStopwatch
 local ConfigFrame, cfgGoBack, cfgReset
 local GalleryFrame, refreshPhotos, exitPhotoViewer, closePhotoMenu
@@ -2226,7 +2225,7 @@ Instance.new("UICorner", homeBg).CornerRadius = UDim.new(0, 28)
 local homeOverlay = Instance.new("Frame")
 homeOverlay.Size = UDim2.new(1, 0, 1, 0)
 homeOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-homeOverlay.BackgroundTransparency = 0.45
+homeOverlay.BackgroundTransparency = 0.62
 homeOverlay.BorderSizePixel = 0
 homeOverlay.ZIndex = 2
 homeOverlay.Parent = PhoneHome
@@ -2236,69 +2235,168 @@ Nav.shell.create(PhoneHome)
 
 Nav.status.create(PhoneHome)
 
-local homeTitle = Instance.new("TextLabel")
-homeTitle.Size = UDim2.new(1, 0, 0, 30)
-homeTitle.Position = UDim2.new(0, 0, 0, 70)
-homeTitle.BackgroundTransparency = 1
-homeTitle.Text = "Apps"
-homeTitle.TextColor3 = Color3.new(1, 1, 1)
-homeTitle.Font = Enum.Font.GothamBold
-homeTitle.TextSize = 22
-homeTitle.ZIndex = 5
-homeTitle.Parent = PhoneHome
+local pagerClip = Instance.new("Frame")
+pagerClip.Name = "PagerClip"
+pagerClip.Size = UDim2.new(1, 0, 1, 0)
+pagerClip.BackgroundTransparency = 1
+pagerClip.ClipsDescendants = true
+pagerClip.ZIndex = 5
+pagerClip.Parent = PhoneHome
+local pager = Instance.new("Frame")
+pager.Name = "Pager"
+pager.Size = UDim2.new(2, 0, 1, 0)
+pager.BackgroundTransparency = 1
+pager.ZIndex = 5
+pager.Parent = pagerClip
+local homePage1 = Instance.new("Frame")
+homePage1.Name = "Page1"
+homePage1.Size = UDim2.new(0.5, 0, 1, 0)
+homePage1.BackgroundTransparency = 1
+homePage1.ZIndex = 5
+homePage1.Parent = pager
+local homePage2 = Instance.new("Frame")
+homePage2.Name = "Page2"
+homePage2.Position = UDim2.new(0.5, 0, 0, 0)
+homePage2.Size = UDim2.new(0.5, 0, 1, 0)
+homePage2.BackgroundTransparency = 1
+homePage2.ZIndex = 5
+homePage2.Parent = pager
 
-local appsContainer = Instance.new("ScrollingFrame")
-appsContainer.Size = UDim2.new(1, -40, 0, 285)
-appsContainer.CanvasSize = UDim2.new(0, 0, 0, 396)
-appsContainer.ScrollBarThickness = 0
-appsContainer.ScrollingDirection = Enum.ScrollingDirection.Y
+local homeW = Instance.new("Frame")
+homeW.Name = "HomeWidget"
+homeW.Size = UDim2.new(1, -24, 0, 100)
+homeW.Position = UDim2.new(0, 12, 0, 44)
+homeW.BackgroundColor3 = Color3.new(1, 1, 1)
+homeW.BackgroundTransparency = 0.8
+homeW.BorderSizePixel = 0
+homeW.ZIndex = 5
+homeW.Parent = homePage1
+Instance.new("UICorner", homeW).CornerRadius = UDim.new(0, 22)
+do
+    local st = Instance.new("UIStroke", homeW)
+    st.Color = Color3.new(1, 1, 1)
+    st.Transparency = 0.8
+    st.Thickness = 1
+end
+
+local function homeLabel(pos, size, txt, ts, font, col)
+    local l = Instance.new("TextLabel")
+    l.Position = pos
+    l.Size = size
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = col
+    l.Font = font
+    l.TextSize = ts
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = 6
+    l.Parent = homeW
+    return l
+end
+local hwTime = homeLabel(UDim2.new(0, 16, 0, 8), UDim2.new(1, -32, 0, 52), "00:00", 46, Enum.Font.GothamBold, Color3.new(1, 1, 1))
+local hwDay = homeLabel(UDim2.new(0, 18, 0, 62), UDim2.new(1, -32, 0, 14), "", 11, Enum.Font.GothamBold, Color3.fromRGB(255, 130, 120))
+local hwDate = homeLabel(UDim2.new(0, 18, 0, 77), UDim2.new(1, -32, 0, 16), "", 12, Enum.Font.Gotham, Color3.fromRGB(235, 235, 240))
+
+do
+    local WD = {"domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"}
+    local MO = {"janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"}
+    local function updateHomeClock()
+        local t = os.date("*t")
+        hwTime.Text = string.format("%02d:%02d", t.hour, t.min)
+        hwDay.Text = WD[t.wday]
+        hwDate.Text = t.day .. " de " .. MO[t.month] .. " de " .. t.year
+    end
+    pcall(updateHomeClock)
+    task.spawn(function()
+        while PhoneHome.Parent do
+            task.wait(5)
+            pcall(updateHomeClock)
+        end
+    end)
+end
+
+local appsContainer = Instance.new("Frame")
+appsContainer.Name = "AppGrid"
+appsContainer.Size = UDim2.new(1, 0, 1, 0)
 appsContainer.BorderSizePixel = 0
-appsContainer.Position = UDim2.new(0, 20, 0, 110)
+appsContainer.Position = UDim2.new(0, 0, 0, 0)
 appsContainer.BackgroundTransparency = 1
 appsContainer.ZIndex = 5
-appsContainer.Parent = PhoneHome
+appsContainer.Parent = homePage1
 
-local function createAppIcon(name, drawIcon, color, pos)
+local dockFrame = Instance.new("Frame")
+dockFrame.Name = "Dock"
+dockFrame.Size = UDim2.new(1, -20, 0, 66)
+dockFrame.Position = UDim2.new(0, 10, 0, 328)
+dockFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+dockFrame.BackgroundTransparency = 0.78
+dockFrame.BorderSizePixel = 0
+dockFrame.ZIndex = 5
+dockFrame.Parent = PhoneHome
+Instance.new("UICorner", dockFrame).CornerRadius = UDim.new(0, 24)
+do
+    local st = Instance.new("UIStroke", dockFrame)
+    st.Color = Color3.new(1, 1, 1)
+    st.Transparency = 0.8
+    st.Thickness = 1
+end
+
+Nav.homeSlot = function(i)
+    local col = (i - 1) % 4
+    local row = math.floor((i - 1) / 4)
+    return UDim2.new(0, 12 + col * 64, 0, 160 + row * 84)
+end
+Nav.dockSlot = function(i)
+    return UDim2.new(0, 2 + (i - 1) * 64, 0, 6)
+end
+
+local function createAppIcon(name, drawIcon, color, pos, parent, noLabel)
     local icon = Instance.new("TextButton")
-    icon.Size = UDim2.new(0, 70, 0, 90)
+    icon.Size = UDim2.new(0, 64, 0, noLabel and 54 or 76)
     icon.Position = pos
     icon.BackgroundTransparency = 1
     icon.Text = ""
+    icon.AutoButtonColor = false
     icon.ZIndex = 6
-    icon.Parent = appsContainer
+    icon.Parent = parent or appsContainer
 
     local bg = Instance.new("Frame")
-    bg.Size = UDim2.new(0, 64, 0, 64)
-    bg.Position = UDim2.new(0.5, -32, 0, 0)
+    bg.Size = UDim2.new(0, 54, 0, 54)
+    bg.Position = UDim2.new(0.5, -27, 0, 0)
     bg.BackgroundColor3 = color
     bg.BorderSizePixel = 0
     bg.ZIndex = 6
     bg.Parent = icon
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 16)
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 13)
 
     local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.22), color:Lerp(Color3.new(0, 0, 0), 0.25))
+    grad.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.28), color:Lerp(Color3.new(0, 0, 0), 0.12))
     grad.Rotation = 90
     grad.Parent = bg
-    local ic = drawIcon(bg, 38, Color3.new(1, 1, 1), 8)
-    ic.Position = UDim2.new(0.5, -19, 0.5, -19)
+    local ic = drawIcon(bg, 32, Color3.new(1, 1, 1), 8)
+    ic.Position = UDim2.new(0.5, -16, 0.5, -16)
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 0, 20)
-    nameLabel.Position = UDim2.new(0, 0, 1, -22)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = name
-    nameLabel.TextColor3 = Color3.new(1, 1, 1)
-    nameLabel.Font = Enum.Font.Gotham
-    nameLabel.TextSize = 11
-    nameLabel.ZIndex = 7
-    nameLabel.Parent = icon
+    if not noLabel then
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 0, 14)
+        nameLabel.Position = UDim2.new(0, 0, 0, 58)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = name
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.Font = Enum.Font.Gotham
+        nameLabel.TextSize = 10
+        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        nameLabel.TextStrokeTransparency = 0.8
+        nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLabel.ZIndex = 7
+        nameLabel.Parent = icon
+    end
 
     icon.MouseButton1Down:Connect(function()
-        TweenService:Create(bg, TweenInfo.new(0.1), {Size = UDim2.new(0, 58, 0, 58), Position = UDim2.new(0.5, -29, 0, 3)}):Play()
+        TweenService:Create(bg, TweenInfo.new(0.1), {Size = UDim2.new(0, 48, 0, 48), Position = UDim2.new(0.5, -24, 0, 3)}):Play()
     end)
     local function release()
-        TweenService:Create(bg, TweenInfo.new(0.18, Enum.EasingStyle.Back), {Size = UDim2.new(0, 64, 0, 64), Position = UDim2.new(0.5, -32, 0, 0)}):Play()
+        TweenService:Create(bg, TweenInfo.new(0.18, Enum.EasingStyle.Back), {Size = UDim2.new(0, 54, 0, 54), Position = UDim2.new(0.5, -27, 0, 0)}):Play()
     end
     icon.MouseButton1Up:Connect(release)
     icon.MouseLeave:Connect(release)
@@ -2306,14 +2404,235 @@ local function createAppIcon(name, drawIcon, color, pos)
     return icon
 end
 
-MusicAppIcon = createAppIcon("Música", Icons.music, Color3.fromRGB(0, 180, 255), UDim2.new(0, 5, 0, 0))
-StopwatchAppIcon = createAppIcon("Cronômetro", Icons.stopwatch, Color3.fromRGB(255, 140, 30), UDim2.new(0, 85, 0, 0))
-ConfigAppIcon = createAppIcon("Config", Icons.gear, Color3.fromRGB(120, 120, 130), UDim2.new(0, 165, 0, 0))
-GalleryAppIcon = createAppIcon("Galeria", Icons.gallery, Color3.fromRGB(180, 80, 220), UDim2.new(0, 5, 0, 100))
-Nav.gps.icon = createAppIcon("GPS", Icons.gps, Color3.fromRGB(46, 190, 120), UDim2.new(0, 85, 0, 100))
-WebBrowserIcon = createAppIcon("Navegador", Icons.search, Color3.fromRGB(35, 145, 205), UDim2.new(0, 5, 0, 200))
+WebBrowserIcon = createAppIcon("Navegador", Icons.search, Color3.fromRGB(35, 145, 205), Nav.dockSlot(1), dockFrame, true)
+MusicAppIcon = createAppIcon("Música", Icons.music, Color3.fromRGB(250, 60, 90), Nav.dockSlot(2), dockFrame, true)
+GalleryAppIcon = createAppIcon("Galeria", Icons.gallery, Color3.fromRGB(180, 80, 220), Nav.dockSlot(3), dockFrame, true)
+ConfigAppIcon = createAppIcon("Config", Icons.gear, Color3.fromRGB(120, 120, 130), Nav.dockSlot(4), dockFrame, true)
+StopwatchAppIcon = createAppIcon("Cronômetro", Icons.stopwatch, Color3.fromRGB(255, 140, 30), Nav.homeSlot(4))
+Nav.gps.icon = createAppIcon("GPS", Icons.gps, Color3.fromRGB(46, 190, 120), UDim2.new(0, 12, 0, 232), homePage2)
 
 Nav.__mkIconFn = createAppIcon
+
+do
+    local PAGE_W, curPage = 280, 1
+    local dotsFrame = Instance.new("Frame")
+    dotsFrame.Name = "PageDots"
+    dotsFrame.AnchorPoint = Vector2.new(0.5, 0)
+    dotsFrame.Position = UDim2.new(0.5, 0, 0, 312)
+    dotsFrame.Size = UDim2.new(0, 28, 0, 6)
+    dotsFrame.BackgroundTransparency = 1
+    dotsFrame.ZIndex = 6
+    dotsFrame.Parent = PhoneHome
+    local dots = {}
+    for k = 1, 2 do
+        local d = Instance.new("Frame")
+        d.Size = UDim2.new(0, 6, 0, 6)
+        d.Position = UDim2.new(0, (k - 1) * 14 + 4, 0, 0)
+        d.BackgroundColor3 = Color3.new(1, 1, 1)
+        d.BackgroundTransparency = k == 1 and 0.05 or 0.6
+        d.BorderSizePixel = 0
+        d.ZIndex = 7
+        d.Parent = dotsFrame
+        Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
+        dots[k] = d
+    end
+
+    local cal = Instance.new("Frame")
+    cal.Name = "CalendarWidget"
+    cal.Position = UDim2.new(0, 12, 0, 44)
+    cal.Size = UDim2.new(0, 256, 0, 172)
+    cal.BackgroundColor3 = Color3.new(1, 1, 1)
+    cal.BackgroundTransparency = 0.8
+    cal.BorderSizePixel = 0
+    cal.ZIndex = 5
+    cal.Parent = homePage2
+    Instance.new("UICorner", cal).CornerRadius = UDim.new(0, 22)
+    do
+        local st = Instance.new("UIStroke", cal)
+        st.Color = Color3.new(1, 1, 1)
+        st.Transparency = 0.8
+        st.Thickness = 1
+    end
+    local function calLabel(x, y, w, h, txt, ts, font, col, align)
+        local l = Instance.new("TextLabel")
+        l.Position = UDim2.new(0, x, 0, y)
+        l.Size = UDim2.new(0, w, 0, h)
+        l.BackgroundTransparency = 1
+        l.Text = txt
+        l.TextColor3 = col
+        l.Font = font
+        l.TextSize = ts
+        l.TextXAlignment = align or Enum.TextXAlignment.Center
+        l.ZIndex = 7
+        l.Parent = cal
+        return l
+    end
+    local MO = {"janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"}
+    local function buildCalendar()
+        for _, c in ipairs(cal:GetChildren()) do
+            if c:IsA("TextLabel") or c.Name == "Today" then c:Destroy() end
+        end
+        local t = os.date("*t")
+        calLabel(16, 8, 224, 22, MO[t.month] .. " " .. t.year, 14, Enum.Font.GothamBold, Color3.fromRGB(255, 130, 120), Enum.TextXAlignment.Left)
+        local colW = 256 / 7
+        local initials = {"D", "S", "T", "Q", "Q", "S", "S"}
+        for k = 1, 7 do
+            calLabel((k - 1) * colW, 34, colW, 16, initials[k], 10, Enum.Font.GothamBold, Color3.fromRGB(200, 200, 210))
+        end
+        local first = os.date("*t", os.time({year = t.year, month = t.month, day = 1, hour = 12})).wday
+        local nDays = os.date("*t", os.time({year = t.year, month = t.month + 1, day = 0, hour = 12})).day
+        for day = 1, nDays do
+            local idx = first - 1 + day - 1
+            local col, row = idx % 7, math.floor(idx / 7)
+            local x, y = col * colW, 54 + row * 19
+            if day == t.day then
+                local dot = Instance.new("Frame")
+                dot.Name = "Today"
+                dot.Position = UDim2.new(0, x + colW / 2 - 9, 0, y)
+                dot.Size = UDim2.new(0, 18, 0, 18)
+                dot.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+                dot.BorderSizePixel = 0
+                dot.ZIndex = 6
+                dot.Parent = cal
+                Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+            end
+            calLabel(x, y, colW, 18, tostring(day), 10, day == t.day and Enum.Font.GothamBold or Enum.Font.Gotham, Color3.new(1, 1, 1))
+        end
+    end
+    pcall(buildCalendar)
+    task.spawn(function()
+        local lastDay = os.date("*t").day
+        while PhoneHome.Parent do
+            task.wait(30)
+            local d = os.date("*t").day
+            if d ~= lastDay then
+                lastDay = d
+                pcall(buildCalendar)
+            end
+        end
+    end)
+
+    local pageTween
+    local function setPage(n, instant)
+        n = math.clamp(n, 1, 2)
+        curPage = n
+        local goal = UDim2.new(0, -(n - 1) * PAGE_W, 0, 0)
+        if pageTween then
+            pageTween:Cancel()
+            pageTween = nil
+        end
+        if instant then
+            pager.Position = goal
+        else
+            pageTween = TweenService:Create(pager, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = goal})
+            pageTween:Play()
+        end
+        for k, d in ipairs(dots) do
+            TweenService:Create(d, TweenInfo.new(0.2), {BackgroundTransparency = k == n and 0.05 or 0.6}):Play()
+        end
+    end
+    Nav.homeSetPage = setPage
+
+    -- tocar num pontinho tambem troca de pagina
+    for k, d in ipairs(dots) do
+        local hit = Instance.new("TextButton")
+        hit.Name = "DotHit" .. k
+        hit.Text = ""
+        hit.AutoButtonColor = false
+        hit.BackgroundTransparency = 1
+        hit.Size = UDim2.new(0, 20, 0, 20)
+        hit.Position = UDim2.new(0, d.Position.X.Offset - 7, 0, -7)
+        hit.ZIndex = 8
+        hit.Parent = dotsFrame
+        hit.MouseButton1Click:Connect(function() setPage(k) end)
+    end
+
+    -- swipe lateral (mouse e touch)
+    local MOUSE_MOVE = Enum.UserInputType.MouseMovement
+    local MOUSE_BTN = Enum.UserInputType.MouseButton1
+    local TOUCH = Enum.UserInputType.Touch
+    local drag = nil
+
+    local function isPress(i)
+        return i.UserInputType == MOUSE_BTN or i.UserInputType == TOUCH
+    end
+
+    local function insidePhone(pos)
+        local ap, as = PhoneHome.AbsolutePosition, PhoneHome.AbsoluteSize
+        return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y - 40 and pos.Y <= ap.Y + as.Y + 40
+    end
+
+    local function scaleNow()
+        local s = phoneUIScale.Scale
+        if s <= 0 then s = 1 end
+        return s
+    end
+
+    local function rubber(x)
+        if x > 0 then return x * 0.35 end
+        if x < -PAGE_W then return -PAGE_W + (x + PAGE_W) * 0.35 end
+        return x
+    end
+
+    UserInputService.InputBegan:Connect(function(i)
+        if not isPress(i) or not PhoneHome.Visible then return end
+        if Nav.boot and Nav.boot.active then return end
+        if not insidePhone(i.Position) then return end
+        drag = {
+            isTouch = i.UserInputType == TOUCH,
+            x0 = i.Position.X, y0 = i.Position.Y,
+            lastX = i.Position.X, lastT = os.clock(), vx = 0,
+            moved = false,
+        }
+    end)
+
+    UserInputService.InputChanged:Connect(function(i)
+        if not drag then return end
+        local t = i.UserInputType
+        if not (t == MOUSE_MOVE or (t == TOUCH and drag.isTouch)) then return end
+        if not drag.isTouch and not UserInputService:IsMouseButtonPressed(MOUSE_BTN) then
+            drag = nil
+            return
+        end
+        local sc = scaleNow()
+        local dx = (i.Position.X - drag.x0) / sc
+        local dy = (i.Position.Y - drag.y0) / sc
+        if not drag.moved and math.abs(dx) > 8 and math.abs(dx) > math.abs(dy) then
+            drag.moved = true
+            Nav.homeSwiped = true
+            if pageTween then
+                pageTween:Cancel()
+                pageTween = nil
+            end
+        end
+        if drag.moved then
+            local now = os.clock()
+            local dt = now - drag.lastT
+            if dt > 0 then
+                drag.vx = drag.vx * 0.6 + ((i.Position.X - drag.lastX) / sc / dt) * 0.4
+            end
+            drag.lastX, drag.lastT = i.Position.X, now
+            pager.Position = UDim2.new(0, rubber(-(curPage - 1) * PAGE_W + dx), 0, 0)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(i)
+        if not drag or not isPress(i) then return end
+        if (i.UserInputType == TOUCH) ~= drag.isTouch then return end
+        local d = drag
+        drag = nil
+        if not d.moved then return end
+        local dx = (i.Position.X - d.x0) / scaleNow()
+        if dx < -45 or d.vx < -450 then
+            setPage(2)
+        elseif dx > 45 or d.vx > 450 then
+            setPage(1)
+        else
+            setPage(curPage)
+        end
+        task.delay(0.25, function() Nav.homeSwiped = false end)
+    end)
+end
 
 createNavBar(PhoneHome)
 
@@ -2411,6 +2730,7 @@ local onlyFavs = false
 local activeTab = "library"
 local status = "idle"
 local currentItem = nil
+local pendingResume = nil
 local queue, queueIdx = {}, 0
 local shuffleStack = {}
 local playToken = 0
@@ -2731,12 +3051,32 @@ setTab = function(id, instant)
     updateMini()
 end
 
-updateList = function()
-    for _, v in ipairs(UI.list:GetChildren()) do
-        if v:IsA("GuiObject") then v:Destroy() end
-    end
-    rowEq = nil
+local listSig, listRows, listToken = nil, {}, 0
 
+local function styleRow(ref)
+    local isCur = currentItem ~= nil and currentItem.kind == "file" and currentItem.path == ref.m.path
+    ref.row.BackgroundColor3 = isCur and CARD2 or CARD
+    ref.slot.BackgroundColor3 = isCur and accentTar or CARD2
+    ref.name.TextColor3 = isCur and accentTar or WHITE
+    ref.name.Font = isCur and FONTB or FONTM
+    ref.num.Visible = not isCur
+    if isCur then
+        if not ref.bars then
+            ref.bars = {}
+            for b = 1, 3 do
+                local bar = mk("Frame", {Size = UDim2.new(0, 3, 0, 8), AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0, 8 + (b - 1) * 6, 1, -7), BackgroundColor3 = DARK, BorderSizePixel = 0}, ref.slot)
+                corner(bar, UDim.new(1, 0))
+                ref.bars[b] = bar
+            end
+        end
+        rowEq = ref.bars
+    elseif ref.bars then
+        for _, bar in ipairs(ref.bars) do bar:Destroy() end
+        ref.bars = nil
+    end
+end
+
+updateList = function()
     local q = UI.search.Text:lower()
     filteredList = {}
     for _, m in ipairs(mp3List) do
@@ -2755,6 +3095,28 @@ updateList = function()
     UI.favFilter.BackgroundColor3 = onlyFavs and Color3.fromRGB(62, 28, 42) or CARD
     Icons.put(UI.favFilter, Icons.heart, 15, onlyFavs and PINK or MUTED, 3)
 
+    -- assinatura da lista: se nada mudou, so atualiza o destaque da faixa atual (sem recriar as linhas)
+    local parts = {onlyFavs and "f" or "a", tostring(#mp3List), q}
+    for _, m in ipairs(filteredList) do
+        parts[#parts + 1] = m.path .. (isFav(m.name) and "*" or "")
+    end
+    local sig = table.concat(parts, "\n")
+    if #filteredList > 0 and sig == listSig and #listRows == #filteredList then
+        rowEq = nil
+        for _, ref in ipairs(listRows) do
+            if ref.row.Parent then styleRow(ref) end
+        end
+        return
+    end
+    listSig = (#filteredList > 0) and sig or nil
+    listToken += 1
+    local token = listToken
+    for _, v in ipairs(UI.list:GetChildren()) do
+        if v:IsA("GuiObject") then v:Destroy() end
+    end
+    rowEq = nil
+    listRows = {}
+
     if #filteredList == 0 then
         if #mp3List == 0 then
             emptyBox(UI.list, "Coloque arquivos .mp3 ou .ogg na pasta PHONE/Music", Icons.folder)
@@ -2766,40 +3128,40 @@ updateList = function()
         return
     end
 
-    for idx, m in ipairs(filteredList) do
-        local isCur = currentItem ~= nil and currentItem.kind == "file" and currentItem.path == m.path
-        local row = mk("Frame", {Size = UDim2.new(1, -6, 0, 40), BackgroundColor3 = isCur and CARD2 or CARD, BorderSizePixel = 0, LayoutOrder = idx}, UI.list)
-        corner(row, UDim.new(0, 12))
-        local slot = mk("Frame", {Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(0, 8, 0.5, -14), BackgroundColor3 = isCur and accentTar or CARD2, BorderSizePixel = 0}, row)
-        corner(slot, UDim.new(0, 9))
-        if isCur then
-            rowEq = {}
-            for b = 1, 3 do
-                local bar = mk("Frame", {Size = UDim2.new(0, 3, 0, 8), AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0, 8 + (b - 1) * 6, 1, -7), BackgroundColor3 = DARK, BorderSizePixel = 0}, slot)
-                corner(bar, UDim.new(1, 0))
-                rowEq[b] = bar
-            end
-        else
-            mk("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = tostring(idx), TextColor3 = SUBC, Font = FONTC, TextSize = 11}, slot)
-        end
-        mk("TextLabel", {Size = UDim2.new(1, -86, 1, 0), Position = UDim2.new(0, 44, 0, 0), BackgroundTransparency = 1, Text = m.name, TextColor3 = isCur and accentTar or WHITE, Font = isCur and FONTB or FONTM, TextSize = 13, TextXAlignment = LEFT, TextTruncate = Enum.TextTruncate.AtEnd}, row)
-        local hit = mkBtn(row, UDim2.new(1, -40, 1, 0), UDim2.new(0, 0, 0, 0), 3)
-        local heart = mkBtn(row, UDim2.new(0, 30, 0, 30), UDim2.new(1, -36, 0.5, -15), 4)
-        Icons.put(heart, Icons.heart, 15, isFav(m.name) and PINK or MUTED, 5)
+    -- cria as linhas aos poucos (lotes por frame) pra nao travar o jogo
+    local snapshot = filteredList
+    task.spawn(function()
+        for idx, m in ipairs(snapshot) do
+            if token ~= listToken then return end
+            local row = mk("Frame", {Size = UDim2.new(1, -6, 0, 40), BackgroundColor3 = CARD, BorderSizePixel = 0, LayoutOrder = idx}, UI.list)
+            corner(row, UDim.new(0, 12))
+            local slot = mk("Frame", {Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(0, 8, 0.5, -14), BackgroundColor3 = CARD2, BorderSizePixel = 0}, row)
+            corner(slot, UDim.new(0, 9))
+            local num = mk("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = tostring(idx), TextColor3 = SUBC, Font = FONTC, TextSize = 11}, slot)
+            local nameL = mk("TextLabel", {Size = UDim2.new(1, -86, 1, 0), Position = UDim2.new(0, 44, 0, 0), BackgroundTransparency = 1, Text = m.name, TextColor3 = WHITE, Font = FONTM, TextSize = 13, TextXAlignment = LEFT, TextTruncate = Enum.TextTruncate.AtEnd}, row)
+            local hit = mkBtn(row, UDim2.new(1, -40, 1, 0), UDim2.new(0, 0, 0, 0), 3)
+            local heart = mkBtn(row, UDim2.new(0, 30, 0, 30), UDim2.new(1, -36, 0.5, -15), 4)
+            Icons.put(heart, Icons.heart, 15, isFav(m.name) and PINK or MUTED, 5)
 
-        hit.MouseButton1Click:Connect(function()
-            playItem(m, filteredList, idx)
-        end)
-        heart.MouseButton1Click:Connect(function()
-            toggleFav(m.name)
-            if onlyFavs then
-                updateList()
-            else
-                Icons.put(heart, Icons.heart, 15, isFav(m.name) and PINK or MUTED, 5)
-            end
-            updateTrackUI()
-        end)
-    end
+            hit.MouseButton1Click:Connect(function()
+                playItem(m, snapshot, idx)
+            end)
+            heart.MouseButton1Click:Connect(function()
+                toggleFav(m.name)
+                if onlyFavs then
+                    updateList()
+                else
+                    Icons.put(heart, Icons.heart, 15, isFav(m.name) and PINK or MUTED, 5)
+                    listSig = nil
+                end
+                updateTrackUI()
+            end)
+            local ref = {row = row, slot = slot, num = num, name = nameL, m = m}
+            listRows[idx] = ref
+            styleRow(ref)
+            if idx % 8 == 0 then RunService.Heartbeat:Wait() end
+        end
+    end)
 end
 
 updateHistory = function()
@@ -2856,8 +3218,9 @@ local function assetOf(item)
     return nil
 end
 
-playItem = function(item, q, idx)
+playItem = function(item, q, idx, startPos, keepPlaying)
     stopSound()
+    pendingResume = nil
     queue = q or {item}
     queueIdx = idx or 1
     currentTrackIndex = queueIdx
@@ -2877,11 +3240,12 @@ playItem = function(item, q, idx)
     local snd = Instance.new("Sound")
     snd.Name = "TzeTrack"
     snd.SoundId = asset
-    snd.Volume = currentVolume
+    snd.Volume = startPos and 0 or currentVolume
     snd.Looped = (repeatState == 2)
     snd.Parent = MainFrame
     currentSound = snd
     status = "loading"
+    if startPos and not keepPlaying then isPaused = true end
     snd:Play()
     updateTrackUI(); updateMini(); updateList(); updateHistory()
 
@@ -2896,7 +3260,16 @@ playItem = function(item, q, idx)
         end
         if token ~= playToken then return end
         if snd.TimeLength > 0 then
-            if status == "loading" then
+            if startPos then
+                pcall(function()
+                    snd.TimePosition = math.clamp(startPos, 0, math.max(snd.TimeLength - 0.5, 0))
+                    if not keepPlaying then snd:Pause() end
+                    snd.Volume = currentVolume
+                end)
+                isPaused = not keepPlaying
+                status = keepPlaying and "playing" or "paused"
+                updateTrackUI(); updateMini()
+            elseif status == "loading" then
                 status = isPaused and "paused" or "playing"
                 updateTrackUI()
             end
@@ -2951,6 +3324,11 @@ onEnded = function()
 end
 
 togglePlay = function()
+    if pendingResume and currentItem then
+        local pr = pendingResume
+        playItem(currentItem, queue, queueIdx, pr.pos, true)
+        return
+    end
     if status == "failed" and currentItem then
         playItem(currentItem, queue, queueIdx)
         return
@@ -2981,7 +3359,32 @@ togglePlay = function()
     updateMini()
 end
 
+local function saveResume()
+    if not currentItem or not currentSound or status == "failed" or status == "idle" then return end
+    local pos = atEnd and 0 or (currentSound.TimePosition or 0)
+    local r = {kind = currentItem.kind, name = currentItem.name, pos = pos}
+    if currentItem.kind == "id" then r.id = currentItem.id else r.path = currentItem.path end
+    phoneSettings.musicResume = r
+    task.defer(saveSettings)
+end
+
+task.spawn(function()
+    local lastPos = -1
+    while PhoneHome.Parent do
+        task.wait(6)
+        if currentItem and currentSound and status == "playing" then
+            local p = currentSound.TimePosition or 0
+            if math.abs(p - lastPos) >= 2 then
+                lastPos = p
+                pcall(saveResume)
+            end
+        end
+    end
+end)
+
 function stopMusic()
+    pcall(saveResume)
+    pendingResume = nil
     stopSound()
     isPaused = false
     atEnd = false
@@ -3021,6 +3424,43 @@ function refreshFiles()
         end
     end
     updateList()
+end
+
+-- mostra a ultima musica (pausada no tempo salvo) sem carregar o audio; ele so carrega ao apertar play
+function restoreMusic()
+    local r = phoneSettings.musicResume
+    if currentItem or type(r) ~= "table" or not r.kind then return end
+    local item, q, idx
+    if r.kind == "id" and r.id then
+        q = {}
+        for i, e in ipairs(phoneSettings.musicIds or {}) do
+            q[i] = {kind = "id", id = e.id, name = e.name or ("Sound ID " .. e.id)}
+            if e.id == r.id then idx = i end
+        end
+        if not idx then
+            q = {{kind = "id", id = r.id, name = r.name or ("Sound ID " .. r.id)}}
+            idx = 1
+        end
+        item = q[idx]
+    elseif r.kind == "file" then
+        for _, list in ipairs({filteredList, mp3List}) do
+            for i, m in ipairs(list) do
+                if m.path == r.path or (r.name and m.name == r.name) then
+                    q, idx, item = list, i, m
+                    break
+                end
+            end
+            if item then break end
+        end
+    end
+    if not item then return end
+    queue, queueIdx, currentTrackIndex = q, idx, idx
+    currentItem = item
+    isPaused, atEnd = true, false
+    status = "paused"
+    pendingResume = {pos = tonumber(r.pos) or 0}
+    setAccent(accentFor(item.kind == "id" and ("id" .. item.id) or item.name))
+    updateTrackUI(); updateMini(); updateList(); updateHistory()
 end
 
 function UI.playId(raw)
@@ -3226,7 +3666,7 @@ RunService.RenderStepped:Connect(function(dt)
 
     local snd = currentSound
     local len = snd and snd.TimeLength or 0
-    local pos = snd and snd.TimePosition or 0
+    local pos = snd and snd.TimePosition or (pendingResume and pendingResume.pos or 0)
     local playing = snd ~= nil and status == "playing" and snd.IsPlaying
     local alpha = seeking and seekAlpha or ((len > 0) and math.clamp(pos / len, 0, 1) or 0)
 
@@ -4121,8 +4561,37 @@ local lastTap = 0
 
 local function uiScale() return (phoneUIScale and phoneUIScale.Scale) or 1 end
 
+-- Fotos "virtuais" (ViewportFrame) vindas da Câmera: renderiza a cena congelada dentro de 'parent'
+local PhotoDisplay
+local function removeVF(entry)
+    local list = _G.TZE_GalleryVF
+    if not list then return end
+    for i, e in ipairs(list) do
+        if e == entry then
+            table.remove(list, i)
+            if e.photo and e.photo.vf then pcall(function() e.photo.vf:Destroy() end) end
+            break
+        end
+    end
+end
+
+local function clearVFDisplay()
+    local h = PhotoDisplay and PhotoDisplay:FindFirstChild("VFHolder")
+    if h then h:Destroy() end
+end
+
 local function getAsset(path)
+    if tostring(path):sub(1, 5) == "vf://" then return nil end
     if assetCache[path] then return assetCache[path] end
+    -- arquivos .camphoto são criados pelo app Câmera e contêm o rbxassetid direto
+    if tostring(path):match("%.camphoto$") then
+        local okR, data = pcall(readfile, path)
+        if okR and data and data ~= "" then
+            local id = data:match("^%s*(.-)%s*$") -- trim
+            if id ~= "" then assetCache[path] = id return id end
+        end
+        return nil
+    end
     local ok, a = pcall(getcustomasset, path)
     if ok and a and a ~= "" then assetCache[path] = a return a end
     return nil
@@ -4321,7 +4790,7 @@ stage.ClipsDescendants = true
 stage.Parent = PhotoViewerView
 corner(stage, UDim.new(0, 12))
 
-local PhotoDisplay = Instance.new("ImageLabel")
+PhotoDisplay = Instance.new("ImageLabel")
 PhotoDisplay.Name = "PhotoDisplay"
 PhotoDisplay.AnchorPoint = Vector2.new(0.5, 0.5)
 PhotoDisplay.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -4671,6 +5140,7 @@ function exitPhotoViewer()
     PhotoViewerView.Visible = false
     PhotoScrollList.Visible = true
     PhotoDisplay.Image = ""
+    clearVFDisplay()
     currentPhotoIndex = 0
     resetZoom()
 end
@@ -4756,6 +5226,29 @@ function openPhotoByIndex(idx)
     PhotoDisplay2.Visible = false
     PhotoDisplay2.Image = ""
     hideGifUI()
+    clearVFDisplay()
+    if photo.isVF then
+        local fill = _G.TZE_CameraFillPhoto
+        local holder = Instance.new("Frame")
+        holder.Name = "VFHolder"
+        holder.AnchorPoint = Vector2.new(0.5, 0.5)
+        holder.Position = UDim2.new(0.5, 0, 0.5, 0)
+        holder.Size = UDim2.new(1, 0, 1, 0)
+        holder.BackgroundTransparency = 1
+        holder.Parent = PhotoDisplay
+        local ar = Instance.new("UIAspectRatioConstraint")
+        ar.AspectRatio = math.max(photo.photo.aspect or 1, 0.1)
+        ar.AspectType = Enum.AspectType.FitWithinMaxSize
+        ar.Parent = holder
+        local inner = Instance.new("Frame")
+        inner.Size = UDim2.new(1, 0, 1, 0)
+        inner.BackgroundColor3 = Color3.new(0, 0, 0)
+        inner.BorderSizePixel = 0
+        inner.ClipsDescendants = true
+        inner.Parent = holder
+        if fill then pcall(fill, photo.photo, inner) end
+        return
+    end
     if photo.isGif then
         startGif(photo, gifToken)
         return
@@ -4788,7 +5281,7 @@ end)
 confirmDelBtn.MouseButton1Click:Connect(function()
     local photo = filteredPhotoList[currentPhotoIndex]
     if not photo then return end
-    pcall(delfile, photo.path)
+    if photo.isVF then removeVF(photo) else pcall(delfile, photo.path) end
     if photo.isGif then
         local k = gifKeyMemo[photo.path]
         if k then Gif.remove(k) end
@@ -4976,6 +5469,19 @@ function updatePhotoList()
             gb.Parent = cell
             corner(gb, UDim.new(0, 7))
         end
+        if photo.isVF then
+            cell.ClipsDescendants = true
+            local fill = _G.TZE_CameraFillPhoto
+            local a = math.max(photo.photo.aspect or 1, 0.1)
+            local w = Instance.new("Frame")
+            w.BackgroundTransparency = 1
+            w.AnchorPoint = Vector2.new(0.5, 0.5)
+            w.Position = UDim2.new(0.5, 0, 0.5, 0)
+            w.Size = UDim2.new(math.max(1, a), 0, math.max(1, 1 / a), 0)
+            w.ZIndex = 1
+            w.Parent = cell
+            if fill then pcall(fill, photo.photo, w) end
+        end
         cell.MouseButton1Click:Connect(function() openPhotoByIndex(idx) end)
         cells[idx] = cell
     end
@@ -4987,7 +5493,8 @@ function updatePhotoList()
             if token ~= gridToken then return end
             local ph = filteredPhotoList[idx]
             local a
-            if ph.isGif then a = gifThumbAsset(ph) else a = getAsset(ph.path) end
+            if ph.isVF then a = nil
+            elseif ph.isGif then a = gifThumbAsset(ph) else a = getAsset(ph.path) end
             if a and cell.Parent then
                 cell.Image = a
                 TweenService:Create(cell, TweenInfo.new(0.25), {ImageTransparency = 0}):Play()
@@ -5009,16 +5516,18 @@ function refreshPhotos()
                     local str = tostring(file)
                     local norm = str:gsub("\\", "/")
                     local ext = (norm:match("%.(%w+)$") or ""):lower()
-                    if (ext == "png" or ext == "jpg" or ext == "jpeg" or ext == "webp" or ext == "bmp" or ext == "gif") and not seen[norm:lower()] then
+                    if (ext == "png" or ext == "jpg" or ext == "jpeg" or ext == "webp" or ext == "bmp" or ext == "gif" or ext == "camphoto") and not seen[norm:lower()] then
                         seen[norm:lower()] = true
                         local fileName = norm:match("([^/]+)$") or norm
                         local name = fileName:gsub("%.%w+$", "")
-                        table.insert(photoList, {name = name, file = fileName, path = file, isGif = (ext == "gif")})
+                        table.insert(photoList, {name = name, file = fileName, path = file, isGif = (ext == "gif"), isCamPhoto = (ext == "camphoto")})
                     end
                 end
             end
         end
     end
+    -- fotos da Câmera em modo ViewportFrame (só existem nesta sessão)
+    for _, e in ipairs(_G.TZE_GalleryVF or {}) do table.insert(photoList, e) end
     table.sort(photoList, function(a, b) return a.name:lower() < b.name:lower() end)
     updatePhotoList()
 end
@@ -7527,7 +8036,7 @@ local function makeBrowserScreen()
         end
         local rich = U.rich(html)
         local readRich = U.rich(html, 30000)
-        return {kind = "page", title = title:sub(1, 80), rich = rich, readRich = readRich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
+        return {kind = "page", html = (#html > 700000 and html:sub(1, 700000) or html), title = title:sub(1, 80), rich = rich, readRich = readRich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
     end
 
     loadEntry = function(tab, entry)
@@ -7604,7 +8113,7 @@ local function makeBrowserScreen()
         for _, c in ipairs(ntpView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
         new("TextLabel", {
             Name = "Dyn", Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, RichText = true,
-            Text = '<font color="#4285F4">T</font><font color="#EA4335">Z</font><font color="#FBBC05">E</font>',
+            Text = '<font color="#4285F4">i</font><font color="#EA4335">D</font><font color="#FBBC05">r</font><font color="#4285F4">o</font><font color="#34A853">i</font><font color="#EA4335">d</font>',
             Font = Enum.Font.GothamBold, TextSize = 46, TextColor3 = C.text, ZIndex = 5,
         }, ntpView)
         local box = new("TextButton", {Name = "Dyn", Position = UDim2.new(0, 14, 0, 92), Size = UDim2.new(1, -28, 0, 40), BackgroundColor3 = C.pill, Text = "", AutoButtonColor = true, ZIndex = 5}, ntpView)
@@ -7746,6 +8255,1157 @@ local function makeBrowserScreen()
     end)
     findX.MouseButton1Click:Connect(closeFind)
 
+
+    ---------------------------------------------------------------- MODO LAYOUT
+    -- Lê o HTML + CSS do site e recria o layout com objetos do Roblox
+    -- (títulos, textos, listas, tabelas, imagens, botões, formulários GET e links clicáveis).
+;(function()
+        local function tset(s) local t = {} for w in s:gmatch("%S+") do t[w] = true end return t end
+        local VOID = tset("area base br col embed hr img input link meta param source track wbr")
+        local SKIP = tset("head script style noscript svg iframe template canvas object datalist map dialog audio video")
+        local BLOCKT = tset("div p h1 h2 h3 h4 h5 h6 ul ol li table tr td th thead tbody tfoot section article header footer nav main aside form blockquote pre hr figure figcaption dl dt dd center fieldset address details summary body html caption")
+        local CLOSES = {
+            li = tset("li"), dt = tset("dt dd"), dd = tset("dt dd"), option = tset("option"),
+            tr = tset("tr td th"), td = tset("td th"), th = tset("td th"),
+            thead = tset("thead tbody tfoot tr td th"), tbody = tset("thead tbody tfoot tr td th"), tfoot = tset("thead tbody tfoot tr td th"),
+        }
+        local NAMED = {
+            white = {255, 255, 255}, black = {0, 0, 0}, red = {255, 0, 0}, blue = {0, 0, 255}, green = {0, 128, 0},
+            gray = {128, 128, 128}, grey = {128, 128, 128}, silver = {192, 192, 192}, yellow = {255, 255, 0},
+            orange = {255, 165, 0}, purple = {128, 0, 128}, pink = {255, 192, 203}, brown = {165, 42, 42},
+            navy = {0, 0, 128}, teal = {0, 128, 128}, lime = {0, 255, 0}, maroon = {128, 0, 0}, aqua = {0, 255, 255},
+            cyan = {0, 255, 255}, fuchsia = {255, 0, 255}, magenta = {255, 0, 255}, lightgray = {211, 211, 211},
+            lightgrey = {211, 211, 211}, darkgray = {169, 169, 169}, darkgrey = {169, 169, 169}, whitesmoke = {245, 245, 245},
+            gainsboro = {220, 220, 220}, beige = {245, 245, 220}, ivory = {255, 255, 240}, gold = {255, 215, 0},
+            crimson = {220, 20, 60}, darkblue = {0, 0, 139}, darkred = {139, 0, 0}, darkgreen = {0, 100, 0},
+            lightblue = {173, 216, 230}, skyblue = {135, 206, 235}, royalblue = {65, 105, 225}, dodgerblue = {30, 144, 255},
+            tomato = {255, 99, 71}, coral = {255, 127, 80}, indigo = {75, 0, 130}, violet = {238, 130, 238},
+            slategray = {112, 128, 144}, dimgray = {105, 105, 105}, lightyellow = {255, 255, 224}, aliceblue = {240, 248, 255},
+            lavender = {230, 230, 250}, khaki = {240, 230, 140}, salmon = {250, 128, 114}, ghostwhite = {248, 248, 255},
+        }
+        local BASE = {color = Color3.fromRGB(32, 33, 36), size = 12, bold = false, italic = false, under = false, strike = false, align = "left", mono = false}
+
+        local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+        local function parseColor(v)
+            v = trim(v:lower())
+            if v:find("var%(") then return nil end
+            local hx = v:match("^#(%x+)$")
+            if hx then
+                if #hx == 3 then
+                    local r, g, b = hx:sub(1, 1), hx:sub(2, 2), hx:sub(3, 3)
+                    return Color3.fromRGB(tonumber(r .. r, 16), tonumber(g .. g, 16), tonumber(b .. b, 16))
+                elseif #hx == 6 or #hx == 8 then
+                    return Color3.fromRGB(tonumber(hx:sub(1, 2), 16), tonumber(hx:sub(3, 4), 16), tonumber(hx:sub(5, 6), 16))
+                end
+                return nil
+            end
+            local a, b, c, d = v:match("^rgba?%(%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,/%s]*%s*([%d%.]*)")
+            if a then
+                local al = tonumber(d)
+                if al and al < 0.1 then return nil end
+                return Color3.fromRGB(math.clamp(tonumber(a), 0, 255), math.clamp(tonumber(b), 0, 255), math.clamp(tonumber(c), 0, 255))
+            end
+            local nm = NAMED[v]
+            if nm then return Color3.fromRGB(nm[1], nm[2], nm[3]) end
+            return nil
+        end
+
+        local function parseBg(v)
+            v = v:lower()
+            if v:find("var%(") or v:find("gradient") then return nil end
+            local tok = v:match("#%x+") or v:match("rgba?%b()")
+            if tok then return parseColor(tok) end
+            for w in v:gmatch("%a+") do
+                if NAMED[w] then return parseColor(w) end
+            end
+            return nil
+        end
+
+        local function parseSize(v, ps)
+            v = v:lower():gsub("%s", "")
+            local n, u = v:match("^([%d%.]+)(%a*%%?)$")
+            n = tonumber(n)
+            if n then
+                if u == "px" or u == "" then return n * 0.75
+                elseif u == "pt" then return n
+                elseif u == "em" then return ps * n
+                elseif u == "rem" then return 12 * n
+                elseif u == "%" then return ps * n / 100 end
+            end
+            local kw = {["x-small"] = 9, small = 10, medium = 12, large = 14, ["x-large"] = 17, ["xx-large"] = 21, smaller = ps * 0.85, larger = ps * 1.2}
+            return kw[v]
+        end
+
+        local function parseDecls(body)
+            local t = {}
+            for prop, val in body:gmatch("([%w%-]+)%s*:%s*([^;]+)") do
+                val = trim((val:gsub("!important", "")))
+                t[#t + 1] = {prop:lower(), val}
+            end
+            return t
+        end
+
+        local function applyDecl(st, prop, val, ps)
+            if prop == "color" then
+                local c = parseColor(val)
+                if c then st.color = c end
+            elseif prop == "background-color" or prop == "background" then
+                st.bg = parseBg(val)
+            elseif prop == "font-size" then
+                local s = parseSize(val, ps.size)
+                if s then st.size = math.clamp(s, 7, 40) end
+            elseif prop == "font-weight" then
+                local v = val:lower()
+                local n = tonumber(v)
+                if v == "bold" or v == "bolder" or (n and n >= 600) then st.bold = true
+                elseif v == "normal" or (n and n < 600) then st.bold = false end
+            elseif prop == "font-style" then
+                st.italic = val:lower():find("italic") ~= nil or val:lower():find("oblique") ~= nil
+            elseif prop == "text-decoration" or prop == "text-decoration-line" then
+                local v = val:lower()
+                if v:find("none") then st.under = false; st.strike = false
+                else
+                    if v:find("underline") then st.under = true end
+                    if v:find("line%-through") then st.strike = true end
+                end
+            elseif prop == "text-align" then
+                local v = val:lower()
+                if v == "center" or v == "right" then st.align = v else st.align = "left" end
+            elseif prop == "display" then
+                st.display = val:lower():match("^%S+") or val
+            elseif prop == "visibility" then
+                if val:lower() == "hidden" then st.display = "none" end
+            elseif prop == "flex-direction" then
+                st.dir = val:lower():find("column") and "column" or "row"
+            elseif prop == "font-family" then
+                local v = val:lower()
+                if v:find("mono") or v:find("courier") or v:find("consolas") then st.mono = true end
+            elseif prop == "border-radius" then
+                local n = tonumber(val:match("^([%d%.]+)"))
+                if n then st.radius = n * 0.75 end
+            end
+        end
+
+        -- seletores: tag, .classe, #id e combinações; descendentes ("a b" / "a > b")
+        local function parseSelector(s)
+            if s:find("[%[:%+~%*]") then return nil end
+            local parts = {}
+            for tok in s:gmatch("[^%s>]+") do
+                if tok:find("[^%w_%-#%.]") then return nil end
+                local c = {tag = tok:match("^([%a][%w%-]*)"), id = tok:match("#([%w_%-]+)"), cls = {}}
+                for k in tok:gmatch("%.([%w_%-]+)") do c.cls[#c.cls + 1] = k end
+                parts[#parts + 1] = c
+            end
+            if #parts == 0 then return nil end
+            return parts
+        end
+
+        local function classSet(node)
+            if node.clsSet then return node.clsSet end
+            local t = {}
+            local c = node.attrs and node.attrs.class
+            if c then for w in c:gmatch("%S+") do t[w] = true end end
+            node.clsSet = t
+            return t
+        end
+
+        local function matchCompound(node, c)
+            if not node.tag then return false end
+            if c.tag and node.tag ~= c.tag then return false end
+            if c.id and node.attrs.id ~= c.id then return false end
+            if #c.cls > 0 then
+                local cs = classSet(node)
+                for _, k in ipairs(c.cls) do if not cs[k] then return false end end
+            end
+            return true
+        end
+
+        local function matchRule(node, parts)
+            if not matchCompound(node, parts[#parts]) then return false end
+            local k, anc = #parts - 1, node.parent
+            while k >= 1 and anc do
+                if matchCompound(anc, parts[k]) then k = k - 1 end
+                anc = anc.parent
+            end
+            return k < 1
+        end
+
+        -- ---------------------------------------------------------- parser HTML
+        local function parseHtml(html)
+            local root = {tag = "#root", attrs = {}, kids = {}}
+            local stack = {root}
+            local low = html:lower()
+            local pos, n, count = 1, #html, 0
+            local styles, sheets = {}, {}
+            local function top() return stack[#stack] end
+            local function addText(t)
+                if t == "" then return end
+                local p = top()
+                p.kids[#p.kids + 1] = {text = U.decode(t), parent = p}
+            end
+            while pos <= n and count < 7000 do
+                local lt = html:find("<", pos, true)
+                if not lt then addText(html:sub(pos)) break end
+                if lt > pos then addText(html:sub(pos, lt - 1)) end
+                local nx = html:sub(lt + 1, lt + 1)
+                if html:sub(lt, lt + 3) == "<!--" then
+                    local e = html:find("-->", lt + 4, true)
+                    pos = e and (e + 3) or (n + 1)
+                elseif nx == "!" or nx == "?" then
+                    local e = html:find(">", lt, true)
+                    pos = e and (e + 1) or (n + 1)
+                elseif nx == "/" then
+                    local name, e = html:match("^</%s*([%w:%-]+)[^>]*>()", lt)
+                    if name then
+                        name = name:lower()
+                        for i = #stack, 2, -1 do
+                            if stack[i].tag == name then
+                                for j = #stack, i, -1 do stack[j] = nil end
+                                break
+                            end
+                        end
+                        pos = e
+                    else
+                        addText("<")
+                        pos = lt + 1
+                    end
+                else
+                    local name = html:match("^<([%a][%w:%-]*)", lt)
+                    if not name then
+                        addText("<")
+                        pos = lt + 1
+                    else
+                        count = count + 1
+                        local i, q = lt + 1 + #name, nil
+                        while i <= n do
+                            local c = html:byte(i)
+                            if q then
+                                if c == q then q = nil end
+                            elseif c == 34 or c == 39 then q = c
+                            elseif c == 62 then break end
+                            i = i + 1
+                        end
+                        local attrStr = html:sub(lt + 1 + #name, i - 1)
+                        pos = i + 1
+                        name = name:lower()
+                        local attrs = {}
+                        for k, v in attrStr:gmatch('([%w:_%-]+)%s*=%s*"(.-)"') do attrs[k:lower()] = U.decode(v) end
+                        for k, v in attrStr:gmatch("([%w:_%-]+)%s*=%s*'(.-)'") do
+                            if attrs[k:lower()] == nil then attrs[k:lower()] = U.decode(v) end
+                        end
+                        for k, v in attrStr:gmatch("([%w:_%-]+)=([^%s\"'>]+)") do
+                            if attrs[k:lower()] == nil then attrs[k:lower()] = U.decode(v) end
+                        end
+                        if attrStr:find("%shidden%f[%W]") then attrs.hidden = "" end
+                        local selfClose = attrStr:sub(-1) == "/"
+                        local t0 = top()
+                        if t0.tag == "p" and BLOCKT[name] then stack[#stack] = nil end
+                        local cl = CLOSES[name]
+                        if cl then
+                            while #stack > 1 and cl[top().tag] do stack[#stack] = nil end
+                        end
+                        local par = top()
+                        local node = {tag = name, attrs = attrs, kids = {}, parent = par}
+                        par.kids[#par.kids + 1] = node
+                        if name == "style" or name == "script" or name == "textarea" or name == "title" then
+                            local e = low:find("</" .. name, pos, true)
+                            local body = html:sub(pos, (e or (n + 1)) - 1)
+                            if name == "style" then styles[#styles + 1] = body
+                            elseif name ~= "script" then node.kids[1] = {text = U.decode(body), parent = node} end
+                            local gt = e and html:find(">", e, true)
+                            pos = gt and (gt + 1) or (n + 1)
+                        elseif name == "link" then
+                            if (attrs.rel or ""):lower():find("stylesheet") and attrs.href and (attrs.media or "") ~= "print" then
+                                sheets[#sheets + 1] = attrs.href
+                            end
+                        elseif not VOID[name] and not selfClose and #stack < 120 then
+                            stack[#stack + 1] = node
+                        end
+                    end
+                end
+            end
+            return root, styles, sheets
+        end
+
+        local function hexOf(c)
+            return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+        end
+
+        -- ---------------------------------------------------------- construtor principal
+        U.layoutBuild = function(entry, canvas, html, alive, setStatus, openImg)
+            local root, styleTexts, sheets = parseHtml(html)
+            local rules, idx, order = {}, {}, 0
+
+            local function addCss(text)
+                text = text:gsub("/%*.-%*/", "")
+                local i, n = 1, #text
+                while i <= n do
+                    local ob = text:find("{", i, true)
+                    if not ob then break end
+                    local sel = trim(text:sub(i, ob - 1))
+                    local depth, j = 1, ob + 1
+                    while depth > 0 do
+                        local k = text:find("[{}]", j)
+                        if not k then j = n + 1 break end
+                        if text:byte(k) == 123 then depth = depth + 1 else depth = depth - 1 end
+                        j = k + 1
+                    end
+                    local body = text:sub(ob + 1, j - 2)
+                    i = j
+                    if sel:sub(1, 1) ~= "@" and #rules < 4000 then
+                        local decl = parseDecls(body)
+                        if #decl > 0 then
+                            for s in sel:gmatch("[^,]+") do
+                                local parts = parseSelector(trim(s))
+                                if parts then
+                                    local last = parts[#parts]
+                                    local key = last.id and ("#" .. last.id) or (last.cls[1] and ("." .. last.cls[1])) or last.tag
+                                    if key then
+                                        local spec = 0
+                                        for _, p in ipairs(parts) do
+                                            spec = spec + (p.id and 100 or 0) + #p.cls * 10 + (p.tag and 1 or 0)
+                                        end
+                                        order = order + 1
+                                        local r = {parts = parts, decl = decl, spec = spec, order = order}
+                                        idx[key] = idx[key] or {}
+                                        table.insert(idx[key], r)
+                                        rules[#rules + 1] = r
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            setStatus("baixando estilos…")
+            for i, href in ipairs(sheets) do
+                if i > 3 then break end
+                local url = U.resolve(entry.url, href)
+                if url then
+                    local okG, body = pcall(U.httpGet, url)
+                    if not alive() then return end
+                    if okG and type(body) == "string" and #body < 400000 then addCss(body) end
+                end
+            end
+            for _, t in ipairs(styleTexts) do addCss(t) end
+            if not alive() then return end
+
+            local stopped = false
+            local B = {el = 0, max = 2200, cut = false}
+            local function tick()
+                B.el = B.el + 1
+                if B.el > B.max then stopped = true; B.cut = true return end
+                if B.el % 25 == 0 then
+                    task.wait()
+                    if not alive() then stopped = true end
+                end
+            end
+
+            local styleFor
+            styleFor = function(node)
+                if node.st then return node.st end
+                local par = node.parent
+                local ps = BASE
+                if par and par.tag ~= "#root" then ps = par.st or styleFor(par) end
+                local st = {color = ps.color, size = ps.size, bold = ps.bold, italic = ps.italic, under = ps.under, strike = ps.strike, align = ps.align, mono = ps.mono}
+                local tag = node.tag
+                if tag:match("^h[1-6]$") then
+                    local f = ({h1 = 1.7, h2 = 1.4, h3 = 1.2, h4 = 1.05, h5 = 1, h6 = 0.9})[tag]
+                    st.size = math.min(30, ps.size * f)
+                    st.bold = true
+                elseif tag == "b" or tag == "strong" or tag == "th" then st.bold = true
+                elseif tag == "i" or tag == "em" or tag == "cite" or tag == "dfn" or tag == "var" then st.italic = true
+                elseif tag == "u" or tag == "ins" then st.under = true
+                elseif tag == "s" or tag == "strike" or tag == "del" then st.strike = true
+                elseif tag == "small" then st.size = ps.size * 0.85
+                elseif tag == "code" or tag == "kbd" or tag == "samp" or tag == "tt" or tag == "pre" then st.mono = true
+                elseif tag == "a" then st.color = Color3.fromRGB(26, 85, 204); st.under = true
+                elseif tag == "center" then st.align = "center"
+                elseif tag == "blockquote" then st.color = Color3.fromRGB(90, 92, 98)
+                elseif tag == "mark" then st.bg = Color3.fromRGB(255, 240, 120)
+                end
+                local at = node.attrs
+                if at.bgcolor then st.bg = parseColor(at.bgcolor) end
+                if at.color and tag == "font" then st.color = parseColor(at.color) or st.color end
+                if at.align == "center" or at.align == "right" then st.align = at.align end
+                local cand = {}
+                local function take(key)
+                    local l = idx[key]
+                    if l then
+                        for _, r in ipairs(l) do
+                            if matchRule(node, r.parts) then cand[#cand + 1] = r end
+                        end
+                    end
+                end
+                take(tag)
+                if at.id then take("#" .. at.id) end
+                for c in pairs(classSet(node)) do take("." .. c) end
+                table.sort(cand, function(a, b)
+                    if a.spec ~= b.spec then return a.spec < b.spec end
+                    return a.order < b.order
+                end)
+                for _, r in ipairs(cand) do
+                    for _, d in ipairs(r.decl) do applyDecl(st, d[1], d[2], ps) end
+                end
+                if at.style then
+                    for _, d in ipairs(parseDecls(at.style)) do applyDecl(st, d[1], d[2], ps) end
+                end
+                node.st = st
+                return st
+            end
+
+            -- utilitários de árvore
+            local function textOf(node, cap)
+                local out, len = {}, 0
+                local function rec(n)
+                    for _, k in ipairs(n.kids or {}) do
+                        if len >= cap then return end
+                        if k.text then
+                            local t = k.text:gsub("%s+", " ")
+                            out[#out + 1] = t
+                            len = len + #t
+                        elseif not SKIP[k.tag] then rec(k) end
+                    end
+                end
+                rec(node)
+                return trim(table.concat(out)):sub(1, cap)
+            end
+            local function textLen(node, cap)
+                local len = 0
+                local function rec(n)
+                    for _, k in ipairs(n.kids or {}) do
+                        if len >= cap then return end
+                        if k.text then
+                            if k.text:find("%S") then len = len + #(k.text:gsub("%s+", " ")) end
+                        elseif not SKIP[k.tag] then rec(k) end
+                    end
+                end
+                rec(node)
+                return len
+            end
+            local function hasTag(node, tags, depth)
+                if depth > 3 then return false end
+                for _, k in ipairs(node.kids or {}) do
+                    if k.tag and not SKIP[k.tag] then
+                        if tags[k.tag] or hasTag(k, tags, depth + 1) then return true end
+                    end
+                end
+                return false
+            end
+            local BLOCKONLY = tset("div p h1 h2 h3 h4 h5 h6 ul ol li table section article header footer nav main aside form blockquote pre")
+            local IMGLIKE = tset("img table input button textarea ul ol")
+            local function hasBlock(node) return hasTag(node, BLOCKONLY, 0) end
+            local function hiddenClass(node)
+                local c = node.attrs.class
+                return c ~= nil and (c:find("sr%-only") or c:find("visually%-hidden") or c:find("screen%-reader") or c:find("d%-none")) ~= nil
+            end
+            local function resolveHref(h)
+                if not h or h == "" then return nil end
+                return U.resolve(entry.url, h)
+            end
+            local function wrapRich(t, s, base)
+                if t == "" then return t end
+                if s.strike then t = "<s>" .. t .. "</s>" end
+                if s.under then t = "<u>" .. t .. "</u>" end
+                if s.italic then t = "<i>" .. t .. "</i>" end
+                if s.bold then t = "<b>" .. t .. "</b>" end
+                local sz = ""
+                if math.abs(s.size - base) > 0.6 then sz = ' size="' .. math.floor(s.size + 0.5) .. '"' end
+                return '<font color="' .. hexOf(s.color) .. '"' .. sz .. ">" .. t .. "</font>"
+            end
+
+            local function place(ctx, inst)
+                ctx.n = ctx.n + 2
+                inst.LayoutOrder = ctx.n
+                inst.Parent = ctx.inst
+            end
+            local function stroke(parent, color, th)
+                local s = Instance.new("UIStroke")
+                s.Color = color
+                s.Thickness = th or 1
+                s.Parent = parent
+            end
+
+            local renderChildren, renderBlock, makeBox
+            local alignOf = {left = Enum.TextXAlignment.Left, center = Enum.TextXAlignment.Center, right = Enum.TextXAlignment.Right}
+
+            makeBox = function(ctx, st, opts)
+                opts = opts or {}
+                local auto = opts.auto or ctx.auto
+                local f = Instance.new("Frame")
+                f.BorderSizePixel = 0
+                f.ZIndex = 4
+                if auto then
+                    f.Size = UDim2.new(0, 0, 0, 0)
+                    f.AutomaticSize = Enum.AutomaticSize.XY
+                else
+                    f.Size = UDim2.new(1, 0, 0, 0)
+                    f.AutomaticSize = Enum.AutomaticSize.Y
+                end
+                if st.bg then f.BackgroundColor3 = st.bg; f.BackgroundTransparency = 0 else f.BackgroundTransparency = 1 end
+                local lay = Instance.new("UIListLayout")
+                lay.SortOrder = Enum.SortOrder.LayoutOrder
+                lay.Padding = UDim.new(0, 3)
+                if opts.row then
+                    lay.FillDirection = Enum.FillDirection.Horizontal
+                    lay.Wraps = true
+                    lay.Padding = UDim.new(0, 8)
+                end
+                if st.align == "center" then lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                elseif st.align == "right" then lay.HorizontalAlignment = Enum.HorizontalAlignment.Right end
+                lay.Parent = f
+                local pl = (opts.indent or 0) + (st.bg and 4 or 0)
+                local pv = st.bg and 4 or 0
+                if pl > 0 or pv > 0 then
+                    local pad = Instance.new("UIPadding")
+                    pad.PaddingLeft = UDim.new(0, pl)
+                    pad.PaddingRight = UDim.new(0, st.bg and 4 or 0)
+                    pad.PaddingTop = UDim.new(0, pv)
+                    pad.PaddingBottom = UDim.new(0, pv)
+                    pad.Parent = f
+                end
+                if st.bg and st.radius then corner(f, UDim.new(0, math.min(st.radius, 12))) end
+                place(ctx, f)
+                return {inst = f, n = 0, auto = auto or nil}
+            end
+
+            local function makeText(ctx, buf, st)
+                local nlinks = #buf.links
+                local l = Instance.new(nlinks > 0 and "TextButton" or "TextLabel")
+                l.BackgroundTransparency = 1
+                l.BorderSizePixel = 0
+                l.RichText = true
+                l.Text = buf.rich
+                l.TextSize = st.size
+                l.TextColor3 = st.color
+                l.Font = st.mono and Enum.Font.Code or Enum.Font.Gotham
+                l.TextXAlignment = alignOf[st.align] or Enum.TextXAlignment.Left
+                l.TextYAlignment = Enum.TextYAlignment.Top
+                l.LineHeight = 1.1
+                l.ZIndex = 5
+                if ctx.auto then
+                    l.TextWrapped = false
+                    l.Size = UDim2.new(0, 0, 0, 0)
+                    l.AutomaticSize = Enum.AutomaticSize.XY
+                else
+                    l.TextWrapped = true
+                    l.Size = UDim2.new(1, 0, 0, 0)
+                    l.AutomaticSize = Enum.AutomaticSize.Y
+                end
+                place(ctx, l)
+                if nlinks > 0 then
+                    l.AutoButtonColor = false
+                    local chooser
+                    l.MouseButton1Click:Connect(function()
+                        if nlinks == 1 then
+                            navigate(tabs[cur], {url = buf.links[1].href})
+                            return
+                        end
+                        if chooser and chooser.Parent then chooser:Destroy() chooser = nil return end
+                        chooser = Instance.new("Frame")
+                        chooser.Size = UDim2.new(1, 0, 0, 0)
+                        chooser.AutomaticSize = Enum.AutomaticSize.Y
+                        chooser.BackgroundColor3 = Color3.fromRGB(238, 241, 247)
+                        chooser.BorderSizePixel = 0
+                        chooser.ZIndex = 5
+                        chooser.LayoutOrder = l.LayoutOrder + 1
+                        corner(chooser, UDim.new(0, 8))
+                        local cl = Instance.new("UIListLayout")
+                        cl.SortOrder = Enum.SortOrder.LayoutOrder
+                        cl.Padding = UDim.new(0, 2)
+                        cl.Parent = chooser
+                        local cp = Instance.new("UIPadding")
+                        cp.PaddingTop = UDim.new(0, 4); cp.PaddingBottom = UDim.new(0, 4)
+                        cp.PaddingLeft = UDim.new(0, 6); cp.PaddingRight = UDim.new(0, 6)
+                        cp.Parent = chooser
+                        for i, lk in ipairs(buf.links) do
+                            if i > 10 then break end
+                            local b = Instance.new("TextButton")
+                            b.LayoutOrder = i
+                            b.Size = UDim2.new(1, 0, 0, 22)
+                            b.BackgroundTransparency = 1
+                            b.Text = "→ " .. ((lk.label and lk.label ~= "") and lk.label or U.hostOf(lk.href))
+                            b.TextColor3 = Color3.fromRGB(26, 85, 204)
+                            b.Font = Enum.Font.Gotham
+                            b.TextSize = 11
+                            b.TextXAlignment = Enum.TextXAlignment.Left
+                            b.TextTruncate = Enum.TextTruncate.AtEnd
+                            b.ZIndex = 6
+                            b.Parent = chooser
+                            b.MouseButton1Click:Connect(function() navigate(tabs[cur], {url = lk.href}) end)
+                        end
+                        chooser.Parent = ctx.inst
+                    end)
+                end
+            end
+            -- imagens (fila com 3 downloads simultâneos)
+            local imgQ, imgActive, imgTotal = {}, 0, 0
+            local pumpImages
+            pumpImages = function()
+                while imgActive < 3 and #imgQ > 0 do
+                    local job = table.remove(imgQ, 1)
+                    imgActive = imgActive + 1
+                    task.spawn(function()
+                        local ok, a = pcall(U.cacheImage, job.url, 6000000)
+                        imgActive = imgActive - 1
+                        if alive() and job.img.Parent then
+                            if ok and a then
+                                local w, h = U.dimsFor(job.url)
+                                local aw, ah = job.aw, job.ah
+                                if not w or not h then w, h = aw or 160, ah or 110 end
+                                local availW = math.max(40, (job.img.Parent.AbsoluteSize.X > 0 and job.img.Parent.AbsoluteSize.X or canvas.AbsoluteSize.X) - 4)
+                                local dw = math.min(availW, math.max(8, (aw or w) * 0.75))
+                                local dh = math.min(700, dw * h / w)
+                                job.img.Size = UDim2.new(0, dw, 0, dh)
+                                job.img.Image = a
+                                job.img.BackgroundTransparency = 1
+                            else
+                                job.img.Visible = false
+                                job.img.Size = UDim2.new(0, 0, 0, 0)
+                            end
+                        end
+                        pumpImages()
+                    end)
+                end
+            end
+
+            local function renderImage(ctx, node, st, href)
+                local at = node.attrs
+                local src = at["data-src"] or at["data-original"] or at["data-lazy-src"] or at.src
+                if (not src or src == "" or src:sub(1, 5) == "data:") and at.srcset then
+                    src = at.srcset:match("^%s*(%S+)")
+                end
+                if not src or src == "" or src:sub(1, 5) == "data:" then return end
+                local url = U.resolve(entry.url, src)
+                if not url then return end
+                local aw = tonumber((at.width or ""):match("^%d+"))
+                local ah = tonumber((at.height or ""):match("^%d+"))
+                if aw and aw <= 2 then return end
+                imgTotal = imgTotal + 1
+                if imgTotal > 45 then return end
+                local img = Instance.new("ImageButton")
+                img.AutoButtonColor = false
+                img.BackgroundColor3 = Color3.fromRGB(232, 234, 238)
+                img.BorderSizePixel = 0
+                img.ScaleType = Enum.ScaleType.Stretch
+                img.Size = UDim2.new(0, 60, 0, 40)
+                img.ZIndex = 5
+                place(ctx, img)
+                img.MouseButton1Click:Connect(function()
+                    if href then navigate(tabs[cur], {url = href})
+                    else openImg({url = url, thumb = url, title = at.alt or ""}) end
+                end)
+                imgQ[#imgQ + 1] = {img = img, url = url, aw = aw, ah = ah}
+                pumpImages()
+            end
+
+            -- formulários
+            local function formOf(node)
+                local p = node.parent
+                while p do
+                    if p.tag == "form" then
+                        p.fs = p.fs or {inputs = {}}
+                        return p
+                    end
+                    p = p.parent
+                end
+                return nil
+            end
+            local function submitForm(form, btn)
+                if not form then toast("Botão sem ação") return end
+                local method = (form.attrs.method or "get"):lower()
+                if method ~= "get" then toast("Formulário POST não é suportado") return end
+                local action = form.attrs.action or ""
+                local base = (action ~= "" and U.resolve(entry.url, action)) or entry.url
+                base = base:gsub("#.*$", "")
+                local q = {}
+                for key, v in pairs(form.fs.inputs) do
+                    local nm, val = key, nil
+                    if type(v) == "table" then
+                        nm = v.name or key
+                        if v.get then val = v.get() else val = v.value end
+                    else
+                        val = v.Text
+                    end
+                    if val ~= nil then
+                        q[#q + 1] = HttpService:UrlEncode(nm) .. "=" .. HttpService:UrlEncode(val)
+                    end
+                end
+                if btn and btn.attrs.name and btn.attrs.name ~= "" then
+                    q[#q + 1] = HttpService:UrlEncode(btn.attrs.name) .. "=" .. HttpService:UrlEncode(btn.attrs.value or "")
+                end
+                local sep = base:find("?", 1, true) and "&" or "?"
+                navigate(tabs[cur], {url = base .. (#q > 0 and (sep .. table.concat(q, "&")) or "")})
+            end
+
+            local function renderControl(ctx, node, st)
+                local tag, at = node.tag, node.attrs
+                local ty = (at.type or "text"):lower()
+                local form = formOf(node)
+                if not form then return end   -- sem <form> o botão/campo não faz nada: não desenha
+                if tag == "input" and ty == "hidden" then
+                    if form and at.name then form.fs.inputs[at.name] = {value = at.value or ""} end
+                    return
+                end
+                if tag == "input" and (ty == "checkbox" or ty == "radio") then
+                    local on = at.checked ~= nil
+                    local box = Instance.new("TextButton")
+                    box.Size = UDim2.new(0, 20, 0, 20)
+                    box.BackgroundColor3 = Color3.new(1, 1, 1)
+                    box.BorderSizePixel = 0
+                    box.Text = ""
+                    box.AutoButtonColor = false
+                    box.ZIndex = 5
+                    corner(box, UDim.new(ty == "radio" and 0.5 or 0.2, 0))
+                    stroke(box, Color3.fromRGB(150, 154, 162), 1)
+                    local dot = Instance.new("Frame")
+                    dot.AnchorPoint = Vector2.new(0.5, 0.5)
+                    dot.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    dot.Size = UDim2.new(0, 12, 0, 12)
+                    dot.BackgroundColor3 = Color3.fromRGB(66, 133, 244)
+                    dot.BorderSizePixel = 0
+                    dot.ZIndex = 6
+                    corner(dot, UDim.new(ty == "radio" and 0.5 or 0.2, 0))
+                    dot.Parent = box
+                    local function paint() dot.Visible = on end
+                    paint()
+                    local val = at.value or "on"
+                    form.fs.cnt = (form.fs.cnt or 0) + 1
+                    local nm = at.name
+                    local rec = {setOn = function(v) on = v; paint() end}
+                    if ty == "radio" then
+                        form.fs.radios = form.fs.radios or {}
+                        local grp = form.fs.radios[nm or ""] or {}
+                        form.fs.radios[nm or ""] = grp
+                        grp[#grp + 1] = rec
+                    end
+                    if nm and nm ~= "" then
+                        form.fs.inputs[nm .. "\0" .. form.fs.cnt] = {name = nm, get = function() if on then return val end return nil end}
+                    end
+                    box.MouseButton1Click:Connect(function()
+                        if ty == "radio" then
+                            for _, r in ipairs(form.fs.radios[nm or ""]) do r.setOn(false) end
+                            on = true
+                        else
+                            on = not on
+                        end
+                        paint()
+                    end)
+                    place(ctx, box)
+                    return
+                end
+                if tag == "select" then
+                    local opts = {}
+                    local function collectOpts(n)
+                        for _, k in ipairs(n.kids or {}) do
+                            if k.tag == "option" then
+                                local lbl = textOf(k, 80)
+                                opts[#opts + 1] = {value = k.attrs.value or lbl, label = (lbl ~= "" and lbl or (k.attrs.value or "")), sel = k.attrs.selected ~= nil}
+                            elseif k.tag then
+                                collectOpts(k)
+                            end
+                        end
+                    end
+                    collectOpts(node)
+                    if #opts == 0 then return end
+                    local curI = 1
+                    for i, o in ipairs(opts) do if o.sel then curI = i end end
+                    local holder = Instance.new("Frame")
+                    holder.Size = ctx.auto and UDim2.new(0, 150, 0, 0) or UDim2.new(1, 0, 0, 0)
+                    holder.AutomaticSize = Enum.AutomaticSize.Y
+                    holder.BackgroundTransparency = 1
+                    holder.ZIndex = 5
+                    local hl = Instance.new("UIListLayout")
+                    hl.SortOrder = Enum.SortOrder.LayoutOrder
+                    hl.Padding = UDim.new(0, 2)
+                    hl.Parent = holder
+                    local main = Instance.new("TextButton")
+                    main.LayoutOrder = 1
+                    main.Size = UDim2.new(1, 0, 0, 26)
+                    main.BackgroundColor3 = Color3.fromRGB(246, 247, 250)
+                    main.BorderSizePixel = 0
+                    main.TextColor3 = Color3.fromRGB(32, 33, 36)
+                    main.Font = Enum.Font.Gotham
+                    main.TextSize = 12
+                    main.TextXAlignment = Enum.TextXAlignment.Left
+                    main.TextTruncate = Enum.TextTruncate.AtEnd
+                    main.AutoButtonColor = true
+                    main.ZIndex = 5
+                    corner(main, UDim.new(0, 6))
+                    stroke(main, Color3.fromRGB(200, 204, 212), 1)
+                    local mp = Instance.new("UIPadding")
+                    mp.PaddingLeft = UDim.new(0, 8); mp.PaddingRight = UDim.new(0, 8)
+                    mp.Parent = main
+                    main.Parent = holder
+                    local list = Instance.new("Frame")
+                    list.LayoutOrder = 2
+                    list.Size = UDim2.new(1, 0, 0, 0)
+                    list.AutomaticSize = Enum.AutomaticSize.Y
+                    list.BackgroundColor3 = Color3.new(1, 1, 1)
+                    list.BorderSizePixel = 0
+                    list.Visible = false
+                    list.ZIndex = 5
+                    corner(list, UDim.new(0, 6))
+                    stroke(list, Color3.fromRGB(200, 204, 212), 1)
+                    local ll = Instance.new("UIListLayout")
+                    ll.SortOrder = Enum.SortOrder.LayoutOrder
+                    ll.Parent = list
+                    list.Parent = holder
+                    local function paintSel() main.Text = opts[curI].label .. "  v" end
+                    paintSel()
+                    for i, o in ipairs(opts) do
+                        if i > 60 then break end
+                        local ob = Instance.new("TextButton")
+                        ob.LayoutOrder = i
+                        ob.Size = UDim2.new(1, 0, 0, 26)
+                        ob.BackgroundTransparency = 1
+                        ob.Text = o.label
+                        ob.TextColor3 = Color3.fromRGB(32, 33, 36)
+                        ob.Font = Enum.Font.Gotham
+                        ob.TextSize = 12
+                        ob.TextXAlignment = Enum.TextXAlignment.Left
+                        ob.TextTruncate = Enum.TextTruncate.AtEnd
+                        ob.ZIndex = 6
+                        local op = Instance.new("UIPadding")
+                        op.PaddingLeft = UDim.new(0, 8); op.PaddingRight = UDim.new(0, 8)
+                        op.Parent = ob
+                        ob.MouseButton1Click:Connect(function()
+                            curI = i
+                            paintSel()
+                            list.Visible = false
+                        end)
+                        ob.Parent = list
+                    end
+                    main.MouseButton1Click:Connect(function() list.Visible = not list.Visible end)
+                    if at.name and at.name ~= "" then
+                        form.fs.inputs[at.name] = {name = at.name, get = function() return opts[curI].value end}
+                    end
+                    place(ctx, holder)
+                    return
+                end
+                if tag == "input" and (ty == "file" or ty == "range" or ty == "color") then return end
+                if tag == "textarea" or (tag == "input" and ty ~= "submit" and ty ~= "button" and ty ~= "image" and ty ~= "reset") then
+                    local tb = Instance.new("TextBox")
+                    tb.Size = ctx.auto and UDim2.new(0, 150, 0, 26) or UDim2.new(1, 0, 0, tag == "textarea" and 60 or 26)
+                    tb.BackgroundColor3 = Color3.fromRGB(246, 247, 250)
+                    tb.BorderSizePixel = 0
+                    tb.TextColor3 = Color3.fromRGB(32, 33, 36)
+                    tb.PlaceholderColor3 = Color3.fromRGB(130, 134, 142)
+                    tb.PlaceholderText = at.placeholder or ""
+                    tb.Text = tag == "textarea" and textOf(node, 2000) or (at.value or "")
+                    tb.ClearTextOnFocus = false
+                    tb.Font = Enum.Font.Gotham
+                    tb.TextSize = 12
+                    tb.TextXAlignment = Enum.TextXAlignment.Left
+                    tb.TextYAlignment = tag == "textarea" and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+                    tb.MultiLine = tag == "textarea"
+                    tb.ClipsDescendants = true
+                    tb.ZIndex = 5
+                    corner(tb, UDim.new(0, 6))
+                    stroke(tb, Color3.fromRGB(200, 204, 212), 1)
+                    local pad = Instance.new("UIPadding")
+                    pad.PaddingLeft = UDim.new(0, 8); pad.PaddingRight = UDim.new(0, 8)
+                    pad.Parent = tb
+                    place(ctx, tb)
+                    if form then form.fs.inputs[at.name or "q"] = tb end
+                    if tag == "input" then
+                        tb.FocusLost:Connect(function(enter)
+                            if enter and form then submitForm(form, nil) end
+                        end)
+                    end
+                    return
+                end
+                -- botões (só os que enviam o formulário)
+                if ty == "button" or ty == "reset" then return end
+                local label = at.value or textOf(node, 40)
+                if label == "" then label = (ty == "submit") and "Enviar" or "Botão" end
+                local b = Instance.new("TextButton")
+                b.Size = UDim2.new(0, 0, 0, 28)
+                b.AutomaticSize = Enum.AutomaticSize.X
+                b.BackgroundColor3 = st.bg or Color3.fromRGB(66, 133, 244)
+                b.BorderSizePixel = 0
+                b.Text = label
+                b.TextColor3 = st.bg and st.color or Color3.new(1, 1, 1)
+                b.Font = Enum.Font.GothamBold
+                b.TextSize = 11
+                b.AutoButtonColor = true
+                b.ZIndex = 5
+                corner(b, UDim.new(0, 8))
+                local pad = Instance.new("UIPadding")
+                pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
+                pad.Parent = b
+                place(ctx, b)
+                b.MouseButton1Click:Connect(function()
+                    if ty == "reset" then return end
+                    submitForm(form, node)
+                end)
+            end
+
+            local function renderPre(ctx, node, st)
+                local parts = {}
+                local len = 0
+                local function rec(n)
+                    for _, k in ipairs(n.kids or {}) do
+                        if len > 4000 then return end
+                        if k.text then parts[#parts + 1] = k.text; len = len + #k.text
+                        elseif k.tag == "br" then parts[#parts + 1] = "\n"
+                        elseif not SKIP[k.tag] then rec(k) end
+                    end
+                end
+                rec(node)
+                local box = makeBox(ctx, {bg = Color3.fromRGB(240, 242, 246), align = "left"}, {})
+                local l = Instance.new("TextLabel")
+                l.Size = UDim2.new(1, 0, 0, 0)
+                l.AutomaticSize = Enum.AutomaticSize.Y
+                l.BackgroundTransparency = 1
+                l.Text = table.concat(parts):sub(1, 4000)
+                l.TextColor3 = Color3.fromRGB(40, 42, 48)
+                l.Font = Enum.Font.Code
+                l.TextSize = 10
+                l.TextWrapped = true
+                l.TextXAlignment = Enum.TextXAlignment.Left
+                l.TextYAlignment = Enum.TextYAlignment.Top
+                l.ZIndex = 5
+                place(box, l)
+            end
+
+            local function renderTable(ctx, node, st)
+                local rows = {}
+                local function collect(n)
+                    for _, k in ipairs(n.kids) do
+                        if k.tag == "tr" then rows[#rows + 1] = k
+                        elseif k.tag == "thead" or k.tag == "tbody" or k.tag == "tfoot" then collect(k) end
+                    end
+                end
+                collect(node)
+                if #rows == 0 or ctx.auto then renderChildren(ctx, node, st) return end
+                local function cellsOf(tr)
+                    local cs = {}
+                    for _, k in ipairs(tr.kids) do
+                        if k.tag == "td" or k.tag == "th" then cs[#cs + 1] = k end
+                    end
+                    return cs
+                end
+                local colW, ncols = {}, 0
+                for _, tr in ipairs(rows) do
+                    local ci = 1
+                    for _, c in ipairs(cellsOf(tr)) do
+                        local span = math.max(1, tonumber(c.attrs.colspan) or 1)
+                        local w = math.clamp(textLen(c, 80), 4, 60) + (hasTag(c, tset("img"), 0) and 20 or 0)
+                        colW[ci] = math.max(colW[ci] or 0, w / span)
+                        ci = ci + span
+                        if ci - 1 > ncols then ncols = ci - 1 end
+                    end
+                end
+                local stacked = ncols > 5
+                local total = 0
+                for i = 1, ncols do total = total + (colW[i] or 4) end
+                local tbl = makeBox(ctx, {align = "left"}, {})
+                for _, tr in ipairs(rows) do
+                    if stopped then return end
+                    tick()
+                    local rs = styleFor(tr)
+                    if rs.display ~= "none" then
+                        local cells = cellsOf(tr)
+                        if #cells > 0 then
+                            local rowF = Instance.new("Frame")
+                            rowF.Size = UDim2.new(1, 0, 0, 0)
+                            rowF.AutomaticSize = Enum.AutomaticSize.Y
+                            rowF.BorderSizePixel = 0
+                            rowF.ZIndex = 4
+                            if rs.bg then rowF.BackgroundColor3 = rs.bg; rowF.BackgroundTransparency = 0 else rowF.BackgroundTransparency = 1 end
+                            local rl = Instance.new("UIListLayout")
+                            rl.SortOrder = Enum.SortOrder.LayoutOrder
+                            rl.Padding = UDim.new(0, stacked and 3 or 2)
+                            if not stacked then rl.FillDirection = Enum.FillDirection.Horizontal end
+                            rl.Parent = rowF
+                            place(tbl, rowF)
+                            local ci = 1
+                            for k, c in ipairs(cells) do
+                                local cs = styleFor(c)
+                                if cs.display ~= "none" then
+                                    local span = math.max(1, tonumber(c.attrs.colspan) or 1)
+                                    local wsum = 0
+                                    for j = ci, ci + span - 1 do wsum = wsum + (colW[j] or 4) end
+                                    ci = ci + span
+                                    local cf = Instance.new("Frame")
+                                    cf.BorderSizePixel = 0
+                                    cf.ZIndex = 4
+                                    cf.LayoutOrder = k
+                                    cf.AutomaticSize = Enum.AutomaticSize.Y
+                                    if stacked then cf.Size = UDim2.new(1, 0, 0, 0)
+                                    else cf.Size = UDim2.new(math.max(0.04, wsum / total), -2, 0, 0) end
+                                    if cs.bg then cf.BackgroundColor3 = cs.bg; cf.BackgroundTransparency = 0 else cf.BackgroundTransparency = 1 end
+                                    local cl = Instance.new("UIListLayout")
+                                    cl.SortOrder = Enum.SortOrder.LayoutOrder
+                                    cl.Padding = UDim.new(0, 3)
+                                    if cs.align == "center" then cl.HorizontalAlignment = Enum.HorizontalAlignment.Center end
+                                    cl.Parent = cf
+                                    cf.Parent = rowF
+                                    renderChildren({inst = cf, n = 0}, c, cs)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            local function flexSmall(node)
+                local n = 0
+                for _, k in ipairs(node.kids) do
+                    if k.tag and not SKIP[k.tag] then
+                        n = n + 1
+                        if textLen(k, 60) > 28 or hasTag(k, IMGLIKE, 0) or k.tag == "img" or k.tag == "table" then return false end
+                    end
+                end
+                return n >= 2
+            end
+
+            renderBlock = function(ctx, node, st, href)
+                if stopped then return end
+                local tag = node.tag
+                if tag == "hr" then
+                    local f = Instance.new("Frame")
+                    f.Size = UDim2.new(1, 0, 0, 1)
+                    f.BackgroundColor3 = Color3.fromRGB(200, 202, 208)
+                    f.BorderSizePixel = 0
+                    f.ZIndex = 5
+                    place(ctx, f)
+                    return
+                elseif tag == "table" then renderTable(ctx, node, st) return
+                elseif tag == "pre" then renderPre(ctx, node, st) return end
+                local indent = (tag == "ul" or tag == "ol" or tag == "dd" or tag == "blockquote") and 12 or 0
+                if tag == "ul" or tag == "ol" then
+                    local i = 0
+                    for _, k in ipairs(node.kids) do
+                        if k.tag == "li" then
+                            i = i + 1
+                            k.prefix = (tag == "ol") and (i .. ". ") or "• "
+                        end
+                    end
+                end
+                local flexRow = (st.display == "flex" or st.display == "inline-flex") and st.dir ~= "column" and flexSmall(node)
+                local box = makeBox(ctx, st, {indent = indent, row = flexRow})
+                if flexRow then
+                    for _, k in ipairs(node.kids) do
+                        if k.tag and not SKIP[k.tag] and not k.attrs.hidden then
+                            local ks = styleFor(k)
+                            if ks.display ~= "none" then
+                                local wb = makeBox(box, ks, {auto = true})
+                                local kh = href
+                                if k.tag == "a" and k.attrs.href then kh = resolveHref(k.attrs.href) or href end
+                                renderChildren(wb, k, ks, nil, kh)
+                            end
+                        end
+                    end
+                else
+                    renderChildren(box, node, st, node.prefix, href)
+                end
+            end
+
+            renderChildren = function(ctx, node, st, prefix, href)
+                local buf
+                local function newCur()
+                    return {rich = "", hasText = false, links = href and {{href = href, label = ""}} or {}}
+                end
+                buf = newCur()
+                if prefix then buf.rich = prefix; buf.hasText = true end
+                local function flush()
+                    if buf.hasText then makeText(ctx, buf, st) end
+                    buf = newCur()
+                end
+                local walk
+                walk = function(owner, ps, h)
+                    for _, c in ipairs(owner.kids) do
+                        if stopped then return end
+                        if c.text then
+                            local t = c.text:gsub("%s+", " ")
+                            if not buf.hasText then t = t:gsub("^%s+", "") end
+                            if t ~= "" then
+                                if t:find("%S") then buf.hasText = true end
+                                buf.rich = buf.rich .. wrapRich(U.esc(t), ps, st.size)
+                            end
+                        else
+                            local tag = c.tag
+                            if not SKIP[tag] and not c.attrs.hidden then
+                                local cs = styleFor(c)
+                                tick()
+                                if cs.display ~= "none" and not hiddenClass(c) then
+                                    if tag == "br" then
+                                        if buf.hasText then buf.rich = buf.rich .. "\n" end
+                                    elseif tag == "img" then
+                                        flush()
+                                        renderImage(ctx, c, cs, h)
+                                    elseif tag == "input" or tag == "button" or tag == "textarea" or tag == "select" then
+                                        flush()
+                                        renderControl(ctx, c, cs)
+                                    elseif tag == "a" and c.attrs.href and not (cs.display == "block" or hasBlock(c)) then
+                                        local url = resolveHref(c.attrs.href)
+                                        local dup = false
+                                        if url then
+                                            for _, lk in ipairs(buf.links) do if lk.href == url then dup = true end end
+                                            if not dup then buf.links[#buf.links + 1] = {href = url, label = textOf(c, 40)} end
+                                        end
+                                        walk(c, cs, url or h)
+                                    elseif BLOCKT[tag] or cs.display == "block" or cs.display == "flex" or cs.display == "grid" or cs.display == "list-item" or cs.display == "table" or (tag == "a" and c.attrs.href) then
+                                        flush()
+                                        local nh = h
+                                        if tag == "a" and c.attrs.href then nh = resolveHref(c.attrs.href) or h end
+                                        renderBlock(ctx, c, cs, nh)
+                                    else
+                                        walk(c, cs, h)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                walk(node, st, href)
+                flush()
+            end
+
+            -- ---------------------------------------------------------- execução
+            local function findTag(n, tag, depth)
+                if depth > 6 then return nil end
+                for _, k in ipairs(n.kids or {}) do
+                    if k.tag == tag then return k end
+                end
+                for _, k in ipairs(n.kids or {}) do
+                    if k.tag then
+                        local r = findTag(k, tag, depth + 1)
+                        if r then return r end
+                    end
+                end
+                return nil
+            end
+            setStatus("montando layout…")
+            local bodyN = findTag(root, "body", 0) or root
+            local bst
+            if bodyN == root then root.st = BASE; bst = BASE else bst = styleFor(bodyN) end
+            local htmlN = findTag(root, "html", 0)
+            local pageBg = bst.bg or (htmlN and styleFor(htmlN).bg)
+            if pageBg and canvas.Parent then canvas.BackgroundColor3 = pageBg end
+            local ctx = {inst = canvas, n = 0}
+            renderChildren(ctx, bodyN, bst)
+            if not alive() then return end
+            if B.cut then
+                local l = Instance.new("TextLabel")
+                l.Size = UDim2.new(1, 0, 0, 20)
+                l.BackgroundTransparency = 1
+                l.Text = "… página muito grande, conteúdo cortado"
+                l.TextColor3 = Color3.fromRGB(120, 124, 132)
+                l.Font = Enum.Font.Gotham
+                l.TextSize = 10
+                l.ZIndex = 5
+                place(ctx, l)
+            end
+            setStatus(B.el .. " elementos")
+            return B.el
+        end
+    end)()
+
     local function buildPage(entry)
         if findBar.Visible then closeFind() end
         clearSel()
@@ -7801,9 +9461,10 @@ local function makeBrowserScreen()
                     for _, c in ipairs(holder:GetChildren()) do
                         if c:IsA("TextLabel") then c.Visible = false end
                     end
-                    holder.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
-                    holder.ClipsDescendants = true
-                    new("ImageLabel", {Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BackgroundTransparency = 1, Image = a, ZIndex = holder.ZIndex + 2}, holder)
+                    holder.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+                    -- o icone fica num quadrado inscrito na bolinha (centralizado), senao os cantos vazam pra fora do circulo
+                    local img = new("ImageLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.64, 0, 0.64, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, Image = a, ZIndex = holder.ZIndex + 2}, holder)
+                    corner(img, UDim.new(0.18, 0))
                 end
             end)
         end
@@ -8050,6 +9711,31 @@ local function makeBrowserScreen()
                 end
                 return
             end
+            if not entry.simple and view.html then
+                local statusLbl = add(new("TextLabel", {Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "montando página…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}))
+                local canvas = add(new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 4}))
+                new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)}, canvas)
+                new("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)}, canvas)
+                corner(canvas, UDim.new(0, 8))
+                local myRid = entry.rid
+                local function alive()
+                    return canvas.Parent ~= nil and entry.rid == myRid and not entry.simple and not entry.reader
+                end
+                task.spawn(function()
+                    local okB, res = pcall(U.layoutBuild, entry, canvas, view.html, alive, function(t)
+                        if statusLbl.Parent then statusLbl.Text = t end
+                    end, openViewer)
+                    if not alive() then return end
+                    if not okB or (type(res) == "number" and res < 4) then
+                        entry.simple = true
+                        toast(okB and "Página sem conteúdo montável, abrindo em texto" or "Falha ao montar a página, abrindo em texto")
+                        render()
+                        return
+                    end
+                    statusLbl:Destroy()
+                end)
+                return
+            end
             local head = add(new("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = C.card, BorderSizePixel = 0, ZIndex = 5}))
             corner(head, UDim.new(0, 10))
             local fav = favicon(head, entry.url, 26, 6)
@@ -8127,7 +9813,7 @@ local function makeBrowserScreen()
             if i == cur then new("UIStroke", {Color = C.accent, Thickness = 2}, card) end
             favicon(card, e.url or e.q or "Nova", 18, 18).Position = UDim2.new(0, 8, 0, 8)
             new("TextLabel", {Position = UDim2.new(0, 32, 0, 6), Size = UDim2.new(1, -62, 0, 22), BackgroundTransparency = 1, Text = tabTitle(t), TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 18}, card)
-            local body = (e.view and e.view.preview) or (e.ntp and "TZE\nPesquisar ou digitar URL" or (e.url or e.q or ""))
+            local body = (e.view and e.view.preview) or (e.ntp and "iDroid\nPesquisar ou digitar URL" or (e.url or e.q or ""))
             new("TextLabel", {Position = UDim2.new(0, 8, 0, 34), Size = UDim2.new(1, -16, 1, -42), BackgroundTransparency = 1, Text = body, TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 18}, card)
             local x = iconButton(card, Icons.close, 12, C.text, UDim2.new(1, -28, 0, 5), UDim2.new(0, 24, 0, 24), 19)
             card.MouseButton1Click:Connect(function() switchTo(i) end)
@@ -8306,12 +9992,15 @@ local function makeBrowserScreen()
         local e = curEntry()
         if e and e.q then reload() end
     end)
-    menuItem("Modo leitura", 318, function()
+    menuItem("Modo: site / leitura / texto", 318, function()
         local e = curEntry()
-        if not (e.view and e.view.kind == "page") then toast("Abra uma página de texto") return end
-        e.reader = (not e.reader) or nil
+        if not (e.view and e.view.kind == "page") then toast("Abra uma página primeiro") return end
+        local nm
+        if e.reader then e.reader = nil; e.simple = true; nm = "texto"
+        elseif e.simple then e.simple = nil; nm = "site"
+        else e.reader = true; nm = "leitura" end
         render()
-        toast(e.reader and "Modo leitura ligado" or "Modo leitura desligado")
+        toast("Modo " .. nm)
     end)
     menuItem("Buscar na página", 352, function() openFind() end)
 
@@ -8390,6 +10079,17 @@ local function makeBrowserScreen()
         local t = tabs[cur]
         if t.pos > 1 then t.pos = t.pos - 1; showEntry(t); return true end
         return false
+    end
+    -- fecha o app de verdade: descarta todas as guias e volta pra "Nova guia"
+    Nav.web.reset = function()
+        pcall(function() address:ReleaseFocus() end)
+        viewer.Visible = false
+        viewerToken = viewerToken + 1
+        pcall(closeOverlays)
+        for k in pairs(tabs) do tabs[k] = nil end
+        tabs[1] = newTab()
+        cur = 1
+        pcall(render)
     end
 
     createNavBar(frame)
@@ -8994,6 +10694,926 @@ do
                 col = col + span
             end
         end
+        Nav.calc = {reset = function() reset(); refresh() end}
+        return f
+    end
+
+    function Icons.camera(parent, S, color, z)
+        local c, u = iconRoot(parent, S)
+        -- corpo principal da câmera (retângulo arredondado grande)
+        Draw.rrect(c, 12 * u, 13.6 * u, 20 * u, 14.2 * u, 3.6 * u, color, T(2.2, u), z)
+        -- saliência do visor (topo centro)
+        Draw.rrect(c, 10.5 * u, 6.4 * u, 6.6 * u, 2.8 * u, 1.3 * u, color, nil, z)
+        -- lente principal (anel externo)
+        Draw.circle(c, 12 * u, 13.9 * u, 8.2 * u, color, T(2.0, u), z)
+        -- lente interna (anel intermediário)
+        Draw.circle(c, 12 * u, 13.9 * u, 5.2 * u, color, T(1.4, u), z)
+        -- pupila da lente (círculo cheio)
+        Draw.circle(c, 12 * u, 13.9 * u, 2.2 * u, color, nil, z)
+        -- flash LED (canto superior direito do corpo)
+        Draw.circle(c, 18.6 * u, 7.6 * u, 1.8 * u, color, nil, z)
+        -- botão disparador (topo direita)
+        Draw.rrect(c, 17.6 * u, 7.1 * u, 2.6 * u, 1.4 * u, 0.7 * u, color, nil, z)
+        return c
+    end
+
+    Nav.camera = {}
+
+    local function buildCamera()
+        local f = makeApp("Camera")
+        f.BackgroundTransparency = 1
+        local toast = mkToast(f)
+        local ACC = Color3.fromRGB(255, 204, 0)
+        local ACC_TXT = Color3.fromRGB(30, 24, 0)
+        local DARK = Color3.fromRGB(0, 0, 0)
+        local Lighting = game:GetService("Lighting")
+
+        local FILTERS = {
+            {name = "Normal", sat = 0, con = 0, bri = 0, tint = Color3.fromRGB(255, 255, 255)},
+            {name = "P&B", sat = -1, con = 0.1, bri = 0, tint = Color3.fromRGB(255, 255, 255), ov = Color3.fromRGB(120, 120, 120), ova = 0.45},
+            {name = "Sépia", sat = -0.45, con = 0.1, bri = 0.02, tint = Color3.fromRGB(255, 224, 178), ov = Color3.fromRGB(190, 140, 80), ova = 0.65},
+            {name = "Vívido", sat = 0.7, con = 0.18, bri = 0, tint = Color3.fromRGB(255, 255, 255)},
+            {name = "Frio", sat = 0.1, con = 0.05, bri = 0, tint = Color3.fromRGB(196, 222, 255), ov = Color3.fromRGB(110, 160, 255), ova = 0.8},
+            {name = "Quente", sat = 0.15, con = 0.05, bri = 0.02, tint = Color3.fromRGB(255, 222, 196), ov = Color3.fromRGB(255, 150, 60), ova = 0.8},
+            {name = "Noir", sat = -1, con = 0.5, bri = -0.05, tint = Color3.fromRGB(255, 255, 255), ov = Color3.fromRGB(40, 40, 40), ova = 0.55},
+            {name = "Vintage", sat = -0.25, con = -0.1, bri = 0.05, tint = Color3.fromRGB(255, 236, 205), ov = Color3.fromRGB(230, 190, 130), ova = 0.75},
+        }
+        local ZOOMS = {0.5, 1, 2, 3}
+        local TIMERS = {0, 3, 10}
+        local MAX_PHOTOS, RADIUS, MAX_OBJECTS = 12, 320, 240
+        local SELFIE_DIST, SELFIE_FOV = 5.5, 70
+
+        local S = {active = false, selfie = false, boneco = false, flash = false, grid = true, timerIdx = 1, zoom = 1, filter = 1,
+            busy = false, counting = false, cancel = false, photos = {}, viewIdx = 0, origFov = 70, baseFov = 70}
+
+        local function cam() return Workspace.CurrentCamera end
+
+        local sfx = nw("Sound", {SoundId = "rbxasset://sounds/switch.wav", Volume = 0.4}, f)
+        local function ping(speed)
+            sfx.Volume = 0.4 * (currentVolume or 1)
+            sfx.PlaybackSpeed = speed or 1
+            sfx:Play()
+        end
+
+        local function press(btn)
+            local sc = nw("UIScale", {Scale = 1}, btn)
+            btn.MouseButton1Down:Connect(function() TweenService:Create(sc, TweenInfo.new(0.08), {Scale = 0.9}):Play() end)
+            local function up() TweenService:Create(sc, TweenInfo.new(0.18, Enum.EasingStyle.Back), {Scale = 1}):Play() end
+            btn.MouseButton1Up:Connect(up)
+            btn.MouseLeave:Connect(up)
+        end
+
+        local function pill(text, parent, order)
+            local b = nw("TextButton", {Size = UDim2.new(0, 0, 0, 22), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = DARK, BackgroundTransparency = 0.45, BorderSizePixel = 0, Text = text, TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false, ZIndex = 10, LayoutOrder = order or 0}, parent)
+            corner(b, UDim.new(1, 0))
+            nw("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, b)
+            press(b)
+            return b
+        end
+
+        local gridFrame = nw("Frame", {Size = UDim2.new(1, 0, 0, 262), BackgroundTransparency = 1, ZIndex = 3}, f)
+        for i = 1, 2 do
+            nw("Frame", {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(i / 3, 0, 0, 0), Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 0.75, BorderSizePixel = 0, ZIndex = 3}, gridFrame)
+            nw("Frame", {AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, i / 3, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.75, BorderSizePixel = 0, ZIndex = 3}, gridFrame)
+        end
+
+        local topRow = nw("Frame", {Position = UDim2.new(0, 0, 0, 46), Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, ZIndex = 10}, f)
+        nw("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, topRow)
+        local btnFlash = pill("⚡ Off", topRow, 1)
+        local btnTimer = pill("⏱ 0s", topRow, 2)
+        local btnGrid = pill("▦ Grade", topRow, 3)
+        local btnBoneco = pill("🧍 Boneco", topRow, 4)
+
+        local panel = nw("Frame", {Position = UDim2.new(0, 0, 0, 262), Size = UDim2.new(1, 0, 0, 178), BackgroundColor3 = DARK, BorderSizePixel = 0, ZIndex = 6}, f)
+        corner(panel, UDim.new(0, 28))
+        nw("UIGradient", {Rotation = 90, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.6), NumberSequenceKeypoint.new(1, 0.15)})}, panel)
+
+        local zoomRow = nw("Frame", {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.new(0, 0, 0, 22), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = DARK, BackgroundTransparency = 0.5, BorderSizePixel = 0, ZIndex = 8}, panel)
+        corner(zoomRow, UDim.new(1, 0))
+        nw("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 2), HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center}, zoomRow)
+        nw("UIPadding", {PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2)}, zoomRow)
+        local zoomBtns = {}
+        for i, z in ipairs(ZOOMS) do
+            local b = nw("TextButton", {Size = UDim2.new(0, 34, 0, 18), BackgroundColor3 = ACC, BackgroundTransparency = 1, BorderSizePixel = 0, Text = (z == 0.5 and ".5" or tostring(z)) .. "x", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, ZIndex = 9}, zoomRow)
+            corner(b, UDim.new(1, 0))
+            zoomBtns[i] = b
+        end
+
+        local filterRow = nw("ScrollingFrame", {Position = UDim2.new(0, 8, 0, 34), Size = UDim2.new(1, -16, 0, 26), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X, ScrollingDirection = Enum.ScrollingDirection.X, ZIndex = 8}, panel)
+        nw("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, filterRow)
+        local chipBtns = {}
+        for i, fl in ipairs(FILTERS) do
+            local b = nw("TextButton", {Size = UDim2.new(0, 0, 0, 22), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = DARK, BackgroundTransparency = 0.45, BorderSizePixel = 0, Text = fl.name, TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, LayoutOrder = i, ZIndex = 9}, filterRow)
+            corner(b, UDim.new(1, 0))
+            nw("UIPadding", {PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9)}, b)
+            chipBtns[i] = b
+        end
+
+        local thumb = nw("TextButton", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 46, 0, 98), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = "▣", TextColor3 = SUBC, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false, ClipsDescendants = true, ZIndex = 8}, panel)
+        corner(thumb, UDim.new(0, 10))
+        nw("UIStroke", {Color = WHITE, Thickness = 1.5, Transparency = 0.5}, thumb)
+        press(thumb)
+
+        local shutter = nw("TextButton", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 98), Size = UDim2.new(0, 54, 0, 54), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 8}, panel)
+        local ring = nw("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 8}, shutter)
+        corner(ring, UDim.new(1, 0))
+        nw("UIStroke", {Color = WHITE, Thickness = 3}, ring)
+        local core = nw("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 42, 0, 42), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 9}, shutter)
+        corner(core, UDim.new(1, 0))
+        shutter.MouseButton1Down:Connect(function() TweenService:Create(core, TweenInfo.new(0.08), {Size = UDim2.new(0, 35, 0, 35)}):Play() end)
+        local function shutterUp() TweenService:Create(core, TweenInfo.new(0.2, Enum.EasingStyle.Back), {Size = UDim2.new(0, 42, 0, 42)}):Play() end
+        shutter.MouseButton1Up:Connect(shutterUp)
+        shutter.MouseLeave:Connect(shutterUp)
+
+        local btnFlip = nw("TextButton", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 234, 0, 98), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = DARK, BackgroundTransparency = 0.45, BorderSizePixel = 0, Text = "⟲", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 20, AutoButtonColor = false, ZIndex = 8}, panel)
+        corner(btnFlip, UDim.new(1, 0))
+        press(btnFlip)
+
+        local cdLabel = nw("TextLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 150), Size = UDim2.new(0, 120, 0, 120), BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 90, TextStrokeTransparency = 0.5, Visible = false, ZIndex = 14}, f)
+        local cdScale = nw("UIScale", {Scale = 1}, cdLabel)
+        local flashFrame = nw("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 15}, f)
+        corner(flashFrame, UDim.new(0, 28))
+
+        local roll = nw("Frame", {Position = UDim2.new(0, 0, 0, 44), Size = UDim2.new(1, 0, 0, 358), BackgroundColor3 = BG, BorderSizePixel = 0, Visible = false, Active = true, ZIndex = 9}, f)
+        local rollTitle = nw("TextLabel", {Position = UDim2.new(0, 14, 0, 2), Size = UDim2.new(1, -28, 0, 28), BackgroundTransparency = 1, Text = "Fotos", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 10}, roll)
+        local rollScroll = nw("ScrollingFrame", {Position = UDim2.new(0, 11, 0, 34), Size = UDim2.new(1, -22, 0, 320), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = ACC, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 10}, roll)
+        nw("UIGridLayout", {CellSize = UDim2.new(0, 82, 0, 82), CellPadding = UDim2.new(0, 6, 0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, rollScroll)
+        local rollEmpty = nw("TextLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.45, 0), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1, Text = "Nenhuma foto ainda.\nToque no botão branco para tirar.", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 12, ZIndex = 10}, roll)
+
+        local viewer = nw("Frame", {Position = UDim2.new(0, 0, 0, 44), Size = UDim2.new(1, 0, 0, 358), BackgroundColor3 = Color3.fromRGB(0, 0, 0), BorderSizePixel = 0, Visible = false, Active = true, ZIndex = 12}, f)
+        local vwCounter = nw("TextLabel", {Position = UDim2.new(0, 14, 0, 2), Size = UDim2.new(1, -28, 0, 20), BackgroundTransparency = 1, Text = "", TextColor3 = SUBC, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 13}, viewer)
+        local vwArea = nw("Frame", {Position = UDim2.new(0, 8, 0, 24), Size = UDim2.new(1, -16, 0, 248), BackgroundTransparency = 1, ZIndex = 13}, viewer)
+        local vwHolder = nw("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 13}, vwArea)
+        corner(vwHolder, UDim.new(0, 4))
+        local vwRatio = nw("UIAspectRatioConstraint", {AspectRatio = 1.6, AspectType = Enum.AspectType.FitWithinMaxSize, DominantAxis = Enum.DominantAxis.Width}, vwHolder)
+        nw("UIPadding", {PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4)}, vwHolder)
+        local vwInner = nw("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(0, 0, 0), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 14}, vwHolder)
+        local vwCaption = nw("TextLabel", {Position = UDim2.new(0, 10, 0, 276), Size = UDim2.new(1, -20, 0, 18), BackgroundTransparency = 1, Text = "", TextColor3 = SUBC, Font = Enum.Font.Gotham, TextSize = 11, ZIndex = 13}, viewer)
+        local vwBar = nw("Frame", {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 304), Size = UDim2.new(0, 0, 0, 36), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, ZIndex = 13}, viewer)
+        nw("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 12), HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, vwBar)
+        local function vwBtn(order, text)
+            local b = nw("TextButton", {Size = UDim2.new(0, 36, 0, 36), BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = text or "", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 20, AutoButtonColor = false, LayoutOrder = order, ZIndex = 14}, vwBar)
+            corner(b, UDim.new(1, 0))
+            press(b)
+            return b
+        end
+        local vwPrev = vwBtn(1, "‹")
+        local vwSave = vwBtn(2, "⬇")
+        local vwDel = vwBtn(3)
+        Icons.put(vwDel, Icons.trash, 18, Color3.fromRGB(255, 92, 88), 15)
+        local vwNext = vwBtn(4, "›")
+
+        local ccEffect
+        local function applyFilter(i, instant)
+            S.filter = i
+            local fl = FILTERS[i]
+            if ccEffect then
+                local props = {Saturation = fl.sat, Contrast = fl.con, Brightness = fl.bri, TintColor = fl.tint}
+                if instant then
+                    for k, v in pairs(props) do ccEffect[k] = v end
+                else
+                    TweenService:Create(ccEffect, TweenInfo.new(0.3), props):Play()
+                end
+            end
+            for idx, b in ipairs(chipBtns) do
+                local on = idx == i
+                TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = on and ACC or DARK, BackgroundTransparency = on and 0 or 0.45, TextColor3 = on and ACC_TXT or WHITE}):Play()
+            end
+        end
+
+        local function setZoom(z, instant)
+            S.zoom = z
+            local c = cam()
+            if c and S.active then
+                local fov = math.clamp(S.baseFov / z, 15, 120)
+                if instant then c.FieldOfView = fov else TweenService:Create(c, TweenInfo.new(0.3), {FieldOfView = fov}):Play() end
+            end
+            for i, b in ipairs(zoomBtns) do
+                local on = ZOOMS[i] == z
+                TweenService:Create(b, TweenInfo.new(0.18), {BackgroundTransparency = on and 0 or 1, TextColor3 = on and ACC_TXT or WHITE}):Play()
+            end
+        end
+
+        local function refreshTop()
+            btnFlash.Text = S.flash and "⚡ On" or "⚡ Off"
+            btnFlash.TextColor3 = S.flash and ACC or WHITE
+            local t = TIMERS[S.timerIdx]
+            btnTimer.Text = "⏱ " .. t .. "s"
+            btnTimer.TextColor3 = t > 0 and ACC or WHITE
+            btnGrid.TextColor3 = S.grid and ACC or WHITE
+            gridFrame.Visible = S.grid
+            -- indicador visual do modo boneco
+            btnBoneco.TextColor3 = S.boneco and ACC or WHITE
+            btnBoneco.BackgroundTransparency = S.boneco and 0 or 0.45
+            btnBoneco.BackgroundColor3 = S.boneco and ACC or DARK
+        end
+
+        -- Modo câmera: "normal" | "selfie" | "boneco"
+        -- "boneco" = câmera recua e enquadra o corpo inteiro do personagem
+        local BONECO_DIST = 9    -- distância atrás-e-acima do personagem
+        local BONECO_FOV  = 55   -- FOV mais fechado para enquadrar bem
+
+        local selfieConn, bonecoConn, prevCamType
+        local function setSelfie(on)
+            if on == S.selfie then return end
+            S.selfie = on
+            if on then
+                prevCamType = cam().CameraType
+                S.baseFov = SELFIE_FOV
+                cam().CameraType = Enum.CameraType.Scriptable
+                selfieConn = RunService.RenderStepped:Connect(function()
+                    local ch = Player.Character
+                    local head = ch and ch:FindFirstChild("Head")
+                    local c = cam()
+                    if head and c then
+                        local focus = head.Position + Vector3.new(0, 0.3, 0)
+                        local pos = (head.CFrame * CFrame.new(0.8, 0.4, -SELFIE_DIST)).Position
+                        c.CFrame = c.CFrame:Lerp(CFrame.lookAt(pos, focus), 0.35)
+                    end
+                end)
+            else
+                if selfieConn then selfieConn:Disconnect() selfieConn = nil end
+                if cam() then cam().CameraType = prevCamType or Enum.CameraType.Custom end
+                S.baseFov = S.origFov
+            end
+            setZoom(S.zoom)
+        end
+
+        -- ── MODO BONECO: enquadra o corpo inteiro do personagem ────────────
+        local function setBoneco(on)
+            if on == S.boneco then return end
+            S.boneco = on
+            if on then
+                prevCamType = cam().CameraType
+                S.baseFov = BONECO_FOV
+                cam().CameraType = Enum.CameraType.Scriptable
+                bonecoConn = RunService.RenderStepped:Connect(function()
+                    local ch = Player.Character
+                    if not ch then return end
+                    local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                    local head = ch:FindFirstChild("Head")
+                    local c = cam()
+                    if root and head and c then
+                        -- ponto de foco = meio entre a cabeça e a raiz (centro do corpo)
+                        local focus = (head.Position + root.Position) / 2 + Vector3.new(0, 0.5, 0)
+                        -- câmera posicionada à frente e levemente acima do personagem
+                        local fwd   = root.CFrame.LookVector
+                        local pos   = root.Position + fwd * BONECO_DIST + Vector3.new(0, 2.5, 0)
+                        c.CFrame = c.CFrame:Lerp(CFrame.lookAt(pos, focus), 0.28)
+                    end
+                end)
+            else
+                if bonecoConn then bonecoConn:Disconnect() bonecoConn = nil end
+                if cam() then cam().CameraType = prevCamType or Enum.CameraType.Custom end
+                S.baseFov = S.origFov
+            end
+            setZoom(S.zoom)
+        end
+
+        local function activate()
+            if S.active then return end
+            S.active = true
+            S.origFov = cam().FieldOfView
+            S.baseFov = S.selfie and SELFIE_FOV or S.origFov
+            ccEffect = nw("ColorCorrectionEffect", {Name = "TZE_CameraFilter"}, Lighting)
+            applyFilter(S.filter, true)
+            setZoom(S.zoom, true)
+            refreshTop()
+        end
+
+        local function deactivate()
+            if not S.active then return end
+            S.cancel = true
+            -- desliga todos os modos de câmera
+            if S.boneco then setBoneco(false) end
+            if S.selfie  then setSelfie(false) end
+            S.active = false
+            if cam() then cam().FieldOfView = S.origFov end
+            if ccEffect then ccEffect:Destroy() ccEffect = nil end
+            -- libera fotos da sessão da câmera ao fechar
+            for _, p in ipairs(S.photos) do pcall(releasePhoto, p) end
+            S.photos = {}
+        end
+
+        local function skyColor()
+            local ct = Lighting.ClockTime
+            if ct < 5.5 or ct > 18.5 then return Color3.fromRGB(14, 18, 38), true end
+            if ct < 7 or ct > 17 then return Color3.fromRGB(240, 160, 110), false end
+            return Color3.fromRGB(135, 190, 235), false
+        end
+
+        local function makeVFPhoto()
+            local c = cam()
+            local sky, night = skyColor()
+            local vf = nw("ViewportFrame", {BackgroundColor3 = sky, BorderSizePixel = 0, Size = UDim2.new(1, 0, 1, 0),
+                Ambient = night and Color3.fromRGB(70, 75, 100) or Color3.fromRGB(190, 190, 190),
+                LightColor = night and Color3.fromRGB(90, 100, 140) or Color3.fromRGB(150, 150, 150)})
+            pcall(function() vf.LightDirection = -Lighting:GetSunDirection() end)
+            local vc = nw("Camera", {CFrame = c.CFrame, FieldOfView = c.FieldOfView}, vf)
+            vf.CurrentCamera = vc
+            local origin = c.CFrame.Position
+            local list = {}
+            -- personagem local: clona o Model inteiro para preservar joints/Motor6D
+            -- e o exclui do scan normal (evitar partes soltas/desmembradas no vf)
+            local lchar = Player and Player.Character
+            local function consider(inst, depth)
+                if inst == c or inst:IsA("Terrain") then return end
+                -- ignora instâncias que são descendentes do personagem local
+                -- (serão clonados como Model completo abaixo)
+                if lchar and (inst == lchar or inst:IsDescendantOf(lchar)) then return end
+                if inst:IsA("BasePart") then
+                    local d = (inst.Position - origin).Magnitude - inst.Size.Magnitude / 2
+                    if d < RADIUS then table.insert(list, {inst, d}) end
+                elseif inst:IsA("Model") then
+                    local ok, size = pcall(inst.GetExtentsSize, inst)
+                    if ok and size.Magnitude > 260 and depth < 5 then
+                        for _, ch in ipairs(inst:GetChildren()) do consider(ch, depth + 1) end
+                    else
+                        local ok2, piv = pcall(inst.GetPivot, inst)
+                        if ok2 then
+                            local d = (piv.Position - origin).Magnitude - (ok and size.Magnitude / 2 or 0)
+                            if d < RADIUS then table.insert(list, {inst, d}) end
+                        end
+                    end
+                elseif inst:IsA("Folder") then
+                    for _, ch in ipairs(inst:GetChildren()) do consider(ch, depth + 1) end
+                end
+            end
+            for _, ch in ipairs(Workspace:GetChildren()) do consider(ch, 0) end
+            table.sort(list, function(a, b) return a[2] < b[2] end)
+            for i = 1, math.min(#list, MAX_OBJECTS) do
+                local ok, clone = pcall(function() return list[i][1]:Clone() end)
+                if ok and clone then
+                    for _, d in ipairs(clone:GetDescendants()) do
+                        if d:IsA("LuaSourceContainer") or d:IsA("Sound") then d:Destroy() end
+                    end
+                    clone.Parent = vf
+                end
+            end
+            -- ── PERSONAGEM LOCAL NO VIEWPORT ─────────────────────────────────
+            -- ViewportFrame NÃO renderiza o LocalPlayer.Character via clone normal.
+            -- Solução: snapshot parte-por-parte com CFrame absoluto congelado.
+            -- Inclui Humanoid (para BodyColors/aparência), roupas e acessórios.
+            if lchar then
+                local charHolder = Instance.new("Model")
+                charHolder.Name = "CharSnapshot"
+
+                -- tipos não-BasePart que afetam a aparência e precisam ser copiados
+                local APPEARANCE_TYPES = {
+                    "Humanoid", "HumanoidDescription",
+                    "BodyColors",
+                    "Shirt", "Pants", "ShirtGraphic",
+                }
+                local function isAppearance(inst)
+                    for _, t in ipairs(APPEARANCE_TYPES) do
+                        if inst:IsA(t) then return true end
+                    end
+                    return false
+                end
+
+                for _, inst in ipairs(lchar:GetDescendants()) do
+                    if inst:IsA("BasePart") then
+                        local okP, partClone = pcall(function() return inst:Clone() end)
+                        if okP and partClone then
+                            for _, d in ipairs(partClone:GetDescendants()) do
+                                if d:IsA("LuaSourceContainer") or d:IsA("Sound")
+                                    or d:IsA("Motor6D") or d:IsA("Weld")
+                                    or d:IsA("WeldConstraint") then
+                                    d:Destroy()
+                                end
+                            end
+                            partClone.Anchored   = true
+                            partClone.CanCollide = false
+                            partClone.CFrame     = inst.CFrame  -- pose congelada
+                            partClone.Parent     = charHolder
+                        end
+                    elseif isAppearance(inst) then
+                        -- clona direto para o charHolder (sem reparenting condicional)
+                        pcall(function()
+                            local cl = inst:Clone()
+                            cl.Parent = charHolder
+                        end)
+                    end
+                end
+
+                -- copia BodyColors do nível raiz do personagem também (R6 coloca lá)
+                for _, inst in ipairs(lchar:GetChildren()) do
+                    if isAppearance(inst) then
+                        pcall(function()
+                            local cl = inst:Clone()
+                            cl.Parent = charHolder
+                        end)
+                    end
+                end
+
+                charHolder.Parent = vf
+            end
+            vf.Parent = nil
+            return vf
+        end
+
+        local function tryCaptureService()
+            local okCS, CS = pcall(function() return game:GetService("CaptureService") end)
+            if not okCS or not CS then return nil end
+            local result, finished = nil, false
+            local started = pcall(function()
+                CS:CaptureScreenshot(function(id)
+                    result = id
+                    finished = true
+                end)
+            end)
+            if not started then return nil end
+            local t0 = os.clock()
+            while not finished and os.clock() - t0 < 2.5 do RunService.RenderStepped:Wait() end
+            return result
+        end
+
+        local function capture()
+            local vs = cam().ViewportSize
+            local photo = {aspect = vs.X / math.max(vs.Y, 1), filter = FILTERS[S.filter], time = os.date("%d/%m/%Y  %H:%M")}
+
+            -- Modo boneco ou selfie: câmera já está enquadrando o personagem.
+            -- Usamos screenshot real (CaptureService) com a ScreenGui oculta.
+            -- O engine renderiza o personagem com todas as texturas corretamente.
+            -- NÃO usamos ViewportFrame aqui — ele não renderiza texturas de avatar.
+            if S.boneco or S.selfie then
+                -- aguarda a câmera do bonecoConn/selfieConn estabilizar na pose
+                RunService.RenderStepped:Wait()
+                RunService.RenderStepped:Wait()
+                ScreenGui.Enabled = false
+                RunService.RenderStepped:Wait()
+                RunService.RenderStepped:Wait()
+                local id = tryCaptureService()
+                ScreenGui.Enabled = true
+                if id then
+                    local ed
+                    pcall(function() ed = game:GetService("AssetService"):CreateEditableImageAsync(Content.fromUri(id)) end)
+                    if ed then
+                        photo.kind, photo.id, photo.ed = "capture", id, ed
+                        return photo
+                    end
+                    photo.kind, photo.id = "capture", id
+                    return photo
+                end
+                -- fallback: se CaptureService falhou, vf sem personagem é melhor que travar
+                photo.kind = "vf"
+                photo.vf = makeVFPhoto()
+                return photo
+            end
+
+            -- Modo normal: fluxo original (tenta CaptureService, cai em VF)
+            ScreenGui.Enabled = false
+            RunService.RenderStepped:Wait()
+            RunService.RenderStepped:Wait()
+            local id = tryCaptureService()
+            ScreenGui.Enabled = true
+            if id then
+                local ed
+                pcall(function() ed = game:GetService("AssetService"):CreateEditableImageAsync(Content.fromUri(id)) end)
+                if ed then
+                    photo.kind, photo.id, photo.ed = "capture", id, ed
+                    return photo
+                end
+                local probe = nw("ImageLabel", {Image = id, BackgroundTransparency = 1, ImageTransparency = 0.99, Size = UDim2.new(0, 2, 0, 2)}, f)
+                local t0 = os.clock()
+                while not probe.IsLoaded and os.clock() - t0 < 1.5 do RunService.RenderStepped:Wait() end
+                local loaded = probe.IsLoaded
+                probe:Destroy()
+                if loaded then
+                    photo.kind, photo.id = "capture", id
+                    return photo
+                end
+            end
+            photo.kind = "vf"
+            photo.vf = makeVFPhoto()
+            return photo
+        end
+
+        local function releasePhoto(p)
+            if p.vf then p.vf:Destroy() end
+            if p.ed then pcall(function() p.ed:Destroy() end) end
+        end
+
+        local function fillPhoto(photo, parent)
+            local content
+            if photo.kind == "vf" then
+                content = photo.vf:Clone()
+                content.Size = UDim2.new(1, 0, 1, 0)
+                content.Position = UDim2.new(0, 0, 0, 0)
+                local vc = content:FindFirstChildOfClass("Camera")
+                if vc then content.CurrentCamera = vc end
+                content.Parent = parent
+            else
+                content = nw("ImageLabel", {BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, Size = UDim2.new(1, 0, 1, 0), ScaleType = Enum.ScaleType.Stretch}, parent)
+                local okc = false
+                if photo.ed then okc = pcall(function() content.ImageContent = Content.fromObject(photo.ed) end) end
+                if not okc then content.Image = photo.id or "" end
+            end
+            local fl = photo.filter
+            if fl and fl.ov and photo.kind == "vf" then
+                nw("Frame", {BackgroundColor3 = fl.ov, BackgroundTransparency = fl.ova, BorderSizePixel = 0, Size = UDim2.new(1, 0, 1, 0), ZIndex = content.ZIndex + 1}, parent)
+            end
+            return content
+        end
+
+        local function cropFill(photo, cell)
+            local a = photo.aspect
+            local w = nw("Frame", {BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(math.max(1, a), 0, math.max(1, 1 / a), 0), ZIndex = cell.ZIndex + 1}, cell)
+            fillPhoto(photo, w)
+        end
+
+        local function refreshThumb()
+            for _, ch in ipairs(thumb:GetChildren()) do
+                if ch:IsA("Frame") then ch:Destroy() end
+            end
+            local last = S.photos[#S.photos]
+            if last then
+                thumb.Text = ""
+                cropFill(last, thumb)
+            else
+                thumb.Text = "▣"
+            end
+        end
+
+        local function flyPhoto(photo)
+            local a = photo.aspect
+            local bw, bh = 150, 150 / a
+            if bh > 170 then bh = 170 bw = 170 * a end
+            local frame = nw("Frame", {BackgroundColor3 = WHITE, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 140, 0, 150), Size = UDim2.new(0, bw + 8, 0, bh + 8), Rotation = -3, ZIndex = 16}, f)
+            corner(frame, UDim.new(0, 3))
+            local inner = nw("Frame", {BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.new(0, 4, 0, 4), Size = UDim2.new(1, -8, 1, -8), ZIndex = 17}, frame)
+            fillPhoto(photo, inner)
+            local sc = nw("UIScale", {Scale = 0.6}, frame)
+            TweenService:Create(sc, TweenInfo.new(0.28, Enum.EasingStyle.Back), {Scale = 1}):Play()
+            task.wait(0.7)
+            local k = phoneUIScale.Scale
+            local tp = (thumb.AbsolutePosition - f.AbsolutePosition + thumb.AbsoluteSize / 2) / math.max(k, 0.01)
+            TweenService:Create(frame, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Position = UDim2.new(0, tp.X, 0, tp.Y), Size = UDim2.new(0, 38, 0, 38), Rotation = 0}):Play()
+            TweenService:Create(sc, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Scale = 0.9}):Play()
+            task.wait(0.45)
+            frame:Destroy()
+        end
+
+        -- ============================================================
+        --  SALVAR NA GALERIA: toda foto tirada vai para PHONE/Photos
+        --  1) .camphoto (instantâneo): guarda o id da captura -> aparece já na Galeria
+        --  2) PNG real (em segundo plano): sobrevive a novas sessões; substitui o .camphoto
+        -- ============================================================
+        local galleryCounter = 0
+        local function be32(n)
+            return string.char(math.floor(n / 16777216) % 256, math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256)
+        end
+        local crcT
+        local function crc32(str)
+            if not crcT then
+                crcT = {}
+                for n = 0, 255 do
+                    local c = n
+                    for _ = 1, 8 do
+                        if bit32.band(c, 1) == 1 then c = bit32.bxor(0xEDB88320, bit32.rshift(c, 1)) else c = bit32.rshift(c, 1) end
+                    end
+                    crcT[n + 1] = c
+                end
+            end
+            local c = 0xFFFFFFFF
+            for i = 1, #str do
+                c = bit32.bxor(crcT[bit32.band(bit32.bxor(c, str:byte(i)), 255) + 1], bit32.rshift(c, 8))
+            end
+            return bit32.bxor(c, 0xFFFFFFFF)
+        end
+        local function adler32(str)
+            local a, b = 1, 0
+            local len, i = #str, 1
+            while i <= len do
+                local j = math.min(i + 3799, len)
+                for k = i, j do a = a + str:byte(k); b = b + a end
+                a, b = a % 65521, b % 65521
+                i = j + 1
+            end
+            return b * 65536 + a
+        end
+        local function pngChunk(kind, body) return be32(#body) .. kind .. body .. be32(crc32(kind .. body)) end
+        local function zlibStore(raw)
+            local out, len, pos = {"\120\1"}, #raw, 1
+            while pos <= len do
+                local n = math.min(65535, len - pos + 1)
+                local final = (pos + n > len) and 1 or 0
+                local nn = 65535 - n
+                out[#out + 1] = string.char(final, n % 256, math.floor(n / 256), nn % 256, math.floor(nn / 256))
+                out[#out + 1] = raw:sub(pos, pos + n - 1)
+                pos = pos + n
+            end
+            out[#out + 1] = be32(adler32(raw))
+            return table.concat(out)
+        end
+
+        -- EditableImage -> PNG (RGB, reduzido para no máx. 640px de largura)
+        local function editableToPng(ed)
+            local sz = ed.Size
+            local W, H = math.floor(sz.X), math.floor(sz.Y)
+            if W < 1 or H < 1 then return nil end
+            local buf = ed:ReadPixelsBuffer(Vector2.new(0, 0), Vector2.new(W, H))
+            local step = math.max(1, math.ceil(W / 640))
+            local ow, oh = math.floor(W / step), math.floor(H / step)
+            local rows = {}
+            for oy = 0, oh - 1 do
+                local t, n = {0}, 1
+                local rowBase = (oy * step) * W
+                for ox = 0, ow - 1 do
+                    local off = (rowBase + ox * step) * 4
+                    t[n + 1] = buffer.readu8(buf, off)
+                    t[n + 2] = buffer.readu8(buf, off + 1)
+                    t[n + 3] = buffer.readu8(buf, off + 2)
+                    n = n + 3
+                end
+                rows[oy + 1] = string.char(table.unpack(t))
+                if oy % 24 == 0 then RunService.Heartbeat:Wait() end
+            end
+            local ihdr = be32(ow) .. be32(oh) .. "\8\2\0\0\0"
+            return "\137PNG\13\10\26\10" .. pngChunk("IHDR", ihdr) .. pngChunk("IDAT", zlibStore(table.concat(rows))) .. pngChunk("IEND", "")
+        end
+
+        local function saveToGallery(photo)
+            if not photo or photo.saved or not photo.kind then return end
+            -- FOTO VIEWPORTFRAME (sem imagem real): vira entrada virtual da Galeria.
+            -- Guardamos um CLONE próprio da cena congelada, pois a Câmera libera o original ao fechar.
+            if photo.kind == "vf" then
+                if not photo.vf then return end
+                photo.saved = true
+                local okC, vfClone = pcall(function() return photo.vf:Clone() end)
+                if not okC or not vfClone then toast("Não foi possível salvar na Galeria") return end
+                _G.TZE_GalleryVF = _G.TZE_GalleryVF or {}
+                local list = _G.TZE_GalleryVF
+                galleryCounter = galleryCounter + 1
+                local name = "Foto_" .. os.date("%Y%m%d_%H%M%S") .. "_" .. galleryCounter
+                table.insert(list, {
+                    name = name, file = name .. ".vf", path = "vf://" .. name, isVF = true,
+                    photo = {kind = "vf", vf = vfClone, aspect = photo.aspect, filter = photo.filter, time = photo.time},
+                })
+                while #list > 30 do
+                    local old = table.remove(list, 1)
+                    if old and old.photo and old.photo.vf then pcall(function() old.photo.vf:Destroy() end) end
+                end
+                toast("Foto salva na Galeria")
+                if refreshPhotos and GalleryFrame and GalleryFrame.Visible then pcall(refreshPhotos) end
+                return
+            end
+            if photo.kind ~= "capture" or not photo.id then return end
+            photo.saved = true
+            pcall(function()
+                if not isfolder("PHONE") then makefolder("PHONE") end
+                if not isfolder("PHONE/Photos") then makefolder("PHONE/Photos") end
+            end)
+            galleryCounter = galleryCounter + 1
+            local base = "Foto_" .. os.date("%Y%m%d_%H%M%S") .. "_" .. galleryCounter
+            local camPath = "PHONE/Photos/" .. base .. ".camphoto"
+            local okCam = pcall(writefile, camPath, tostring(photo.id))
+            if okCam then
+                photo.galleryPath = camPath
+                toast("Foto salva na Galeria")
+                if refreshPhotos and GalleryFrame and GalleryFrame.Visible then pcall(refreshPhotos) end
+            else
+                toast("Não foi possível salvar na Galeria")
+            end
+            -- upgrade para PNG permanente (o id temporário da captura some ao sair do jogo)
+            if photo.ed then
+                task.spawn(function()
+                    local okP, png = pcall(editableToPng, photo.ed)
+                    if okP and png then
+                        local pngPath = "PHONE/Photos/" .. base .. ".png"
+                        if pcall(writefile, pngPath, png) then
+                            photo.galleryPath = pngPath
+                            if okCam then pcall(delfile, camPath) end
+                            if refreshPhotos and GalleryFrame and GalleryFrame.Visible then pcall(refreshPhotos) end
+                        end
+                    end
+                end)
+            end
+        end
+
+        local function addPhoto(photo)
+            task.spawn(saveToGallery, photo)
+            table.insert(S.photos, photo)
+            while #S.photos > MAX_PHOTOS do releasePhoto(table.remove(S.photos, 1)) end
+            -- expõe a lista para a Galeria via _G
+            _G.TZE_CameraPhotos = S.photos
+            _G.TZE_CameraFillPhoto = fillPhoto
+        end
+
+        local function shutterFx()
+            ping(1.7)
+            task.delay(0.07, function() ping(0.9) end)
+            flashFrame.BackgroundTransparency = S.flash and 0 or 0.55
+            TweenService:Create(flashFrame, TweenInfo.new(S.flash and 0.6 or 0.22), {BackgroundTransparency = 1}):Play()
+            local t = TweenService:Create(ring, TweenInfo.new(0.1), {Size = UDim2.new(0.9, 0, 0.9, 0), Position = UDim2.new(0.05, 0, 0.05, 0)})
+            t.Completed:Once(function()
+                TweenService:Create(ring, TweenInfo.new(0.25, Enum.EasingStyle.Back), {Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0)}):Play()
+            end)
+            t:Play()
+        end
+
+        local function countdown(n)
+            S.counting = true
+            S.cancel = false
+            for i = n, 1, -1 do
+                if S.cancel then break end
+                cdLabel.Text = tostring(i)
+                cdLabel.Visible = true
+                cdLabel.TextTransparency = 0
+                cdLabel.TextStrokeTransparency = 0.5
+                cdScale.Scale = 1.7
+                TweenService:Create(cdScale, TweenInfo.new(0.4, Enum.EasingStyle.Back), {Scale = 1}):Play()
+                TweenService:Create(cdLabel, TweenInfo.new(0.9), {TextTransparency = 1, TextStrokeTransparency = 1}):Play()
+                ping(1 + (n - i) * 0.04)
+                task.wait(1)
+            end
+            cdLabel.Visible = false
+            S.counting = false
+            return not S.cancel
+        end
+
+        local function shoot()
+            if S.counting then
+                S.cancel = true
+                toast("Contagem cancelada")
+                return
+            end
+            if S.busy or not S.active or roll.Visible or viewer.Visible then return end
+            S.busy = true
+            local t = TIMERS[S.timerIdx]
+            if t > 0 and not countdown(t) then
+                S.busy = false
+                return
+            end
+            local ok, photo = pcall(capture)
+            if not ok or not photo then
+                ScreenGui.Enabled = true
+                S.busy = false
+                toast("Não deu pra tirar a foto")
+                return
+            end
+            shutterFx()
+            addPhoto(photo)
+            S.busy = false
+            task.spawn(function()
+                pcall(flyPhoto, photo)
+                refreshThumb()
+                local sc = thumb:FindFirstChildOfClass("UIScale")
+                if sc then
+                    sc.Scale = 1.18
+                    TweenService:Create(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Scale = 1}):Play()
+                end
+            end)
+        end
+
+        local function showViewer()
+            local cur = S.photos[S.viewIdx]
+            if not cur then return end
+            for _, ch in ipairs(vwInner:GetChildren()) do ch:Destroy() end
+            vwRatio.AspectRatio = cur.aspect
+            fillPhoto(cur, vwInner)
+            vwCaption.Text = cur.time .. "   •   " .. cur.filter.name
+            vwCounter.Text = S.viewIdx .. " / " .. #S.photos
+            vwSave.Visible = cur.kind == "capture"
+            viewer.Visible = true
+        end
+
+        local function refreshRoll()
+            for _, ch in ipairs(rollScroll:GetChildren()) do
+                if ch:IsA("TextButton") then ch:Destroy() end
+            end
+            local n = #S.photos
+            rollEmpty.Visible = n == 0
+            rollTitle.Text = n > 0 and ("Fotos  (" .. n .. ")") or "Fotos"
+            for i = n, 1, -1 do
+                local p = S.photos[i]
+                local cell = nw("TextButton", {BackgroundColor3 = CARDC, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ClipsDescendants = true, LayoutOrder = n - i, ZIndex = 11}, rollScroll)
+                corner(cell, UDim.new(0, 8))
+                cropFill(p, cell)
+                cell.MouseButton1Click:Connect(function()
+                    ping(1.2)
+                    S.viewIdx = i
+                    showViewer()
+                end)
+            end
+        end
+
+        thumb.MouseButton1Click:Connect(function()
+            if S.busy then return end
+            ping(1.1)
+            refreshRoll()
+            roll.Visible = true
+        end)
+
+        local function stepViewer(d)
+            local n = #S.photos
+            if n == 0 then return end
+            ping(1.3)
+            S.viewIdx = ((S.viewIdx - 1 + d) % n) + 1
+            showViewer()
+        end
+        vwPrev.MouseButton1Click:Connect(function() stepViewer(-1) end)
+        vwNext.MouseButton1Click:Connect(function() stepViewer(1) end)
+        vwDel.MouseButton1Click:Connect(function()
+            local p = S.photos[S.viewIdx]
+            if not p then return end
+            ping(0.7)
+            table.remove(S.photos, S.viewIdx)
+            releasePhoto(p)
+            refreshThumb()
+            if #S.photos == 0 then
+                viewer.Visible = false
+                refreshRoll()
+            else
+                S.viewIdx = math.clamp(S.viewIdx, 1, #S.photos)
+                showViewer()
+                refreshRoll()
+            end
+            toast("Foto excluída")
+        end)
+        vwSave.MouseButton1Click:Connect(function()
+            local p = S.photos[S.viewIdx]
+            if not p or p.kind ~= "capture" then return end
+            local ok = pcall(function()
+                game:GetService("CaptureService"):PromptSaveCapturesToGallery({p.id}, function() end)
+            end)
+            toast(ok and "Enviada para a galeria do Roblox" or "Não foi possível salvar")
+        end)
+
+        shutter.MouseButton1Click:Connect(shoot)
+        btnFlash.MouseButton1Click:Connect(function() ping(1.2) S.flash = not S.flash refreshTop() end)
+        btnTimer.MouseButton1Click:Connect(function() ping(1.2) S.timerIdx = S.timerIdx % #TIMERS + 1 refreshTop() end)
+        btnGrid.MouseButton1Click:Connect(function() ping(1.2) S.grid = not S.grid refreshTop() end)
+        -- Modo Boneco: enquadra o personagem inteiro; exclusivo com selfie
+        btnBoneco.MouseButton1Click:Connect(function()
+            ping(1.2)
+            local next = not S.boneco
+            if next then
+                -- desativa selfie se estiver ativo
+                if S.selfie then setSelfie(false) end
+                setBoneco(true)
+            else
+                setBoneco(false)
+            end
+            refreshTop()
+        end)
+        btnFlip.MouseButton1Click:Connect(function()
+            ping(1.3)
+            TweenService:Create(btnFlip, TweenInfo.new(0.35, Enum.EasingStyle.Back), {Rotation = btnFlip.Rotation + 180}):Play()
+            if cam() then
+                local next = not S.selfie
+                if next then
+                    -- desativa boneco se estiver ativo
+                    if S.boneco then setBoneco(false) end
+                    setSelfie(true)
+                else
+                    setSelfie(false)
+                end
+                refreshTop()
+            end
+        end)
+        for i, b in ipairs(zoomBtns) do
+            b.MouseButton1Click:Connect(function() ping(1.2) setZoom(ZOOMS[i]) end)
+        end
+        for i, b in ipairs(chipBtns) do
+            b.MouseButton1Click:Connect(function() ping(1.1) applyFilter(i) end)
+        end
+
+        f:GetPropertyChangedSignal("Visible"):Connect(function()
+            if f.Visible then activate() else deactivate() end
+        end)
+
+        Nav.camera.goBack = function()
+            if viewer.Visible then viewer.Visible = false refreshRoll() return true end
+            if roll.Visible then roll.Visible = false return true end
+            return false
+        end
+        Nav.camera.onOpen = function()
+            roll.Visible = false
+            viewer.Visible = false
+            refreshTop()
+            refreshThumb()
+            applyFilter(S.filter, true)
+            setZoom(S.zoom, true)
+        end
+        Nav.camera.onClose = function()
+            -- fecha painéis internos
+            roll.Visible = false
+            viewer.Visible = false
+            -- remove conteúdo do viewer para não manter ViewportFrames vivas
+            for _, ch in ipairs(vwInner:GetChildren()) do ch:Destroy() end
+            -- cancela contagem regressiva pendente
+            S.cancel = true
+            -- desativa câmera e libera todos os recursos (efeitos, fotos, conexões)
+            deactivate()
+        end
+
+        applyFilter(1, true)
+        setZoom(1, true)
+        refreshTop()
+        -- expõe lista de fotos e renderizador para o app Galeria
+        _G.TZE_CameraPhotos    = S.photos
+        _G.TZE_CameraFillPhoto = fillPhoto
         return f
     end
 
@@ -9003,12 +11623,14 @@ do
     createNavBar(notesFrame)
     createNavBar(weatherFrame)
     createNavBar(calcFrame)
+    screens.camera = {frame = buildCamera(), app = true, name = "Câmera", color = Color3.fromRGB(62, 64, 74), icon = Icons.camera, onOpen = function() Nav.camera.onOpen() end, onClose = function() Nav.camera.onClose() end}
+    createNavBar(screens.camera.frame)
 
     Nav.notes = notesHooks
 
     screens.notes = {frame = notesFrame, app = true, name = "Notas", color = Color3.fromRGB(245, 190, 50), icon = Icons.notepad, onOpen = function() notesHooks.onOpen() end, onClose = function() notesHooks.onClose() end}
     screens.weather = {frame = weatherFrame, app = true, name = "Clima", color = Color3.fromRGB(60, 150, 235), icon = Icons.weather, onOpen = function() weatherHooks.onOpen() end}
-    screens.calc = {frame = calcFrame, app = true, name = "Calculadora", color = Color3.fromRGB(240, 100, 70), icon = Icons.calc}
+    screens.calc = {frame = calcFrame, app = true, name = "Calculadora", color = Color3.fromRGB(240, 100, 70), icon = Icons.calc, onClose = function() if Nav.calc then Nav.calc.reset() end end}
 
     local function safeAppIcon(label, drawFn, col, pos)
         local mk = Nav.__mkIconFn or createAppIcon
@@ -9028,22 +11650,26 @@ do
         return icon
     end
 
-    local notesIcon = safeAppIcon("Notas", Icons.notepad, Color3.fromRGB(245, 190, 50), UDim2.new(0, 85, 0, 200))
-    local weatherIcon = safeAppIcon("Clima", Icons.weather, Color3.fromRGB(60, 150, 235), UDim2.new(0, 165, 0, 200))
-    local calcIcon = safeAppIcon("Calculadora", Icons.calc, Color3.fromRGB(240, 100, 70), UDim2.new(0, 5, 0, 300))
-    if notesIcon then notesIcon.MouseButton1Click:Connect(function() showScreen("notes", true) end) end
-    if weatherIcon then weatherIcon.MouseButton1Click:Connect(function() showScreen("weather", true) end) end
-    if calcIcon then calcIcon.MouseButton1Click:Connect(function() showScreen("calc", true) end) end
+    local notesIcon = safeAppIcon("Notas", Icons.notepad, Color3.fromRGB(245, 190, 50), Nav.homeSlot(2))
+    local weatherIcon = safeAppIcon("Clima", Icons.weather, Color3.fromRGB(60, 150, 235), Nav.homeSlot(1))
+    local calcIcon = safeAppIcon("Calculadora", Icons.calc, Color3.fromRGB(240, 100, 70), Nav.homeSlot(3))
+    if notesIcon then notesIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("notes", true) end) end
+    if weatherIcon then weatherIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("weather", true) end) end
+    if calcIcon then calcIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("calc", true) end) end
+    do
+        local cameraIcon = safeAppIcon("Câmera", Icons.camera, Color3.fromRGB(62, 64, 74), Nav.homeSlot(5))
+        if cameraIcon then cameraIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("camera", true) end) end
+    end
 end
 
 
 screens.home      = {frame = PhoneHome}
-screens.music     = {frame = MainFrame,      app = true, name = "Música",     color = Color3.fromRGB(0, 180, 255),  icon = Icons.music,     onOpen = function() refreshFiles() end, onClose = function() stopMusic() end}
+screens.music     = {frame = MainFrame,      app = true, name = "Música",     color = Color3.fromRGB(0, 180, 255),  icon = Icons.music,     onOpen = function() refreshFiles(); if restoreMusic then restoreMusic() end end, onClose = function() stopMusic() end}
 screens.stopwatch = {frame = StopwatchFrame, app = true, name = "Cronômetro", color = Color3.fromRGB(255, 140, 30), icon = Icons.stopwatch, onClose = function() resetStopwatch() end}
-screens.config    = {frame = ConfigFrame,    app = true, name = "Config",     color = Color3.fromRGB(120, 120, 130), icon = Icons.gear, onOpen = function() if cfgReset then cfgReset() end end}
-screens.gallery   = {frame = GalleryFrame,   app = true, name = "Galeria",    color = Color3.fromRGB(180, 80, 220), icon = Icons.gallery,   onOpen = function() refreshPhotos() end}
+screens.config    = {frame = ConfigFrame,    app = true, name = "Config",     color = Color3.fromRGB(120, 120, 130), icon = Icons.gear, onOpen = function() if cfgReset then cfgReset() end end, onClose = function() if cfgReset then cfgReset() end end}
+screens.gallery   = {frame = GalleryFrame,   app = true, name = "Galeria",    color = Color3.fromRGB(180, 80, 220), icon = Icons.gallery,   onOpen = function() refreshPhotos() end, onClose = function() exitPhotoViewer() end}
 screens.gps       = {frame = Nav.gps.frame,  app = true, name = "GPS",       color = Color3.fromRGB(46, 190, 120), icon = Icons.gps, onOpen = function() Nav.gps.onOpen() end, onClose = function() Nav.gps.onClose() end}
-screens.web       = {frame = WebBrowserFrame, app = true, name = "Navegador", color = Color3.fromRGB(35,145,205), icon = Icons.search}
+screens.web       = {frame = WebBrowserFrame, app = true, name = "Navegador", color = Color3.fromRGB(35,145,205), icon = Icons.search, onClose = function() if Nav.web and Nav.web.reset then Nav.web.reset() end end}
 screens.recents   = {frame = RecentsFrame,   onOpen = function() rcBg.Image = currentWallpaper end}
 
 local function touchApp(id)
@@ -9227,13 +11853,18 @@ end
 function Nav.back()
     if currentScreen == "home" then return end
     if currentScreen == "recents" then
-        showScreen(prevScreen ~= "recents" and prevScreen or "home", true)
+        local back = prevScreen
+        local still = false
+        for _, v in ipairs(openApps) do if v == back then still = true break end end
+        if back == "recents" or not still then back = "home" end
+        showScreen(back, true)
         return
     end
     if currentScreen == "config" and cfgGoBack and cfgGoBack() then return end
     if currentScreen == "gps" and Nav.gps.goBack and Nav.gps.goBack() then return end
     if currentScreen == "web" and Nav.web and Nav.web.goBack and Nav.web.goBack() then return end
     if currentScreen == "notes" and Nav.notes and Nav.notes.goBack and Nav.notes.goBack() then return end
+    if currentScreen == "camera" and Nav.camera and Nav.camera.goBack and Nav.camera.goBack() then return end
     if currentScreen == "gallery" and isInPhotoViewer then
         if isPhotoMenuOpen then closePhotoMenu() else exitPhotoViewer() end
         return
@@ -9243,19 +11874,23 @@ end
 
 function Nav.recents()
     if currentScreen == "recents" then
-        showScreen(prevScreen ~= "recents" and prevScreen or "home", true)
+        local back = prevScreen
+        local still = false
+        for _, v in ipairs(openApps) do if v == back then still = true break end end
+        if back == "recents" or not still then back = "home" end
+        showScreen(back, true)
         return
     end
     prevScreen = currentScreen
     showScreen("recents", true)
 end
 
-MusicAppIcon.MouseButton1Click:Connect(function() showScreen("music", true) end)
-StopwatchAppIcon.MouseButton1Click:Connect(function() showScreen("stopwatch", true) end)
-ConfigAppIcon.MouseButton1Click:Connect(function() showScreen("config", true) end)
-GalleryAppIcon.MouseButton1Click:Connect(function() showScreen("gallery", true) end)
-Nav.gps.icon.MouseButton1Click:Connect(function() showScreen("gps", true) end)
-WebBrowserIcon.MouseButton1Click:Connect(function() showScreen("web", true) end)
+MusicAppIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("music", true) end)
+StopwatchAppIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("stopwatch", true) end)
+ConfigAppIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("config", true) end)
+GalleryAppIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("gallery", true) end)
+Nav.gps.icon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("gps", true) end)
+WebBrowserIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("web", true) end)
 
 Nav.boot = {done = false, active = false}
 function Nav.boot.play()
@@ -9466,7 +12101,7 @@ function Nav.boot.play()
     footer.Position = UDim2.new(0.5, 0, 1, -14)
     footer.Size = UDim2.new(1, 0, 0, 12)
     footer.BackgroundTransparency = 1
-    footer.Text = "TZE PHONE  •  V8"
+    footer.Text = "iDroid  •  V8"
     footer.Font = Enum.Font.Gotham
     footer.TextSize = 9
     footer.TextColor3 = GREY
@@ -9845,11 +12480,11 @@ do
         ombroR6       = 78,
         paraDentroR6  = -6,
         r6Tilt        = 38,
-        r6Y           = -1.44,
-        r6X           = -0.22,
+        r6Y           = -1.08,
+        r6X           = -0.36,
         r6Z           = -0.16,
 
-        giroCelular    = {R15 = 33, R6 = 64},
+        giroCelular    = {R15 = 33, R6 = 53},
         celularInclina = {R15 = 26, R6 = 47},
         celularRolagem = {R15 = -41, R6 = -1},
         bracoEsq       = {R15 = 27, R6 = 41},

@@ -30,6 +30,7 @@ local function criarPastasPhone()
     end)
 end
 criarPastasPhone()
+
 local HttpService = game:GetService("HttpService")
 local SETTINGS_PATH = "PHONE/settings.json"
 
@@ -119,7 +120,23 @@ local isMusicOpen = false
 local currentApp = "home"
 local phoneFlashlight = nil
 local currentVolume = phoneSettings.volume or 1
-local currentWallpaper = phoneSettings.wallpaper or defaultSettings.wallpaper
+-- FIX wallpaper: getcustomasset devolve um link "rbxasset://..." valido so nesta sessao; salvar esse link
+-- fazia o wallpaper sumir ao reabrir. Agora guardamos o CAMINHO do arquivo (wallpaperFile) e geramos o
+-- link de novo a cada execucao. IDs normais (rbxassetid://) continuam salvos em wallpaper.
+local function resolveWallpaper()
+    local f = phoneSettings.wallpaperFile
+    if type(f) == "string" and f ~= "" then
+        local okF, has = pcall(isfile, f)
+        if okF and has then
+            local okA, a = pcall(getcustomasset, f)
+            if okA and type(a) == "string" and a ~= "" then return a end
+        end
+    end
+    local w = phoneSettings.wallpaper
+    if type(w) ~= "string" or w == "" or w:find("^rbxasset://") then w = nil end
+    return w or defaultSettings.wallpaper
+end
+local currentWallpaper = resolveWallpaper()
 
 local HotbarFrame, hotbarUIScale, phoneSlot, selectedFrame
 local PhoneHome, homeBg
@@ -1301,34 +1318,108 @@ Nav.gif = (function()
         if s then
             s.dead = true
             if s.conn then s.conn:Disconnect() end
+            if s.cleanup then s.cleanup() end
             playing[img] = nil
         end
     end
 
+    -- FIX (GIF piscando, v2): trocar o .Image de um ImageLabel VISIVEL faz o Roblox desenhar 1 quadro em
+    -- branco ate a textura subir pra GPU (e o overlay invisivel nunca desenhava o quadro antes). Agora:
+    -- 3 buffers (ImageLabel) por cima da imagem: [atual] [proximo] [seguinte]. Os dois proximos ficam
+    -- DESENHADOS com 99% de transparencia (a textura ja esta na GPU) e a troca de quadro e so mudar
+    -- transparencia/ZIndex - o .Image de um buffer visivel nunca muda. O modo 60 FPS mistura o atual
+    -- com o proximo (fade). So avanca quando o proximo buffer informa IsLoaded (se o executor nao
+    -- informar, o controle e desligado sozinho e nunca trava).
     function Gif.play(img, over, assets, delays, cancelled, state)
         local RS = game:GetService("RunService")
+        local CP = game:GetService("ContentProvider")
         local n = #assets
         local idx, t = 1, 0
         Gif.stop(img)
-        if over then Gif.stop(over) end
+        if over then Gif.stop(over); over.Visible = false; over.Image = "" end
         local session = {dead = false}
         playing[img] = session
-        -- Nao define img.Image aqui: quem chama ja colocou o 1o quadro (thumb).
-        -- Isso evita flash do frame 1 sobre outro GIF que ainda esta sendo cancelado.
+
+        local PRE = 0.99
+        local bz = img.ZIndex
+        local scale = (over or img).ScaleType
+        local function mk()
+            local l = Instance.new("ImageLabel")
+            l.Name = "GifBuf"
+            l.BackgroundTransparency = 1
+            l.BorderSizePixel = 0
+            l.Size = UDim2.new(1, 0, 1, 0)
+            l.ScaleType = scale
+            l.ImageTransparency = 1
+            l.Image = ""
+            l.Parent = img
+            return l
+        end
+        local cur, nxt, nn = mk(), mk(), mk()
+        local pool = {cur, nxt, nn}
+        local function cleanup()
+            for _, l in ipairs(pool) do pcall(function() l:Destroy() end) end
+            pool = {}
+        end
+        session.cleanup = cleanup
+        local function frameAt(k) return ((idx - 1 + k) % n) + 1 end
+        local function layout()
+            cur.ZIndex = bz + 1
+            nxt.ZIndex = bz + 2
+            nn.ZIndex = bz + 3
+        end
+        cur.Image = assets[1]
+        cur.ImageTransparency = 0
+        nxt.Image = assets[frameAt(1)]
+        nxt.ImageTransparency = PRE
+        nn.Image = assets[frameAt(2)]
+        nn.ImageTransparency = PRE
+        layout()
+
+        -- aquece o cache em segundo plano (blocos de 6; PreloadAsync pode nunca voltar: limite de 1.2s)
+        task.spawn(function()
+            local i = 1
+            while i <= n and not session.dead do
+                local last = math.min(n, i + 5)
+                local chunk = {}
+                for j = i, last do chunk[#chunk + 1] = assets[j] end
+                local done = false
+                task.spawn(function()
+                    pcall(function() CP:PreloadAsync(chunk) end)
+                    done = true
+                end)
+                local t0 = os.clock()
+                while not done and os.clock() - t0 < 1.2 and not session.dead do task.wait(0.03) end
+                i = last + 1
+            end
+        end)
+
+        local clock0 = os.clock()
+        local cleared, gateKnown, gateOn, stall = false, false, true, 0
         local conn
         conn = RS.Heartbeat:Connect(function(dt)
-            -- substituido por outro GIF: sai SEM mexer na UI (ela ja pertence ao GIF novo)
             if session.dead then
                 conn:Disconnect()
                 return
             end
-            -- checagem IMEDIATA antes de qualquer write
             if cancelled() then
                 conn:Disconnect()
                 if playing[img] == session then playing[img] = nil end
-                -- limpa o overlay para nao vazar quadro por cima do proximo GIF
-                if over then over.Visible = false; over.Image = "" end
+                cleanup()
                 return
+            end
+            -- quando o buffer ja desenhou o 1o quadro, limpa a imagem base (evita aparecer por tras em GIF com transparencia)
+            if not cleared and (cur.IsLoaded or os.clock() - clock0 > 0.5) then
+                cleared = true
+                img.Image = ""
+            end
+            -- descobre se este executor informa IsLoaded; se nao informar, nao usa como trava
+            if not gateKnown then
+                if cur.IsLoaded then
+                    gateKnown = true
+                elseif os.clock() - clock0 > 1.5 then
+                    gateKnown, gateOn = true, false
+                end
             end
             if not state.playing then return end
             if dt > 0.25 then dt = 0.25 end
@@ -1337,32 +1428,41 @@ Nav.gif = (function()
             if d <= 0 then d = 0.1 end
             local changed, guard = false, 0
             while t >= d and guard < n do
+                if gateOn and gateKnown and not nxt.IsLoaded then
+                    stall = stall + dt
+                    if stall < 0.7 then
+                        t = d   -- segura o quadro atual ate o proximo estar na GPU (nada de tela em branco)
+                        break
+                    end
+                end
+                stall = 0
                 t = t - d
+                -- gira os buffers: o antigo "atual" vira o "seguinte" (recebe imagem nova ESCONDIDO)
+                local old = cur
+                cur, nxt, nn = nxt, nn, old
                 idx = idx % n + 1
+                old.ImageTransparency = 1
+                old.Image = assets[frameAt(2)]
+                old.ImageTransparency = PRE
+                cur.ImageTransparency = 0
+                changed = true
                 d = delays[idx] or 0.1
                 if d <= 0 then d = 0.1 end
-                changed = true
                 guard = guard + 1
             end
             if guard >= n then t = 0 end
-            -- segunda checagem apos calcular (loop pesado pode demorar)
             if session.dead then conn:Disconnect(); return end
             if cancelled() then
                 conn:Disconnect()
                 if playing[img] == session then playing[img] = nil end
-                if over then over.Visible = false; over.Image = "" end
+                cleanup()
                 return
             end
-            if changed then img.Image = assets[idx] end
-            if over then
-                if state.smooth and n > 1 then
-                    local nxt = idx % n + 1
-                    over.Visible = true
-                    if over.Image ~= assets[nxt] then over.Image = assets[nxt] end
-                    over.ImageTransparency = 1 - math.clamp(t / d, 0, 1)
-                else
-                    over.Visible = false
-                end
+            if changed then layout() end
+            if state.smooth and n > 1 then
+                nxt.ImageTransparency = math.min(PRE, 1 - math.clamp(t / d, 0, 1))
+            else
+                nxt.ImageTransparency = PRE
             end
         end)
         session.conn = conn
@@ -4490,6 +4590,7 @@ local function applyWallpaper(id)
     end
     currentWallpaper = id
     phoneSettings.wallpaper = id
+    phoneSettings.wallpaperFile = nil
     homeBg.Image = id
     wpPreview.Image = id
     saveSettings()
@@ -5312,8 +5413,16 @@ setWallpaperMenuBtn.MouseButton1Click:Connect(function()
     local a
     if photo.isGif then a = gifThumbAsset(photo) else a = getAsset(photo.path) end
     if a then
+        local file = nil
+        if photo.isGif then
+            local okK, key = pcall(gifKeyFor, photo)
+            if okK and key then file = Gif.thumbPath(key) end
+        elseif not tostring(photo.path):match("%.camphoto$") and tostring(photo.path):sub(1, 5) ~= "vf://" then
+            file = photo.path
+        end
         currentWallpaper = a
         phoneSettings.wallpaper = a
+        phoneSettings.wallpaperFile = file
         homeBg.Image = a
         saveSettings()
         closePhotoMenu()
@@ -6690,6 +6799,49 @@ local function makeBrowserScreen()
     end
 
     local U = {}
+    -- ===== MODO ESCURO DO NAVEGADOR =====
+    -- Converte as cores das paginas (fundo, texto, borda) na hora de montar o layout.
+    -- Fundos claros escurecem, textos escuros clareiam; o que ja e escuro/colorido fica como esta
+    -- (assim sites que ja tem tema escuro nao sao invertidos de volta).
+    U.dark = {on = (phoneSettings.browserDark == true)}
+    function U.dk(c, kind)
+        if not U.dark.on or not c then return c end
+        local r, g, b = c.R, c.G, c.B
+        local y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        local mx, mn = math.max(r, g, b), math.min(r, g, b)
+        local l = (mx + mn) / 2
+        local d = mx - mn
+        local sat = (d == 0) and 0 or d / (1 - math.abs(2 * l - 1))
+        local h = 0
+        if d > 0 then
+            if mx == r then h = ((g - b) / d) % 6
+            elseif mx == g then h = (b - r) / d + 2
+            else h = (r - g) / d + 4 end
+            h = h / 6
+        end
+        local nl, ns = l, sat
+        if kind == "bg" then
+            if y <= 0.5 then return c end
+            nl = 0.07 + (1 - l) * 0.35
+            ns = sat * 0.75
+        elseif kind == "fg" then
+            if y >= 0.5 then return c end
+            nl = math.clamp(1 - l, 0.68, 0.93)
+        else
+            if y > 0.55 then
+                nl = math.clamp(1 - l, 0.16, 0.32)
+                ns = sat * 0.6
+            elseif y < 0.2 then
+                nl = 0.3
+            else
+                return c
+            end
+        end
+        local v = nl + ns * math.min(nl, 1 - nl)
+        local sv = (v == 0) and 0 or 2 * (1 - nl / v)
+        return Color3.fromHSV(h, math.clamp(sv, 0, 1), math.clamp(v, 0, 1))
+    end
+
     function U.httpGet(url)
         local req = request or http_request or (syn and syn.request)
         if type(req) == "function" then
@@ -6701,6 +6853,50 @@ local function makeBrowserScreen()
         end
         if game.HttpGet then return game:HttpGet(url) end
         error("Seu ambiente não disponibiliza uma função HTTP GET")
+    end
+    -- Requisicao dedicada aos buscadores: User-Agent de navegador atual + idioma pt-BR (varios buscadores
+    -- recusam o "Mozilla/5.0" puro). NAO altera U.httpGet, que continua servindo o resto do navegador.
+    U.SEARCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    function U.httpGetH(url, extra)
+        local req = request or http_request or (syn and syn.request)
+        if type(req) ~= "function" then return U.httpGet(url) end
+        local headers = {
+            ["User-Agent"] = U.SEARCH_UA,
+            ["Accept"] = "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            ["Accept-Language"] = "pt-BR,pt;q=0.9,en;q=0.7",
+        }
+        for k, v in pairs(extra or {}) do headers[k] = v end
+        local response = req({Url = url, Method = "GET", Headers = headers})
+        if type(response) == "table" and type(response.Body) == "string" and response.Body ~= "" then return response.Body end
+        error("Resposta HTTP vazia")
+    end
+    -- Divide o HTML em blocos que comecam em cada ocorrencia de "marker" (1 bloco por resultado)
+    function U.chunks(html, marker)
+        local starts, i = {}, 1
+        while true do
+            local a = html:find(marker, i, true)
+            if not a then break end
+            starts[#starts + 1] = a
+            i = a + #marker
+        end
+        local out = {}
+        for k, a in ipairs(starts) do
+            local b = (starts[k + 1] or (#html + 1)) - 1
+            if b - a > 7000 then b = a + 7000 end
+            out[#out + 1] = html:sub(a, b)
+        end
+        return out
+    end
+    -- Primeiro padrao que render texto nao vazio (ja sem HTML)
+    function U.pick(block, pats)
+        for _, p in ipairs(pats) do
+            local m = block:match(p)
+            if m then
+                local t = U.plain(m)
+                if t ~= "" then return t end
+            end
+        end
+        return ""
     end
     function U.decode(t)
         t = t:gsub("&nbsp;", " "):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&#39;", "'"):gsub("&amp;", "&")
@@ -7660,7 +7856,10 @@ local function makeBrowserScreen()
     end
 
     -- Buscadores disponiveis (escolha no menu de 3 pontinhos). "Auto" = tenta todos em ordem.
-    U.ENGINES = {"Auto", "DuckDuckGo", "Bing", "DuckDuckGo Lite", "Mojeek", "Wikipedia"}
+    U.ENGINES = {"Auto", "Brave", "DuckDuckGo", "Wikipedia"}
+
+    -- Sem filtro manual de data/relevancia: o proprio buscador ordena por relevancia (como num navegador comum)
+    function U.period() return "any" end
     function U.engine()
         local e = phoneSettings.searchEngine
         for _, n in ipairs(U.ENGINES) do if n == e then return e end end
@@ -7914,68 +8113,61 @@ local function makeBrowserScreen()
             local name = U.plain(r[2])
             if name ~= "" and link:match("^https?://") and not link:find("duckduckgo.com/y.js", 1, true) and not seen[link] then
                 seen[link] = true
-                items[#items + 1] = {name = name:sub(1, 90), url = link, snippet = paired and snips[i] and snips[i]:sub(1, 130) or nil}
-                if #items >= 10 then break end
+                items[#items + 1] = {name = name:sub(1, 90), url = link, snippet = paired and snips[i] and snips[i]:sub(1, 130) or nil, full = paired and snips[i] or nil}
             end
         end
         return items
     end
 
     local SEARCH_ENGINES = {
-        {name = "DuckDuckGo", run = function(q)
-            local html = U.httpGet("https://html.duckduckgo.com/html/?kp=-2&q=" .. HttpService:UrlEncode(q))
+        {name = "Brave", run = function(q, pg, off)
+            local tf = ({d = "pd", w = "pw", m = "pm", y = "py"})[U.period()]
+            local html = U.httpGetH("https://search.brave.com/search?source=web&q=" .. HttpService:UrlEncode(q) .. (tf and ("&tf=" .. tf) or "") .. (pg > 0 and ("&offset=" .. pg) or ""), {Cookie = "safesearch=off; country=br"})
+            local raw, snips = {}, {}
+            for _, ch in ipairs(U.chunks(html, 'data-type="web"')) do
+                local href = ch:match('<a[^>]-href="(https?://[^"]+)"')
+                if href and not href:find("search.brave.com", 1, true) then
+                    local label = U.pick(ch, {'class="[^"]*title[^"]*"[^>]*>(.-)</div>', '<a[^>]-href="https?://[^"]+"[^>]*>(.-)</a>'})
+                    local snip = U.pick(ch, {'class="[^"]*snippet%-description[^"]*"[^>]*>(.-)</div>', 'class="content[^"]*"[^>]*>(.-)</div>', 'class="generic%-snippet[^"]*"[^>]*>(.-)</div>'})
+                    raw[#raw + 1] = {href, label}
+                    snips[#snips + 1] = snip
+                end
+            end
+            return collect(raw, snips)
+        end},
+        {name = "DuckDuckGo", run = function(q, pg, off)
+            local df = ({d = "d", w = "w", m = "m", y = "y"})[U.period()]
+            local html = U.httpGet("https://html.duckduckgo.com/html/?kp=-2&q=" .. HttpService:UrlEncode(q) .. (df and ("&df=" .. df) or "") .. (off > 0 and ("&s=" .. off .. "&dc=" .. (off + 1)) or ""))
             local raw, snips = {}, {}
             for href, label in html:gmatch('class="result__a" href="(.-)"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
             for s in html:gmatch('class="result__snippet"[^>]*>(.-)</a>') do snips[#snips + 1] = U.plain(s) end
             return collect(raw, snips)
         end},
-        {name = "Bing", run = function(q)
-            local html = U.httpGet("https://www.bing.com/search?q=" .. HttpService:UrlEncode(q) .. "&setlang=pt-BR&adlt=off")
-            local raw, snips = {}, {}
-            for block in html:gmatch('<li class="b_algo.-</li>') do
-                local href, label = block:match('<h2[^>]*><a[^>]-href="(.-)"[^>]*>(.-)</a>')
-                if href then
-                    raw[#raw + 1] = {href, label}
-                    snips[#snips + 1] = U.plain(block:match("<p[^>]*>(.-)</p>") or "")
-                end
-            end
-            return collect(raw, snips)
-        end},
-        {name = "DuckDuckGo Lite", run = function(q)
-            local html = U.httpGet("https://lite.duckduckgo.com/lite/?kp=-2&q=" .. HttpService:UrlEncode(q))
-            local raw, snips = {}, {}
-            for href, label in html:gmatch("<a[^>]-href=\"(.-)\"[^>]-class=['\"]result%-link['\"][^>]*>(.-)</a>") do raw[#raw + 1] = {href, label} end
-            for s in html:gmatch("class=['\"]result%-snippet['\"][^>]*>(.-)</td>") do snips[#snips + 1] = U.plain(s) end
-            return collect(raw, snips)
-        end},
-        {name = "Mojeek", run = function(q)
-            local html = U.httpGet("https://www.mojeek.com/search?safe=0&q=" .. HttpService:UrlEncode(q))
-            local raw, snips = {}, {}
-            for href, label in html:gmatch('<a[^>]-class="title"[^>]-href="(.-)"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
-            if #raw == 0 then
-                for href, label in html:gmatch('<a[^>]-href="(.-)"[^>]-class="title"[^>]*>(.-)</a>') do raw[#raw + 1] = {href, label} end
-            end
-            for s in html:gmatch('<p class="s">(.-)</p>') do snips[#snips + 1] = U.plain(s) end
-            return collect(raw, snips)
-        end},
-        {name = "Wikipedia", run = function(q)
-            local js = U.httpGet("https://pt.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=10&srsearch=" .. HttpService:UrlEncode(q))
+        {name = "Wikipedia", run = function(q, pg, off)
+            local js = U.httpGet("https://pt.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=50&sroffset=" .. off .. "&srsearch=" .. HttpService:UrlEncode(q))
             local d = HttpService:JSONDecode(js)
             local items = {}
             for _, r in ipairs(d.query and d.query.search or {}) do
-                items[#items + 1] = {name = tostring(r.title), url = "https://pt.wikipedia.org/wiki/" .. tostring(r.title):gsub(" ", "_"), snippet = U.plain(tostring(r.snippet or "")):sub(1, 130)}
+                items[#items + 1] = {name = tostring(r.title), url = "https://pt.wikipedia.org/wiki/" .. tostring(r.title):gsub(" ", "_"), snippet = U.plain(tostring(r.snippet or "")):sub(1, 130), full = U.plain(tostring(r.snippet or ""))}
             end
             return items
         end},
     }
 
-    local function fetchWebSearch(q)
+    -- pg = pagina (0, 1, 2...), off = quantos resultados ja foram carregados, only = fixa o buscador
+    -- (as paginas seguintes usam o mesmo buscador que respondeu a primeira)
+    local function fetchWebSearch(q, pg, off, only)
+        pg, off = pg or 0, off or 0
         local lastErr, anyOk = nil, false
         local pref, list = U.engine(), {}
-        for _, e in ipairs(SEARCH_ENGINES) do if e.name == pref then list[#list + 1] = e end end
-        for _, e in ipairs(SEARCH_ENGINES) do if e.name ~= pref then list[#list + 1] = e end end
+        if only then
+            for _, e in ipairs(SEARCH_ENGINES) do if e.name == only then list[1] = e end end
+        else
+            for _, e in ipairs(SEARCH_ENGINES) do if e.name == pref then list[#list + 1] = e end end
+            for _, e in ipairs(SEARCH_ENGINES) do if e.name ~= pref then list[#list + 1] = e end end
+        end
         for _, eng in ipairs(list) do
-            local ok, res = pcall(eng.run, q)
+            local ok, res = pcall(eng.run, q, pg, off)
             if ok then
                 anyOk = true
                 if type(res) == "table" and #res > 0 then return res, eng.name end
@@ -7990,13 +8182,66 @@ local function makeBrowserScreen()
     local function fetchEntry(entry)
         if entry.q and (entry.mode == "images") then return fetchImages(entry) end
         if entry.q then
-            local items, used = fetchWebSearch(entry.q)
-            return {kind = "search", title = entry.q, items = items, preview = "Pesquisa: " .. entry.q .. (used and (" · " .. used) or "")}
+            local items, used = fetchWebSearch(entry.q, 0, 0)
+            local seen, st = {}, {pg = 0, off = #items, dead = false}
+            -- tira repetidos e tudo que nao tem a ver com o que foi pesquisado
+            local function keep(res)
+                local out = {}
+                for _, it in ipairs(res) do
+                    if not seen[it.url] then
+                        seen[it.url] = true
+                        out[#out + 1] = it
+                    end
+                end
+                return out
+            end
+            items = keep(items)
+            -- proxima pagina do mesmo buscador; se ela vier so com coisa fora do assunto, ja pula pra seguinte
+            local function nextPage()
+                if not used or st.dead then return {} end
+                for _ = 1, 10 do
+                    st.pg = st.pg + 1
+                    local okP, res = pcall(fetchWebSearch, entry.q, st.pg, st.off, used)
+                    if not okP or type(res) ~= "table" or #res == 0 then
+                        st.dead = true
+                        return {}
+                    end
+                    st.off = st.off + #res
+                    local unseen = 0
+                    for _, it in ipairs(res) do if not seen[it.url] then unseen = unseen + 1 end end
+                    if unseen == 0 then
+                        st.dead = true   -- o buscador repetiu a mesma pagina: acabou
+                        return {}
+                    end
+                    local fresh = keep(res)
+                    if #fresh > 0 then return fresh end
+                end
+                return {}
+            end
+            -- primeira tela cheia: junta paginas ate ter pelo menos 20 resultados bons
+            local tries = 0
+            while used and #items < 20 and tries < 8 do
+                tries = tries + 1
+                local fresh = nextPage()
+                if #fresh == 0 then break end
+                for _, it in ipairs(fresh) do items[#items + 1] = it end
+            end
+            return {kind = "search", title = entry.q, items = items, more = used and nextPage or nil, preview = "Pesquisa: " .. entry.q .. (used and (" · " .. used) or "") }
         end
         local imgExt0 = U.fileExt(entry.url)
         if imgExt0 and IMG_EXT[imgExt0] then
             local nm = U.fileName(entry.url, imgExt0)
             return {kind = "image", title = nm, name = nm, url = entry.url, preview = "Imagem: " .. nm}
+        end
+        local vExt = U.fileExt(entry.url)
+        if vExt and (vExt == "mp4" or vExt == "webm" or vExt == "m4v" or vExt == "mov" or vExt == "gifv") then
+            local vurl = entry.url
+            if vExt == "gifv" then
+                vurl = entry.url:gsub("%.gifv", ".mp4")
+                vExt = "mp4"
+            end
+            local vnm = U.fileName(vurl, vExt)
+            return {kind = "video", title = vnm, name = vnm, url = vurl, ext = vExt, preview = "Vídeo: " .. vnm}
         end
         local dlExt = U.fileExt(entry.url)
         if dlExt and DL_EXT[dlExt] then return U.download(entry.url, dlExt) end
@@ -8216,6 +8461,7 @@ local function makeBrowserScreen()
     end
     local function openFind()
         if #richLbls == 0 then toast("Busca disponível em páginas de texto") return end
+        if U.closeSite then U.closeSite() end
         findBar.Visible = true
         pageView.Position = UDim2.new(0, 0, 0, 34)
         pageView.Size = UDim2.new(1, 0, 1, -34)
@@ -8255,6 +8501,66 @@ local function makeBrowserScreen()
     end)
     findX.MouseButton1Click:Connect(closeFind)
 
+    ---------------------------------------------------------------- BUSCAR NESTE SITE
+    -- Pesquisa DENTRO do site aberto (tipo a lupa/search do proprio site): usa o operador "site:dominio termo"
+    -- nos buscadores do navegador (Brave / DuckDuckGo). Fica num do-block para nao gastar variaveis locais.
+    do
+        local siteBar = new("Frame", {Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, Visible = false, ZIndex = 12}, area)
+        local siteBox = new("TextBox", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -84, 0, 26), BackgroundColor3 = C.pill, BorderSizePixel = 0, Text = "", PlaceholderText = "Buscar neste site", PlaceholderColor3 = C.sub, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13}, siteBar)
+        corner(siteBox, UDim.new(0, 13))
+        new("UIPadding", {PaddingLeft = UDim.new(0, 10)}, siteBox)
+        local function sBtn(x, w, txt, bg)
+            local b = new("TextButton", {Position = UDim2.new(1, x, 0, 4), Size = UDim2.new(0, w, 0, 26), BackgroundColor3 = bg, BorderSizePixel = 0, Text = txt, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 13}, siteBar)
+            corner(b, UDim.new(0, 13))
+            return b
+        end
+        local siteGo, siteX = sBtn(-72, 36, "Ir", C.accent or C.card), sBtn(-34, 28, "X", C.card)
+        local siteHost
+
+        local function currentHost()
+            local e = curEntry()
+            local u = e and e.url
+            if type(u) ~= "string" then return nil end
+            local h = u:match("^https?://([^/%?#]+)")
+            if not h then return nil end
+            h = h:gsub("^.*@", ""):gsub(":%d+$", ""):gsub("^www%.", "")
+            return h
+        end
+
+        function U.closeSite()
+            if not siteBar.Visible then return end
+            siteBar.Visible = false
+            siteBox.Text = ""
+            if not findBar.Visible then
+                pageView.Position = UDim2.new(0, 0, 0, 0)
+                pageView.Size = UDim2.new(1, 0, 1, 0)
+            end
+        end
+
+        function U.openSite()
+            local h = currentHost()
+            if not h then toast("Abra um site primeiro") return end
+            siteHost = h
+            if findBar.Visible then closeFind() end
+            siteBox.PlaceholderText = "Buscar em " .. h
+            siteBar.Visible = true
+            pageView.Position = UDim2.new(0, 0, 0, 34)
+            pageView.Size = UDim2.new(1, 0, 1, -34)
+            siteBox:CaptureFocus()
+        end
+
+        local function submitSite()
+            local text = siteBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+            if text == "" or not siteHost then return end
+            local h = siteHost
+            U.closeSite()
+            navigate(tabs[cur], {q = "site:" .. h .. " " .. text})
+        end
+        siteGo.MouseButton1Click:Connect(submitSite)
+        siteX.MouseButton1Click:Connect(function() U.closeSite() end)
+        siteBox.FocusLost:Connect(function(enter) if enter then submitSite() end end)
+    end
+
 
     ---------------------------------------------------------------- MODO LAYOUT
     -- Lê o HTML + CSS do site e recria o layout com objetos do Roblox
@@ -8283,28 +8589,78 @@ local function makeBrowserScreen()
             slategray = {112, 128, 144}, dimgray = {105, 105, 105}, lightyellow = {255, 255, 224}, aliceblue = {240, 248, 255},
             lavender = {230, 230, 250}, khaki = {240, 230, 140}, salmon = {250, 128, 114}, ghostwhite = {248, 248, 255},
         }
-        local BASE = {color = Color3.fromRGB(32, 33, 36), size = 12, bold = false, italic = false, under = false, strike = false, align = "left", mono = false}
+        local BASE = {color = Color3.fromRGB(0, 0, 0), size = 12, bold = false, italic = false, under = false, strike = false, align = "left", mono = false}
 
         local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+        local MEDIATAG = {img = true, picture = true, video = true}
+        local function hasImgTag(node, depth)
+            if depth > 5 then return false end
+            for _, k in ipairs(node.kids or {}) do
+                if k.tag then
+                    if MEDIATAG[k.tag] then return true end
+                    local sty = k.attrs and k.attrs.style
+                    if sty and sty:find("url%(") then return true end
+                    if hasImgTag(k, depth + 1) then return true end
+                end
+            end
+            return false
+        end
+
+        local VARS, KF = {}, {}
+        local VW = 360
+        local AVAILW = 250
+
+        local function subVars(v)
+            for _ = 1, 4 do
+                if not v:find("var%(") then break end
+                v = (v:gsub("var%(%s*(%-%-[%w_%-]+)%s*,?%s*([^%)]*)%)", function(n, fb)
+                    return VARS[n] or (fb ~= "" and fb) or ""
+                end))
+            end
+            return v
+        end
 
         local function parseColor(v)
             v = trim(v:lower())
             if v:find("var%(") then return nil end
             local hx = v:match("^#(%x+)$")
             if hx then
-                if #hx == 3 then
-                    local r, g, b = hx:sub(1, 1), hx:sub(2, 2), hx:sub(3, 3)
-                    return Color3.fromRGB(tonumber(r .. r, 16), tonumber(g .. g, 16), tonumber(b .. b, 16))
-                elseif #hx == 6 or #hx == 8 then
-                    return Color3.fromRGB(tonumber(hx:sub(1, 2), 16), tonumber(hx:sub(3, 4), 16), tonumber(hx:sub(5, 6), 16))
+                local n = #hx
+                local r, g, b, a
+                if n == 3 or n == 4 then
+                    r = tonumber(hx:sub(1, 1) .. hx:sub(1, 1), 16)
+                    g = tonumber(hx:sub(2, 2) .. hx:sub(2, 2), 16)
+                    b = tonumber(hx:sub(3, 3) .. hx:sub(3, 3), 16)
+                    if n == 4 then a = tonumber(hx:sub(4, 4) .. hx:sub(4, 4), 16) / 255 end
+                elseif n == 6 or n == 8 then
+                    r = tonumber(hx:sub(1, 2), 16)
+                    g = tonumber(hx:sub(3, 4), 16)
+                    b = tonumber(hx:sub(5, 6), 16)
+                    if n == 8 then a = tonumber(hx:sub(7, 8), 16) / 255 end
+                else
+                    return nil
                 end
-                return nil
+                if a and a < 0.05 then return nil end
+                if a and a >= 0.98 then a = nil end
+                return Color3.fromRGB(r, g, b), a
             end
-            local a, b, c, d = v:match("^rgba?%(%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,/%s]*%s*([%d%.]*)")
-            if a then
-                local al = tonumber(d)
-                if al and al < 0.1 then return nil end
-                return Color3.fromRGB(math.clamp(tonumber(a), 0, 255), math.clamp(tonumber(b), 0, 255), math.clamp(tonumber(c), 0, 255))
+            local ra, rb, rc, rd = v:match("^rgba?%(%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,%s]%s*([%d%.]+)%s*[,/%s]*%s*([%d%.]*)")
+            if ra then
+                local al = tonumber(rd)
+                if al and al < 0.05 then return nil end
+                if al and al >= 0.98 then al = nil end
+                return Color3.fromRGB(math.clamp(tonumber(ra), 0, 255), math.clamp(tonumber(rb), 0, 255), math.clamp(tonumber(rc), 0, 255)), al
+            end
+            local hh, hs, hl, hd = v:match("^hsla?%(%s*([%d%.%-]+)[%a]*[%s,]+([%d%.]+)%%[%s,]+([%d%.]+)%%[%s,/]*([%d%.]*)")
+            if hh then
+                local s2, l2 = tonumber(hs) / 100, tonumber(hl) / 100
+                local val = l2 + s2 * math.min(l2, 1 - l2)
+                local sv = (val == 0) and 0 or 2 * (1 - l2 / val)
+                local al = tonumber(hd)
+                if al and al < 0.05 then return nil end
+                if al and al >= 0.98 then al = nil end
+                return Color3.fromHSV((tonumber(hh) % 360) / 360, math.clamp(sv, 0, 1), math.clamp(val, 0, 1)), al
             end
             local nm = NAMED[v]
             if nm then return Color3.fromRGB(nm[1], nm[2], nm[3]) end
@@ -8314,7 +8670,7 @@ local function makeBrowserScreen()
         local function parseBg(v)
             v = v:lower()
             if v:find("var%(") or v:find("gradient") then return nil end
-            local tok = v:match("#%x+") or v:match("rgba?%b()")
+            local tok = v:match("#%x+") or v:match("rgba?%b()") or v:match("hsla?%b()")
             if tok then return parseColor(tok) end
             for w in v:gmatch("%a+") do
                 if NAMED[w] then return parseColor(w) end
@@ -8322,7 +8678,142 @@ local function makeBrowserScreen()
             return nil
         end
 
+        local function parseLen(v, fs)
+            v = trim(v:lower())
+            if v == "0" then return 0, nil end
+            if v:find("^calc%(") then
+                local inner = v:match("^calc%((.*)%)$")
+                if not inner then return nil end
+                local off, sc, sign = 0, 0, 1
+                for tok in inner:gmatch("%S+") do
+                    if tok == "+" then sign = 1
+                    elseif tok == "-" then sign = -1
+                    elseif tok == "*" or tok == "/" then return nil
+                    else
+                        local o2, s2 = parseLen(tok, fs)
+                        if not o2 and not s2 then return nil end
+                        off = off + sign * (o2 or 0)
+                        sc = sc + sign * (s2 or 0)
+                        sign = 1
+                    end
+                end
+                return off, (sc ~= 0) and sc or nil
+            end
+            local fn, args = v:match("^(%a+)%((.*)%)$")
+            if fn == "clamp" or fn == "min" or fn == "max" then
+                local vals = {}
+                for a in args:gmatch("[^,]+") do
+                    local o2 = parseLen(a, fs)
+                    if o2 then vals[#vals + 1] = o2 end
+                end
+                if #vals == 0 then return nil end
+                if fn == "clamp" and #vals == 3 then return math.max(vals[1], math.min(vals[2], vals[3])) end
+                if fn == "min" then return math.min(table.unpack(vals)) end
+                if fn == "max" then return math.max(table.unpack(vals)) end
+                return vals[2] or vals[1]
+            end
+            local n, u = v:match("^(%-?[%d%.]+)(%a*%%?)$")
+            n = tonumber(n)
+            if not n then return nil end
+            if u == "px" or u == "" then return n * 0.75
+            elseif u == "pt" then return n
+            elseif u == "em" then return n * fs
+            elseif u == "rem" then return n * 12
+            elseif u == "vw" then return n * VW * 0.75 / 100
+            elseif u == "vh" then return n * 640 * 0.75 / 100
+            elseif u == "%" then return nil, n / 100 end
+            return nil
+        end
+
+        local function parseEdges(val, fs, allowAuto)
+            if val:find("calc%(") then return end
+            local p = {}
+            for tok in val:gmatch("%S+") do
+                if tok == "auto" then
+                    p[#p + 1] = allowAuto and "auto" or 0
+                else
+                    p[#p + 1] = (parseLen(tok, fs)) or 0
+                end
+                if #p == 4 then break end
+            end
+            local n = #p
+            if n == 1 then return p[1], p[1], p[1], p[1]
+            elseif n == 2 then return p[1], p[2], p[1], p[2]
+            elseif n == 3 then return p[1], p[2], p[3], p[2]
+            elseif n == 4 then return p[1], p[2], p[3], p[4] end
+        end
+
+        local function fontFor(v)
+            local first = v:lower():match("^%s*['\"]?([^,'\"]+)") or ""
+            if first:find("mono") or first:find("courier") or first:find("consolas") or first:find("menlo") or first:find("fira code") then return Enum.Font.Code end
+            if first:find("georgia") or first:find("times") or first:find("garamond") or first:find("merriweather") or first:find("playfair") or first:find("lora") or first:find("cambria") then return Enum.Font.Merriweather end
+            if first:find("oswald") or first:find("bebas") or first:find("anton") or first:find("impact") then return Enum.Font.Oswald end
+            if first:find("nunito") or first:find("quicksand") then return Enum.Font.Nunito end
+            if first:find("roboto") then return Enum.Font.Roboto end
+            if first:find("arial") or first:find("helvetica") then return Enum.Font.Arial end
+            if first:find("comic") or first:find("pacifico") or first:find("cursive") then return Enum.Font.Cartoon end
+            if v:lower():find("monospace") and not first:find("sans") then return Enum.Font.Code end
+            return nil
+        end
+
+        local function parseGradient(v)
+            local kind, inner = v:match("([%a%-]*gradient)(%b())")
+            if not kind then return nil end
+            inner = inner:sub(2, -2)
+            local rot = 90
+            local parts, depth, cur = {}, 0, ""
+            for ch in inner:gmatch(".") do
+                if ch == "(" then depth = depth + 1 elseif ch == ")" then depth = depth - 1 end
+                if ch == "," and depth == 0 then
+                    parts[#parts + 1] = cur
+                    cur = ""
+                else
+                    cur = cur .. ch
+                end
+            end
+            parts[#parts + 1] = cur
+            local cols = {}
+            for i, p in ipairs(parts) do
+                p = trim(p)
+                local deg = p:match("^(%-?[%d%.]+)deg$")
+                if i == 1 and (deg or p:find("^to ")) then
+                    if deg then
+                        rot = tonumber(deg) - 90
+                    else
+                        local x = p:find("right") and 1 or (p:find("left") and -1 or 0)
+                        local y = p:find("bottom") and 1 or (p:find("top") and -1 or 0)
+                        rot = math.deg(atan2(y, x))
+                    end
+                else
+                    local c = parseColor((p:gsub("%s+%-?[%d%.]+%%$", ""):gsub("%s+%-?[%d%.]+px$", "")))
+                    if c then cols[#cols + 1] = c end
+                end
+            end
+            if #cols == 0 then return nil end
+            if #cols == 1 then cols[2] = cols[1] end
+            return {rot = rot, colors = cols}
+        end
+
+        local function applyGrad(inst, gr)
+            local n = #gr.colors
+            local kps = {}
+            for i, c in ipairs(gr.colors) do
+                kps[i] = ColorSequenceKeypoint.new((i - 1) / (n - 1), c)
+            end
+            local g = Instance.new("UIGradient")
+            g.Color = ColorSequence.new(kps)
+            g.Rotation = gr.rot
+            g.Parent = inst
+            inst.BackgroundColor3 = WHITE
+            inst.BackgroundTransparency = 0
+        end
+
         local function parseSize(v, ps)
+            local vl0 = v:lower()
+            if vl0:find("^%s*calc%(") or vl0:find("^%s*clamp%(") or vl0:find("^%s*min%(") or vl0:find("^%s*max%(") then
+                local o0 = parseLen(v, ps)
+                return o0
+            end
             v = v:lower():gsub("%s", "")
             local n, u = v:match("^([%d%.]+)(%a*%%?)$")
             n = tonumber(n)
@@ -8337,68 +8828,479 @@ local function makeBrowserScreen()
             return kw[v]
         end
 
-        local function parseDecls(body)
+        local function parseDecls(body, isRoot)
             local t = {}
             for prop, val in body:gmatch("([%w%-]+)%s*:%s*([^;]+)") do
                 val = trim((val:gsub("!important", "")))
-                t[#t + 1] = {prop:lower(), val}
+                prop = prop:lower()
+                if prop:sub(1, 2) == "--" then
+                    if isRoot then VARS[prop] = val end
+                else
+                    t[#t + 1] = {prop, val}
+                end
             end
             return t
         end
 
+        -- grid-template-columns com tamanhos diferentes ("250px 1fr", "2fr 1fr", "20% 1fr 1fr"...):
+        -- devolve a fracao (0..1) de cada coluna; nil quando for uniforme/auto-fit (usa o caminho antigo)
+        local function trackFractions(lv, cols)
+            if lv:find("auto%-fit") or lv:find("auto%-fill") or lv:find("subgrid") or lv:find("%[") then return nil end
+            local ex = lv:gsub("repeat%(%s*(%d+)%s*,%s*([^%(%)]-)%s*%)", function(n, body)
+                local t = {}
+                for _ = 1, math.min(tonumber(n) or 1, 12) do t[#t + 1] = body end
+                return table.concat(t, " ")
+            end)
+            if ex:find("repeat%(") then return nil end
+            ex = ex:gsub("minmax%b()", "1fr"):gsub("fit%-content%b()", "1fr")
+            local toks = {}
+            for tk in ex:gmatch("%S+") do toks[#toks + 1] = tk end
+            if #toks < 2 or #toks ~= cols then return nil end
+            local fixed, frSum, kinds = 0, 0, {}
+            for i, tk in ipairs(toks) do
+                local fr = tonumber(tk:match("^([%d%.]+)fr$"))
+                local px = tonumber(tk:match("^([%d%.]+)px$"))
+                local pc = tonumber(tk:match("^([%d%.]+)%%$"))
+                local em = tonumber(tk:match("^([%d%.]+)r?em$"))
+                if fr then
+                    kinds[i] = {"fr", fr}; frSum = frSum + fr
+                elseif px then
+                    kinds[i] = {"fx", math.min(0.6, px / math.max(VW, 1))}; fixed = fixed + kinds[i][2]
+                elseif em then
+                    kinds[i] = {"fx", math.min(0.6, em * 16 / math.max(VW, 1))}; fixed = fixed + kinds[i][2]
+                elseif pc then
+                    kinds[i] = {"fx", pc / 100}; fixed = fixed + pc / 100
+                else
+                    kinds[i] = {"fr", 1}; frSum = frSum + 1
+                end
+            end
+            local out = {}
+            if frSum == 0 then
+                for i, k in ipairs(kinds) do out[i] = k[2] / math.max(fixed, 0.0001) end
+            else
+                local fx = math.min(fixed, 0.7)
+                local sc = fixed > 0 and (fx / fixed) or 1
+                for i, k in ipairs(kinds) do
+                    out[i] = (k[1] == "fr") and ((1 - fx) * k[2] / frSum) or (k[2] * sc)
+                end
+            end
+            local uniform = true
+            for i = 2, #out do if math.abs(out[i] - out[1]) > 0.002 then uniform = false end end
+            if uniform then return nil end
+            return out
+        end
+
+        local SIZEKEY = {width = "w", height = "h", ["min-height"] = "minh", ["max-width"] = "maxw", ["min-width"] = "minw", ["max-height"] = "maxh"}
+        local BORDERKEY = {border = "b", ["border-top"] = "bt", ["border-bottom"] = "bb", ["border-left"] = "bl", ["border-right"] = "br"}
+
         local function applyDecl(st, prop, val, ps)
+            if val:find("var%(") then val = subVars(val) end
+            if val == "" then return end
+            local lv = val:lower()
+            if lv == "inherit" or lv == "initial" or lv == "unset" or lv == "revert" then return end
+            local fs = st.size
             if prop == "color" then
                 local c = parseColor(val)
-                if c then st.color = c end
-            elseif prop == "background-color" or prop == "background" then
-                st.bg = parseBg(val)
+                if c then st.color = U.dk(c, "fg") end
+            elseif prop == "background-color" then
+                st.bg, st.bga = parseBg(val)
+                if st.bg then st.bg = U.dk(st.bg, "bg") end
+            elseif prop == "background" or prop == "background-image" then
+                if prop == "background" then st.bg = nil; st.bga = nil; st.grad = nil; st.bgimg = nil end
+                local gr = parseGradient(lv)
+                if gr then
+                    if U.dark.on then for gi, gc in ipairs(gr.colors) do gr.colors[gi] = U.dk(gc, "bg") end end
+                    st.grad = gr
+                    if not st.bg then st.bg = gr.colors[1] end
+                elseif lv == "none" then
+                    st.grad = nil
+                    st.bgimg = nil
+                end
+                local u = val:match("url%(%s*['\"]?([^'\")]-)['\"]?%s*%)")
+                if u and u:sub(1, 5) ~= "data:" then st.bgimg = u end
+                if prop == "background" then
+                    local rest = lv:gsub("url%b()", ""):gsub("[%a%-]*gradient%b()", "")
+                    local c, a = parseBg(rest)
+                    if c then st.bg = U.dk(c, "bg"); st.bga = a end
+                end
             elseif prop == "font-size" then
                 local s = parseSize(val, ps.size)
-                if s then st.size = math.clamp(s, 7, 40) end
+                if s then st.size = math.clamp(s, 7, 54) end
             elseif prop == "font-weight" then
-                local v = val:lower()
-                local n = tonumber(v)
-                if v == "bold" or v == "bolder" or (n and n >= 600) then st.bold = true
-                elseif v == "normal" or (n and n < 600) then st.bold = false end
+                local n = tonumber(lv)
+                if lv == "bold" or lv == "bolder" or (n and n >= 600) then st.bold = true
+                elseif lv == "normal" or (n and n < 600) then st.bold = false end
             elseif prop == "font-style" then
-                st.italic = val:lower():find("italic") ~= nil or val:lower():find("oblique") ~= nil
+                st.italic = lv:find("italic") ~= nil or lv:find("oblique") ~= nil
             elseif prop == "text-decoration" or prop == "text-decoration-line" then
-                local v = val:lower()
-                if v:find("none") then st.under = false; st.strike = false
+                if lv:find("none") then st.under = false; st.strike = false
                 else
-                    if v:find("underline") then st.under = true end
-                    if v:find("line%-through") then st.strike = true end
+                    if lv:find("underline") then st.under = true end
+                    if lv:find("line%-through") then st.strike = true end
                 end
             elseif prop == "text-align" then
-                local v = val:lower()
-                if v == "center" or v == "right" then st.align = v else st.align = "left" end
+                if lv == "center" or lv == "right" then st.align = lv else st.align = "left" end
             elseif prop == "display" then
-                st.display = val:lower():match("^%S+") or val
+                st.display = lv:match("^%S+") or lv
             elseif prop == "visibility" then
-                if val:lower() == "hidden" then st.display = "none" end
+                if lv == "hidden" then st.display = "none" end
             elseif prop == "flex-direction" then
-                st.dir = val:lower():find("column") and "column" or "row"
+                st.dir = lv:find("column") and "column" or "row"
+                st.rev = lv:find("reverse") ~= nil
+            elseif prop == "order" then
+                st.order = tonumber(lv)
+            elseif prop == "flex-basis" then
+                local o, sc = parseLen(lv, fs)
+                if (o and o > 0) or (sc and sc > 0) then st.fbasis = {o, sc} end
+            elseif prop == "grid-column" or prop == "grid-column-end" then
+                local sp = tonumber(lv:match("span%s+(%d+)"))
+                if not sp then
+                    local a, b = lv:match("^(%-?%d+)%s*/%s*(%-?%d+)")
+                    a, b = tonumber(a), tonumber(b)
+                    if a and b then
+                        if b < 0 then sp = -1 elseif b > a then sp = b - a end
+                    end
+                end
+                if sp then st.span = sp end
+            elseif prop == "flex-flow" then
+                st.dir = lv:find("column") and "column" or "row"
+                st.rev = lv:find("reverse") ~= nil
+                if lv:find("wrap") and not lv:find("nowrap") then st.wrap = true end
             elseif prop == "font-family" then
-                local v = val:lower()
-                if v:find("mono") or v:find("courier") or v:find("consolas") then st.mono = true end
+                st.font = fontFor(val)
+                st.mono = st.font == Enum.Font.Code
             elseif prop == "border-radius" then
-                local n = tonumber(val:match("^([%d%.]+)"))
-                if n then st.radius = n * 0.75 end
+                local a = lv:match("^%S+")
+                if a:find("%%") then
+                    st.rs = math.min(0.5, (tonumber(a:match("[%d%.]+")) or 0) / 100)
+                    st.radius = 0
+                else
+                    local o = parseLen(a, fs)
+                    if o then st.radius = math.min(o, 500); st.rs = nil end
+                end
+            elseif prop == "padding" then
+                local ptk = {}
+                for tk in lv:gmatch("%S+") do ptk[#ptk + 1] = tk end
+                local tpc = (ptk[1] or ""):match("^([%d%.]+)%%$")
+                local bpc = (ptk[3] or ptk[1] or ""):match("^([%d%.]+)%%$")
+                st.ptp = tonumber(tpc or bpc)
+                local a, b, c, d = parseEdges(lv, fs, false)
+                if a then st.pt, st.pr, st.pb, st.pl = a, b, c, d end
+            elseif prop == "padding-top" or prop == "padding-right" or prop == "padding-bottom" or prop == "padding-left" then
+                if prop == "padding-top" or prop == "padding-bottom" then
+                    local pc = lv:match("^([%d%.]+)%%$")
+                    if pc then st.ptp = tonumber(pc) end
+                end
+                local o = parseLen(lv, fs)
+                if o then
+                    local k = ({["padding-top"] = "pt", ["padding-right"] = "pr", ["padding-bottom"] = "pb", ["padding-left"] = "pl"})[prop]
+                    st[k] = o
+                end
+            elseif prop == "margin" then
+                local a, b, c, d = parseEdges(lv, fs, true)
+                if a then st.mt, st.mr, st.mb, st.ml = a, b, c, d end
+            elseif prop == "margin-top" or prop == "margin-right" or prop == "margin-bottom" or prop == "margin-left" then
+                local k = ({["margin-top"] = "mt", ["margin-right"] = "mr", ["margin-bottom"] = "mb", ["margin-left"] = "ml"})[prop]
+                if lv == "auto" then st[k] = "auto"
+                else
+                    local o = parseLen(lv, fs)
+                    if o then st[k] = o end
+                end
+            elseif SIZEKEY[prop] then
+                local key = SIZEKEY[prop]
+                if lv == "auto" or lv == "none" or lv:find("content") then
+                    st[key] = nil
+                else
+                    local o, sc = parseLen(lv, fs)
+                    if o or sc then st[key] = {o, sc} end
+                end
+            elseif BORDERKEY[prop] then
+                local key = BORDERKEY[prop]
+                if lv:find("none") or lv == "0" or lv:find("^0px") or lv:find("hidden") then
+                    st[key] = nil
+                else
+                    local ct = lv:match("rgba?%b()") or lv:match("hsla?%b()") or lv:match("#%x+")
+                    local col, al
+                    if ct then col, al = parseColor(ct) end
+                    if not col then
+                        for w in lv:gmatch("%a+") do
+                            if NAMED[w] then col = parseColor(w) break end
+                        end
+                    end
+                    local wpx = tonumber(lv:match("([%d%.]+)px")) or (lv:find("thick") and 5) or (lv:find("medium") and 3) or 1
+                    st[key] = {w = math.max(0.75, wpx * 0.75), c = col and U.dk(col, "bd") or st.color, a = al}
+                end
+            elseif prop == "gap" or prop == "column-gap" or prop == "row-gap" then
+                local o = parseLen(lv:match("^%S+") or "", fs)
+                if o then st.gap = o end
+            elseif prop == "justify-content" then
+                st.jc = lv
+            elseif prop == "align-items" then
+                st.ai = lv
+            elseif prop == "flex-wrap" then
+                st.wrap = lv ~= "nowrap"
+            elseif prop == "flex" or prop == "flex-grow" then
+                local n = tonumber(lv:match("^[%d%.]+"))
+                st.grow = (n and n > 0) or lv == "auto"
+                if prop == "flex" then
+                    local firstTok, lastTok = lv:match("^%S+"), nil
+                    for tk in lv:gmatch("%S+") do lastTok = tk end
+                    if lastTok and lastTok ~= firstTok and (lastTok:find("^[%d%.]+%a+$") or lastTok:find("^[%d%.]+%%$")) then
+                        local o, sc = parseLen(lastTok, fs)
+                        if (o and o > 0) or (sc and sc > 0) then st.fbasis = {o, sc} end
+                    end
+                end
+            elseif prop == "grid-template-columns" then
+                local n = lv:match("repeat%(%s*(%d+)")
+                if n then
+                    st.cols = tonumber(n)
+                elseif lv:find("auto%-fit") or lv:find("auto%-fill") then
+                    local mpx = tonumber(lv:match("minmax%(%s*([%d%.]+)px")) or tonumber(lv:match("([%d%.]+)px")) or 250
+                    st.cols = math.max(1, math.floor(VW / mpx))
+                else
+                    local c = 0
+                    for _ in lv:gsub("%b()", "x"):gmatch("%S+") do c = c + 1 end
+                    st.cols = math.max(1, c)
+                end
+                st.tracks = st.cols and trackFractions(lv, st.cols) or nil
+            elseif prop == "opacity" then
+                st.opacity = tonumber(lv)
+            elseif prop == "box-shadow" then
+                if lv == "none" or lv:find("^inset") then
+                    st.shadow = nil
+                else
+                    local nums = {}
+                    for n in lv:gsub("rgba?%b()", ""):gsub("hsla?%b()", ""):gmatch("(%-?[%d%.]+)px") do nums[#nums + 1] = tonumber(n) end
+                    local rg = lv:match("rgba?%b()")
+                    local al = 0.25
+                    if rg and (rg:find("^rgba") or rg:find("/")) then
+                        local a4 = rg:match("[,/]%s*([%d%.]+)%s*%)$")
+                        if a4 then al = tonumber(a4) or al end
+                    end
+                    st.shadow = {a = al, y = nums[2] or 0, blur = nums[3] or 8}
+                end
+            elseif prop == "aspect-ratio" then
+                local a1, b1 = lv:match("^([%d%.]+)%s*/%s*([%d%.]+)")
+                if a1 then st.ar = tonumber(a1) / math.max(0.01, tonumber(b1)) else st.ar = tonumber(lv) end
+            elseif prop == "white-space" then
+                st.nowrap = lv:find("nowrap") ~= nil
+            elseif prop == "text-overflow" then
+                st.ell = lv:find("ellipsis") ~= nil
+            elseif prop == "overflow" or prop == "overflow-x" or prop == "overflow-y" then
+                st.clip = lv:find("hidden") ~= nil
+            elseif prop == "line-height" then
+                local n = tonumber(lv)
+                if n then st.lh = n
+                else
+                    local px = tonumber(lv:match("^([%d%.]+)px"))
+                    local pc = tonumber(lv:match("^([%d%.]+)%%"))
+                    local em = tonumber(lv:match("^([%d%.]+)r?em"))
+                    if px then st.lh = px * 0.75 / st.size
+                    elseif pc then st.lh = pc / 100
+                    elseif em then st.lh = em end
+                end
+            elseif prop == "text-transform" then
+                st.tt = lv
+            elseif prop == "position" then
+                st.pos = lv
+            elseif prop == "list-style" or prop == "list-style-type" then
+                st.lsn = lv:find("none") ~= nil
+            elseif prop == "animation" or prop == "animation-name" then
+                local name, inf
+                local times = {}
+                for tok in lv:gmatch("%S+") do
+                    local num, unit = tok:match("^([%d%.]+)(m?s)$")
+                    if num then
+                        times[#times + 1] = tonumber(num) * (unit == "ms" and 0.001 or 1)
+                    elseif tok == "infinite" then
+                        inf = true
+                    elseif not name and tok:match("^[%a_][%w_%-]*$") and not ({ease = 1, linear = 1, ["ease-in"] = 1, ["ease-out"] = 1, ["ease-in-out"] = 1, forwards = 1, backwards = 1, both = 1, none = 1, normal = 1, reverse = 1, alternate = 1, running = 1, paused = 1})[tok] then
+                        name = tok
+                    end
+                end
+                if name then
+                    st.anim = {name = name, dur = times[1] or 0.5, delay = times[2] or 0, inf = inf}
+                else
+                    st.anim = nil
+                end
+            elseif prop == "transition" then
+                local ms = tonumber(lv:match("([%d%.]+)ms"))
+                local sec = tonumber(lv:match("([%d%.]+)s"))
+                st.trans = ms and ms / 1000 or sec or 0.2
             end
         end
 
         -- seletores: tag, .classe, #id e combinações; descendentes ("a b" / "a > b")
-        local function parseSelector(s)
-            if s:find("[%[:%+~%*]") then return nil end
-            local parts = {}
-            for tok in s:gmatch("[^%s>]+") do
-                if tok:find("[^%w_%-#%.]") then return nil end
-                local c = {tag = tok:match("^([%a][%w%-]*)"), id = tok:match("#([%w_%-]+)"), cls = {}}
-                for k in tok:gmatch("%.([%w_%-]+)") do c.cls[#c.cls + 1] = k end
-                parts[#parts + 1] = c
+        local function parseCompound(tok)
+            -- extrai seletores de atributo [a] [a=v] [a^=v] [a$=v] [a*=v] [a~=v] [a|=v], so fora de (..)
+            -- (dentro de :not(..) eles pertencem ao composto interno)
+            local atl, badAt = {}, false
+            do
+                local out, i, n, dP = {}, 1, #tok, 0
+                while i <= n do
+                    local ch = tok:sub(i, i)
+                    if ch == "(" then
+                        dP = dP + 1; out[#out + 1] = ch; i = i + 1
+                    elseif ch == ")" then
+                        dP = dP - 1; out[#out + 1] = ch; i = i + 1
+                    elseif ch == "[" and dP == 0 then
+                        local j, q = i + 1, nil
+                        while j <= n do
+                            local cj = tok:sub(j, j)
+                            if q then
+                                if cj == q then q = nil end
+                            elseif cj == '"' or cj == "'" then q = cj
+                            elseif cj == "]" then break end
+                            j = j + 1
+                        end
+                        if j > n then return nil end
+                        local inner = tok:sub(i + 1, j - 1)
+                        local nm, op, val = inner:match("^%s*([%w_:%-]+)%s*([%^%$%*~|]?=)%s*(.-)%s*$")
+                        if nm then
+                            val = val:gsub("%s+[iIsS]$", "")
+                            val = val:match('^"(.*)"$') or val:match("^'(.*)'$") or val
+                            atl[#atl + 1] = {nm:lower(), op, val}
+                        else
+                            nm = inner:match("^%s*([%w_:%-]+)%s*$")
+                            if nm then atl[#atl + 1] = {nm:lower()} else badAt = true end
+                        end
+                        i = j + 1
+                    else
+                        out[#out + 1] = ch; i = i + 1
+                    end
+                end
+                tok = table.concat(out)
             end
+            if badAt then return nil end
+            local base, rest = tok:match("^([^:]*)(.*)$")
+            if base:find("[^%w_%-#%.%*]") then return nil end
+            local c = {tag = base:match("^([%a][%w%-]*)"), id = base:match("#([%w_%-]+)"), cls = {}, ps = {}, nots = {}, at = atl}
+            for k in base:gmatch("%.([%w_%-]+)") do c.cls[#c.cls + 1] = k end
+            local pos = 1
+            while pos <= #rest do
+                local nm, arg, e = rest:match("^:([%a%-]+)%(([^%)]*)%)()", pos)
+                if not nm then
+                    nm, e = rest:match("^:([%a%-]+)()", pos)
+                    arg = nil
+                end
+                if not nm then return nil end
+                if nm == "not" then
+                    if not arg or arg:find(":") then return nil end
+                    local inner = parseCompound(arg)
+                    if not inner then return nil end
+                    c.nots[#c.nots + 1] = inner
+                elseif nm == "first-child" or nm == "last-child" or nm == "only-child" or nm == "first-of-type" or nm == "last-of-type" or nm == "nth-child" or nm == "nth-of-type" or nm == "nth-last-child" then
+                    c.ps[#c.ps + 1] = {nm, arg}
+                elseif nm == "empty" or nm == "checked" or nm == "disabled" or nm == "enabled" or nm == "required" or nm == "optional" then
+                    c.ps[#c.ps + 1] = {nm, arg}
+                elseif nm == "link" or nm == "any-link" or nm == "visited" or nm == "root" then
+                else
+                    return nil
+                end
+                pos = e
+            end
+            return c
+        end
+
+        -- tokeniza em compostos + combinadores (" " descendente, ">" filho, "+" irmao adjacente, "~" irmaos
+        -- seguintes), respeitando [..], (..) e aspas. Cada composto guarda em .comb o combinador que o
+        -- liga ao composto ANTERIOR.
+        local function parseSelector(s)
+            local parts, buf, comb = {}, {}, " "
+            local dB, dP, q = 0, 0, nil
+            local function flush()
+                if #buf == 0 then return true end
+                local c = parseCompound(table.concat(buf))
+                buf = {}
+                if not c then return false end
+                c.comb = comb
+                parts[#parts + 1] = c
+                comb = " "
+                return true
+            end
+            for i = 1, #s do
+                local ch = s:sub(i, i)
+                if q then
+                    buf[#buf + 1] = ch
+                    if ch == q then q = nil end
+                elseif ch == '"' or ch == "'" then
+                    q = ch
+                    buf[#buf + 1] = ch
+                elseif ch == "[" then dB = dB + 1; buf[#buf + 1] = ch
+                elseif ch == "]" then dB = dB - 1; buf[#buf + 1] = ch
+                elseif ch == "(" then dP = dP + 1; buf[#buf + 1] = ch
+                elseif ch == ")" then dP = dP - 1; buf[#buf + 1] = ch
+                elseif dB == 0 and dP == 0 and (ch == ">" or ch == "+" or ch == "~") then
+                    if not flush() then return nil end
+                    comb = ch
+                elseif dB == 0 and dP == 0 and ch:find("%s") then
+                    if not flush() then return nil end
+                else
+                    buf[#buf + 1] = ch
+                end
+            end
+            if not flush() then return nil end
             if #parts == 0 then return nil end
             return parts
+        end
+
+        -- divide por virgulas so no nivel de topo (ignora (..), [..] e aspas)
+        local function splitTop(str)
+            local out, buf, dB, dP, q = {}, {}, 0, 0, nil
+            for i = 1, #str do
+                local ch = str:sub(i, i)
+                if q then
+                    buf[#buf + 1] = ch
+                    if ch == q then q = nil end
+                elseif ch == '"' or ch == "'" then q = ch; buf[#buf + 1] = ch
+                elseif ch == "[" then dB = dB + 1; buf[#buf + 1] = ch
+                elseif ch == "]" then dB = dB - 1; buf[#buf + 1] = ch
+                elseif ch == "(" then dP = dP + 1; buf[#buf + 1] = ch
+                elseif ch == ")" then dP = dP - 1; buf[#buf + 1] = ch
+                elseif ch == "," and dB == 0 and dP == 0 then
+                    out[#out + 1] = table.concat(buf); buf = {}
+                else buf[#buf + 1] = ch end
+            end
+            out[#out + 1] = table.concat(buf)
+            return out
+        end
+
+        -- "h1, :is(a, b) > c, x:not(.p, .q)"  ->  {"h1", "a > c", "b > c", "x:not(.p):not(.q)"}
+        local function expandSel(sel, depth)
+            depth = depth or 0
+            local res = {}
+            for _, one in ipairs(splitTop(sel)) do
+                one = trim(one)
+                if one ~= "" then
+                    -- :not(:is(a, b)) = nao-a E nao-b (nao pode virar "ou")
+                    for _, nm in ipairs({"is", "where"}) do
+                        one = (one:gsub(":not%(:" .. nm .. "%(([^%(%)]*)%)%)", function(inner)
+                            local t = {}
+                            for _, x in ipairs(splitTop(inner)) do t[#t + 1] = ":not(" .. trim(x) .. ")" end
+                            return table.concat(t)
+                        end))
+                    end
+                    local a = one:find(":is%(") or one:find(":where%(") or one:find(":matches%(") or one:find(":%-webkit%-any%(")
+                    local ps = a and one:find("(", a, true)
+                    local grp = ps and one:match("^%b()", ps)
+                    if grp and depth < 4 then
+                        local pre, post = one:sub(1, a - 1), one:sub(ps + #grp)
+                        for _, alt in ipairs(splitTop(grp:sub(2, -2))) do
+                            for _, v in ipairs(expandSel(pre .. trim(alt) .. post, depth + 1)) do
+                                if #res < 64 then res[#res + 1] = v end
+                            end
+                        end
+                    else
+                        one = (one:gsub(":not%(([^%(%)]*,[^%(%)]*)%)", function(inner)
+                            local t = {}
+                            for _, x in ipairs(splitTop(inner)) do t[#t + 1] = ":not(" .. trim(x) .. ")" end
+                            return table.concat(t)
+                        end))
+                        if #res < 64 then res[#res + 1] = one end
+                    end
+                end
+            end
+            return res
         end
 
         local function classSet(node)
@@ -8410,6 +9312,68 @@ local function makeBrowserScreen()
             return t
         end
 
+        local function sibInfo(node)
+            if node.sibI then return node.sibI, node.sibN, node.sibTI, node.sibTN end
+            local par = node.parent
+            local i, n, ti, tn = 0, 0, 0, 0
+            if par then
+                for _, k in ipairs(par.kids or {}) do
+                    if k.tag then
+                        n = n + 1
+                        if k == node then i = n end
+                        if k.tag == node.tag then
+                            tn = tn + 1
+                            if k == node then ti = tn end
+                        end
+                    end
+                end
+            end
+            node.sibI, node.sibN, node.sibTI, node.sibTN = i, n, ti, tn
+            return i, n, ti, tn
+        end
+
+        local function nthOk(arg, idx)
+            arg = arg:gsub("%s", "")
+            if arg == "odd" then return idx % 2 == 1 end
+            if arg == "even" then return idx % 2 == 0 end
+            local num = tonumber(arg)
+            if num then return idx == num end
+            local a, b = arg:match("^([%+%-]?%d*)n([%+%-]%d+)$")
+            if not a then
+                a = arg:match("^([%+%-]?%d*)n$")
+                b = "0"
+            end
+            if not a then return false end
+            local an = (a == "" or a == "+") and 1 or ((a == "-") and -1 or tonumber(a))
+            local bn = tonumber(b) or 0
+            if an == 0 then return idx == bn end
+            local k = (idx - bn) / an
+            return k >= 0 and k == math.floor(k)
+        end
+
+        local function matchPseudo(node, nm, arg)
+            local i, n, ti, tn = sibInfo(node)
+            if nm == "first-child" then return i == 1
+            elseif nm == "last-child" then return i == n
+            elseif nm == "only-child" then return n == 1
+            elseif nm == "first-of-type" then return ti == 1
+            elseif nm == "last-of-type" then return ti == tn
+            elseif nm == "nth-child" then return nthOk(arg or "", i)
+            elseif nm == "nth-of-type" then return nthOk(arg or "", ti)
+            elseif nm == "nth-last-child" then return nthOk(arg or "", n - i + 1)
+            elseif nm == "empty" then
+                for _, k in ipairs(node.kids or {}) do
+                    if k.tag or (k.text and k.text:find("%S")) then return false end
+                end
+                return true
+            elseif nm == "checked" then return node.attrs.checked ~= nil or node.attrs.selected ~= nil
+            elseif nm == "disabled" then return node.attrs.disabled ~= nil
+            elseif nm == "enabled" then return node.attrs.disabled == nil
+            elseif nm == "required" then return node.attrs.required ~= nil
+            elseif nm == "optional" then return node.attrs.required == nil end
+            return true
+        end
+
         local function matchCompound(node, c)
             if not node.tag then return false end
             if c.tag and node.tag ~= c.tag then return false end
@@ -8418,17 +9382,85 @@ local function makeBrowserScreen()
                 local cs = classSet(node)
                 for _, k in ipairs(c.cls) do if not cs[k] then return false end end
             end
+            if c.at then
+                for _, a in ipairs(c.at) do
+                    local v = node.attrs[a[1]]
+                    if v == nil or v == false then return false end
+                    local op, want = a[2], a[3]
+                    if op then
+                        v = tostring(v)
+                        if op == "=" then
+                            if v ~= want then return false end
+                        elseif op == "^=" then
+                            if want == "" or v:sub(1, #want) ~= want then return false end
+                        elseif op == "$=" then
+                            if want == "" or v:sub(-#want) ~= want then return false end
+                        elseif op == "*=" then
+                            if want == "" or not v:find(want, 1, true) then return false end
+                        elseif op == "~=" then
+                            local hit = false
+                            for w in v:gmatch("%S+") do if w == want then hit = true break end end
+                            if not hit then return false end
+                        elseif op == "|=" then
+                            if v ~= want and v:sub(1, #want + 1) ~= want .. "-" then return false end
+                        end
+                    end
+                end
+            end
+            for _, p in ipairs(c.ps) do
+                if not matchPseudo(node, p[1], p[2]) then return false end
+            end
+            for _, nt in ipairs(c.nots) do
+                if matchCompound(node, nt) then return false end
+            end
             return true
+        end
+
+        local function prevElSibling(node)
+            local par = node.parent
+            if not par then return nil end
+            local prev
+            for _, k in ipairs(par.kids or {}) do
+                if k == node then return prev end
+                if k.tag then prev = k end
+            end
+            return nil
+        end
+
+        -- node ja casa parts[k]; confere os compostos anteriores respeitando cada combinador
+        local function matchRuleAt(node, parts, k)
+            if k <= 1 then return true end
+            local comb, want = parts[k].comb, parts[k - 1]
+            if comb == ">" then
+                local par = node.parent
+                return par ~= nil and matchCompound(par, want) and matchRuleAt(par, parts, k - 1)
+            elseif comb == "+" then
+                local sib = prevElSibling(node)
+                return sib ~= nil and matchCompound(sib, want) and matchRuleAt(sib, parts, k - 1)
+            elseif comb == "~" then
+                local par = node.parent
+                if not par then return false end
+                local prevs = {}
+                for _, kid in ipairs(par.kids or {}) do
+                    if kid == node then break end
+                    if kid.tag then prevs[#prevs + 1] = kid end
+                end
+                for i = #prevs, 1, -1 do
+                    if matchCompound(prevs[i], want) and matchRuleAt(prevs[i], parts, k - 1) then return true end
+                end
+                return false
+            end
+            local anc = node.parent
+            while anc do
+                if matchCompound(anc, want) and matchRuleAt(anc, parts, k - 1) then return true end
+                anc = anc.parent
+            end
+            return false
         end
 
         local function matchRule(node, parts)
             if not matchCompound(node, parts[#parts]) then return false end
-            local k, anc = #parts - 1, node.parent
-            while k >= 1 and anc do
-                if matchCompound(anc, parts[k]) then k = k - 1 end
-                anc = anc.parent
-            end
-            return k < 1
+            return matchRuleAt(node, parts, #parts)
         end
 
         -- ---------------------------------------------------------- parser HTML
@@ -8533,12 +9565,309 @@ local function makeBrowserScreen()
         end
 
         -- ---------------------------------------------------------- construtor principal
+        U.makeVideo = function(o)
+            local function mk(cls, props, parent)
+                local i = Instance.new(cls)
+                for k, v in pairs(props) do i[k] = v end
+                i.Parent = parent
+                return i
+            end
+            local root = mk("Frame", {BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5}, nil)
+            local sw = o.sw
+            if o.auto then root.Size = UDim2.new(0, math.min(240, AVAILW), 0, 0)
+            elseif sw and (sw[2] or (sw[1] and sw[1] < AVAILW)) then root.Size = UDim2.new(sw[2] or 0, sw[1] or 0, 0, 0)
+            else root.Size = UDim2.new(1, 0, 0, 0) end
+            mk("UIAspectRatioConstraint", {AspectRatio = math.clamp(o.aspect or (16 / 9), 0.4, 3)}, root)
+            local ro = o.rs and 0 or ((o.radius and o.radius > 0) and math.min(o.radius, 500) or 6)
+            corner(root, UDim.new(o.rs or 0, ro))
+            local poster = mk("ImageLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop, ZIndex = 5}, root)
+            if o.poster then
+                task.spawn(function()
+                    local ok, a = pcall(U.cacheImage, o.poster, 3000000)
+                    if ok and a and poster.Parent then poster.Image = a end
+                end)
+            end
+            local vf = mk("VideoFrame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5, Visible = false, Looped = o.loop and true or false}, root)
+            local muted = o.muted and true or false
+            vf.Volume = muted and 0 or (currentVolume or 1)
+            local surface = mk("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 6}, root)
+            local big = mk("TextButton", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 46, 0, 46), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, Text = "▶", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 9}, root)
+            corner(big, UDim.new(1, 0))
+            local badge = mk("TextLabel", {Position = UDim2.new(0, 5, 0, 5), Size = UDim2.new(0, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.25, BorderSizePixel = 0, Text = "VÍDEO", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 9, ZIndex = 10}, root)
+            corner(badge, UDim.new(0, 7))
+            mk("UIPadding", {PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)}, badge)
+            local status = mk("TextLabel", {AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -32), Size = UDim2.new(0, 0, 0, 18), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3, Text = "", TextColor3 = WHITE, Font = Enum.Font.Gotham, TextSize = 10, Visible = false, BorderSizePixel = 0, ZIndex = 10}, root)
+            corner(status, UDim.new(0, 9))
+            mk("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, status)
+            local bar = mk("Frame", {AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0, ZIndex = 8}, root)
+            local playBtn = mk("TextButton", {Position = UDim2.new(0, 2, 0, 1), Size = UDim2.new(0, 24, 0, 24), BackgroundTransparency = 1, Text = "▶", TextColor3 = WHITE, Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, ZIndex = 9}, bar)
+            local hit = mk("TextButton", {Position = UDim2.new(0, 30, 0, 4), Size = UDim2.new(1, -124, 0, 18), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 9}, bar)
+            local track = mk("Frame", {AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = Color3.fromRGB(110, 110, 114), BorderSizePixel = 0, ZIndex = 9}, hit)
+            corner(track, UDim.new(1, 0))
+            local fill = mk("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(255, 70, 70), BorderSizePixel = 0, ZIndex = 10}, track)
+            corner(fill, UDim.new(1, 0))
+            local timeLbl = mk("TextLabel", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -28, 0, 0), Size = UDim2.new(0, 62, 1, 0), BackgroundTransparency = 1, Text = "0:00", TextColor3 = WHITE, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 9}, bar)
+            local muteBtn = mk("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -2, 0, 1), Size = UDim2.new(0, 24, 0, 24), BackgroundTransparency = 1, Text = muted and "🔇" or "🔊", TextColor3 = WHITE, Font = Enum.Font.Gotham, TextSize = 12, AutoButtonColor = false, ZIndex = 9}, bar)
+            local loaded, loading, failed, dlMode = false, false, false, false
+            local function setStatus(t)
+                status.Text = t
+                status.Visible = t ~= ""
+            end
+            local function fmt(t)
+                t = math.max(0, math.floor(t or 0))
+                return string.format("%d:%02d", t // 60, t % 60)
+            end
+            local function ensure()
+                if loaded then return true end
+                if failed or loading then return false end
+                if not o.url then
+                    failed = true
+                    setStatus("Fonte de vídeo não encontrada")
+                    return false
+                end
+                loading = true
+                big.Visible = false
+                setStatus("baixando vídeo…")
+                badge.Text = "VÍDEO · baixando…"
+                local ok, asset = pcall(function()
+                    U.ensureCache()
+                    local key = "vid_" .. U.hash2(o.url)
+                    local path
+                    for _, ex in ipairs({"mp4", "webm"}) do
+                        local p = CACHE_DIR .. "/" .. key .. "." .. ex
+                        local okF, has = pcall(isfile, p)
+                        if okF and has then path = p break end
+                    end
+                    if not path then
+                        local body = U.httpGet(o.url)
+                        if type(body) ~= "string" or #body < 1000 then error("Arquivo vazio", 0) end
+                        if #body > 90000000 then error("Vídeo grande demais", 0) end
+                        local ex
+                        if body:sub(5, 8) == "ftyp" then ex = "mp4" elseif body:sub(1, 4) == "\26\69\223\163" then ex = "webm" end
+                        if not ex then error("Formato não suportado (use MP4 ou WebM)", 0) end
+                        path = CACHE_DIR .. "/" .. key .. "." .. ex
+                        writefile(path, body)
+                    end
+                    return getcustomasset(path)
+                end)
+                if not ok or type(asset) ~= "string" or asset == "" then
+                    loading = false
+                    failed = true
+                    dlMode = true
+                    big.Text = "⬇"
+                    badge.Text = "VÍDEO · erro"
+                    big.Visible = true
+                    setStatus(ok and "Seu executor não abre vídeo local · toque p/ baixar" or tostring(asset):sub(1, 60))
+                    return false
+                end
+                setStatus("carregando…")
+                vf.Video = asset
+                local t0 = os.clock()
+                while not vf.IsLoaded and os.clock() - t0 < 25 and root.Parent do task.wait(0.1) end
+                loading = false
+                if not root.Parent then return false end
+                if not vf.IsLoaded then
+                    failed = true
+                    dlMode = true
+                    big.Text = "⬇"
+                    badge.Text = "VÍDEO · erro"
+                    big.Visible = true
+                    setStatus("Não foi possível tocar aqui · toque p/ baixar")
+                    return false
+                end
+                loaded = true
+                badge.Text = "VÍDEO"
+                setStatus("")
+                vf.Visible = true
+                poster.Visible = false
+                return true
+            end
+            local function toggle()
+                if dlMode then
+                    task.spawn(function()
+                        local ok, r = pcall(U.download, o.url, (o.url:lower():match("%.(%w+)$") == "webm") and "webm" or "mp4")
+                        if toast then toast(ok and type(r) == "table" and ("Salvo em " .. r.path) or "Falha ao baixar") end
+                    end)
+                    return
+                end
+                if loading then return end
+                if not loaded then
+                    task.spawn(function()
+                        if ensure() then vf:Play() end
+                    end)
+                    return
+                end
+                if vf.Playing then vf:Pause() else vf:Play() end
+            end
+            big.MouseButton1Click:Connect(toggle)
+            surface.MouseButton1Click:Connect(toggle)
+            playBtn.MouseButton1Click:Connect(toggle)
+            muteBtn.MouseButton1Click:Connect(function()
+                muted = not muted
+                vf.Volume = muted and 0 or (currentVolume or 1)
+                muteBtn.Text = muted and "🔇" or "🔊"
+            end)
+            local dragging = false
+            local function seek(x)
+                if not loaded then return end
+                local w = hit.AbsoluteSize.X
+                if w <= 0 or vf.TimeLength <= 0 then return end
+                vf.TimePosition = math.clamp((x - hit.AbsolutePosition.X) / w, 0, 1) * vf.TimeLength
+            end
+            local function isPress(i)
+                return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+            end
+            hit.InputBegan:Connect(function(i)
+                if isPress(i) then
+                    dragging = true
+                    seek(i.Position.X)
+                end
+            end)
+            local c1 = UserInputService.InputChanged:Connect(function(i)
+                if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then seek(i.Position.X) end
+            end)
+            local c2 = UserInputService.InputEnded:Connect(function(i)
+                if isPress(i) then dragging = false end
+            end)
+            local acc, conn = 0, nil
+            conn = RunService.Heartbeat:Connect(function(dt)
+                if not root.Parent then
+                    conn:Disconnect()
+                    c1:Disconnect()
+                    c2:Disconnect()
+                    pcall(function() vf:Pause() end)
+                    return
+                end
+                acc = acc + dt
+                if acc < 0.1 then return end
+                acc = 0
+                if not loaded then return end
+                local playing = vf.Playing
+                playBtn.Text = playing and "❚❚" or "▶"
+                badge.Text = playing and "VÍDEO" or "VÍDEO · pausado"
+                big.Visible = (not playing) and (not loading)
+                local len = vf.TimeLength
+                if len > 0 then
+                    fill.Size = UDim2.new(math.clamp(vf.TimePosition / len, 0, 1), 0, 1, 0)
+                    timeLbl.Text = fmt(vf.TimePosition) .. " / " .. fmt(len)
+                end
+            end)
+            if o.autoplay then task.defer(toggle) end
+            return root
+        end
+
+        local function fitUS()
+            local okS, vS = pcall(function() return phoneUIScale.Scale end)
+            return (okS and tonumber(vS)) or 1
+        end
+
+        -- moldura da pagina: altura acompanha o conteudo (mesmo quando encolhido) e corta qualquer excesso lateral
+        U.fitSetup = function(holder, canvas)
+            local function syncHeight()
+                if not holder.Parent or not canvas.Parent then return end
+                local h = canvas.AbsoluteSize.Y / fitUS()
+                holder.Size = UDim2.new(1, 0, 0, math.max(1, math.ceil(h)))
+            end
+            canvas:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncHeight)
+            syncHeight()
+        end
+
+        -- "ajustada final": se algo ainda passar da largura da tela, encolhe a pagina inteira ate caber
+        -- (igual aos navegadores de celular), com piso de 55%
+        U.fitRun = function(holder, canvas, alive)
+            local MINS = 0.55
+            local sc = canvas:FindFirstChild("FitScale")
+            if not sc then
+                sc = Instance.new("UIScale")
+                sc.Name = "FitScale"
+                sc.Scale = 1
+                sc.Parent = canvas
+            end
+            local function extentRatio()
+                local left = canvas.AbsolutePosition.X
+                local cw = math.max(canvas.AbsoluteSize.X, 1)
+                local maxR = left + cw
+                local cnt = 0
+                for _, d in ipairs(canvas:GetDescendants()) do
+                    cnt = cnt + 1
+                    if cnt % 400 == 0 then
+                        task.wait()
+                        if not alive() then return 1 end
+                    end
+                    if d:IsA("GuiObject") and d.Visible and not (d:IsA("ImageLabel") and d.ScaleType == Enum.ScaleType.Slice) then
+                        local hidden = false
+                        local p = d.Parent
+                        while p and p ~= canvas do
+                            if p:IsA("GuiObject") and (p.ClipsDescendants or not p.Visible) then hidden = true break end
+                            p = p.Parent
+                        end
+                        if not hidden then
+                            local r = d.AbsolutePosition.X + d.AbsoluteSize.X
+                            if r > maxR then maxR = r end
+                        end
+                    end
+                end
+                return (maxR - left) / cw
+            end
+            local function pass()
+                if not alive() or not holder.Parent then return end
+                local r = extentRatio()
+                if not alive() then return end
+                if r > 1.015 and sc.Scale > MINS + 0.001 then
+                    local ns = math.max(MINS, sc.Scale / r)
+                    sc.Scale = ns
+                    canvas.Size = UDim2.new(1 / ns, 0, 0, 0)
+                end
+            end
+            task.spawn(function()
+                for _, d in ipairs({0.25, 0.9, 2, 4, 8}) do
+                    task.wait(d)
+                    if not alive() then return end
+                    pass()
+                end
+            end)
+        end
+
         U.layoutBuild = function(entry, canvas, html, alive, setStatus, openImg)
+        BASE.color = U.dark.on and Color3.fromRGB(228, 230, 233) or Color3.fromRGB(0, 0, 0)
             local root, styleTexts, sheets = parseHtml(html)
             local rules, idx, order = {}, {}, 0
+            for k in pairs(VARS) do VARS[k] = nil end
+            for k in pairs(KF) do KF[k] = nil end
+            local function curUS()
+                local okS, vS = pcall(function() return phoneUIScale.Scale end)
+                return (okS and tonumber(vS)) or 1
+            end
+            local function totScale()
+                local fs = canvas:FindFirstChild("FitScale")
+                return curUS() * ((fs and fs:IsA("UIScale")) and fs.Scale or 1)
+            end
+            do
+                local us = totScale()
+                local w0 = canvas.AbsoluteSize.X
+                if w0 < 40 then w0 = pageView.AbsoluteSize.X - 20 * us end
+                local localW = (w0 > 40) and (w0 / us) or 268
+                localW = math.clamp(localW, 160, 600)
+                AVAILW = math.max(140, localW - 14)
+                VW = math.max(280, math.floor(localW / 0.75))
+            end
+            local hidx = {}
+
+            local function mediaOk(c)
+                c = c:lower()
+                if c:find("prefers%-color%-scheme:%s*dark") or c:find("prefers%-reduced%-motion:%s*reduce") or c:find("print") or c:find("orientation:%s*landscape") then return false end
+                for kind, num, unit in c:gmatch("(m[ai][xn])%-width%s*:%s*([%d%.]+)(%a*)") do
+                    num = tonumber(num)
+                    if unit == "em" or unit == "rem" then num = num * 16 end
+                    if kind == "max" and not (VW <= num) then return false end
+                    if kind == "min" and not (VW >= num) then return false end
+                end
+                return true
+            end
 
             local function addCss(text)
                 text = text:gsub("/%*.-%*/", "")
+                text = text:gsub("@import[^;]*;", ""):gsub("@charset[^;]*;", "")
                 local i, n = 1, #text
                 while i <= n do
                     local ob = text:find("{", i, true)
@@ -8553,24 +9882,64 @@ local function makeBrowserScreen()
                     end
                     local body = text:sub(ob + 1, j - 2)
                     i = j
+                    if sel:sub(1, 1) == "@" then
+                        local kfn = sel:match("^@%-?w?e?b?k?i?t?%-?keyframes%s+([%w_%-]+)")
+                        if kfn then
+                            KF[kfn:lower()] = body
+                        elseif sel:find("^@media") then
+                            if mediaOk(sel) then addCss(body) end
+                        elseif sel:find("^@supports") or sel:find("^@layer") then
+                            addCss(body)
+                        end
+                    end
                     if sel:sub(1, 1) ~= "@" and #rules < 4000 then
-                        local decl = parseDecls(body)
+                        local isRoot = sel:find(":root", 1, true) ~= nil or sel == "html" or sel == "body" or sel == "*" or sel == "html, body"
+                        local decl = parseDecls(body, isRoot)
                         if #decl > 0 then
-                            for s in sel:gmatch("[^,]+") do
-                                local parts = parseSelector(trim(s))
+                            for _, s0 in ipairs(expandSel(sel)) do
+                                local s = (trim(s0):gsub(":root", "html"))
+                                -- pseudo-elemento ::before / ::after (ou :before / :after da sintaxe antiga)
+                                local pe
+                                do
+                                    local sb, pn = s:match("^(.-)::?(before)$")
+                                    if not sb then sb, pn = s:match("^(.-)::?(after)$") end
+                                    if sb then
+                                        pe = pn
+                                        s = trim(sb)
+                                        if s == "" then s = "*" end
+                                    end
+                                end
+                                local hov = false
+                                if s:find(":hover$") then
+                                    hov = true
+                                    s = trim((s:gsub(":hover$", "")))
+                                end
+                                local parts = (not (pe and hov)) and parseSelector(s) or nil
                                 if parts then
                                     local last = parts[#parts]
-                                    local key = last.id and ("#" .. last.id) or (last.cls[1] and ("." .. last.cls[1])) or last.tag
+                                    local key = last.id and ("#" .. last.id) or (last.cls[1] and ("." .. last.cls[1])) or last.tag or "*"
                                     if key then
                                         local spec = 0
                                         for _, p in ipairs(parts) do
-                                            spec = spec + (p.id and 100 or 0) + #p.cls * 10 + (p.tag and 1 or 0)
+                                            spec = spec + (p.id and 100 or 0) + #p.cls * 10 + #p.ps * 10 + #p.nots * 10 + #(p.at or {}) * 10 + (p.tag and 1 or 0)
                                         end
                                         order = order + 1
                                         local r = {parts = parts, decl = decl, spec = spec, order = order}
-                                        idx[key] = idx[key] or {}
-                                        table.insert(idx[key], r)
-                                        rules[#rules + 1] = r
+                                        if pe then
+                                            r.pe = pe
+                                            local pt = idx["@pe"]
+                                            if not pt then pt = {}; idx["@pe"] = pt end
+                                            if (pt["@n"] or 0) < 1500 then
+                                                pt["@n"] = (pt["@n"] or 0) + 1
+                                                pt[key] = pt[key] or {}
+                                                table.insert(pt[key], r)
+                                            end
+                                        else
+                                            local target = hov and hidx or idx
+                                            target[key] = target[key] or {}
+                                            table.insert(target[key], r)
+                                            if not hov then rules[#rules + 1] = r end
+                                        end
                                     end
                                 end
                             end
@@ -8609,26 +9978,37 @@ local function makeBrowserScreen()
                 local par = node.parent
                 local ps = BASE
                 if par and par.tag ~= "#root" then ps = par.st or styleFor(par) end
-                local st = {color = ps.color, size = ps.size, bold = ps.bold, italic = ps.italic, under = ps.under, strike = ps.strike, align = ps.align, mono = ps.mono}
+                local st = {color = ps.color, size = ps.size, bold = ps.bold, italic = ps.italic, under = ps.under, strike = ps.strike, align = ps.align, mono = ps.mono, lh = ps.lh, font = ps.font, tt = ps.tt, lsn = ps.lsn, nowrap = ps.nowrap}
                 local tag = node.tag
                 if tag:match("^h[1-6]$") then
-                    local f = ({h1 = 1.7, h2 = 1.4, h3 = 1.2, h4 = 1.05, h5 = 1, h6 = 0.9})[tag]
-                    st.size = math.min(30, ps.size * f)
+                    local f = ({h1 = 2, h2 = 1.5, h3 = 1.17, h4 = 1, h5 = 0.83, h6 = 0.67})[tag]
+                    local m = ({h1 = 0.67, h2 = 0.83, h3 = 1, h4 = 1.33, h5 = 1.67, h6 = 2.33})[tag]
+                    st.size = math.min(54, ps.size * f)
                     st.bold = true
+                    st.mt = st.size * m
+                    st.mb = st.mt
                 elseif tag == "b" or tag == "strong" or tag == "th" then st.bold = true
                 elseif tag == "i" or tag == "em" or tag == "cite" or tag == "dfn" or tag == "var" then st.italic = true
                 elseif tag == "u" or tag == "ins" then st.under = true
                 elseif tag == "s" or tag == "strike" or tag == "del" then st.strike = true
                 elseif tag == "small" then st.size = ps.size * 0.85
                 elseif tag == "code" or tag == "kbd" or tag == "samp" or tag == "tt" or tag == "pre" then st.mono = true
-                elseif tag == "a" then st.color = Color3.fromRGB(26, 85, 204); st.under = true
+                elseif tag == "a" then st.color = U.dk(Color3.fromRGB(0, 0, 238), "fg"); st.under = true
                 elseif tag == "center" then st.align = "center"
-                elseif tag == "blockquote" then st.color = Color3.fromRGB(90, 92, 98)
-                elseif tag == "mark" then st.bg = Color3.fromRGB(255, 240, 120)
+                elseif tag == "blockquote" then st.mt = st.size; st.mb = st.size; st.pl = 30
+                elseif tag == "p" or tag == "dl" or tag == "figure" or tag == "fieldset" then st.mt = st.size; st.mb = st.size
+                elseif tag == "ul" or tag == "ol" then
+                    local nested = node.parent and node.parent.tag == "li"
+                    st.mt = nested and 0 or st.size
+                    st.mb = st.mt
+                    st.pl = 30
+                elseif tag == "dd" then st.pl = 30
+                elseif tag == "hr" then st.mt = st.size * 0.5; st.mb = st.mt
+                elseif tag == "mark" then st.bg = U.dk(Color3.fromRGB(255, 240, 120), "bg")
                 end
                 local at = node.attrs
-                if at.bgcolor then st.bg = parseColor(at.bgcolor) end
-                if at.color and tag == "font" then st.color = parseColor(at.color) or st.color end
+                if at.bgcolor then st.bg = U.dk(parseColor(at.bgcolor), "bg") end
+                if at.color and tag == "font" then st.color = U.dk(parseColor(at.color), "fg") or st.color end
                 if at.align == "center" or at.align == "right" then st.align = at.align end
                 local cand = {}
                 local function take(key)
@@ -8640,6 +10020,7 @@ local function makeBrowserScreen()
                     end
                 end
                 take(tag)
+                take("*")
                 if at.id then take("#" .. at.id) end
                 for c in pairs(classSet(node)) do take("." .. c) end
                 table.sort(cand, function(a, b)
@@ -8651,6 +10032,32 @@ local function makeBrowserScreen()
                 end
                 if at.style then
                     for _, d in ipairs(parseDecls(at.style)) do applyDecl(st, d[1], d[2], ps) end
+                end
+                if st.opacity == 0 and not st.anim and not hasImgTag(node, 0) and not st.bgimg then st.display = "none" end
+                local hc = {}
+                local function takeH(key)
+                    local l = hidx[key]
+                    if l then
+                        for _, r in ipairs(l) do
+                            if matchRule(node, r.parts) then hc[#hc + 1] = r end
+                        end
+                    end
+                end
+                takeH(tag)
+                takeH("*")
+                if at.id then takeH("#" .. at.id) end
+                for c in pairs(classSet(node)) do takeH("." .. c) end
+                if #hc > 0 then
+                    table.sort(hc, function(a, b)
+                        if a.spec ~= b.spec then return a.spec < b.spec end
+                        return a.order < b.order
+                    end)
+                    local hs = {}
+                    for k2, v2 in pairs(st) do hs[k2] = v2 end
+                    for _, r in ipairs(hc) do
+                        for _, d in ipairs(r.decl) do applyDecl(hs, d[1], d[2], st) end
+                    end
+                    node.hov = hs
                 end
                 node.st = st
                 return st
@@ -8716,7 +10123,129 @@ local function makeBrowserScreen()
                 return '<font color="' .. hexOf(s.color) .. '"' .. sz .. ">" .. t .. "</font>"
             end
 
+            -- ::before / ::after: so texto (content: "..", attr(x), open-quote/close-quote, escapes \201C).
+            -- Icon-fonts (area privada \E000-\F8FF) nao existem no Roblox: so alguns glifos comuns sao mapeados.
+            local FAICON = {f054 = "\u{203A}", f105 = "\u{203A}", f053 = "\u{2039}", f104 = "\u{2039}", f101 = "\u{00BB}", f100 = "\u{00AB}", f067 = "+", f068 = "-", f111 = "\u{25CF}"}
+            local function pseudoContent(val, node)
+                local lv = trim(val):lower()
+                if lv == "none" or lv == "normal" or lv == "" then return nil end
+                local out, i, n = {}, 1, #val
+                while i <= n do
+                    local ch = val:sub(i, i)
+                    if ch == '"' or ch == "'" then
+                        local j, buf = i + 1, {}
+                        while j <= n do
+                            local cj = val:sub(j, j)
+                            if cj == "\\" then
+                                local hex = val:match("^%x%x?%x?%x?%x?%x?", j + 1)
+                                if hex then
+                                    local cp = tonumber(hex, 16)
+                                    j = j + 1 + #hex
+                                    if val:sub(j, j):match("%s") then j = j + 1 end
+                                    local mapped = FAICON[hex:lower()]
+                                    if mapped then
+                                        buf[#buf + 1] = mapped
+                                    elseif cp and cp > 0 and cp < 0x110000 and not (cp >= 0xD800 and cp <= 0xDFFF) and not (cp >= 0xE000 and cp <= 0xF8FF) then
+                                        buf[#buf + 1] = utf8.char(cp)
+                                    end
+                                else
+                                    buf[#buf + 1] = val:sub(j + 1, j + 1)
+                                    j = j + 2
+                                end
+                            elseif cj == ch then
+                                break
+                            else
+                                buf[#buf + 1] = cj
+                                j = j + 1
+                            end
+                        end
+                        out[#out + 1] = table.concat(buf)
+                        i = j + 1
+                    elseif ch:find("%s") then
+                        i = i + 1
+                    else
+                        local fn, arg, e = val:match("^([%a%-]+)%((.-)%)()", i)
+                        if fn then
+                            if fn:lower() == "attr" then
+                                out[#out + 1] = tostring(node.attrs[trim(arg):lower()] or "")
+                            end
+                            i = e
+                        else
+                            local w, e2 = val:match("^([%a%-]+)()", i)
+                            if w then
+                                w = w:lower()
+                                if w == "open-quote" then out[#out + 1] = "\u{201C}"
+                                elseif w == "close-quote" then out[#out + 1] = "\u{201D}" end
+                                i = e2
+                            else
+                                i = i + 1
+                            end
+                        end
+                    end
+                end
+                local txt = table.concat(out)
+                if #txt > 240 then txt = txt:sub(1, 240) end
+                if txt == "" then return nil end
+                return txt
+            end
+
+            local function pseudoRich(node, which, ost, base)
+                local pt = idx["@pe"]
+                if not pt or not node.tag or not node.attrs then return nil end
+                local cache = node.pseR
+                if not cache then cache = {}; node.pseR = cache end
+                local ck = cache[which]
+                if ck ~= nil then return ck or nil end
+                cache[which] = false
+                local cand = {}
+                local function take(key)
+                    local l = pt[key]
+                    if l then
+                        for _, r in ipairs(l) do
+                            if r.pe == which and matchRule(node, r.parts) then cand[#cand + 1] = r end
+                        end
+                    end
+                end
+                take(node.tag)
+                take("*")
+                if node.attrs.id then take("#" .. node.attrs.id) end
+                for c in pairs(classSet(node)) do take("." .. c) end
+                if #cand == 0 then return nil end
+                table.sort(cand, function(a, b)
+                    if a.spec ~= b.spec then return a.spec < b.spec end
+                    return a.order < b.order
+                end)
+                local pst = {color = ost.color, size = ost.size, bold = ost.bold, italic = ost.italic, under = ost.under, strike = ost.strike, align = ost.align, mono = ost.mono, lh = ost.lh, font = ost.font, tt = ost.tt, lsn = ost.lsn, nowrap = ost.nowrap}
+                local content
+                for _, r in ipairs(cand) do
+                    for _, d in ipairs(r.decl) do
+                        if d[1] == "content" then content = d[2]
+                        else applyDecl(pst, d[1], d[2], ost) end
+                    end
+                end
+                if not content then return nil end
+                if content:find("var%(") then content = subVars(content) end
+                if pst.display == "none" or pst.pos == "absolute" or pst.pos == "fixed" then return nil end
+                local txt = pseudoContent(content, node)
+                if not txt then return nil end
+                if pst.tt == "uppercase" then txt = txt:upper()
+                elseif pst.tt == "lowercase" then txt = txt:lower() end
+                local blk = pst.display == "block" or pst.display == "flex" or pst.display == "grid" or pst.display == "list-item"
+                local res = {rich = wrapRich(U.esc(txt), pst, base), blk = blk, vis = txt:find("%S") ~= nil}
+                cache[which] = res
+                return res
+            end
+
             local function place(ctx, inst)
+                if ctx.gap and ctx.gap > 0.5 then
+                    local sp = Instance.new("Frame")
+                    sp.BackgroundTransparency = 1
+                    sp.BorderSizePixel = 0
+                    sp.Size = UDim2.new(1, 0, 0, ctx.gap)
+                    sp.LayoutOrder = ctx.n + 1
+                    sp.Parent = ctx.inst
+                end
+                ctx.gap = nil
                 ctx.n = ctx.n + 2
                 inst.LayoutOrder = ctx.n
                 inst.Parent = ctx.inst
@@ -8728,47 +10257,344 @@ local function makeBrowserScreen()
                 s.Parent = parent
             end
 
-            local renderChildren, renderBlock, makeBox
+            local TOG, idMap = {}, {}
+            local function scanToggles(n, depth)
+                if depth > 60 then return end
+                local at = n.attrs
+                if at then
+                    local t = at["data-bs-target"] or at["data-target"] or at["aria-controls"]
+                    if t then
+                        for id in t:gmatch("[%w_%-]+") do TOG[id] = true end
+                    end
+                    local oc = at.onclick
+                    if oc then
+                        for id in oc:gmatch("getElementById%(%s*['\"]([%w_%-]+)") do TOG[id] = true end
+                    end
+                    local hf = at.href
+                    if hf then
+                        local id = hf:match("^#([%w_%-]+)$")
+                        if id then TOG[id] = true end
+                    end
+                end
+                for _, k in ipairs(n.kids or {}) do
+                    if k.tag then scanToggles(k, depth + 1) end
+                end
+            end
+            scanToggles(root, 0)
+
+            local function scrollToInst(f)
+                local sf = canvas:FindFirstAncestorOfClass("ScrollingFrame")
+                if sf and f then
+                    sf.CanvasPosition = Vector2.new(0, math.max(0, f.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - 8))
+                end
+            end
+
+            local function actionFor(node)
+                local at = node.attrs
+                if not at then return nil end
+                local oc = at.onclick or ""
+                local nav = oc:match("location[%.%w]*%s*=%s*['\"]([^'\"]+)['\"]") or oc:match("location%.assign%(%s*['\"]([^'\"]+)") or oc:match("window%.open%(%s*['\"]([^'\"]+)") or at["data-href"] or at["data-url"] or at.formaction
+                local tid = at["data-bs-target"] or at["data-target"] or at["aria-controls"] or oc:match("getElementById%(%s*['\"]([%w_%-]+)") or (at.href and at.href:match("^#([%w_%-]+)$")) or ""
+                tid = tid:match("([%w_%-]+)") or ""
+                if nav then
+                    local url = U.resolve(entry.url, nav)
+                    if url then return function() navigate(tabs[cur], {url = url}) end end
+                end
+                if tid ~= "" and TOG[tid] then
+                    local isAnchor = node.tag == "a" and at.href and at.href:sub(1, 1) == "#"
+                    return function()
+                        local f = idMap[tid]
+                        if not f then return end
+                        if isAnchor and f.Visible then
+                            scrollToInst(f)
+                        else
+                            f.Visible = not f.Visible
+                            if f.Visible then scrollToInst(f) end
+                        end
+                    end
+                end
+                return nil
+            end
+
+            local renderChildren, renderBlock, makeBox, renderBlockInner, queueBgImage
             local alignOf = {left = Enum.TextXAlignment.Left, center = Enum.TextXAlignment.Center, right = Enum.TextXAlignment.Right}
+
+            local function applyAnim(f, a, isGroup)
+                local kf = KF[a.name]
+                if not kf then return end
+                local fade = kf:find("opacity") ~= nil
+                local spin = kf:find("rotate") ~= nil
+                if a.inf then
+                    if spin then
+                        TweenService:Create(f, TweenInfo.new(a.dur, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360}):Play()
+                    elseif fade and isGroup then
+                        TweenService:Create(f, TweenInfo.new(a.dur / 2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {GroupTransparency = 0.55}):Play()
+                    end
+                elseif fade and isGroup then
+                    f.GroupTransparency = 1
+                    task.delay(a.delay, function()
+                        if f.Parent then
+                            TweenService:Create(f, TweenInfo.new(a.dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+                        end
+                    end)
+                end
+            end
+
+            local function attachHover(f, st, hov)
+                if not hov.bg then return end
+                local ti = TweenInfo.new(st.trans or 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                local baseC, baseT = f.BackgroundColor3, f.BackgroundTransparency
+                f.MouseEnter:Connect(function()
+                    TweenService:Create(f, ti, {BackgroundColor3 = hov.bg, BackgroundTransparency = 1 - (hov.bga or 1) * (hov.opacity or 1)}):Play()
+                end)
+                f.MouseLeave:Connect(function()
+                    TweenService:Create(f, ti, {BackgroundColor3 = baseC, BackgroundTransparency = baseT}):Play()
+                end)
+            end
+
+            local function pressFx(b)
+                local sc = Instance.new("UIScale")
+                sc.Parent = b
+                b.InputBegan:Connect(function(i)
+                    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                        TweenService:Create(sc, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 0.96}):Play()
+                    end
+                end)
+                b.InputEnded:Connect(function(i)
+                    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                        TweenService:Create(sc, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                    end
+                end)
+            end
 
             makeBox = function(ctx, st, opts)
                 opts = opts or {}
                 local auto = opts.auto or ctx.auto
-                local f = Instance.new("Frame")
+                local kf = st.anim and KF[st.anim.name]
+                local group = (kf and kf:find("opacity") and not kf:find("rotate") and not st.bgimg) and true or false
+                local click = (opts.href or opts.act) and not group
+                local f = Instance.new(st.bgimg and (click and "ImageButton" or "ImageLabel") or (group and "CanvasGroup" or (click and "TextButton" or "Frame")))
+                if click then
+                    f.AutoButtonColor = false
+                    if f:IsA("TextButton") then f.Text = "" end
+                    f.MouseButton1Click:Connect(function()
+                        if opts.act then opts.act()
+                        elseif opts.href then navigate(tabs[cur], {url = opts.href}) end
+                    end)
+                end
+                local nid = opts.node and opts.node.attrs and opts.node.attrs.id
+                if nid and TOG[nid] then idMap[nid] = f end
+                if st._hide then f.Visible = false end
                 f.BorderSizePixel = 0
                 f.ZIndex = 4
-                if auto then
-                    f.Size = UDim2.new(0, 0, 0, 0)
-                    f.AutomaticSize = Enum.AutomaticSize.XY
+                local barW = st.bl and math.max(1, st.bl.w) or 0
+                local sx
+                local wcap
+                if opts.fill then
+                    sx = UDim2.new(1 / math.max(1, opts.fillN or 2), -4, 0, 0)
+                elseif opts.colW then
+                    sx = opts.colW
+                elseif auto then
+                    sx = UDim2.new(0, 0, 0, 0)
+                elseif st.w and st.w[2] then
+                    sx = UDim2.new(st.w[2], st.w[1] or 0, 0, 0)
+                elseif st.w and st.w[1] and st.w[1] < AVAILW then
+                    sx = UDim2.new(1, 0, 0, 0)
+                    wcap = st.w[1]
                 else
-                    f.Size = UDim2.new(1, 0, 0, 0)
-                    f.AutomaticSize = Enum.AutomaticSize.Y
+                    sx = UDim2.new(1, 0, 0, 0)
                 end
-                if st.bg then f.BackgroundColor3 = st.bg; f.BackgroundTransparency = 0 else f.BackgroundTransparency = 1 end
+                f.Size = sx
+                if opts.aspect and (opts.auto or ctx.auto) then sx = UDim2.new(0, 120, 0, 0) f.Size = sx end
+                f.AutomaticSize = opts.aspect and Enum.AutomaticSize.None or (auto and Enum.AutomaticSize.XY or Enum.AutomaticSize.Y)
+                if opts.aspect then
+                    local arc = Instance.new("UIAspectRatioConstraint")
+                    arc.AspectRatio = opts.aspect
+                    arc.Parent = f
+                end
+                local minH = (st.h and st.h[1]) or (st.minh and st.minh[1])
+                if st.h and st.h[1] and st.minh and st.minh[1] then minH = math.max(st.h[1], st.minh[1]) end
+                if st.bgimg and not minH and not opts.aspect then minH = 110 end
+                local maxW = st.maxw and st.maxw[1]
+                if wcap then maxW = maxW and math.min(maxW, wcap) or wcap end
+                if (minH and minH > 0) or (maxW and not auto) then
+                    local sc = Instance.new("UISizeConstraint")
+                    sc.MinSize = Vector2.new(0, minH or 0)
+                    sc.MaxSize = Vector2.new((maxW and not auto) and maxW or math.huge, math.huge)
+                    sc.Parent = f
+                end
+                if auto then
+                    local sc1 = f:FindFirstChildOfClass("UISizeConstraint")
+                    if not sc1 then
+                        sc1 = Instance.new("UISizeConstraint")
+                        sc1.Parent = f
+                    end
+                    sc1.MaxSize = Vector2.new(math.min(sc1.MaxSize.X, AVAILW), sc1.MaxSize.Y)
+                end
+                local centerAuto = st.ml == "auto" and (wcap or (st.maxw and st.maxw[1]) or (st.w and st.w[2] and st.w[2] < 1)) and true or false
+                if st.bg then
+                    f.BackgroundColor3 = st.bg
+                    f.BackgroundTransparency = 1 - (st.bga or 1) * (st.opacity or 1)
+                else
+                    f.BackgroundTransparency = 1
+                end
+                if st.grad and st.bg then applyGrad(f, st.grad) end
+                if st.bgimg then
+                    f.ScaleType = Enum.ScaleType.Crop
+                    local url = U.resolve(entry.url, st.bgimg)
+                    if url and queueBgImage then queueBgImage(f, url) end
+                end
                 local lay = Instance.new("UIListLayout")
                 lay.SortOrder = Enum.SortOrder.LayoutOrder
-                lay.Padding = UDim.new(0, 3)
+                lay.Padding = UDim.new(0, st.gap or 0)
+                local H, V = Enum.HorizontalAlignment, Enum.VerticalAlignment
+                local function hz(v)
+                    if v == "center" then return H.Center elseif v == "flex-end" or v == "end" or v == "right" then return H.Right end
+                    return H.Left
+                end
+                local function vt(v)
+                    if v == "center" then return V.Center elseif v == "flex-end" or v == "end" then return V.Bottom end
+                    return V.Top
+                end
+                local flexy = st.display == "flex" or st.display == "inline-flex"
+                local rowdir = flexy and st.dir ~= "column"
                 if opts.row then
                     lay.FillDirection = Enum.FillDirection.Horizontal
-                    lay.Wraps = true
-                    lay.Padding = UDim.new(0, 8)
+                    lay.Wraps = opts.wraps ~= false
+                    lay.HorizontalAlignment = hz(st.jc)
+                    lay.VerticalAlignment = vt(st.ai)
+                    if (st.jc == "space-between" or st.jc == "space-around" or st.jc == "space-evenly") and not lay.Wraps then
+                        pcall(function()
+                            lay.HorizontalFlex = (st.jc == "space-between") and Enum.UIFlexAlignment.SpaceBetween or ((st.jc == "space-around") and Enum.UIFlexAlignment.SpaceAround or Enum.UIFlexAlignment.SpaceEvenly)
+                        end)
+                    end
+                elseif flexy and rowdir then
+                    lay.HorizontalAlignment = hz(st.jc)
+                    lay.VerticalAlignment = vt(st.ai)
+                elseif flexy then
+                    lay.HorizontalAlignment = hz(st.ai)
+                    lay.VerticalAlignment = vt(st.jc)
+                else
+                    if st.align == "center" then lay.HorizontalAlignment = H.Center
+                    elseif st.align == "right" then lay.HorizontalAlignment = H.Right end
                 end
-                if st.align == "center" then lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                elseif st.align == "right" then lay.HorizontalAlignment = Enum.HorizontalAlignment.Right end
-                lay.Parent = f
-                local pl = (opts.indent or 0) + (st.bg and 4 or 0)
-                local pv = st.bg and 4 or 0
-                if pl > 0 or pv > 0 then
+                if not opts.aspect then lay.Parent = f end
+                local pt, pr, pb, pl = st.pt or 0, st.pr or 0, st.pb or 0, st.pl or 0
+                if (pt > 0 or pr > 0 or pb > 0 or pl > 0) and not opts.aspect then
                     local pad = Instance.new("UIPadding")
+                    pad.PaddingTop = UDim.new(0, pt)
+                    pad.PaddingRight = UDim.new(0, pr)
+                    pad.PaddingBottom = UDim.new(0, pb)
                     pad.PaddingLeft = UDim.new(0, pl)
-                    pad.PaddingRight = UDim.new(0, st.bg and 4 or 0)
-                    pad.PaddingTop = UDim.new(0, pv)
-                    pad.PaddingBottom = UDim.new(0, pv)
                     pad.Parent = f
                 end
-                if st.bg and st.radius then corner(f, UDim.new(0, math.min(st.radius, 12))) end
-                place(ctx, f)
-                return {inst = f, n = 0, auto = auto or nil}
+                if st.radius or st.rs then
+                    local r, rs2 = st.radius or 0, st.rs or 0
+                    if r > 0 or rs2 > 0 then corner(f, UDim.new(rs2, math.min(r, 500))) end
+                end
+                if st.b then
+                    local sk = Instance.new("UIStroke")
+                    sk.Color = st.b.c
+                    sk.Thickness = math.max(0.75, st.b.w)
+                    sk.Transparency = 1 - (st.b.a or 1)
+                    sk.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    sk.Parent = f
+                end
+                if st.clip then f.ClipsDescendants = true end
+                
+                local function edgeLine(b)
+                    local l = Instance.new("Frame")
+                    l.Size = UDim2.new(1, 0, 0, math.max(1, b.w))
+                    l.BackgroundColor3 = b.c
+                    l.BackgroundTransparency = 1 - (b.a or 1)
+                    l.BorderSizePixel = 0
+                    l.ZIndex = 5
+                    place(ctx, l)
+                end
+                if st.bt and not ctx.row then edgeLine(st.bt) end
+                local needWrap = barW > 0 or (st.shadow and st.bg and true or false)
+                local placed = f
+                if needWrap then
+                    local outer = Instance.new("Frame")
+                    outer.BackgroundTransparency = 1
+                    outer.BorderSizePixel = 0
+                    outer.Size = sx
+                    outer.AutomaticSize = auto and Enum.AutomaticSize.XY or Enum.AutomaticSize.Y
+                    outer.ZIndex = 4
+                    local sc0 = f:FindFirstChildOfClass("UISizeConstraint")
+                    if sc0 and sc0.MaxSize.X < math.huge then
+                        local oc = Instance.new("UISizeConstraint")
+                        oc.MaxSize = Vector2.new(sc0.MaxSize.X, math.huge)
+                        oc.Parent = outer
+                    end
+                    if st.shadow and st.bg then
+                        local shd = st.shadow
+                        local pad = math.max(5, (shd.blur or 8) * 0.75)
+                        local img = Instance.new("ImageLabel")
+                        img.BackgroundTransparency = 1
+                        img.Image = "rbxassetid://1316045217"
+                        img.ScaleType = Enum.ScaleType.Slice
+                        img.SliceCenter = Rect.new(10, 10, 118, 118)
+                        img.ImageColor3 = Color3.new(0, 0, 0)
+                        img.ImageTransparency = math.clamp(1 - (shd.a or 0.25) * 1.6, 0.55, 0.96)
+                        img.Position = UDim2.new(0, -pad, 0, -pad + (shd.y or 0) * 0.75)
+                        img.Size = UDim2.new(1, pad * 2, 1, pad * 2)
+                        img.ZIndex = 3
+                        img.Parent = outer
+                    end
+                    if barW > 0 then
+                        local bar = Instance.new("Frame")
+                        bar.Size = UDim2.new(0, barW, 1, 0)
+                        bar.BackgroundColor3 = st.bl.c
+                        bar.BackgroundTransparency = 1 - (st.bl.a or 1)
+                        bar.BorderSizePixel = 0
+                        bar.ZIndex = 5
+                        bar.Parent = outer
+                    end
+                    f.Position = UDim2.new(0, barW, 0, 0)
+                    f.Size = auto and UDim2.new(0, 0, 0, 0) or UDim2.new(1, -barW, 0, 0)
+                    f.Parent = outer
+                    placed = outer
+                end
+                if opts.fill then
+                    pcall(function()
+                        local fi = Instance.new("UIFlexItem")
+                        fi.FlexMode = Enum.UIFlexMode.Fill
+                        fi.Parent = placed
+                    end)
+                end
+                if centerAuto and not ctx.row and not opts.colW and not opts.fill then
+                    local cwf = Instance.new("Frame")
+                    cwf.BackgroundTransparency = 1
+                    cwf.BorderSizePixel = 0
+                    cwf.Size = UDim2.new(1, 0, 0, 0)
+                    cwf.AutomaticSize = Enum.AutomaticSize.Y
+                    cwf.ZIndex = 4
+                    local cll = Instance.new("UIListLayout")
+                    cll.SortOrder = Enum.SortOrder.LayoutOrder
+                    cll.HorizontalAlignment = (st.mr == "auto") and Enum.HorizontalAlignment.Center or Enum.HorizontalAlignment.Right
+                    cll.Parent = cwf
+                    placed.Parent = cwf
+                    placed = cwf
+                end
+                place(ctx, placed)
+                if st.bb and not ctx.row then edgeLine(st.bb) end
+                if opts.node and opts.node.hov and not st.grad then attachHover(f, st, opts.node.hov) end
+                if click and (st.bg or st.b) then pressFx(f) end
+                if st.anim then applyAnim(f, st.anim, group) end
+                if opts.aspect then
+                    local ov = Instance.new("Frame")
+                    ov.BackgroundTransparency = 1
+                    ov.BorderSizePixel = 0
+                    ov.Size = UDim2.new(1, 0, 1, 0)
+                    ov.ZIndex = 6
+                    local ovl = Instance.new("UIListLayout")
+                    ovl.SortOrder = Enum.SortOrder.LayoutOrder
+                    ovl.Parent = ov
+                    ov.Parent = f
+                    return {inst = ov, n = 0, lay = ovl, fillTarget = f}
+                end
+                return {inst = f, n = 0, auto = auto or nil, lay = lay, row = opts.row}
             end
 
             local function makeText(ctx, buf, st)
@@ -8780,19 +10606,24 @@ local function makeBrowserScreen()
                 l.Text = buf.rich
                 l.TextSize = st.size
                 l.TextColor3 = st.color
-                l.Font = st.mono and Enum.Font.Code or Enum.Font.Gotham
+                l.Font = st.font or (st.mono and Enum.Font.Code or Enum.Font.Gotham)
                 l.TextXAlignment = alignOf[st.align] or Enum.TextXAlignment.Left
                 l.TextYAlignment = Enum.TextYAlignment.Top
-                l.LineHeight = 1.1
+                l.LineHeight = st.lh and math.clamp(st.lh, 1, 3) or 1.15
                 l.ZIndex = 5
                 if ctx.auto then
-                    l.TextWrapped = false
+                    l.TextWrapped = not st.nowrap
                     l.Size = UDim2.new(0, 0, 0, 0)
                     l.AutomaticSize = Enum.AutomaticSize.XY
+                    local tcap = Instance.new("UISizeConstraint")
+                    tcap.MaxSize = Vector2.new(math.max(40, AVAILW - 2), math.huge)
+                    tcap.Parent = l
                 else
                     l.TextWrapped = true
                     l.Size = UDim2.new(1, 0, 0, 0)
                     l.AutomaticSize = Enum.AutomaticSize.Y
+                    if st.nowrap then l.TextWrapped = false end
+                    if st.ell then l.TextTruncate = Enum.TextTruncate.AtEnd end
                 end
                 place(ctx, l)
                 if nlinks > 0 then
@@ -8800,14 +10631,15 @@ local function makeBrowserScreen()
                     local chooser
                     l.MouseButton1Click:Connect(function()
                         if nlinks == 1 then
-                            navigate(tabs[cur], {url = buf.links[1].href})
+                            local l1 = buf.links[1]
+                            if l1.act then l1.act() else navigate(tabs[cur], {url = l1.href}) end
                             return
                         end
                         if chooser and chooser.Parent then chooser:Destroy() chooser = nil return end
                         chooser = Instance.new("Frame")
                         chooser.Size = UDim2.new(1, 0, 0, 0)
                         chooser.AutomaticSize = Enum.AutomaticSize.Y
-                        chooser.BackgroundColor3 = Color3.fromRGB(238, 241, 247)
+                        chooser.BackgroundColor3 = U.dk(Color3.fromRGB(238, 241, 247), "bg")
                         chooser.BorderSizePixel = 0
                         chooser.ZIndex = 5
                         chooser.LayoutOrder = l.LayoutOrder + 1
@@ -8827,14 +10659,14 @@ local function makeBrowserScreen()
                             b.Size = UDim2.new(1, 0, 0, 22)
                             b.BackgroundTransparency = 1
                             b.Text = "→ " .. ((lk.label and lk.label ~= "") and lk.label or U.hostOf(lk.href))
-                            b.TextColor3 = Color3.fromRGB(26, 85, 204)
+                            b.TextColor3 = U.dk(Color3.fromRGB(26, 85, 204), "fg")
                             b.Font = Enum.Font.Gotham
                             b.TextSize = 11
                             b.TextXAlignment = Enum.TextXAlignment.Left
                             b.TextTruncate = Enum.TextTruncate.AtEnd
                             b.ZIndex = 6
                             b.Parent = chooser
-                            b.MouseButton1Click:Connect(function() navigate(tabs[cur], {url = lk.href}) end)
+                            b.MouseButton1Click:Connect(function() if lk.act then lk.act() else navigate(tabs[cur], {url = lk.href}) end end)
                         end
                         chooser.Parent = ctx.inst
                     end)
@@ -8851,16 +10683,50 @@ local function makeBrowserScreen()
                         local ok, a = pcall(U.cacheImage, job.url, 6000000)
                         imgActive = imgActive - 1
                         if alive() and job.img.Parent then
-                            if ok and a then
-                                local w, h = U.dimsFor(job.url)
+                            if job.bg or job.fill then
+ if ok and a then
+ job.img.Image = a
+ job.img.BackgroundTransparency = 1
+ end
+ elseif ok and a then
+ local w, h = U.dimsFor(job.url)
                                 local aw, ah = job.aw, job.ah
                                 if not w or not h then w, h = aw or 160, ah or 110 end
-                                local availW = math.max(40, (job.img.Parent.AbsoluteSize.X > 0 and job.img.Parent.AbsoluteSize.X or canvas.AbsoluteSize.X) - 4)
+                                local availW = math.min(AVAILW, math.max(40, ((job.img.Parent.AbsoluteSize.X > 0 and job.img.Parent.AbsoluteSize.X or canvas.AbsoluteSize.X) / totScale()) - 4))
                                 local dw = math.min(availW, math.max(8, (aw or w) * 0.75))
-                                local dh = math.min(700, dw * h / w)
+                                local sw, sh = job.sw, job.sh
+                                if sw then
+                                    if sw[2] then dw = availW * sw[2] + (sw[1] or 0) elseif sw[1] then dw = math.min(availW, sw[1]) end
+                                end
+                                local dh = math.min(900, dw * h / w)
+                                if job.ar then
+                                    dh = dw / job.ar
+                                    job.img.ScaleType = Enum.ScaleType.Crop
+                                end
+                                if sh and sh[1] then
+                                    dh = sh[1]
+                                    job.img.ScaleType = Enum.ScaleType.Crop
+                                end
                                 job.img.Size = UDim2.new(0, dw, 0, dh)
                                 job.img.Image = a
                                 job.img.BackgroundTransparency = 1
+                                local imgRatio = dh / math.max(1, dw)
+                                local imgWant = dw
+                                local function clampImg()
+                                    local par = job.img.Parent
+                                    if not par then return end
+                                    local pw = math.min(par.AbsoluteSize.X / totScale(), AVAILW)
+                                    local up = par:FindFirstChildOfClass("UIPadding")
+                                    if up then pw = pw - up.PaddingLeft.Offset - up.PaddingRight.Offset end
+                                    if pw > 8 then
+                                        local nw = math.min(imgWant, pw - 1)
+                                        if math.abs(job.img.Size.X.Offset - nw) > 0.5 then
+                                            job.img.Size = UDim2.new(0, nw, 0, nw * imgRatio)
+                                        end
+                                    end
+                                end
+                                if job.img.Parent then job.img.Parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(clampImg) end
+                                task.defer(clampImg)
                             else
                                 job.img.Visible = false
                                 job.img.Size = UDim2.new(0, 0, 0, 0)
@@ -8869,6 +10735,11 @@ local function makeBrowserScreen()
                         pumpImages()
                     end)
                 end
+            end
+
+            queueBgImage = function(inst, url)
+                imgQ[#imgQ + 1] = {img = inst, url = url, bg = true}
+                pumpImages()
             end
 
             local function renderImage(ctx, node, st, href)
@@ -8887,17 +10758,26 @@ local function makeBrowserScreen()
                 if imgTotal > 45 then return end
                 local img = Instance.new("ImageButton")
                 img.AutoButtonColor = false
-                img.BackgroundColor3 = Color3.fromRGB(232, 234, 238)
+                img.BackgroundColor3 = U.dk(Color3.fromRGB(232, 234, 238), "bg")
                 img.BorderSizePixel = 0
                 img.ScaleType = Enum.ScaleType.Stretch
                 img.Size = UDim2.new(0, 60, 0, 40)
                 img.ZIndex = 5
-                place(ctx, img)
+                if ctx.fillTarget then
+                    img.Size = UDim2.new(1, 0, 1, 0)
+                    img.Position = UDim2.new(0, 0, 0, 0)
+                    img.ScaleType = Enum.ScaleType.Crop
+                    img.ZIndex = 4
+                    img.Parent = ctx.fillTarget
+                else
+                    place(ctx, img)
+                end
                 img.MouseButton1Click:Connect(function()
                     if href then navigate(tabs[cur], {url = href})
                     else openImg({url = url, thumb = url, title = at.alt or ""}) end
                 end)
-                imgQ[#imgQ + 1] = {img = img, url = url, aw = aw, ah = ah}
+                imgQ[#imgQ + 1] = {img = img, url = url, aw = aw, ah = ah, sw = st.w, sh = st.h, ar = st.ar, fill = ctx.fillTarget ~= nil}
+                if st.radius or st.rs then corner(img, UDim.new(st.rs or 0, math.min(st.radius or 0, 500))) end
                 pumpImages()
             end
 
@@ -8914,7 +10794,7 @@ local function makeBrowserScreen()
                 return nil
             end
             local function submitForm(form, btn)
-                if not form then toast("Botão sem ação") return end
+                if not form or form.dummy then return end
                 local method = (form.attrs.method or "get"):lower()
                 if method ~= "get" then toast("Formulário POST não é suportado") return end
                 local action = form.attrs.action or ""
@@ -8940,11 +10820,11 @@ local function makeBrowserScreen()
                 navigate(tabs[cur], {url = base .. (#q > 0 and (sep .. table.concat(q, "&")) or "")})
             end
 
-            local function renderControl(ctx, node, st)
+            local function renderControl(ctx, node, st, href)
                 local tag, at = node.tag, node.attrs
                 local ty = (at.type or "text"):lower()
-                local form = formOf(node)
-                if not form then return end   -- sem <form> o botão/campo não faz nada: não desenha
+                local form = formOf(node) or {dummy = true, attrs = {}, fs = {inputs = {}}}
+                
                 if tag == "input" and ty == "hidden" then
                     if form and at.name then form.fs.inputs[at.name] = {value = at.value or ""} end
                     return
@@ -8953,7 +10833,7 @@ local function makeBrowserScreen()
                     local on = at.checked ~= nil
                     local box = Instance.new("TextButton")
                     box.Size = UDim2.new(0, 20, 0, 20)
-                    box.BackgroundColor3 = Color3.new(1, 1, 1)
+                    box.BackgroundColor3 = U.dk(Color3.new(1, 1, 1), "bg")
                     box.BorderSizePixel = 0
                     box.Text = ""
                     box.AutoButtonColor = false
@@ -9013,7 +10893,7 @@ local function makeBrowserScreen()
                     local curI = 1
                     for i, o in ipairs(opts) do if o.sel then curI = i end end
                     local holder = Instance.new("Frame")
-                    holder.Size = ctx.auto and UDim2.new(0, 150, 0, 0) or UDim2.new(1, 0, 0, 0)
+                    holder.Size = (ctx.auto or ctx.row) and UDim2.new(0, 150, 0, 0) or UDim2.new(1, 0, 0, 0)
                     holder.AutomaticSize = Enum.AutomaticSize.Y
                     holder.BackgroundTransparency = 1
                     holder.ZIndex = 5
@@ -9024,9 +10904,9 @@ local function makeBrowserScreen()
                     local main = Instance.new("TextButton")
                     main.LayoutOrder = 1
                     main.Size = UDim2.new(1, 0, 0, 26)
-                    main.BackgroundColor3 = Color3.fromRGB(246, 247, 250)
+                    main.BackgroundColor3 = U.dk(Color3.fromRGB(246, 247, 250), "bg")
                     main.BorderSizePixel = 0
-                    main.TextColor3 = Color3.fromRGB(32, 33, 36)
+                    main.TextColor3 = U.dk(Color3.fromRGB(32, 33, 36), "fg")
                     main.Font = Enum.Font.Gotham
                     main.TextSize = 12
                     main.TextXAlignment = Enum.TextXAlignment.Left
@@ -9043,7 +10923,7 @@ local function makeBrowserScreen()
                     list.LayoutOrder = 2
                     list.Size = UDim2.new(1, 0, 0, 0)
                     list.AutomaticSize = Enum.AutomaticSize.Y
-                    list.BackgroundColor3 = Color3.new(1, 1, 1)
+                    list.BackgroundColor3 = U.dk(Color3.new(1, 1, 1), "bg")
                     list.BorderSizePixel = 0
                     list.Visible = false
                     list.ZIndex = 5
@@ -9062,7 +10942,7 @@ local function makeBrowserScreen()
                         ob.Size = UDim2.new(1, 0, 0, 26)
                         ob.BackgroundTransparency = 1
                         ob.Text = o.label
-                        ob.TextColor3 = Color3.fromRGB(32, 33, 36)
+                        ob.TextColor3 = U.dk(Color3.fromRGB(32, 33, 36), "fg")
                         ob.Font = Enum.Font.Gotham
                         ob.TextSize = 12
                         ob.TextXAlignment = Enum.TextXAlignment.Left
@@ -9088,23 +10968,28 @@ local function makeBrowserScreen()
                 if tag == "input" and (ty == "file" or ty == "range" or ty == "color") then return end
                 if tag == "textarea" or (tag == "input" and ty ~= "submit" and ty ~= "button" and ty ~= "image" and ty ~= "reset") then
                     local tb = Instance.new("TextBox")
-                    tb.Size = ctx.auto and UDim2.new(0, 150, 0, 26) or UDim2.new(1, 0, 0, tag == "textarea" and 60 or 26)
-                    tb.BackgroundColor3 = Color3.fromRGB(246, 247, 250)
+                    tb.Size = (ctx.auto or ctx.row) and UDim2.new(0, 150, 0, 26) or UDim2.new(1, 0, 0, tag == "textarea" and 60 or 26)
+                    tb.BackgroundColor3 = st.bg or U.dk(Color3.fromRGB(246, 247, 250), "bg")
                     tb.BorderSizePixel = 0
-                    tb.TextColor3 = Color3.fromRGB(32, 33, 36)
+                    tb.TextColor3 = U.dk(Color3.fromRGB(32, 33, 36), "fg")
                     tb.PlaceholderColor3 = Color3.fromRGB(130, 134, 142)
                     tb.PlaceholderText = at.placeholder or ""
                     tb.Text = tag == "textarea" and textOf(node, 2000) or (at.value or "")
                     tb.ClearTextOnFocus = false
                     tb.Font = Enum.Font.Gotham
-                    tb.TextSize = 12
+                    tb.TextSize = math.clamp(st.size, 9, 18)
                     tb.TextXAlignment = Enum.TextXAlignment.Left
                     tb.TextYAlignment = tag == "textarea" and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
                     tb.MultiLine = tag == "textarea"
                     tb.ClipsDescendants = true
                     tb.ZIndex = 5
-                    corner(tb, UDim.new(0, 6))
-                    stroke(tb, Color3.fromRGB(200, 204, 212), 1)
+                    corner(tb, UDim.new(st.rs or 0, st.radius or 6))
+                    stroke(tb, (st.b and st.b.c) or Color3.fromRGB(200, 204, 212), (st.b and st.b.w) or 1)
+                    if st.w then
+ if st.w[2] then tb.Size = UDim2.new(st.w[2], (st.w[1] or 0), 0, tb.Size.Y.Offset)
+ elseif st.w[1] then tb.Size = UDim2.new(0, math.min(st.w[1], 255), 0, tb.Size.Y.Offset) end
+ end
+                    if st.h and st.h[1] then tb.Size = UDim2.new(tb.Size.X.Scale, tb.Size.X.Offset, 0, st.h[1]) end
                     local pad = Instance.new("UIPadding")
                     pad.PaddingLeft = UDim.new(0, 8); pad.PaddingRight = UDim.new(0, 8)
                     pad.Parent = tb
@@ -9112,33 +10997,60 @@ local function makeBrowserScreen()
                     if form then form.fs.inputs[at.name or "q"] = tb end
                     if tag == "input" then
                         tb.FocusLost:Connect(function(enter)
-                            if enter and form then submitForm(form, nil) end
+                            if enter and form and not form.dummy then submitForm(form, nil) end
                         end)
                     end
                     return
                 end
                 -- botões (só os que enviam o formulário)
-                if ty == "button" or ty == "reset" then return end
                 local label = at.value or textOf(node, 40)
-                if label == "" then label = (ty == "submit") and "Enviar" or "Botão" end
+                if label == "" then
+                    if tag == "button" and ty ~= "submit" then return end
+                    label = "Enviar"
+                end
+                local full = st.w and st.w[2] and st.w[2] >= 0.99
                 local b = Instance.new("TextButton")
-                b.Size = UDim2.new(0, 0, 0, 28)
-                b.AutomaticSize = Enum.AutomaticSize.X
-                b.BackgroundColor3 = st.bg or Color3.fromRGB(66, 133, 244)
+                b.Size = UDim2.new(full and 1 or 0, 0, 0, 0)
+                b.AutomaticSize = full and Enum.AutomaticSize.Y or Enum.AutomaticSize.XY
+                b.BackgroundColor3 = st.bg or U.dk(Color3.fromRGB(239, 239, 239), "bg")
+                b.BackgroundTransparency = st.bg and (1 - (st.bga or 1)) or 0
                 b.BorderSizePixel = 0
                 b.Text = label
-                b.TextColor3 = st.bg and st.color or Color3.new(1, 1, 1)
-                b.Font = Enum.Font.GothamBold
-                b.TextSize = 11
-                b.AutoButtonColor = true
+                b.TextColor3 = st.bg and st.color or U.dk(Color3.fromRGB(16, 16, 16), "fg")
+                b.Font = st.font or (st.bold and Enum.Font.GothamBold or Enum.Font.Gotham)
+                b.TextSize = st.size
+                b.TextWrapped = false
+                b.AutoButtonColor = false
                 b.ZIndex = 5
-                corner(b, UDim.new(0, 8))
+                corner(b, UDim.new(st.rs or 0, st.radius or 2))
+                if st.b then
+                    stroke(b, st.b.c, math.max(0.75, st.b.w))
+                elseif not st.bg then
+                    stroke(b, Color3.fromRGB(118, 118, 118), 1)
+                end
                 local pad = Instance.new("UIPadding")
-                pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
+                pad.PaddingTop = UDim.new(0, st.pt or 1)
+                pad.PaddingBottom = UDim.new(0, st.pb or 1)
+                pad.PaddingLeft = UDim.new(0, st.pl or 5)
+                pad.PaddingRight = UDim.new(0, st.pr or 5)
                 pad.Parent = b
+                if st.minh and st.minh[1] then
+                    local mc = Instance.new("UISizeConstraint")
+                    mc.MinSize = Vector2.new(0, st.minh[1])
+                    mc.Parent = b
+                end
                 place(ctx, b)
+                pressFx(b)
+                if node.hov and node.hov.bg and not st.grad then attachHover(b, st, node.hov) end
                 b.MouseButton1Click:Connect(function()
+                    local act = actionFor(node)
+                    if act then act() return end
                     if ty == "reset" then return end
+                    if href then navigate(tabs[cur], {url = href}) return end
+                    if form.dummy or ty == "button" then
+                        toast("Esse botão depende de JavaScript do site (não suportado)")
+                        return
+                    end
                     submitForm(form, node)
                 end)
             end
@@ -9155,13 +11067,13 @@ local function makeBrowserScreen()
                     end
                 end
                 rec(node)
-                local box = makeBox(ctx, {bg = Color3.fromRGB(240, 242, 246), align = "left"}, {})
+                local box = makeBox(ctx, {bg = U.dk(Color3.fromRGB(240, 242, 246), "bg"), align = "left"}, {})
                 local l = Instance.new("TextLabel")
                 l.Size = UDim2.new(1, 0, 0, 0)
                 l.AutomaticSize = Enum.AutomaticSize.Y
                 l.BackgroundTransparency = 1
                 l.Text = table.concat(parts):sub(1, 4000)
-                l.TextColor3 = Color3.fromRGB(40, 42, 48)
+                l.TextColor3 = U.dk(Color3.fromRGB(40, 42, 48), "fg")
                 l.Font = Enum.Font.Code
                 l.TextSize = 10
                 l.TextWrapped = true
@@ -9244,6 +11156,17 @@ local function makeBrowserScreen()
                                     if cs.align == "center" then cl.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                                     cl.Parent = cf
                                     cf.Parent = rowF
+                                    local cpad = Instance.new("UIPadding")
+                                    cpad.PaddingTop = UDim.new(0, cs.pt or 2)
+                                    cpad.PaddingBottom = UDim.new(0, cs.pb or 2)
+                                    cpad.PaddingLeft = UDim.new(0, cs.pl or 3)
+                                    cpad.PaddingRight = UDim.new(0, cs.pr or 3)
+                                    cpad.Parent = cf
+                                    if cs.b then
+                                        stroke(cf, cs.b.c, math.max(0.75, cs.b.w))
+                                    elseif node.attrs.border and node.attrs.border ~= "0" then
+                                        stroke(cf, Color3.fromRGB(128, 128, 128), 1)
+                                    end
                                     renderChildren({inst = cf, n = 0}, c, cs)
                                 end
                             end
@@ -9263,46 +11186,224 @@ local function makeBrowserScreen()
                 return n >= 2
             end
 
-            renderBlock = function(ctx, node, st, href)
+            local vidCount = 0
+            local function renderVideo(ctx, node, st)
+                vidCount = vidCount + 1
+                if vidCount > 6 then return end
+                local at = node.attrs
+                local src = at.src
+                if not src or src == "" then
+                    for _, k in ipairs(node.kids) do
+                        if k.tag == "source" and k.attrs.src then
+                            local ty = (k.attrs.type or ""):lower()
+                            local ex = U.fileExt(U.resolve(entry.url, k.attrs.src) or "")
+                            if ty:find("mp4") or ty:find("webm") or ex == "mp4" or ex == "webm" or ex == "m4v" then
+                                src = k.attrs.src
+                                break
+                            end
+                        end
+                    end
+                end
+                local url = src and U.resolve(entry.url, src)
+                local poster = at.poster and U.resolve(entry.url, at.poster)
+                local aw = tonumber((at.width or ""):match("^%d+"))
+                local ah = tonumber((at.height or ""):match("^%d+"))
+                local fr = U.makeVideo({url = url, poster = poster, aspect = (aw and ah and ah > 0) and aw / ah or (16 / 9), loop = at.loop ~= nil, muted = at.muted ~= nil, autoplay = at.autoplay ~= nil and vidCount == 1, sw = st.w, radius = st.radius, rs = st.rs, auto = ctx.auto})
+                place(ctx, fr)
+            end
+
+            local function plain(ks)
+                local c = {}
+                for kk, v in pairs(ks) do c[kk] = v end
+                c.bg = nil; c.b = nil; c.bt = nil; c.bb = nil; c.bl = nil
+                c.pl = nil; c.pr = nil; c.pt = nil; c.pb = nil; c.mt = nil; c.mb = nil
+                c.grad = nil; c.bgimg = nil; c.w = nil; c.h = nil; c.minh = nil; c.maxw = nil
+                c.anim = nil; c.shadow = nil; c.radius = nil; c.rs = nil
+                return c
+            end
+
+            local function childContent(wb, k, ks, h)
+                local kh = h
+                local tag = k.tag
+                if tag == "a" and k.attrs.href then kh = resolveHref(k.attrs.href) or h end
+                if tag == "img" then renderImage(wb, k, ks, kh) elseif tag == "video" then renderVideo(wb, k, ks)
+                elseif tag == "input" or tag == "button" or tag == "textarea" or tag == "select" then
+                    renderControl(wb, k, ks, kh)
+                elseif tag == "table" or tag == "pre" or tag == "hr" or tag == "ul" or tag == "ol" then
+                    renderBlockInner(wb, k, plain(ks), kh)
+                else
+                    renderChildren(wb, k, ks, k.prefix, kh)
+                end
+            end
+
+            renderBlockInner = function(ctx, node, st, href)
                 if stopped then return end
                 local tag = node.tag
                 if tag == "hr" then
                     local f = Instance.new("Frame")
                     f.Size = UDim2.new(1, 0, 0, 1)
-                    f.BackgroundColor3 = Color3.fromRGB(200, 202, 208)
+                    local hb = st.b or st.bt
+                    f.BackgroundColor3 = (hb and hb.c) or Color3.fromRGB(200, 202, 208)
                     f.BorderSizePixel = 0
                     f.ZIndex = 5
                     place(ctx, f)
                     return
                 elseif tag == "table" then renderTable(ctx, node, st) return
                 elseif tag == "pre" then renderPre(ctx, node, st) return end
-                local indent = (tag == "ul" or tag == "ol" or tag == "dd" or tag == "blockquote") and 12 or 0
-                if tag == "ul" or tag == "ol" then
-                    local i = 0
+                if tag == "details" then
+                    local dbox = makeBox(ctx, st, {node = node})
+                    local restKids, sumNode = {}, nil
+                    for _, k in ipairs(node.kids) do
+                        if k.tag == "summary" and not sumNode then sumNode = k else restKids[#restKids + 1] = k end
+                    end
+                    local bodyBox
+                    if sumNode then
+                        local sst = styleFor(sumNode)
+                        local sb = makeBox(dbox, sst, {node = sumNode, act = function()
+                            if bodyBox then bodyBox.inst.Visible = not bodyBox.inst.Visible end
+                        end})
+                        renderChildren(sb, sumNode, sst, "▸ ")
+                    end
+                    local pseudo = {tag = "x-body", attrs = {}, kids = restKids, parent = node}
+                    local pst = styleFor(pseudo)
+                    bodyBox = makeBox(dbox, pst, {})
+                    bodyBox.inst.Visible = node.attrs.open ~= nil
+                    renderChildren(bodyBox, pseudo, pst)
+                    return
+                end
+                if tag == "ul" or tag == "ol" then local i = 0
                     for _, k in ipairs(node.kids) do
                         if k.tag == "li" then
                             i = i + 1
-                            k.prefix = (tag == "ol") and (i .. ". ") or "• "
-                        end
-                    end
-                end
-                local flexRow = (st.display == "flex" or st.display == "inline-flex") and st.dir ~= "column" and flexSmall(node)
-                local box = makeBox(ctx, st, {indent = indent, row = flexRow})
-                if flexRow then
-                    for _, k in ipairs(node.kids) do
-                        if k.tag and not SKIP[k.tag] and not k.attrs.hidden then
                             local ks = styleFor(k)
-                            if ks.display ~= "none" then
-                                local wb = makeBox(box, ks, {auto = true})
-                                local kh = href
-                                if k.tag == "a" and k.attrs.href then kh = resolveHref(k.attrs.href) or href end
-                                renderChildren(wb, k, ks, nil, kh)
-                            end
+                            if not (st.lsn or ks.lsn) then k.prefix = (tag == "ol") and (i .. ". ") or "• " else k.prefix = nil end
                         end
                     end
-                else
-                    renderChildren(box, node, st, node.prefix, href)
                 end
+                local disp = st.display
+                local isGrid = (disp == "grid" or disp == "inline-grid") and (st.cols or 1) >= 2
+                local isFlex = disp == "flex" or disp == "inline-flex"
+                local isRow = isFlex and st.dir ~= "column"
+                if isRow and st.jc == "center" then st.align = "center" end
+                if isFlex and not isRow and st.ai == "center" then st.align = "center" end
+                local kids = {}
+                if isGrid or isRow then
+                    for _, k in ipairs(node.kids) do
+                        if k.tag and not SKIP[k.tag] and not k.attrs.hidden and not hiddenClass(k) then
+                            local ks = styleFor(k)
+                            if ks.display ~= "none" and not (ks.pos == "absolute" and textLen(k, 3) == 0 and not ks.bgimg and not hasImgTag(k, 0)) then kids[#kids + 1] = k end
+                        end
+                    end
+                end
+                if #kids >= 2 then
+                    local anyOrder = false
+                    for _, k in ipairs(kids) do
+                        local o = styleFor(k).order
+                        if o and o ~= 0 then anyOrder = true break end
+                    end
+                    if anyOrder then
+                        local pos = {}
+                        for i, k in ipairs(kids) do pos[k] = i end
+                        table.sort(kids, function(a, b)
+                            local oa, ob = styleFor(a).order or 0, styleFor(b).order or 0
+                            if oa ~= ob then return oa < ob end
+                            return pos[a] < pos[b]
+                        end)
+                    end
+                    if st.rev and isRow then
+                        local n = #kids
+                        for i = 1, n // 2 do kids[i], kids[n - i + 1] = kids[n - i + 1], kids[i] end
+                    end
+                end
+                local mode, cols = "stack", 1
+                if isGrid and #kids >= 1 then
+                    mode = "cols"
+                    cols = st.cols
+                elseif isRow and #kids >= 2 then
+                    if st.wrap and not flexSmall(node) then
+                        mode = "cols"
+                        cols = (#kids <= 4) and #kids or 3
+                    else
+                        mode = "flex"
+                    end
+                end
+                if mode == "stack" then
+                    local ratio = st.ar or ((st.ptp and st.ptp >= 10) and (100 / st.ptp) or nil)
+                    if ratio and tag ~= "img" and (st.bgimg or textLen(node, 3) == 0 or (st.ptp and hasImgTag(node, 0))) then
+                        local abox = makeBox(ctx, st, {node = node, href = href, act = actionFor(node), aspect = math.clamp(ratio, 0.2, 6)})
+                        renderChildren(abox, node, st, nil, href)
+                        return
+                    end
+                    local box = makeBox(ctx, st, {node = node, href = href, act = actionFor(node)})
+                    renderChildren(box, node, st, node.prefix, href)
+                    return
+                end
+                local gap = st.gap or 0
+                if mode == "cols" then
+                    local box = makeBox(ctx, st, {row = true, wraps = true, node = node})
+                    local tracks = (isGrid and st.tracks and #st.tracks == cols) and st.tracks or nil
+                    local usedCols = 0
+                    for _, k in ipairs(kids) do
+                        local ks = styleFor(k)
+                        local kw = ks.w or ((not ks.grow) and ks.fbasis) or nil
+                        local cw
+                        if kw and (kw[2] or (kw[1] and kw[1] < AVAILW)) then
+                            cw = UDim2.new(kw[2] or 0, (kw[1] or 0) - 1, 0, 0)
+                            if isGrid then usedCols = (usedCols + 1) % cols end
+                        elseif isGrid and (tracks or (ks.span and ks.span ~= 1)) then
+                            local span = (ks.span == -1) and cols or math.max(1, math.min(cols, ks.span or 1))
+                            if usedCols + span > cols then usedCols = 0 end
+                            local a = 0
+                            for ci = usedCols + 1, usedCols + span do a = a + (tracks and tracks[ci] or (1 / cols)) end
+                            usedCols = (usedCols + span) % cols
+                            cw = UDim2.new(a, math.floor(gap * (span - 1 - a * (cols - 1))) - 1, 0, 0)
+                        else
+                            if isGrid then usedCols = (usedCols + 1) % cols end
+                            cw = UDim2.new(1 / cols, -math.ceil(gap * (cols - 1) / cols) - 1, 0, 0)
+                        end
+                        local khr = (k.tag == "a" and k.attrs.href and resolveHref(k.attrs.href)) or href
+                        local wb = makeBox(box, ks, {colW = cw, node = k, href = khr, act = actionFor(k)})
+                        childContent(wb, k, ks, href)
+                    end
+                    return
+                end
+                local fills, anyFill = {}, false
+                for i, k in ipairs(kids) do
+                    local ks = styleFor(k)
+                    local fl = (ks.grow or (not (ks.w or ks.fbasis) and k.tag ~= "img" and k.tag ~= "button" and (textLen(k, 60) > 28 or hasBlock(k)))) and true or false
+                    fills[i] = fl
+                    if fl then anyFill = true end
+                end
+                local sp = st.jc == "space-between" or st.jc == "space-around" or st.jc == "space-evenly"
+                local est = 0
+                for i, k in ipairs(kids) do
+                    if not fills[i] then
+                        local ks = styleFor(k)
+                        local ew = (ks.w and ks.w[1]) or (textLen(k, 80) * ks.size * 0.58 + (ks.pl or 0) + (ks.pr or 0) + 8)
+                        if hasImgTag(k, 0) then ew = ew + 28 end
+                        est = est + ew + gap
+                    end
+                end
+                local fitsRow = est <= (AVAILW - 4)
+                local box = makeBox(ctx, st, {row = true, wraps = (not anyFill) and ((not sp) or (not fitsRow)), node = node})
+                for i, k in ipairs(kids) do
+                    local ks = styleFor(k)
+                    local fixedW = nil
+                    local kw = ks.w or ks.fbasis
+                    if (not fills[i]) and kw then
+                        fixedW = UDim2.new(kw[2] or 0, math.min(kw[1] or 0, AVAILW), 0, 0)
+                    end
+                    local khr = (k.tag == "a" and k.attrs.href and resolveHref(k.attrs.href)) or href
+                    local wb = makeBox(box, ks, {auto = (not fills[i]) and not fixedW, colW = fixedW, fill = fills[i], fillN = #kids, node = k, href = khr, act = actionFor(k)})
+                    childContent(wb, k, ks, href)
+                end
+            end
+
+            renderBlock = function(ctx, node, st, href)
+                local mt = type(st.mt) == "number" and st.mt or 0
+                ctx.gap = math.max(ctx.gap or 0, mt)
+                renderBlockInner(ctx, node, st, href)
+                ctx.gap = type(st.mb) == "number" and st.mb or nil
             end
 
             renderChildren = function(ctx, node, st, prefix, href)
@@ -9312,16 +11413,38 @@ local function makeBrowserScreen()
                 end
                 buf = newCur()
                 if prefix then buf.rich = prefix; buf.hasText = true end
-                local function flush()
-                    if buf.hasText then makeText(ctx, buf, st) end
+                local curRow
+            local function rowCtx()
+                if ctx.fillTarget then return ctx end
+                if not curRow then
+                    local jc = (st.align == "center") and "center" or ((st.align == "right") and "flex-end" or nil)
+                    curRow = makeBox(ctx, {jc = jc, gap = 4}, {row = true, wraps = true})
+                end
+                return curRow
+            end
+            local function flush()
+                    if buf.hasText then
+ makeText(ctx, buf, st)
+ curRow = nil
+ end
                     buf = newCur()
                 end
                 local walk
                 walk = function(owner, ps, h)
+                    local pb = owner.tag and pseudoRich(owner, "before", ps, st.size)
+                    if pb then
+                        if pb.blk and buf.hasText then buf.rich = buf.rich .. "\n" end
+                        buf.rich = buf.rich .. pb.rich
+                        if pb.vis then buf.hasText = true end
+                        if pb.blk then buf.rich = buf.rich .. "\n" end
+                    end
                     for _, c in ipairs(owner.kids) do
                         if stopped then return end
                         if c.text then
                             local t = c.text:gsub("%s+", " ")
+                            if ps.tt == "uppercase" then t = t:upper()
+                            elseif ps.tt == "lowercase" then t = t:lower()
+                            elseif ps.tt == "capitalize" then t = t:gsub("(%a)([%w']*)", function(a1, b1) return a1:upper() .. b1 end) end
                             if not buf.hasText then t = t:gsub("^%s+", "") end
                             if t ~= "" then
                                 if t:find("%S") then buf.hasText = true end
@@ -9329,18 +11452,41 @@ local function makeBrowserScreen()
                             end
                         else
                             local tag = c.tag
-                            if not SKIP[tag] and not c.attrs.hidden then
+                            if (tag == "video" or not SKIP[tag]) and not c.attrs.hidden then
                                 local cs = styleFor(c)
                                 tick()
-                                if cs.display ~= "none" and not hiddenClass(c) then
+                                if cs.display == "none" and c.attrs.id and TOG[c.attrs.id] then
+                                    local cp = {}
+                                    for k2, v2 in pairs(cs) do cp[k2] = v2 end
+                                    cp.display = "block"
+                                    cp._hide = true
+                                    cs = cp
+                                end
+                                if cs.display ~= "none" and not hiddenClass(c) and not (cs.pos == "absolute" and tag ~= "img" and textLen(c, 3) == 0 and not cs.bgimg and not hasImgTag(c, 0)) then
                                     if tag == "br" then
                                         if buf.hasText then buf.rich = buf.rich .. "\n" end
+ curRow = nil
+                                    elseif tag == "video" then
+ flush()
+ curRow = nil
+ renderVideo(ctx, c, cs)
+ elseif (cs.display == "inline-block" or cs.display == "inline-flex") and (cs.bg or cs.b) and tag ~= "img" and tag ~= "button" and textLen(c, 200) > 0 then
+                                        flush()
+                                        local nh = h
+                                        if tag == "a" and c.attrs.href then nh = resolveHref(c.attrs.href) or h end
+                                        local wb = makeBox(rowCtx(), cs, {auto = true, node = c, href = nh, act = actionFor(c)})
+                                        renderChildren(wb, c, cs, nil, nh)
                                     elseif tag == "img" then
                                         flush()
-                                        renderImage(ctx, c, cs, h)
+ if cs.display == "block" then
+ curRow = nil
+ renderImage(ctx, c, cs, h)
+ else
+ renderImage(rowCtx(), c, cs, h)
+ end
                                     elseif tag == "input" or tag == "button" or tag == "textarea" or tag == "select" then
                                         flush()
-                                        renderControl(ctx, c, cs)
+ renderControl(rowCtx(), c, cs, h)
                                     elseif tag == "a" and c.attrs.href and not (cs.display == "block" or hasBlock(c)) then
                                         local url = resolveHref(c.attrs.href)
                                         local dup = false
@@ -9348,18 +11494,29 @@ local function makeBrowserScreen()
                                             for _, lk in ipairs(buf.links) do if lk.href == url then dup = true end end
                                             if not dup then buf.links[#buf.links + 1] = {href = url, label = textOf(c, 40)} end
                                         end
+                                        if not url then
+                                            local lact = actionFor(c)
+                                            if lact then buf.links[#buf.links + 1] = {act = lact, label = textOf(c, 40)} end
+                                        end
                                         walk(c, cs, url or h)
                                     elseif BLOCKT[tag] or cs.display == "block" or cs.display == "flex" or cs.display == "grid" or cs.display == "list-item" or cs.display == "table" or (tag == "a" and c.attrs.href) then
                                         flush()
                                         local nh = h
                                         if tag == "a" and c.attrs.href then nh = resolveHref(c.attrs.href) or h end
-                                        renderBlock(ctx, c, cs, nh)
+                                        curRow = nil
+ renderBlock(ctx, c, cs, nh)
                                     else
                                         walk(c, cs, h)
                                     end
                                 end
                             end
                         end
+                    end
+                    local pa = owner.tag and not stopped and pseudoRich(owner, "after", ps, st.size)
+                    if pa then
+                        if pa.blk and buf.hasText then buf.rich = buf.rich .. "\n" end
+                        buf.rich = buf.rich .. pa.rich
+                        if pa.vis then buf.hasText = true end
                     end
                 end
                 walk(node, st, href)
@@ -9387,7 +11544,21 @@ local function makeBrowserScreen()
             local htmlN = findTag(root, "html", 0)
             local pageBg = bst.bg or (htmlN and styleFor(htmlN).bg)
             if pageBg and canvas.Parent then canvas.BackgroundColor3 = pageBg end
-            local ctx = {inst = canvas, n = 0}
+            local ctx = {inst = canvas, n = 0, lay = canvas:FindFirstChildOfClass("UIListLayout")}
+            local cpad = canvas:FindFirstChildOfClass("UIPadding")
+            if cpad then
+                local function nz(v, d)
+                    if type(v) == "number" then return v end
+                    if v == "auto" then return 0 end
+                    return d
+                end
+                cpad.PaddingTop = UDim.new(0, nz(bst.mt, 6) + (bst.pt or 0))
+                cpad.PaddingBottom = UDim.new(0, nz(bst.mb, 6) + (bst.pb or 0))
+                cpad.PaddingLeft = UDim.new(0, nz(bst.ml, 6) + (bst.pl or 0))
+                cpad.PaddingRight = UDim.new(0, nz(bst.mr, 6) + (bst.pr or 0))
+            end
+            if bst.grad then applyGrad(canvas, bst.grad) end
+            if ctx.lay and bst.align == "center" then ctx.lay.HorizontalAlignment = Enum.HorizontalAlignment.Center end
             renderChildren(ctx, bodyN, bst)
             if not alive() then return end
             if B.cut then
@@ -9407,13 +11578,13 @@ local function makeBrowserScreen()
     end)()
 
     local function buildPage(entry)
-        if findBar.Visible then closeFind() end
+        if findBar.Visible then closeFind() end if U.closeSite then U.closeSite() end
         clearSel()
         selMarks = {}
         richLbls = {}
         local rd = entry.reader and entry.view and entry.view.kind == "page"
         pageView.BackgroundTransparency = rd and 0 or 1
-        pageView.BackgroundColor3 = Color3.fromRGB(245, 238, 222)
+        pageView.BackgroundColor3 = U.dark.on and Color3.fromRGB(30, 30, 33) or Color3.fromRGB(245, 238, 222)
         for _, c in ipairs(pageView:GetChildren()) do if c.Name == "Dyn" then c:Destroy() end end
         local order = 0
         local function add(inst)
@@ -9659,6 +11830,16 @@ local function makeBrowserScreen()
             label("<b>Imagem</b>", 15, C.text, Enum.Font.Gotham)
             label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
             button("ABRIR IMAGEM", function() openViewer({url = view.url, thumb = view.url, title = view.title}) end)
+        elseif view.kind == "video" then
+            label("<b>Vídeo</b>", 15, C.text, Enum.Font.Gotham)
+            label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
+            add(U.makeVideo({url = view.url, aspect = 16 / 9, autoplay = true}))
+            button("BAIXAR VÍDEO", function()
+                task.spawn(function()
+                    local okD, r = pcall(U.download, view.url, view.ext)
+                    toast(okD and type(r) == "table" and ("Salvo em " .. r.path) or "Falha ao baixar")
+                end)
+            end)
         elseif view.kind == "download" then
             label("<b>Download concluído</b>", 15, C.text, Enum.Font.Gotham)
             label(U.esc(view.name), 12, C.blue, Enum.Font.Gotham)
@@ -9674,19 +11855,50 @@ local function makeBrowserScreen()
             if #view.items == 0 then
                 label("Não encontrei resultados. Tente outra pesquisa ou digite um endereço.", 11, C.sub, Enum.Font.Gotham)
             end
-            for _, it in ipairs(view.items) do
+            local function addResult(it)
                 local rich = '<font color="#8ab4f8"><b>' .. U.esc(it.name) .. '</b></font>\n<font color="#81c995" size="10">' .. U.esc(U.hostOf(it.url)) .. "</font>"
                 if it.snippet and it.snippet ~= "" then rich = rich .. '\n<font color="#9aa0a6" size="10">' .. U.esc(it.snippet) .. "</font>" end
                 siteCard(rich, it.url, function() navigate(tabs[cur], {url = it.url}) end)
             end
+            for _, it in ipairs(view.items) do addResult(it) end
+            if view.more and #view.items > 0 then
+                local foot = label("Role para carregar mais…", 10, C.sub, Enum.Font.Gotham, 26)
+                foot.TextXAlignment = Enum.TextXAlignment.Center
+                foot.LayoutOrder = 1000000   -- rodape sempre por ultimo; novos resultados entram antes dele
+                local function check()
+                    if view.loading or view.exhausted or not foot.Parent or not pageView.Visible then return end
+                    if pageView.CanvasPosition.Y + pageView.AbsoluteSize.Y < pageView.AbsoluteCanvasSize.Y - 260 * uiScale() then return end
+                    view.loading = true
+                    foot.Text = "Carregando mais…"
+                    task.spawn(function()
+                        local okM, newItems = pcall(view.more)
+                        view.loading = false
+                        if okM and type(newItems) == "table" and #newItems > 0 then
+                            for _, it in ipairs(newItems) do
+                                view.items[#view.items + 1] = it
+                                if foot.Parent then addResult(it) end
+                            end
+                            if foot.Parent then
+                                foot.Text = "Role para carregar mais…"
+                                task.defer(check)
+                            end
+                        else
+                            view.exhausted = true
+                            if foot.Parent then foot.Text = "Fim dos resultados" end
+                        end
+                    end)
+                end
+                pageView:GetPropertyChangedSignal("CanvasPosition"):Connect(check)
+                task.defer(check)
+            end
         else
             if entry.reader then
                 local rs = phoneSettings.readerSize or 14
-                local ink = Color3.fromRGB(52, 44, 34)
+                local ink = U.dark.on and Color3.fromRGB(222, 218, 210) or Color3.fromRGB(52, 44, 34)
                 local rbar = add(new("Frame", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, ZIndex = 5}))
                 new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, rbar)
                 local function rbtn(i, txt, w, fn)
-                    local b = new("TextButton", {LayoutOrder = i, Size = UDim2.new(0, w, 0, 26), BackgroundColor3 = Color3.fromRGB(226, 216, 194), BorderSizePixel = 0, Text = txt, TextColor3 = ink, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 6}, rbar)
+                    local b = new("TextButton", {LayoutOrder = i, Size = UDim2.new(0, w, 0, 26), BackgroundColor3 = U.dark.on and Color3.fromRGB(64, 62, 58) or Color3.fromRGB(226, 216, 194), BorderSizePixel = 0, Text = txt, TextColor3 = ink, Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 6}, rbar)
                     corner(b, UDim.new(0, 13))
                     b.MouseButton1Click:Connect(fn)
                 end
@@ -9694,7 +11906,8 @@ local function makeBrowserScreen()
                 rbtn(2, "A+", 40, function() phoneSettings.readerSize = math.min(24, rs + 1); saveSettings(); render() end)
                 rbtn(3, "SAIR", 56, function() entry.reader = nil; render() end)
                 label("<b>" .. U.esc(view.title) .. "</b>", rs + 5, ink, Enum.Font.GothamBold)
-                local txt = (view.readRich or view.rich):gsub("#8ab4f8", "#8a4b08")
+                local txt = (view.readRich or view.rich)
+                if not U.dark.on then txt = txt:gsub("#8ab4f8", "#8a4b08") end
                 local chunk, chunks = "", {}
                 for para in (txt .. "\n\n"):gmatch("(.-)\n\n") do
                     if #chunk + #para > 2500 and chunk ~= "" then
@@ -9713,10 +11926,12 @@ local function makeBrowserScreen()
             end
             if not entry.simple and view.html then
                 local statusLbl = add(new("TextLabel", {Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "montando página…", TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}))
-                local canvas = add(new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 4}))
-                new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)}, canvas)
+                local holder = add(new("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 4}))
+                local canvas = new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = U.dark.on and Color3.fromRGB(18, 18, 20) or Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 4}, holder)
+                U.fitSetup(holder, canvas)
+                new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0)}, canvas)
                 new("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)}, canvas)
-                corner(canvas, UDim.new(0, 8))
+                corner(canvas, UDim.new(0, 0))
                 local myRid = entry.rid
                 local function alive()
                     return canvas.Parent ~= nil and entry.rid == myRid and not entry.simple and not entry.reader
@@ -9733,6 +11948,7 @@ local function makeBrowserScreen()
                         return
                     end
                     statusLbl:Destroy()
+                    U.fitRun(holder, canvas, alive)
                 end)
                 return
             end
@@ -9762,7 +11978,7 @@ local function makeBrowserScreen()
         local e = curEntry()
         updateChrome()
         if e.ntp then
-            if findBar.Visible then closeFind() end
+            if findBar.Visible then closeFind() end if U.closeSite then U.closeSite() end
             pageView.Visible = false
             ntpView.Visible = true
             buildNtp()
@@ -9930,7 +12146,7 @@ local function makeBrowserScreen()
 
     local menuLayer = new("TextButton", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false, ZIndex = 28}, frame)
     corner(menuLayer, UDim.new(0, 28))
-    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 36), Size = UDim2.new(0, 200, 0, 386), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
+    local menu = new("Frame", {Position = UDim2.new(0, 72, 0, 36), Size = UDim2.new(0, 200, 0, 392), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, ZIndex = 30}, menuLayer)
     corner(menu, UDim.new(0, 14))
     new("UIStroke", {Color = Color3.fromRGB(70, 72, 76), Thickness = 1}, menu)
 
@@ -9946,6 +12162,7 @@ local function makeBrowserScreen()
         if open then
             address:ReleaseFocus()
             if engBtn then engBtn.Text = "Buscador: " .. U.engine() end
+            if U.darkBtn then U.darkBtn.Text = "Modo escuro: " .. (U.dark.on and "ligado" or "desligado") end
             local t = tabs[cur]
             local e = curEntry()
             Icons.put(fwdBtn, Icons.arrowRight, 18, t.pos < #t.hist and C.text or Color3.fromRGB(95, 99, 104), 32)
@@ -9953,7 +12170,7 @@ local function makeBrowserScreen()
         end
     end
     local function menuItem(text, y, fn)
-        local b = new("TextButton", {Position = UDim2.new(0, 0, 0, y), Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = true, ZIndex = 31}, menu)
+        local b = new("TextButton", {Position = UDim2.new(0, 0, 0, y), Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = true, ZIndex = 31}, menu)
         new("UIPadding", {PaddingLeft = UDim.new(0, 16)}, b)
         b.MouseButton1Click:Connect(function() setMenu(false); fn() end)
         return b
@@ -9963,26 +12180,26 @@ local function makeBrowserScreen()
         cur = #tabs
         render()
     end)
-    menuItem("Favoritos", 80, function() openPanel("fav") end)
-    menuItem("Histórico", 114, function() openPanel("hist") end)
-    menuItem("Copiar URL", 148, function()
+    menuItem("Favoritos", 74, function() openPanel("fav") end)
+    menuItem("Histórico", 102, function() openPanel("hist") end)
+    menuItem("Copiar URL", 130, function()
         local e = curEntry()
         local clip = setclipboard or toclipboard
         if not e.url then toast("Nenhuma URL para copiar")
         elseif type(clip) == "function" then pcall(clip, e.url); toast("Link copiado")
         else toast("Clipboard indisponível") end
     end)
-    menuItem("Limpar histórico", 182, function()
+    menuItem("Limpar histórico", 158, function()
         phoneSettings.browserHistory = {}
         saveSettings()
         toast("Histórico limpo")
     end)
-    menuItem("Limpar cache de imagens", 216, function()
+    menuItem("Limpar cache de imagens", 186, function()
         toast("Cache limpo (" .. U.purgeCache() .. " arquivos)")
         if curEntry().view and curEntry().view.kind == "images" then render() end
     end)
-    menuItem("Downloads", 250, function() openPanel("dl") end)
-    engBtn = menuItem("Buscador: " .. U.engine(), 284, function()
+    menuItem("Downloads", 214, function() openPanel("dl") end)
+    engBtn = menuItem("Buscador: " .. U.engine(), 242, function()
         local cur0 = U.engine()
         local idx = 1
         for i, n in ipairs(U.ENGINES) do if n == cur0 then idx = i end end
@@ -9992,7 +12209,7 @@ local function makeBrowserScreen()
         local e = curEntry()
         if e and e.q then reload() end
     end)
-    menuItem("Modo: site / leitura / texto", 318, function()
+    menuItem("Modo: site / leitura / texto", 270, function()
         local e = curEntry()
         if not (e.view and e.view.kind == "page") then toast("Abra uma página primeiro") return end
         local nm
@@ -10002,7 +12219,16 @@ local function makeBrowserScreen()
         render()
         toast("Modo " .. nm)
     end)
-    menuItem("Buscar na página", 352, function() openFind() end)
+    menuItem("Buscar na página", 298, function() openFind() end)
+    menuItem("Buscar neste site", 326, function() U.openSite() end)
+    U.darkBtn = menuItem("Modo escuro: " .. (U.dark.on and "ligado" or "desligado"), 354, function()
+        U.dark.on = not U.dark.on
+        phoneSettings.browserDark = U.dark.on
+        saveSettings()
+        toast(U.dark.on and "Modo escuro ligado" or "Modo escuro desligado")
+        local e = curEntry()
+        if e and e.view and e.view.kind == "page" then render() end
+    end)
 
     backBtn.MouseButton1Click:Connect(function()
         setMenu(false)

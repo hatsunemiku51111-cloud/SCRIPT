@@ -1,4 +1,4 @@
-local __ok, __err = xpcall(function()
+pcall(function()
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -120,9 +120,7 @@ local isMusicOpen = false
 local currentApp = "home"
 local phoneFlashlight = nil
 local currentVolume = phoneSettings.volume or 1
--- FIX wallpaper: getcustomasset devolve um link "rbxasset://..." valido so nesta sessao; salvar esse link
--- fazia o wallpaper sumir ao reabrir. Agora guardamos o CAMINHO do arquivo (wallpaperFile) e geramos o
--- link de novo a cada execucao. IDs normais (rbxassetid://) continuam salvos em wallpaper.
+
 local function resolveWallpaper()
     local f = phoneSettings.wallpaperFile
     if type(f) == "string" and f ~= "" then
@@ -692,12 +690,6 @@ end
 
 local Nav = {home = function() end, back = function() end, recents = function() end, gps = {}}
 
--- ============================================================
---  GIF LOCAL: decodificador de GIF + cache de quadros (PNG)
---  Roblox nao anima .gif; aqui o GIF e decodificado em Lua,
---  cada quadro vira um PNG em PHONE/GifFrames/<chave>/ e a
---  Galeria/Navegador trocam os quadros para animar.
--- ============================================================
 Nav.gif = (function()
     local Gif = {}
     local bit = bit32
@@ -720,9 +712,6 @@ Nav.gif = (function()
         return string.format("%08x%08x", h1, h2)
     end
 
-    -- FIX (GIFs se misturando): a chave do cache NAO pode depender so do nome do arquivo.
-    -- Dois GIFs com o mesmo nome (ou um GIF regravado) reaproveitavam quadros antigos.
-    -- A impressao digital usa o tamanho + amostras espalhadas do conteudo.
     function Gif.fingerprint(data)
         local n = #data
         local h1, h2 = n % 4294967296, 7919
@@ -741,7 +730,6 @@ Nav.gif = (function()
         return Gif.hash(tostring(name) .. "|" .. Gif.fingerprint(data))
     end
 
-    ---------------------------------------------------------------- PNG
     local crcTable
     local function crc32(s)
         if not crcTable then
@@ -784,7 +772,6 @@ Nav.gif = (function()
         return b * 65536 + a
     end
 
-    -- zlib "stored" (sem compressao): simples e 100% valido
     local function zlibStore(raw)
         local out = {"\120\1"}
         local len = #raw
@@ -805,8 +792,6 @@ Nav.gif = (function()
         return be32(#body) .. kind .. body .. be32(crc32(kind .. body))
     end
 
-    -- canvas: array de inteiros r + g*256 + b*65536 (ou -1 = transparente)
-    -- <=256 cores: PNG indexado (1 byte/pixel, ~4x menor). Senao: RGBA.
     local function encodePng(canvas, W, ow, oh, xmap, ymap)
         local map, plist, count, overflow = {}, {}, 0, false
         for oy = 1, oh do
@@ -867,7 +852,6 @@ Nav.gif = (function()
         return "\137PNG\13\10\26\10" .. chunk("IHDR", ihdr) .. chunk("IDAT", zlibStore(table.concat(rows))) .. chunk("IEND", "")
     end
 
-    ---------------------------------------------------------------- GIF
     local function u16(d, p) return d:byte(p) + d:byte(p + 1) * 256 end
 
     local function buildPal(data, off, count)
@@ -1041,24 +1025,23 @@ Nav.gif = (function()
         return c
     end
 
-    -- opts: maxFrames (0=todos), maxDim (480), yield, cancelled, onProg, firstOnly, budget (segundos)
     local function decodeInner(data, opts)
         local g = scan(data)
         if not g then error("GIF invalido", 0) end
         local W, H = g.w, g.h
         if W < 1 or H < 1 then error("GIF vazio", 0) end
         local n = #g.frames
-        -- maxFrames = 0 significa "todos os quadros"; padrao passou a ser todos
+
         local maxFrames = opts.firstOnly and 1 or (opts.maxFrames or 0)
-        if maxFrames <= 0 then maxFrames = n end   -- 0 = sem limite = todos os quadros
+        if maxFrames <= 0 then maxFrames = n end
         local maxDim = opts.maxDim or 480
         local scale = math.min(1, maxDim / math.max(W, H))
         local ow, oh = math.max(1, floor(W * scale)), math.max(1, floor(H * scale))
-        -- orcamento de memoria de video: reduz quadros so se necessario
+
         if opts.pixelBudget then
             maxFrames = math.max(2, math.min(maxFrames, floor(opts.pixelBudget / (ow * oh))))
         end
-        -- step = 1 garante que nenhum quadro e pulado (a menos que pixelBudget force)
+
         local step = math.max(1, math.ceil(n / maxFrames))
         local xmap, ymap = {}, {}
         for x = 1, ow do xmap[x] = math.min(W, floor((x - 0.5) / scale) + 1) end
@@ -1075,7 +1058,7 @@ Nav.gif = (function()
         for k = 1, n do
             if opts.cancelled and opts.cancelled() then error("cancelado", 0) end
             local f = g.frames[k]
-            -- descarte do quadro anterior
+
             if pending then
                 if pending.kind == 2 then
                     for y = pending.y, math.min(H, pending.y + pending.h) - 1 do
@@ -1115,7 +1098,6 @@ Nav.gif = (function()
             end
             pending = {kind = f.disposal, x = f.x, y = f.y, w = f.w, h = f.h, snap = snap}
 
-            -- amostragem: um quadro a cada `step` (soma os atrasos do grupo)
             if (k - 1) % step == 0 then
                 pngs[#pngs + 1] = encodePng(canvas, W, ow, oh, xmap, ymap)
                 delays[#pngs] = 0
@@ -1136,7 +1118,6 @@ Nav.gif = (function()
         return nil, tostring(res)
     end
 
-    ---------------------------------------------------------------- cache em disco
     local function ensureDir(sub)
         pcall(function()
             if not isfolder("PHONE") then makefolder("PHONE") end
@@ -1145,9 +1126,6 @@ Nav.gif = (function()
         end)
     end
 
-    -- gifName: nome legivel do GIF (ex: "gato_dancando.gif") para pasta amigavel.
-    -- A pasta real continua sendo GIF_DIR/key (hash) para evitar colisoes,
-    -- mas salvamos o nome em meta.txt para exibicao.
     local assetMemo = {}
     local baking = {}
 
@@ -1156,27 +1134,25 @@ Nav.gif = (function()
         if not res then return nil, err end
         ensureDir(key)
         local dir = GIF_DIR .. "/" .. key
-        -- apaga o meta antigo: so existe meta quando TODOS os quadros foram gravados
+
         pcall(function()
             if isfile(dir .. "/meta.txt") then delfile(dir .. "/meta.txt") end
         end)
         local paths, ds = {}, {}
         for i, png in ipairs(res.frames) do
             local p = dir .. "/" .. key .. "_f" .. i .. ".png"
-            assetMemo[p] = nil   -- nunca reutilizar asset antigo do mesmo caminho
+            assetMemo[p] = nil
             if not pcall(writefile, p, png) then return nil, "writefile indisponivel" end
             paths[i] = p
             ds[i] = string.format("%.3f", res.delays[i])
         end
-        -- v5: inclui nome legivel do GIF na 1a linha do meta
+
         local nameLine = tostring(gifName or key):gsub("[%c\n]", "_")
         pcall(writefile, dir .. "/meta.txt",
             "v5 " .. #data .. " " .. #paths .. " " .. res.w .. " " .. res.h .. " " .. nameLine .. "\n" .. table.concat(ds, ","))
         return {key = key, name = nameLine, dir = dir, paths = paths, delays = res.delays, w = res.w, h = res.h, srcLen = #data}
     end
 
-    -- FIX: trava por chave. Antes, Galeria + "salvar na galeria" podiam decodificar o MESMO
-    -- GIF ao mesmo tempo, escrevendo nos mesmos arquivos (e decodificando de novo).
     function Gif.bake(key, data, opts, gifName)
         if baking[key] then
             local t0 = os.clock()
@@ -1195,7 +1171,6 @@ Nav.gif = (function()
         return info, err
     end
 
-    -- copia quadros ja prontos de outra chave (muito mais rapido que decodificar de novo)
     function Gif.clone(srcKey, dstKey, srcLen, gifName)
         local src = Gif.load(srcKey, srcLen)
         if not src then return nil end
@@ -1238,11 +1213,11 @@ Nav.gif = (function()
         if not (okF and has) then return nil end
         local okR, txt = pcall(readfile, mp)
         if not okR or type(txt) ~= "string" then return nil end
-        -- suporta v4 (sem nome) e v5 (com nome)
+
         local len, n, w, h, namePart, ds
         len, n, w, h, namePart, ds = txt:match("^v5 (%d+) (%d+) (%d+) (%d+) ([^\n]+)\n(.*)$")
         if not len then
-            -- fallback v4
+
             len, n, w, h, ds = txt:match("^v4 (%d+) (%d+) (%d+) (%d+)\n(.*)$")
             namePart = key
         end
@@ -1257,7 +1232,6 @@ Nav.gif = (function()
         return {key = key, name = namePart or key, dir = dir, paths = paths, delays = delays, w = tonumber(w), h = tonumber(h), srcLen = len}
     end
 
-    -- miniatura rapida (so o 1o quadro) para a grade da Galeria
     function Gif.thumbPath(key)
         local info = Gif.load(key)
         if info then return info.paths[1] end
@@ -1295,7 +1269,6 @@ Nav.gif = (function()
         return list
     end
 
-    -- pre-carga com limite de tempo: PreloadAsync pode nunca retornar em alguns executores
     function Gif.preload(assets, timeout)
         local done = false
         task.spawn(function()
@@ -1306,12 +1279,6 @@ Nav.gif = (function()
         while not done and os.clock() - t0 < (timeout or 1.5) do task.wait(0.05) end
     end
 
-    -- Reproducao a 60 Hz (Heartbeat): relogio acumulado + mistura suave entre quadros.
-    -- state = {playing = bool, smooth = bool}; `over` = ImageLabel por cima (filho do principal)
-    -- FIX: checa cancelled() ANTES de qualquer escrita na imagem para evitar
-    -- que um Heartbeat antigo pinte o ImageLabel com o GIF errado.
-    -- FIX: so UMA reproducao por ImageLabel. Iniciar um GIF novo derruba o anterior na hora
-    -- (antes o Heartbeat velho so morria no proximo frame e podia pintar/limpar o GIF novo).
     local playing = setmetatable({}, {__mode = "k"})
     function Gif.stop(img)
         local s = playing[img]
@@ -1323,13 +1290,6 @@ Nav.gif = (function()
         end
     end
 
-    -- FIX (GIF piscando, v2): trocar o .Image de um ImageLabel VISIVEL faz o Roblox desenhar 1 quadro em
-    -- branco ate a textura subir pra GPU (e o overlay invisivel nunca desenhava o quadro antes). Agora:
-    -- 3 buffers (ImageLabel) por cima da imagem: [atual] [proximo] [seguinte]. Os dois proximos ficam
-    -- DESENHADOS com 99% de transparencia (a textura ja esta na GPU) e a troca de quadro e so mudar
-    -- transparencia/ZIndex - o .Image de um buffer visivel nunca muda. O modo 60 FPS mistura o atual
-    -- com o proximo (fade). So avanca quando o proximo buffer informa IsLoaded (se o executor nao
-    -- informar, o controle e desligado sozinho e nunca trava).
     function Gif.play(img, over, assets, delays, cancelled, state)
         local RS = game:GetService("RunService")
         local CP = game:GetService("ContentProvider")
@@ -1348,9 +1308,7 @@ Nav.gif = (function()
             l.Name = "GifBuf"
             l.BackgroundTransparency = 1
             l.BorderSizePixel = 0
-            -- Cada quadro e uma camada absoluta dentro da imagem original.
-            -- Assim os quadros nunca entram no fluxo/AutoLayout da pagina e
-            -- acompanham exatamente a posicao e o tamanho do <img> original.
+
             l.AnchorPoint = Vector2.new(0, 0)
             l.Position = UDim2.new(0, 0, 0, 0)
             l.Size = UDim2.new(1, 0, 1, 0)
@@ -1382,7 +1340,6 @@ Nav.gif = (function()
         nn.ImageTransparency = PRE
         layout()
 
-        -- aquece o cache em segundo plano (blocos de 6; PreloadAsync pode nunca voltar: limite de 1.2s)
         task.spawn(function()
             local i = 1
             while i <= n and not session.dead do
@@ -1414,12 +1371,12 @@ Nav.gif = (function()
                 cleanup()
                 return
             end
-            -- quando o buffer ja desenhou o 1o quadro, limpa a imagem base (evita aparecer por tras em GIF com transparencia)
+
             if not cleared and (cur.IsLoaded or os.clock() - clock0 > 0.5) then
                 cleared = true
                 img.Image = ""
             end
-            -- descobre se este executor informa IsLoaded; se nao informar, nao usa como trava
+
             if not gateKnown then
                 if cur.IsLoaded then
                     gateKnown = true
@@ -1437,13 +1394,13 @@ Nav.gif = (function()
                 if gateOn and gateKnown and not nxt.IsLoaded then
                     stall = stall + dt
                     if stall < 0.7 then
-                        t = d   -- segura o quadro atual ate o proximo estar na GPU (nada de tela em branco)
+                        t = d
                         break
                     end
                 end
                 stall = 0
                 t = t - d
-                -- gira os buffers: o antigo "atual" vira o "seguinte" (recebe imagem nova ESCONDIDO)
+
                 local old = cur
                 cur, nxt, nn = nxt, nn, old
                 idx = idx % n + 1
@@ -2639,7 +2596,6 @@ do
     end
     Nav.homeSetPage = setPage
 
-    -- tocar num pontinho tambem troca de pagina
     for k, d in ipairs(dots) do
         local hit = Instance.new("TextButton")
         hit.Name = "DotHit" .. k
@@ -2653,7 +2609,6 @@ do
         hit.MouseButton1Click:Connect(function() setPage(k) end)
     end
 
-    -- swipe lateral (mouse e touch)
     local MOUSE_MOVE = Enum.UserInputType.MouseMovement
     local MOUSE_BTN = Enum.UserInputType.MouseButton1
     local TOUCH = Enum.UserInputType.Touch
@@ -3201,7 +3156,6 @@ updateList = function()
     UI.favFilter.BackgroundColor3 = onlyFavs and Color3.fromRGB(62, 28, 42) or CARD
     Icons.put(UI.favFilter, Icons.heart, 15, onlyFavs and PINK or MUTED, 3)
 
-    -- assinatura da lista: se nada mudou, so atualiza o destaque da faixa atual (sem recriar as linhas)
     local parts = {onlyFavs and "f" or "a", tostring(#mp3List), q}
     for _, m in ipairs(filteredList) do
         parts[#parts + 1] = m.path .. (isFav(m.name) and "*" or "")
@@ -3234,7 +3188,6 @@ updateList = function()
         return
     end
 
-    -- cria as linhas aos poucos (lotes por frame) pra nao travar o jogo
     local snapshot = filteredList
     task.spawn(function()
         for idx, m in ipairs(snapshot) do
@@ -3532,7 +3485,6 @@ function refreshFiles()
     updateList()
 end
 
--- mostra a ultima musica (pausada no tempo salvo) sem carregar o audio; ele so carrega ao apertar play
 function restoreMusic()
     local r = phoneSettings.musicResume
     if currentItem or type(r) ~= "table" or not r.kind then return end
@@ -4246,6 +4198,8 @@ local function newPage()
     return pg
 end
 local mainPage, wpPage, srvPage = newPage(), newPage(), newPage()
+local STO = {}
+STO.page = newPage()
 
 local function sectionLabel(page, text, order)
     local l = Instance.new("TextLabel")
@@ -4400,7 +4354,7 @@ local function addRow(g, o)
     return ui
 end
 
-local pages = {main = mainPage, wallpaper = wpPage, server = srvPage}
+local pages = {main = mainPage, wallpaper = wpPage, server = srvPage, storage = STO.page}
 local pageState = {}
 local currentPage = "main"
 
@@ -4440,10 +4394,14 @@ local function showPage(name, animate)
     elseif name == "server" then
         subTitleUI.set(Icons.tower, "Servidor", Color3.fromRGB(0, 180, 255))
         updateServer()
+    elseif name == "storage" then
+        subTitleUI.set(Icons.folder, "Armazenamento", Color3.fromRGB(255, 160, 40))
+        if STO.open then STO.open() end
     end
 end
 
 function cfgGoBack()
+    if currentPage == "storage" and STO.up and STO.up() then return true end
     if currentPage ~= "main" then
         showPage("main", true)
         return true
@@ -4525,6 +4483,8 @@ sectionLabel(mainPage, "SISTEMA", 6)
 local gSys = newGroup(mainPage, 7)
 addRow(gSys, {icon = Icons.tower, tile = Color3.fromRGB(0, 170, 210), title = "Info do Servidor", kind = "chevron",
     onClick = function() showPage("server", true) end})
+addRow(gSys, {icon = Icons.folder, tile = Color3.fromRGB(255, 160, 40), title = "Armazenamento", sub = "Gerenciar a pasta PHONE", kind = "chevron",
+    onClick = function() showPage("storage", true) end})
 
 local wpPrevCard = Instance.new("Frame")
 wpPrevCard.Size = UDim2.new(1, 0, 0, 150)
@@ -4647,6 +4607,319 @@ task.spawn(function()
     end
 end)
 
+STO.init = function()
+    local ROOT = "PHONE"
+    local st = {path = ROOT, token = 0, pend = nil, clr = false}
+    local page = STO.page
+    local RED = Color3.fromRGB(255, 95, 95)
+    local ORANGE = Color3.fromRGB(255, 160, 40)
+
+    local function norm(p) return (tostring(p):gsub("\\", "/")) end
+    local function nameOf(p) return norm(p):match("([^/]+)/?$") or tostring(p) end
+    local function fmt(n)
+        if n >= 1073741824 then return string.format("%.2f GB", n / 1073741824) end
+        if n >= 1048576 then return string.format("%.1f MB", n / 1048576) end
+        if n >= 1024 then return string.format("%.1f KB", n / 1024) end
+        return n .. " B"
+    end
+    local function isDir(p) local ok, r = pcall(isfolder, p) return ok and r == true end
+    local function list(p)
+        local ok, l = pcall(listfiles, p)
+        local o = {}
+        if ok and type(l) == "table" then for _, f in ipairs(l) do o[#o + 1] = norm(f) end end
+        return o
+    end
+    local function fileSize(p)
+        local ok, d = pcall(readfile, p)
+        return (ok and type(d) == "string") and #d or 0
+    end
+    local function treeSize(p, token)
+        local total, cnt = 0, 0
+        local function walk(d)
+            for _, f in ipairs(list(d)) do
+                if st.token ~= token then return end
+                if isDir(f) then
+                    walk(f)
+                else
+                    total = total + fileSize(f)
+                    cnt = cnt + 1
+                    if cnt % 10 == 0 then task.wait() end
+                end
+            end
+        end
+        walk(p)
+        return total
+    end
+    local function rmTree(p)
+        for _, f in ipairs(list(p)) do
+            if isDir(f) then rmTree(f) else pcall(delfile, f) end
+        end
+        pcall(function() if delfolder then delfolder(p) end end)
+    end
+
+    local pathLbl = cl(page, ROOT, 11, Enum.Font.Code, K.gray, UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 16))
+    pathLbl.LayoutOrder = 1
+    local pp = Instance.new("UIPadding")
+    pp.PaddingLeft = UDim.new(0, 6)
+    pp.Parent = pathLbl
+
+    local sum = Instance.new("Frame")
+    sum.Size = UDim2.new(1, 0, 0, 48)
+    sum.BackgroundColor3 = K.card
+    sum.BorderSizePixel = 0
+    sum.LayoutOrder = 2
+    sum.Parent = page
+    corner(sum, UDim.new(0, 12))
+    cl(sum, "Tamanho desta pasta", 10, Enum.Font.Gotham, K.sub, UDim2.new(0, 12, 0, 6), UDim2.new(1, -24, 0, 14))
+    local sumVal = cl(sum, "calculando…", 15, Enum.Font.GothamBold, WHITE, UDim2.new(0, 12, 0, 22), UDim2.new(1, -24, 0, 20))
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, 32)
+    bar.BackgroundTransparency = 1
+    bar.LayoutOrder = 3
+    bar.Parent = page
+    local function barBtn(text, i, bg, fg)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1 / 3, -4, 1, 0)
+        b.Position = UDim2.new((i - 1) / 3, 0, 0, 0)
+        b.BackgroundColor3 = bg
+        b.Text = text
+        b.TextColor3 = fg
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.AutoButtonColor = true
+        b.Parent = bar
+        corner(b, UDim.new(0, 8))
+        return b
+    end
+    local btnRefresh = barBtn("Atualizar", 1, Color3.fromRGB(60, 60, 70), WHITE)
+    local btnNew = barBtn("Nova pasta", 2, Color3.fromRGB(60, 60, 70), WHITE)
+    local btnClear = barBtn("Limpar", 3, Color3.fromRGB(70, 40, 44), RED)
+
+    local newCard = Instance.new("Frame")
+    newCard.Size = UDim2.new(1, 0, 0, 40)
+    newCard.BackgroundColor3 = K.card
+    newCard.BorderSizePixel = 0
+    newCard.LayoutOrder = 4
+    newCard.Visible = false
+    newCard.Parent = page
+    corner(newCard, UDim.new(0, 12))
+    local newBox = Instance.new("TextBox")
+    newBox.Position = UDim2.new(0, 8, 0, 6)
+    newBox.Size = UDim2.new(1, -78, 0, 28)
+    newBox.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+    newBox.PlaceholderText = "Nome da pasta"
+    newBox.PlaceholderColor3 = Color3.fromRGB(110, 110, 130)
+    newBox.Text = ""
+    newBox.TextColor3 = WHITE
+    newBox.Font = Enum.Font.Gotham
+    newBox.TextSize = 12
+    newBox.ClearTextOnFocus = false
+    newBox.Parent = newCard
+    corner(newBox, UDim.new(0, 8))
+    local newOk = Instance.new("TextButton")
+    newOk.Position = UDim2.new(1, -62, 0, 6)
+    newOk.Size = UDim2.new(0, 54, 0, 28)
+    newOk.BackgroundColor3 = K.green
+    newOk.Text = "Criar"
+    newOk.TextColor3 = Color3.new(0, 0, 0)
+    newOk.Font = Enum.Font.GothamBold
+    newOk.TextSize = 12
+    newOk.Parent = newCard
+    corner(newOk, UDim.new(0, 8))
+
+    local listFrame = Instance.new("Frame")
+    listFrame.Size = UDim2.new(1, 0, 0, 0)
+    listFrame.AutomaticSize = Enum.AutomaticSize.Y
+    listFrame.BackgroundColor3 = K.card
+    listFrame.BorderSizePixel = 0
+    listFrame.LayoutOrder = 5
+    listFrame.Parent = page
+    corner(listFrame, UDim.new(0, 12))
+    local ll = Instance.new("UIListLayout")
+    ll.SortOrder = Enum.SortOrder.LayoutOrder
+    ll.Parent = listFrame
+
+    local refresh
+
+    local function resetBtn(b, text, bg, fg)
+        if b.Parent then b.Text = text; b.BackgroundColor3 = bg; b.TextColor3 = fg end
+    end
+
+    local function addRowItem(it, order)
+        local row = Instance.new("TextButton")
+        row.Size = UDim2.new(1, 0, 0, 46)
+        row.BackgroundTransparency = 1
+        row.Text = ""
+        row.AutoButtonColor = false
+        row.LayoutOrder = order
+        row.Parent = listFrame
+
+        local tile = Instance.new("Frame")
+        tile.Position = UDim2.new(0, 10, 0.5, -13)
+        tile.Size = UDim2.new(0, 26, 0, 26)
+        tile.BackgroundColor3 = it.dir and ORANGE or Color3.fromRGB(95, 105, 130)
+        tile.BorderSizePixel = 0
+        tile.Parent = row
+        corner(tile, UDim.new(0, 7))
+        Icons.put(tile, it.dir and Icons.folder or Icons.note, 16, WHITE)
+
+        cl(row, it.name, 12, Enum.Font.GothamMedium, WHITE, UDim2.new(0, 44, 0, 6), UDim2.new(1, -112, 0, 18))
+        it.sizeLbl = cl(row, "calculando…", 10, Enum.Font.Gotham, K.sub, UDim2.new(0, 44, 0, 24), UDim2.new(1, -112, 0, 16))
+
+        local del = Instance.new("TextButton")
+        del.AnchorPoint = Vector2.new(1, 0.5)
+        del.Position = UDim2.new(1, -8, 0.5, 0)
+        del.Size = UDim2.new(0, 60, 0, 26)
+        del.BackgroundColor3 = Color3.fromRGB(70, 40, 44)
+        del.Text = "Apagar"
+        del.TextColor3 = RED
+        del.Font = Enum.Font.GothamBold
+        del.TextSize = 10
+        del.Parent = row
+        corner(del, UDim.new(0, 7))
+        del.MouseButton1Click:Connect(function()
+            if st.pend == it.path then
+                st.pend = nil
+                if it.dir then rmTree(it.path) else pcall(delfile, it.path) end
+                pcall(criarPastasPhone)
+                refresh()
+            else
+                st.pend = it.path
+                del.Text = "Confirmar?"
+                del.BackgroundColor3 = RED
+                del.TextColor3 = Color3.new(1, 1, 1)
+                task.delay(3, function()
+                    if st.pend == it.path and del.Parent then
+                        st.pend = nil
+                        resetBtn(del, "Apagar", Color3.fromRGB(70, 40, 44), RED)
+                    end
+                end)
+            end
+        end)
+        if it.dir then
+            row.MouseButton1Click:Connect(function()
+                st.path = it.path
+                refresh()
+            end)
+        end
+    end
+
+    refresh = function()
+        st.token = st.token + 1
+        st.pend = nil
+        st.clr = false
+        resetBtn(btnClear, "Limpar", Color3.fromRGB(70, 40, 44), RED)
+        local token = st.token
+        pathLbl.Text = st.path
+        sumVal.Text = "calculando…"
+        page.CanvasPosition = Vector2.new(0, 0)
+        for _, c in ipairs(listFrame:GetChildren()) do
+            if not c:IsA("UIListLayout") then c:Destroy() end
+        end
+
+        local items = {}
+        for _, f in ipairs(list(st.path)) do
+            items[#items + 1] = {path = f, name = nameOf(f), dir = isDir(f)}
+        end
+        table.sort(items, function(a, b)
+            if a.dir ~= b.dir then return a.dir end
+            return a.name:lower() < b.name:lower()
+        end)
+
+        if #items == 0 then
+            local e = cl(listFrame, "Pasta vazia", 11, Enum.Font.Gotham, K.sub, UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 40), Enum.TextXAlignment.Center)
+            e.LayoutOrder = 1
+            sumVal.Text = "0 B · vazia"
+            return
+        end
+
+        for i, it in ipairs(items) do
+            if i > 1 then
+                local d = Instance.new("Frame")
+                d.Size = UDim2.new(1, -52, 0, 1)
+                d.Position = UDim2.new(0, 52, 0, 0)
+                d.BackgroundColor3 = WHITE
+                d.BackgroundTransparency = 0.91
+                d.BorderSizePixel = 0
+                d.LayoutOrder = i * 2 - 1
+                d.Parent = listFrame
+            end
+            addRowItem(it, i * 2)
+        end
+
+        task.spawn(function()
+            local total = 0
+            for _, it in ipairs(items) do
+                if st.token ~= token then return end
+                local sz = it.dir and treeSize(it.path, token) or fileSize(it.path)
+                if st.token ~= token then return end
+                total = total + sz
+                if it.sizeLbl and it.sizeLbl.Parent then
+                    it.sizeLbl.Text = fmt(sz) .. (it.dir and "  ·  pasta" or "")
+                end
+                task.wait()
+            end
+            if st.token == token then
+                sumVal.Text = fmt(total) .. "  ·  " .. #items .. (#items == 1 and " item" or " itens")
+            end
+        end)
+    end
+
+    btnRefresh.MouseButton1Click:Connect(function() refresh() end)
+
+    btnNew.MouseButton1Click:Connect(function()
+        newCard.Visible = not newCard.Visible
+        if newCard.Visible then newBox:CaptureFocus() end
+    end)
+    local function createFolder()
+        local nm = newBox.Text:gsub("[^%w%-_ %.]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if nm == "" or nm:find("%.%.") then return end
+        pcall(makefolder, st.path .. "/" .. nm)
+        newBox.Text = ""
+        newCard.Visible = false
+        refresh()
+    end
+    newOk.MouseButton1Click:Connect(createFolder)
+    newBox.FocusLost:Connect(function(enter) if enter then createFolder() end end)
+
+    btnClear.MouseButton1Click:Connect(function()
+        if st.clr then
+            st.clr = false
+            for _, f in ipairs(list(st.path)) do
+                if isDir(f) then rmTree(f) else pcall(delfile, f) end
+            end
+            pcall(criarPastasPhone)
+            refresh()
+        else
+            st.clr = true
+            btnClear.Text = "Confirmar?"
+            btnClear.BackgroundColor3 = RED
+            btnClear.TextColor3 = Color3.new(1, 1, 1)
+            task.delay(3, function()
+                if st.clr and btnClear.Parent then
+                    st.clr = false
+                    resetBtn(btnClear, "Limpar", Color3.fromRGB(70, 40, 44), RED)
+                end
+            end)
+        end
+    end)
+
+    STO.open = function()
+        st.path = ROOT
+        newCard.Visible = false
+        pcall(criarPastasPhone)
+        refresh()
+    end
+    STO.up = function()
+        if st.path == ROOT then return false end
+        st.path = st.path:match("^(.*)/[^/]+$") or ROOT
+        refresh()
+        return true
+    end
+end
+STO.init()
+
 showPage("main", false)
 createNavBar(ConfigFrame)
 end
@@ -4668,7 +4941,6 @@ local lastTap = 0
 
 local function uiScale() return (phoneUIScale and phoneUIScale.Scale) or 1 end
 
--- Fotos "virtuais" (ViewportFrame) vindas da Câmera: renderiza a cena congelada dentro de 'parent'
 local PhotoDisplay
 local function removeVF(entry)
     local list = _G.TZE_GalleryVF
@@ -4690,11 +4962,11 @@ end
 local function getAsset(path)
     if tostring(path):sub(1, 5) == "vf://" then return nil end
     if assetCache[path] then return assetCache[path] end
-    -- arquivos .camphoto são criados pelo app Câmera e contêm o rbxassetid direto
+
     if tostring(path):match("%.camphoto$") then
         local okR, data = pcall(readfile, path)
         if okR and data and data ~= "" then
-            local id = data:match("^%s*(.-)%s*$") -- trim
+            local id = data:match("^%s*(.-)%s*$")
             if id ~= "" then assetCache[path] = id return id end
         end
         return nil
@@ -4704,14 +4976,10 @@ local function getAsset(path)
     return nil
 end
 
--- GIF: Roblox nao anima .gif, entao os quadros sao decodificados em PNG (Nav.gif)
 local Gif = Nav.gif
 local gifToken = 0
 local gifState = {playing = true, smooth = true}
 
--- 1o quadro do GIF (miniatura / papel de parede); gera na hora se ainda nao existir
--- FIX: a chave do cache vem do NOME + CONTEUDO do arquivo (nao so do nome), memorizada por caminho.
--- Assim GIFs diferentes com o mesmo nome nunca dividem a mesma pasta de quadros.
 local gifKeyMemo = {}
 local function gifKeyFor(photo, data)
     local m = gifKeyMemo[photo.path]
@@ -5253,8 +5521,7 @@ function exitPhotoViewer()
 end
 
 local function startGif(photo, tk)
-    -- FIX: limpa imediatamente o display e o overlay antes de spawnar,
-    -- garantindo que o Heartbeat do GIF anterior nao escreva mais nada visivel.
+
     PhotoDisplay.Image = ""
     PhotoDisplay.ImageTransparency = 1
     PhotoDisplay2.Visible = false
@@ -5266,19 +5533,19 @@ local function startGif(photo, tk)
         local okR, data = pcall(readfile, photo.path)
         if cancelled() then return end
         if not okR or type(data) ~= "string" or #data < 20 then gifBadge.Text = "GIF · erro"; return end
-        gifKeyMemo[photo.path] = nil   -- recalcula com o conteudo que acabou de ser lido
+        gifKeyMemo[photo.path] = nil
         local key = gifKeyFor(photo, data)
-        -- mostra o 1o quadro enquanto prepara a animacao
+
         local tp = Gif.thumbPath(key)
         local ta = tp and Gif.asset(tp)
         if ta and not cancelled() then PhotoDisplay.ImageTransparency = 0; PhotoDisplay.Image = ta end
         local info, bakeErr = Gif.load(key, #data)
         if not info then
-            -- maxFrames = 0 = todos os quadros; maxDim = 480
+
             info, bakeErr = Gif.bake(key, data, {
                 maxFrames = 0, maxDim = 480, pixelBudget = 48000000, yield = task.wait, cancelled = cancelled,
                 onProg = function(d, t) if not cancelled() then gifBadge.Text = "GIF · " .. d .. "/" .. t end end,
-            }, photo.file)   -- passa nome do arquivo para pasta legivel
+            }, photo.file)
         end
         if cancelled() then return end
         if not info then gifBadge.Text = "GIF · erro: " .. tostring(bakeErr or "?"):sub(1, 40); return end
@@ -5287,7 +5554,7 @@ local function startGif(photo, tk)
         if #assets < 2 then gifBadge.Text = "GIF"; PhotoDisplay.ImageTransparency = 0; PhotoDisplay.Image = assets[1]; return end
         Gif.preload(assets, 1.5)
         if cancelled() then return end
-        -- mostra 1o quadro antes de conectar o Heartbeat (sem flash)
+
         PhotoDisplay.ImageTransparency = 0
         PhotoDisplay.Image = assets[1]
         gifState.playing = true
@@ -5325,8 +5592,7 @@ function openPhotoByIndex(idx)
     resetZoom()
     refreshFavBtn()
     gifToken = gifToken + 1
-    -- FIX: incrementa token ANTES de limpar/spawnar para garantir que
-    -- qualquer Heartbeat antigo veja o token novo e pare imediatamente.
+
     Gif.stop(PhotoDisplay)
     PhotoDisplay.Image = ""
     PhotoDisplay.ImageTransparency = 1
@@ -5641,7 +5907,7 @@ function refreshPhotos()
             end
         end
     end
-    -- fotos da Câmera em modo ViewportFrame (só existem nesta sessão)
+
     for _, e in ipairs(_G.TZE_GalleryVF or {}) do table.insert(photoList, e) end
     table.sort(photoList, function(a, b) return a.name:lower() < b.name:lower() end)
     updatePhotoList()
@@ -6767,10 +7033,12 @@ corner(rcClear, UDim.new(1, 0))
 createNavBar(RecentsFrame)
 
 local function makeBrowserScreen()
+
     local function uiScale()
         local ok, v = pcall(function() return phoneUIScale.Scale end)
         return (ok and tonumber(v)) or 1
     end
+    local BROWSER_VERSION = "Phone V78 Ultimate"
     local C = {
         bg = Color3.fromRGB(32, 33, 36),
         toolbar = Color3.fromRGB(41, 42, 45),
@@ -6794,7 +7062,9 @@ local function makeBrowserScreen()
         {name = "YouTube", url = "https://www.youtube.com/"},
         {name = "DuckDuckGo", url = "https://html.duckduckgo.com/html/"},
         {name = "Hacker News", url = "https://news.ycombinator.com/"},
+        {name = "DuckDuckGo Lite", url = "https://lite.duckduckgo.com/lite/"},
         {name = "Bing", url = "https://www.bing.com/"},
+        {name = "Google", url = "https://www.google.com/"},
     }
 
     local function new(class, props, parent)
@@ -6805,10 +7075,72 @@ local function makeBrowserScreen()
     end
 
     local U = {}
-    -- ===== MODO ESCURO DO NAVEGADOR =====
-    -- Converte as cores das paginas (fundo, texto, borda) na hora de montar o layout.
-    -- Fundos claros escurecem, textos escuros clareiam; o que ja e escuro/colorido fica como esta
-    -- (assim sites que ja tem tema escuro nao sao invertidos de volta).
+    U.mediaIndex = {}
+    function U.mediaScan(html, base)
+        local found, seen = {}, {}
+        if type(html) ~= "string" then return found end
+        local function add(raw, kind, context)
+            if type(raw) ~= "string" or raw == "" then return end
+            raw = raw:gsub("&amp;", "&"):gsub("&quot;", '"'):gsub("^%s+", ""):gsub("%s+$", "")
+            if raw:match("^data:") or raw:match("^blob:") or raw:match("^javascript:") then
+                return
+            end
+            local url = U.resolve(base, raw)
+            if not url or not url:match("^https?://") then return end
+            if seen[url] then return end
+            seen[url] = true
+            found[#found + 1] = {url = url, kind = kind, context = context}
+        end
+        local function classify(url)
+            local x = url:lower():match("%.([%w]+)[%?#]") or url:lower():match("%.([%w]+)$")
+            return x == "gif" and "gif" or "image"
+        end
+        for tag in html:gmatch("<[%w:]+%f[%s/>][^>]*>") do
+            local low = tag:lower()
+            local attrs = {"src", "data-src", "data-original", "data-lazy-src", "data-original-src",
+                "data-image", "data-image-src", "data-url", "data-actualsrc", "data-cfsrc",
+                "data-thumb", "data-thumbnail", "data-poster", "poster"}
+            for _, attr in ipairs(attrs) do
+                local value = tag:match("%f[%w_%-]" .. attr .. [[%s*=%s*['"](.-)['"]])
+                if value then
+                    local kind = (attr == "poster" or attr == "data-poster") and "poster" or nil
+                    if low:match("^<video") and (attr == "poster" or attr == "data-poster") then kind = "poster"
+                    elseif low:match("^<video") then kind = "video"
+                    else kind = kind or classify(value) end
+                    add(value, kind, attr)
+                end
+            end
+            local sets = tag:match([[srcset%s*=%s*['"](.-)['"]]) or tag:match([[data%-srcset%s*=%s*['"](.-)['"]])
+            if sets then
+                for candidate in sets:gmatch("[^,]+") do
+                    local url = candidate:match("^%s*(%S+)")
+                    if url then add(url, classify(url), "srcset") end
+                end
+            end
+            local style = tag:match([[style%s*=%s*['"](.-)['"]])
+            if style then
+                for bg in style:gmatch([[url%(%s*['"]?(.-)['"]?%s*%)]]) do add(bg, "background", "inline-style") end
+            end
+        end
+        U.mediaIndex = found
+        return found
+    end
+    function U.recoveryCandidates(url, alternates)
+        local out, seen = {}, {}
+        local function put(v)
+            if type(v) == "string" and v ~= "" and not seen[v] then seen[v] = true; out[#out + 1] = v end
+        end
+        put(url)
+        for _, v in ipairs(alternates or {}) do put(v) end
+        return out
+    end
+    function U.mobileMetrics()
+        local w = 0
+        pcall(function() w = pageView.AbsoluteSize.X / math.max(0.1, uiScale()) end)
+        if w <= 0 then w = 360 end
+        return {width = w, compact = w < 520, maxMediaWidth = math.max(120, w - 20)}
+    end
+
     U.dark = {on = (phoneSettings.browserDark == true)}
     function U.dk(c, kind)
         if not U.dark.on or not c then return c end
@@ -6848,28 +7180,78 @@ local function makeBrowserScreen()
         return Color3.fromHSV(h, math.clamp(sv, 0, 1), math.clamp(v, 0, 1))
     end
 
-    function U.httpGet(url)
+    function U.httpGet(url, ua)
         local req = request or http_request or (syn and syn.request)
         if type(req) == "function" then
-            local headers = { ["User-Agent"] = U.SEARCH_UA or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36", ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", ["Accept-Language"] = "pt-BR,pt;q=0.9,en;q=0.7" }
-            if url:find("bing.com", 1, true) then headers["Cookie"] = "SRCHHPGUSR=ADLT=OFF" end   -- SafeSearch desligado
-            local response = req({Url = url, Method = "GET", Headers = headers})
-            if type(response) == "table" then
-                local body = response.Body or response.body
-                local code = tonumber(response.StatusCode or response.Status or response.status_code)
-                if code and (code < 200 or code >= 400) then
-                    error("HTTP " .. tostring(code) .. " ao carregar o recurso")
-                end
-                if type(body) == "string" and body ~= "" then return body end
+            local headers = {
+                ["User-Agent"] = ua or U.SEARCH_UA or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                ["Accept-Language"] = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                ["Cache-Control"] = "no-cache",
+            }
+            if url:find("bing.com", 1, true) then headers["Cookie"] = "SRCHHPGUSR=ADLT=OFF" end
+            if ua and ua == U.MOBILE_UA then
+
+                headers["Sec-CH-UA-Mobile"] = "?1"
+                headers["Sec-CH-UA-Platform"] = "\"Android\""
+                headers["Viewport-Width"] = "360"
             end
-            error("Resposta HTTP vazia ou bloqueada pelo site")
+            local lastError = "Resposta HTTP vazia"
+            for attempt = 1, 3 do
+                local ok, response = pcall(req, {Url = url, Method = "GET", Headers = headers})
+                if ok and type(response) == "table" then
+                    local body = response.Body or response.body
+                    local code = tonumber(response.StatusCode or response.Status or response.status_code)
+                    if type(body) == "string" and body ~= "" and (not code or (code >= 200 and code < 400)) then
+                        return body
+                    end
+                    if code then
+                        if code == 401 then lastError = "HTTP 401: o site exige autenticação"
+                        elseif code == 403 then lastError = "HTTP 403: o site recusou o acesso (proteção ou permissão)"
+                        elseif code == 404 then lastError = "HTTP 404: página não encontrada"
+                        elseif code == 429 then lastError = "HTTP 429: muitas requisições; tente novamente mais tarde"
+                        elseif code >= 500 then lastError = "HTTP " .. tostring(code) .. ": erro temporário no servidor"
+                        else lastError = "HTTP " .. tostring(code) .. " ao carregar a página" end
+                        if code < 500 and code ~= 429 then break end
+                    else
+                        lastError = "O site respondeu sem conteúdo válido"
+                    end
+                else
+                    lastError = tostring(response or "Falha na conexão")
+                end
+                if attempt < 3 then task.wait(attempt * 0.6) end
+            end
+            error(lastError, 0)
         end
         if game.HttpGet then return game:HttpGet(url) end
         error("Seu ambiente não disponibiliza uma função HTTP GET")
     end
-    -- Requisicao dedicada aos buscadores: User-Agent de navegador atual + idioma pt-BR (varios buscadores
-    -- recusam o "Mozilla/5.0" puro). NAO altera U.httpGet, que continua servindo o resto do navegador.
+
     U.SEARCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+    U.MOBILE_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+    function U.mobileOn() return phoneSettings.browserMobile ~= false end
+    function U.pageUA() return U.mobileOn() and U.MOBILE_UA or U.SEARCH_UA end
+
+    function U.httpPost(url, body, ua)
+        local req = request or http_request or (syn and syn.request)
+        if type(req) ~= "function" then error("Seu executor não suporta POST", 0) end
+        local headers = {
+            ["User-Agent"] = ua or U.pageUA(),
+            ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ["Accept-Language"] = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            ["Content-Type"] = "application/x-www-form-urlencoded",
+        }
+        if headers["User-Agent"] == U.MOBILE_UA then headers["Sec-CH-UA-Mobile"] = "?1" end
+        local ok, response = pcall(req, {Url = url, Method = "POST", Headers = headers, Body = body or ""})
+        if ok and type(response) == "table" then
+            local b = response.Body or response.body
+            local code = tonumber(response.StatusCode or response.Status or response.status_code)
+            if type(b) == "string" and b ~= "" and (not code or (code >= 200 and code < 400)) then return b end
+            error("HTTP " .. tostring(code or "?") .. " ao enviar o formulário", 0)
+        end
+        error(tostring(response or "Falha na conexão"), 0)
+    end
     function U.httpGetH(url, extra)
         local req = request or http_request or (syn and syn.request)
         if type(req) ~= "function" then return U.httpGet(url) end
@@ -6883,7 +7265,7 @@ local function makeBrowserScreen()
         if type(response) == "table" and type(response.Body) == "string" and response.Body ~= "" then return response.Body end
         error("Resposta HTTP vazia")
     end
-    -- Divide o HTML em blocos que comecam em cada ocorrencia de "marker" (1 bloco por resultado)
+
     function U.chunks(html, marker)
         local starts, i = {}, 1
         while true do
@@ -6900,7 +7282,7 @@ local function makeBrowserScreen()
         end
         return out
     end
-    -- Primeiro padrao que render texto nao vazio (ja sem HTML)
+
     function U.pick(block, pats)
         for _, p in ipairs(pats) do
             local m = block:match(p)
@@ -6941,16 +7323,154 @@ local function makeBrowserScreen()
         return t:match("^[%w%-%.]+%.%a%a+") ~= nil
     end
     function U.resolve(base, href)
+        if type(href) ~= "string" or type(base) ~= "string" then return nil end
         href = href:gsub("&amp;", "&"):gsub("^%s+", ""):gsub("%s+$", "")
-        if href == "" or href:sub(1, 1) == "#" or href:match("^javascript:") or href:match("^mailto:") or href:match("^tel:") or href:match("^data:") then return nil end
+        if href == "" or href:sub(1, 1) == "#" or href:match("^javascript:") or href:match("^mailto:") or href:match("^tel:") or href:match("^data:") or href:match("^blob:") then return nil end
         if href:match("^https?://") then return href end
-        if href:sub(1, 2) == "//" then return "https:" .. href end
+        if href:sub(1, 2) == "//" then
+            local scheme = base:match("^(https?):") or "https"
+            return scheme .. ":" .. href
+        end
         local origin = base:match("^(https?://[^/%?#]+)")
         if not origin then return nil end
-        if href:sub(1, 1) == "/" then return origin .. href end
-        local dir = base:match("^(https?://[^%?#]*/)") or (origin .. "/")
-        return dir .. href
+        if href:sub(1, 1) == "?" then
+            local path = base:gsub("[?#].*$", "")
+            return path .. href
+        end
+        local rawPath = href:match("^([^?#]*)") or href
+        local suffix = href:sub(#rawPath + 1)
+        local path
+        if rawPath:sub(1, 1) == "/" then
+            path = rawPath
+        elseif rawPath == "" then
+            path = base:gsub("[?#].*$", ""):gsub("^https?://[^/]+", "")
+            if path == "" then path = "/" end
+        else
+            local basePath = base:gsub("[?#].*$", ""):gsub("^https?://[^/]+", "")
+            if basePath == "" then basePath = "/" end
+            local dir = basePath:match("^(.*)/") or ""
+            path = dir .. "/" .. rawPath
+        end
+
+        local parts = {}
+        for part in path:gmatch("[^/]+") do
+            if part == ".." then
+                if #parts > 0 then table.remove(parts) end
+            elseif part ~= "." and part ~= "" then
+                parts[#parts + 1] = part
+            end
+        end
+        local normalized = "/" .. table.concat(parts, "/")
+        if path:sub(-1) == "/" and normalized ~= "/" then normalized = normalized .. "/" end
+        return origin .. normalized .. suffix
     end
+
+    function U.extractPageMedia(html, base, maxItems)
+        local out, seen = {}, {}
+        if type(html) ~= "string" then return out end
+        maxItems = math.max(30, math.min(240, tonumber(maxItems) or 160))
+        local function attr(tag, name)
+            local escaped = name:gsub("%-", "%%-")
+            return tag:match("%f[%w_%-]" .. escaped .. "%s*=%s*['\"](.-)['\"]")
+                or tag:match("%f[%w_%-]" .. escaped .. "%s*=%s*([^%s>]+)")
+        end
+        local function add(raw, title, preferredThumb)
+            if type(raw) ~= "string" then return end
+            raw = U.decode(raw):gsub("^%s+", ""):gsub("%s+$", "")
+            raw = raw:gsub("^['\"]", ""):gsub("['\"]$", "")
+            if raw == "" or raw:match("^data:") or raw:match("^blob:") then return end
+            local url = U.resolve(base, raw)
+            if not url or not url:match("^https?://") then return end
+            local low = url:lower()
+            if low:find("pixel", 1, true) or low:find("spacer", 1, true)
+                or low:find("avatar_placeholder", 1, true) or low:match("%.ico([%?#].*)?$") then return end
+            if seen[url] then return end
+            seen[url] = true
+            out[#out + 1] = {
+                url = url, thumb = preferredThumb or url,
+                title = U.plain(tostring(title or "")):sub(1, 100),
+                gif = (low:match("%.gif([%?#].*)?$") ~= nil)
+                    or low:find("format=gif", 1, true) ~= nil
+                    or low:find("image/gif", 1, true) ~= nil
+            }
+        end
+        local anchorHref, anchorDepth = nil, 0
+        for tag in html:gmatch("<[^>]+>") do
+            local low = tag:lower()
+            if low:match("^<a[%s>]") then
+                anchorHref = attr(tag, "href")
+                anchorDepth = 1
+            elseif low:match("^</a") then
+                anchorHref, anchorDepth = nil, 0
+            elseif anchorDepth > 0 and not low:match("^</") then
+                anchorDepth = anchorDepth + 1
+            end
+
+            local isImg = low:match("^<img[%s/>]") or low:match("^<amp%-img[%s/>]")
+            local isSource = low:match("^<source[%s/>]")
+            local isVideo = low:match("^<video[%s/>]")
+            if isImg or isSource or isVideo then
+                local names = {
+                    "data-original", "data-full", "data-full-image", "data-original-src",
+                    "data-image", "data-image-src", "data-src", "data-lazy-src",
+                    "data-actualsrc", "data-cfsrc", "data-zoom-image", "data-hi-res-src",
+                    "data-large-file", "data-large", "data-url", "data-remote",
+                    "data-thumbnail", "data-thumb", "src", "poster"
+                }
+                local candidates = {}
+                for _, name in ipairs(names) do
+                    local value = attr(tag, name)
+                    if value and value ~= "" then candidates[#candidates + 1] = value end
+                end
+                local sets = attr(tag, "data-srcset") or attr(tag, "data-lazy-srcset")
+                    or attr(tag, "data-original-srcset") or attr(tag, "srcset")
+                if sets then
+                    for part in sets:gmatch("[^,]+") do
+                        local value = part:match("^%s*(%S+)")
+                        if value then candidates[#candidates + 1] = value end
+                    end
+                end
+                local title = attr(tag, "alt") or attr(tag, "title")
+                if isVideo then
+                    local poster = attr(tag, "poster") or attr(tag, "data-poster")
+                    if poster then add(poster, title) end
+                elseif isImg or isSource then
+                    local thumb
+                    for _, candidate in ipairs(candidates) do
+                        local resolved = U.resolve(base, candidate)
+                        if resolved then
+                            if not thumb then thumb = resolved end
+                            add(candidate, title, thumb)
+                            if #out >= maxItems then return out end
+                        end
+                    end
+
+                    if anchorHref and anchorHref ~= "" then
+                        local ext = (U.fileExt and U.fileExt(anchorHref)) or ""
+                        if IMG_EXT[ext] then
+                            add(anchorHref, title, thumb)
+                        end
+                    end
+                end
+            end
+
+            local style = attr(tag, "style")
+            if style then
+                for raw in style:gmatch("url%(%s*['\"]?(.-)['\"]?%s*%)") do
+                    add(raw, "Imagem de fundo")
+                    if #out >= maxItems then return out end
+                end
+            end
+            if #out >= maxItems then break end
+        end
+
+        for raw in html:gmatch("[Oo][Gg]:[Ii]mage[^>]-content%s*=%s*['\"](.-)['\"]") do
+            add(raw, "Imagem da página")
+            if #out >= maxItems then break end
+        end
+        return out
+    end
+
     function U.rich(html, limit)
         html = html:gsub("<!%-%-.-%-%->", " "):gsub("<head.-</head>", " "):gsub("<script.-</script>", " "):gsub("<style.-</style>", " "):gsub("<noscript.-</noscript>", " "):gsub("<svg.-</svg>", " ")
         html = html:gsub("<[hH][1-6][^>]*>", "\n\1"):gsub("</[hH][1-6]%s*>", "\2\n")
@@ -6977,7 +7497,6 @@ local function makeBrowserScreen()
     local imgCache = {}
     local imgPath = {}
     local imgKind, gifMeta = {}, {}
-    local hasAssetFn = true
     function U.hash2(str)
         local h1, h2 = 5381, 52711
         for i = 1, #str do
@@ -6988,8 +7507,7 @@ local function makeBrowserScreen()
         return string.format("%08x%08x", h1, h2)
     end
     local PROXIES = {"https://wsrv.nl/", "https://images.weserv.nl/"}
-    -- Formatos de imagem encontrados na web. O Roblox nao decodifica todos eles
-    -- diretamente: os formatos fora de PNG/JPEG passam por conversao para PNG.
+
     local IMG_EXT = {
         png = true, apng = true, jpg = true, jpeg = true, jpe = true, jfif = true,
         gif = true, webp = true, bmp = true, dib = true, avif = true, avis = true,
@@ -7026,8 +7544,17 @@ local function makeBrowserScreen()
         if h:sub(1, 4) == "8BPS" then return "psd" end
         if h:sub(1, 4) == "DDS " then return "dds" end
         if h:sub(1, 4) == "\0\0\0\12" and h:sub(5, 12) == "JXL \r\n\135\n" then return "jxl" end
-        if h:sub(1, 2) == "\255\10" then return "jxl" end -- JPEG XL codestream
+        if h:sub(1, 2) == "\255\10" then return "jxl" end
         if h:sub(1, 2) == "\10\5" or h:sub(1, 2) == "\10\2" then return "pcx" end
+        if h:sub(1, 4) == "\0\0\0\12" and h:sub(5, 12) == "JXL \r\n\135\n" then return "jxl" end
+        if h:sub(1, 4) == "FORM" and h:sub(9, 12) == "ILBM" then return "iff" end
+        if h:sub(1, 4) == "qoif" then return "qoi" end
+        if h:sub(1, 4) == "8BPS" then return "psd" end
+        if h:sub(1, 4) == "DDS " then return "dds" end
+        if h:sub(1, 4) == "\0\0\1\0" then return "ico" end
+        if h:sub(1, 4) == "II*\0" or h:sub(1, 4) == "MM\0*" then return "tiff" end
+        if h:sub(1, 4) == "P1\n" or h:sub(1, 3) == "P2\n" or h:sub(1, 3) == "P3\n" or h:sub(1, 3) == "P4\n" or h:sub(1, 3) == "P5\n" or h:sub(1, 3) == "P6\n" then return "pnm" end
+        if h:sub(1, 4) == "\118\47\49\1" then return "exr" end
         local head = b:sub(1, 4096):gsub("^\239\187\191", ""):lower()
         if head:find("<svg", 1, true) or head:find("<!doctype svg", 1, true) then return "svg" end
         if head:match("^%s*<%?xml") and head:find("<svg", 1, true) then return "svg" end
@@ -7077,11 +7604,47 @@ local function makeBrowserScreen()
     function U.proxy(url, extra, p)
         return (PROXIES[p or 1] or PROXIES[1]) .. "?url=" .. HttpService:UrlEncode(url) .. (extra or "")
     end
+    function U.isSvgUrl(url)
+        if type(url) ~= "string" then return false end
+        local path = url:lower():gsub("[?#].*$", "")
+        return path:match("%.svgz?$") ~= nil
+    end
     function U.ensureCache()
         pcall(function()
             if not isfolder("PHONE") then makefolder("PHONE") end
             if not isfolder(CACHE_DIR) then makefolder(CACHE_DIR) end
         end)
+    end
+
+    local PAGE_CACHE_TTL = 300
+    local PAGE_CACHE_MAX = 20000000
+    function U.readPageCache(url)
+        if phoneSettings.browserCache == false then return nil end
+        U.ensureCache()
+        local key = "page_" .. U.hash2(url)
+        local path, meta = CACHE_DIR .. "/" .. key .. ".html", CACHE_DIR .. "/" .. key .. ".meta"
+        local okF, has = pcall(isfile, path)
+        if not okF or not has then return nil end
+        local okR, body = pcall(readfile, path)
+        if not okR or type(body) ~= "string" or #body < 40 or #body > PAGE_CACHE_MAX then return nil end
+        local stamp = 0
+        local okM, exists = pcall(isfile, meta)
+        if okM and exists then
+            local okT, value = pcall(readfile, meta)
+            if okT then stamp = tonumber(value) or 0 end
+        end
+        if stamp > 0 and (os.time() - stamp) <= PAGE_CACHE_TTL then
+            return body, false
+        end
+        return body, true
+    end
+    function U.writePageCache(url, body)
+        if phoneSettings.browserCache == false or type(body) ~= "string" or #body < 40 or #body > PAGE_CACHE_MAX then return end
+        if body:lower():find("<html", 1, true) == nil and body:lower():find("<!doctype", 1, true) == nil then return end
+        U.ensureCache()
+        local key = "page_" .. U.hash2(url)
+        pcall(writefile, CACHE_DIR .. "/" .. key .. ".html", body)
+        pcall(writefile, CACHE_DIR .. "/" .. key .. ".meta", tostring(os.time()))
     end
     function U.cachedAsset(key)
         for _, ext in ipairs({"jpg", "png"}) do
@@ -7101,23 +7664,22 @@ local function makeBrowserScreen()
         local path = CACHE_DIR .. "/" .. key .. "." .. ext
         if not pcall(writefile, path, body) then return nil end
         local okA, a = pcall(getcustomasset, path)
-        if okA and type(a) == "string" and a ~= "" then return a, path end
-        hasAssetFn = false
+        if okA and type(a) == "string" and a ~= "" then U.assetFails = 0 return a, path end
+        U.assetFails = (U.assetFails or 0) + 1
         return nil
     end
     function U.saveMeta(url, m)
         U.ensureCache()
         pcall(writefile, CACHE_DIR .. "/" .. U.hash2(url) .. ".gifmeta", m.w .. " " .. m.h .. " " .. m.n .. "\n" .. table.concat(m.delays, ","))
     end
-    -- Requisicao propria para imagens: alguns CDNs (incluindo hosts de avatares e anexos)
-    -- respondem diferente quando recebem Accept de documento HTML. Mantem UA de navegador,
-    -- pede formatos de imagem e envia Referer quando conhecido.
+
     function U.httpGetImage(url, referer)
         local req = request or http_request or (syn and syn.request)
         if type(req) ~= "function" then return U.httpGet(url) end
         local headers = {
             ["User-Agent"] = U.SEARCH_UA or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-            ["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+
+            ["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/gif,image/jpeg,image/png,image/*;q=0.9,*/*;q=0.8",
             ["Accept-Language"] = "pt-BR,pt;q=0.9,en;q=0.7",
             ["Cache-Control"] = "max-age=0",
             ["Pragma"] = "no-cache",
@@ -7128,7 +7690,9 @@ local function makeBrowserScreen()
             local body = response.Body or response.body
             local code = tonumber(response.StatusCode or response.Status or response.status_code)
             if code and (code < 200 or code >= 400) then error("HTTP " .. tostring(code) .. " ao carregar imagem") end
-            if type(body) == "string" and body ~= "" then return body end
+            local headers = response.Headers or response.headers or {}
+            local mime = headers["Content-Type"] or headers["content-type"] or headers["CONTENT-TYPE"]
+            if type(body) == "string" and body ~= "" then return body, type(mime) == "string" and mime:lower() or nil end
         end
         error("Imagem bloqueada ou resposta vazia")
     end
@@ -7140,35 +7704,46 @@ local function makeBrowserScreen()
         local a, path = U.cachedAsset(key)
         if a then imgCache[url] = a; imgPath[url] = path; return a end
         local limit = maxBytes or 4000000
-        local okG, body = pcall(U.httpGetImage, url, referer)
+        local okG, body, mime = pcall(U.httpGetImage, url, referer)
         if okG and type(body) == "string" and #body >= 16 then
             local kind = U.sniff(body)
+            if not kind and type(mime) == "string" then
+                local m = mime:match("^%s*([^;%s]+)") or ""
+                local byMime = { ["image/jpeg"] = "jpg", ["image/jpg"] = "jpg", ["image/png"] = "png", ["image/gif"] = "gif", ["image/webp"] = "webp", ["image/avif"] = "avif", ["image/apng"] = "apng", ["image/svg+xml"] = "svg", ["image/bmp"] = "bmp", ["image/tiff"] = "tiff", ["image/x-icon"] = "ico", ["image/vnd.microsoft.icon"] = "ico", ["image/jxl"] = "jxl" }
+                kind = byMime[m]
+            end
             imgKind[url] = kind or "unknown"
             if kind == "gif" then
                 U.rememberGif(url, body)
                 local m = U.parseGif(body)
                 if m then gifMeta[url] = m; U.saveMeta(url, m) end
             end
-            -- Somente formatos aceitos pelo getcustomasset sao gravados sem conversao.
+
             if (kind == "png" or kind == "jpg") and #body <= limit then
                 a, path = U.storeBody(body, key)
                 if a then imgCache[url] = a; imgPath[url] = path; return a end
             end
         end
-        if not hasAssetFn then return nil end
-        -- Conversao server-side para PNG: GIF (primeiro quadro), WebP, AVIF/HEIC,
-        -- SVG/SVGZ, BMP, ICO/CUR, TIFF, JPEG XL, QOI e outros formatos reconhecidos
-        -- pelo conversor. A resposta e validada por assinatura para nao salvar HTML de erro.
+        local svgUrl = U.isSvgUrl(url) or imgKind[url] == "svg"
         local variants = {
-            "&output=png&w=1800&h=1800&fit=inside&we",
-            "&output=png&w=1200&h=1200&fit=contain",
-            "&output=jpg&w=1200&h=1200&fit=inside",
-            "&output=png&w=900&h=900&fit=inside",
+            "&output=png&w=2000&h=2000&fit=inside",
+            "&output=png&w=1400&h=1400&fit=inside",
+            "&output=jpg&w=1800&h=1800&fit=inside&q=90",
+            "&output=png",
+            "&output=jpg&q=88",
         }
+        if svgUrl then
+            variants = {
+                "&output=png&w=2400&h=2400&fit=contain",
+                "&output=png&w=1600&h=1600&fit=inside",
+                "&output=png",
+                "&output=jpg&w=1600&h=1600&fit=inside&q=92",
+            }
+        end
         for p = 1, #PROXIES do
             for _, extra in ipairs(variants) do
                 local okP, pb = pcall(U.httpGet, U.proxy(url, extra, p))
-                if okP and type(pb) == "string" and #pb >= 16 then
+                if okP and type(pb) == "string" and #pb >= 16 and #pb <= limit then
                     local convertedKind = U.sniff(pb)
                     if convertedKind == "png" or convertedKind == "jpg" then
                         a, path = U.storeBody(pb, key)
@@ -7181,6 +7756,7 @@ local function makeBrowserScreen()
                 end
             end
         end
+        imgKind[url] = imgKind[url] or (svgUrl and "svg" or "unsupported")
         return nil
     end
     function U.gifMeta(url)
@@ -7214,7 +7790,7 @@ local function makeBrowserScreen()
         local okF, has = pcall(isfile, CACHE_DIR .. "/" .. U.hash2(url) .. ".gifmeta")
         return okF and has == true
     end
-    -- cache em memoria dos ultimos GIFs baixados: ver, baixar e salvar na Galeria usam 1 download so
+
     local gifBodies, gifBodyOrder = {}, {}
     function U.rememberGif(url, body)
         if type(body) ~= "string" or body:sub(1, 3) ~= "GIF" then return end
@@ -7230,7 +7806,7 @@ local function makeBrowserScreen()
     function U.gifBody(url, referer)
         local b = gifBodies[url]
         if b then return b end
-        -- Usa o mesmo pedido de imagem (User-Agent, Accept e Referer) dos thumbnails.
+
         local okG, body = pcall(U.httpGetImage, url, referer)
         if okG and type(body) == "string" and body:sub(1, 3) == "GIF" then
             U.rememberGif(url, body)
@@ -7238,9 +7814,7 @@ local function makeBrowserScreen()
         end
         return nil
     end
-    -- Tenta converter APNG/WebP animado para GIF animado, formato que o
-    -- decodificador interno consegue transformar em quadros PNG reproduziveis.
-    -- A conversao e externa; se o proxy devolver apenas um quadro, nao inventamos animacao.
+
     function U.animatedImageAsGif(url, referer, body)
         if type(body) == "string" and body:sub(1, 3) == "GIF" then return body end
         local kind = U.sniff(body or "")
@@ -7269,7 +7843,7 @@ local function makeBrowserScreen()
         end
         return nil
     end
-    -- baixa ate 24 quadros do GIF (um PNG por quadro, via proxy) e devolve {assets, delays}
+
     function U.gifFrames(url, meta, onProg, cancelled)
         local n, MAXF = meta.n, 24
         local step = math.max(1, math.ceil(n / MAXF))
@@ -7365,8 +7939,7 @@ local function makeBrowserScreen()
         if not pcall(writefile, path, body) then error("Não foi possível salvar (writefile indisponível)") end
         return {kind = "download", title = name, name = name, path = path, ext = ext, size = #body, preview = "Download: " .. name}
     end
-    -- FIX: nunca sobrescreve um arquivo diferente com o mesmo nome (isso misturava GIFs/fotos).
-    -- Se o destino ja tem EXATAMENTE o mesmo conteudo, nao copia de novo (retorna true).
+
     function U.sendTo(path, dir)
         local okR, data = pcall(readfile, path)
         if not okR or type(data) ~= "string" or data == "" then return false end
@@ -7405,7 +7978,7 @@ local function makeBrowserScreen()
     pcall(function()
         U.ensureCache()
         if #listfiles(CACHE_DIR) > 1500 then U.purgeCache() end
-        -- quadros de GIF do navegador ocupam muito disco: limpa quando passar de 40 pastas
+
         local nBr = 0
         for _, d in ipairs(listfiles("PHONE/GifFrames")) do
             if (tostring(d):gsub("\\", "/"):match("([^/]+)$") or ""):sub(1, 3) == "br_" then nBr = nBr + 1 end
@@ -7611,24 +8184,23 @@ local function makeBrowserScreen()
     local function playGif(item, tk)
         local url = item.url
         local function cancelled() return tk ~= viewerToken or not viewer.Visible end
-        -- FIX: limpa overlay imediatamente antes de qualquer await
+
         viewerImg2.Visible = false
         viewerImg2.Image = ""
         viewerBadge.Visible = true
         viewerBadge.Text = "GIF · lendo…"
         local fr
-        -- 1) decodificador local (nao depende de proxy)
-        -- cache por URL: se os quadros ja foram gerados antes, toca direto (sem baixar o GIF de novo)
+
         local key = "br_" .. U.hash2(url)
         local info = Nav.gif.load(key)
         local body
         if not info then
-            body = U.gifBody(url)   -- reaproveita o download ja feito (nao baixa de novo)
+            body = U.gifBody(url)
             if cancelled() then return end
         end
         if info or body then
             if not info then
-                -- maxFrames = 0 = todos os quadros
+
                 info = Nav.gif.bake(key, body, {
                     maxFrames = 0, maxDim = 480, pixelBudget = 48000000, yield = task.wait, cancelled = cancelled,
                     onProg = function(d, t) if not cancelled() then viewerBadge.Text = "GIF · " .. d .. "/" .. t end end,
@@ -7640,7 +8212,7 @@ local function makeBrowserScreen()
                 if assets then fr = {assets = assets, delays = info.delays} end
             end
         end
-        -- 2) reserva: quadros via proxy
+
         if not fr then
             local meta = U.gifMeta(url)
             if cancelled() then return end
@@ -7704,7 +8276,7 @@ local function makeBrowserScreen()
                 viewerMsg.Visible = false
                 if U.maybeGif(item.url) then playGif(item, tk) end
             elseif not thumb then
-                viewerMsg.Text = hasAssetFn and "Não foi possível carregar esta imagem." or "Seu executor não tem getcustomasset: não dá para exibir imagens."
+                viewerMsg.Text = "Não foi possível carregar esta imagem. Tente novamente."
             end
         end)
     end
@@ -7814,10 +8386,6 @@ local function makeBrowserScreen()
         toast(U.sendTo(path, "PHONE/Photos") and "Salvo na Galeria" or "Falha ao copiar")
     end
 
-    -- FIX (precisava baixar duas vezes): UM unico fluxo para GIF.
-    -- Baixa 1x (cache em memoria), grava em Downloads E na Galeria com nome fixo por URL
-    -- (tocar de novo nao duplica; GIFs diferentes com o mesmo titulo nao colidem) e deixa
-    -- os quadros prontos, copiando do cache do navegador em vez de decodificar de novo.
     local savedGif, savingGif = {}, {}
     local function saveGifFlow(item)
         local url = item.url
@@ -7829,7 +8397,7 @@ local function makeBrowserScreen()
             local body = U.gifBody(url)
             if not body then
                 savingGif[url] = nil
-                saveStaticToGallery(item)   -- nao era GIF de verdade
+                saveStaticToGallery(item)
                 return
             end
             local fname = itemBaseName(item) .. "_" .. U.hash2(url):sub(1, 6) .. ".gif"
@@ -7845,7 +8413,7 @@ local function makeBrowserScreen()
                 toast("Falha ao salvar o GIF")
                 return
             end
-            -- quadros prontos para a Galeria tocar na hora (mesma chave que a Galeria calcula)
+
             local gkey = Nav.gif.keyFor(fname, body)
             if not Nav.gif.load(gkey, #body) then
                 local srcKey = "br_" .. U.hash2(url)
@@ -7882,8 +8450,7 @@ local function makeBrowserScreen()
     end)
     viewerCopy.MouseButton1Click:Connect(function()
         local clip = setclipboard or toclipboard
-        if viewerItem and type(clip) == "function" then pcall(clip, viewerItem.url); toast("Link da imagem copiado")
-        else toast("Clipboard indisponível") end
+        if viewerItem and type(clip) == "function" then pcall(clip, viewerItem.url); toast("Link da imagem copiado") end
     end)
 
     local selItems, selCount, selMarks = {}, 0, {}
@@ -7965,10 +8532,8 @@ local function makeBrowserScreen()
         end
     end
 
-    -- Buscadores disponiveis (escolha no menu de 3 pontinhos). "Auto" = tenta todos em ordem.
-    U.ENGINES = {"Auto", "Brave", "DuckDuckGo", "Wikipedia"}
+    U.ENGINES = {"Auto", "Google", "Bing", "DuckDuckGo", "DuckDuckGo Lite", "Wikipedia"}
 
-    -- Sem filtro manual de data/relevancia: o proprio buscador ordena por relevancia (como num navegador comum)
     function U.period() return "any" end
     function U.engine()
         local e = phoneSettings.searchEngine
@@ -7976,7 +8541,6 @@ local function makeBrowserScreen()
         return "Auto"
     end
 
-    -- Dimensoes (largura, altura) de PNG/JPEG lidas do proprio arquivo: usadas no layout em mosaico
     U.imgDims = {}
     function U.parseDims(b)
         if b:sub(1, 8) == "\137PNG\r\n\26\n" and #b >= 24 then
@@ -8024,12 +8588,10 @@ local function makeBrowserScreen()
         return nil
     end
 
-    -- Busca de imagens: junta varias fontes (Bing + DuckDuckGo + Openverse), SafeSearch desligado,
-    -- e mistura GIFs animados no meio das imagens (sem categoria separada).
     local function fetchImages(entry)
         local items, gifItems, seen = {}, {}, {}
         local enc = HttpService:UrlEncode(entry.q)
-        local IMG_MAX, TARGET = 220, 120
+        local IMG_MAX, TARGET = math.huge, math.huge
         local fSize, fType = entry.fSize or "any", entry.fType or "any"
         local qftParts = {}
         if fSize ~= "any" then qftParts[#qftParts + 1] = "+filterui:imagesize-" .. fSize end
@@ -8056,7 +8618,7 @@ local function makeBrowserScreen()
             if not isGif and not typeOk(url or thumb) then return end
             seen[thumb] = true
             title = U.plain(tostring(title or "")):gsub(utf8.char(0xE000), ""):gsub(utf8.char(0xE001), "")
-            list[#list + 1] = {url = url or thumb, thumb = thumb, title = title:sub(1, 80), page = page, gif = isGif or nil}
+            list[#list + 1] = {url = url or thumb, thumb = thumb, title = title, page = page, gif = isGif or nil}
         end
 
         local function bingPages(extra, pages, perPage, list, isGif, offset, maxN)
@@ -8102,27 +8664,39 @@ local function makeBrowserScreen()
                 local page = U.httpGet("https://duckduckgo.com/?q=" .. enc .. "&iax=images&ia=images&kp=-2")
                 local vqd = page:match('vqd="([^"]+)"') or page:match("vqd=([%d%-]+)&")
                 if not vqd then return end
-                for _, s in ipairs({0, 100, 200}) do
+
+                local s = 0
+                while true do
                     local okJ, js = pcall(U.httpGet, "https://duckduckgo.com/i.js?l=wt-wt&o=json&q=" .. enc .. "&vqd=" .. vqd .. "&f=,,,,,&p=-1&s=" .. s)
-                    if okJ and type(js) == "string" then
-                        local okD, d = pcall(function() return HttpService:JSONDecode(js) end)
-                        if okD and type(d) == "table" then
-                            for _, r in ipairs(d.results or {}) do
-                                add(items, r.image, r.thumbnail, r.title, r.url)
-                            end
-                        end
+                    if not okJ or type(js) ~= "string" then break end
+                    local okD, d = pcall(function() return HttpService:JSONDecode(js) end)
+                    if not okD or type(d) ~= "table" or type(d.results) ~= "table" or #d.results == 0 then break end
+                    local before = #items
+                    for _, r in ipairs(d.results) do
+                        add(items, r.image, r.thumbnail, r.title, r.url)
                     end
-                    if #items >= IMG_MAX then break end
+                    if #items == before or not d.next then break end
+                    s = s + #d.results
+                    task.wait()
                 end
             end)
         end
 
         local function openverse()
             pcall(function()
-                local js = U.httpGet("https://api.openverse.org/v1/images/?page_size=100&mature=true&q=" .. enc)
-                local d = HttpService:JSONDecode(js)
-                for _, r in ipairs(d.results or {}) do
-                    add(items, r.url, r.thumbnail or r.url, r.title, r.foreign_landing_url)
+
+                local page = 1
+                while true do
+                    local okH, js = pcall(U.httpGet, "https://api.openverse.org/v1/images/?page_size=20&mature=true&page=" .. page .. "&q=" .. enc)
+                    if not okH or type(js) ~= "string" then break end
+                    local okD, d = pcall(function() return HttpService:JSONDecode(js) end)
+                    if not okD or type(d) ~= "table" or type(d.results) ~= "table" or #d.results == 0 then break end
+                    for _, r in ipairs(d.results) do
+                        add(items, r.url, r.thumbnail or r.url, r.title, r.foreign_landing_url)
+                    end
+                    if not d.page_count or page >= d.page_count then break end
+                    page = page + 1
+                    task.wait()
                 end
             end)
         end
@@ -8151,7 +8725,7 @@ local function makeBrowserScreen()
             out[#out + 1] = it
             if i % 4 == 0 and gifItems[gi] then out[#out + 1] = gifItems[gi]; gi = gi + 1 end
         end
-        while gifItems[gi] and #out < IMG_MAX + 30 do out[#out + 1] = gifItems[gi]; gi = gi + 1 end
+        while gifItems[gi] do out[#out + 1] = gifItems[gi]; gi = gi + 1 end
 
         local bingOff, gifOff = 8, 2
         local function more()
@@ -8159,11 +8733,11 @@ local function makeBrowserScreen()
             local gDone = fType ~= "any"
             if not gDone then
                 task.spawn(function()
-                    pcall(bingPages, qftFor("+filterui:photo-animatedgif"), 1, 35, freshGifs, true, gifOff, 35)
+                    pcall(bingPages, qftFor("+filterui:photo-animatedgif"), 1, 35, freshGifs, true, gifOff)
                     gDone = true
                 end)
             end
-            pcall(bingPages, qftFor(), 4, 35, fresh, false, bingOff, 140)
+            pcall(bingPages, qftFor(), 4, 35, fresh, false, bingOff)
             bingOff = bingOff + 4
             gifOff = gifOff + 1
             local tm = os.clock()
@@ -8179,7 +8753,6 @@ local function makeBrowserScreen()
         return {kind = "images", title = entry.q, items = out, preview = "Imagens: " .. entry.q, more = more}
     end
 
-    -- Varios buscadores com fallback automatico: se um falhar/bloquear/vier vazio, tenta o proximo.
     local function b64dec(s)
         s = s:gsub("%-", "+"):gsub("_", "/")
         local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -8223,24 +8796,38 @@ local function makeBrowserScreen()
             local name = U.plain(r[2])
             if name ~= "" and link:match("^https?://") and not link:find("duckduckgo.com/y.js", 1, true) and not seen[link] then
                 seen[link] = true
-                items[#items + 1] = {name = name:sub(1, 90), url = link, snippet = paired and snips[i] and snips[i]:sub(1, 130) or nil, full = paired and snips[i] or nil}
+                items[#items + 1] = {name = name, url = link, snippet = paired and snips[i] or nil, full = paired and snips[i] or nil}
             end
         end
         return items
     end
 
     local SEARCH_ENGINES = {
-        {name = "Brave", run = function(q, pg, off)
-            local tf = ({d = "pd", w = "pw", m = "pm", y = "py"})[U.period()]
-            local html = U.httpGetH("https://search.brave.com/search?source=web&q=" .. HttpService:UrlEncode(q) .. (tf and ("&tf=" .. tf) or "") .. (pg > 0 and ("&offset=" .. pg) or ""), {Cookie = "safesearch=off; country=br"})
+
+        {name = "Google", run = function(q, pg, off)
+            local html = U.httpGet("https://www.google.com/search?gbv=1&hl=pt-BR&num=20&q=" .. HttpService:UrlEncode(q) .. (off > 0 and ("&start=" .. off) or ""), "Mozilla/5.0 (Windows NT 6.1; rv:12.0) Gecko/20100101 Firefox/12.0")
             local raw, snips = {}, {}
-            for _, ch in ipairs(U.chunks(html, 'data-type="web"')) do
-                local href = ch:match('<a[^>]-href="(https?://[^"]+)"')
-                if href and not href:find("search.brave.com", 1, true) then
-                    local label = U.pick(ch, {'class="[^"]*title[^"]*"[^>]*>(.-)</div>', '<a[^>]-href="https?://[^"]+"[^>]*>(.-)</a>'})
-                    local snip = U.pick(ch, {'class="[^"]*snippet%-description[^"]*"[^>]*>(.-)</div>', 'class="content[^"]*"[^>]*>(.-)</div>', 'class="generic%-snippet[^"]*"[^>]*>(.-)</div>'})
-                    raw[#raw + 1] = {href, label}
-                    snips[#snips + 1] = snip
+            if type(html) ~= "string" then return {} end
+            for href, inner in html:gmatch('<a href="/url%?q=([^"&]+)[^"]*"[^>]*>(.-)</a>') do
+                local real = U.urlDecode(href)
+                if real:match("^https?://") and not real:find("google%.com", 1, true) and (inner:find("<h3", 1, true) or inner:find("<div", 1, true)) then
+                    raw[#raw + 1] = {real, inner}
+                end
+            end
+            return collect(raw, nil)
+        end},
+
+        {name = "Bing", run = function(q, pg, off)
+            local html = U.httpGet("https://www.bing.com/search?setlang=pt-BR&cc=BR&q=" .. HttpService:UrlEncode(q) .. (off > 0 and ("&first=" .. (off + 1)) or ""))
+            local raw, snips = {}, {}
+            if type(html) ~= "string" then return {} end
+            for block in html:gmatch('<li class="b_algo".-</li>') do
+                local href = block:match('<h2[^>]*><a[^>]+href="([^"]+)"')
+                local title = block:match('<h2[^>]*><a[^>]*>(.-)</a>')
+                local snip = block:match('<p[^>]*>(.-)</p>') or block:match('class="b_caption".-<p[^>]*>(.-)</p>')
+                if href and title then
+                    raw[#raw + 1] = {href, title}
+                    snips[#snips + 1] = snip and U.plain(snip) or ""
                 end
             end
             return collect(raw, snips)
@@ -8253,19 +8840,35 @@ local function makeBrowserScreen()
             for s in html:gmatch('class="result__snippet"[^>]*>(.-)</a>') do snips[#snips + 1] = U.plain(s) end
             return collect(raw, snips)
         end},
+
+        {name = "DuckDuckGo Lite", run = function(q, pg, off)
+            local html = U.httpGet("https://lite.duckduckgo.com/lite/?kp=-2&q=" .. HttpService:UrlEncode(q) .. (off > 0 and ("&s=" .. off) or ""))
+            local raw = {}
+            if type(html) == "string" then
+                for href, label in html:gmatch('<a[^>]+class="result%-link"[^>]+href="(https?://[^"]+)"[^>]*>(.-)</a>') do
+                    if not href:find("duckduckgo%.com", 1, true) then raw[#raw + 1] = {href, label} end
+                end
+                if #raw < 3 then
+                    for href in html:gmatch('<a[^>]+href="(https?://[^"]+)"') do
+                        if not href:find("duckduckgo%.com", 1, true) then
+                            raw[#raw + 1] = {href, href:match("https?://([^/]+)") or href}
+                        end
+                    end
+                end
+            end
+            return collect(raw, nil)
+        end},
         {name = "Wikipedia", run = function(q, pg, off)
-            local js = U.httpGet("https://pt.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=50&sroffset=" .. off .. "&srsearch=" .. HttpService:UrlEncode(q))
+            local js = U.httpGet("https://pt.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=500&sroffset=" .. off .. "&srsearch=" .. HttpService:UrlEncode(q))
             local d = HttpService:JSONDecode(js)
             local items = {}
             for _, r in ipairs(d.query and d.query.search or {}) do
-                items[#items + 1] = {name = tostring(r.title), url = "https://pt.wikipedia.org/wiki/" .. tostring(r.title):gsub(" ", "_"), snippet = U.plain(tostring(r.snippet or "")):sub(1, 130), full = U.plain(tostring(r.snippet or ""))}
+                items[#items + 1] = {name = tostring(r.title), url = "https://pt.wikipedia.org/wiki/" .. tostring(r.title):gsub(" ", "_"), snippet = U.plain(tostring(r.snippet or "")), full = U.plain(tostring(r.snippet or ""))}
             end
             return items
         end},
     }
 
-    -- Combina os resultados de todos os buscadores, removendo URLs repetidas.
-    -- "Combinado" tambem identifica as paginas seguintes, para continuar consultando todos.
     local function fetchWebSearch(q, pg, off, only)
         pg, off = pg or 0, off or 0
         local lastErr, anyOk = nil, false
@@ -8307,7 +8910,7 @@ local function makeBrowserScreen()
         if entry.q then
             local items, used = fetchWebSearch(entry.q, 0, 0)
             local seen, st = {}, {pg = 0, off = #items, dead = false}
-            -- tira repetidos e tudo que nao tem a ver com o que foi pesquisado
+
             local function keep(res)
                 local out = {}
                 for _, it in ipairs(res) do
@@ -8319,10 +8922,10 @@ local function makeBrowserScreen()
                 return out
             end
             items = keep(items)
-            -- proxima pagina do mesmo buscador; se ela vier so com coisa fora do assunto, ja pula pra seguinte
+
             local function nextPage()
                 if not used or st.dead then return {} end
-                for _ = 1, 10 do
+                while true do
                     st.pg = st.pg + 1
                     local okP, res = pcall(fetchWebSearch, entry.q, st.pg, st.off, used)
                     if not okP or type(res) ~= "table" or #res == 0 then
@@ -8333,7 +8936,7 @@ local function makeBrowserScreen()
                     local unseen = 0
                     for _, it in ipairs(res) do if not seen[it.url] then unseen = unseen + 1 end end
                     if unseen == 0 then
-                        st.dead = true   -- o buscador repetiu a mesma pagina: acabou
+                        st.dead = true
                         return {}
                     end
                     local fresh = keep(res)
@@ -8341,10 +8944,8 @@ local function makeBrowserScreen()
                 end
                 return {}
             end
-            -- primeira tela cheia: junta paginas ate ter pelo menos 20 resultados bons
-            local tries = 0
-            while used and #items < 20 and tries < 8 do
-                tries = tries + 1
+
+            while used and #items < 40 do
                 local fresh = nextPage()
                 if #fresh == 0 then break end
                 for _, it in ipairs(fresh) do items[#items + 1] = it end
@@ -8368,7 +8969,30 @@ local function makeBrowserScreen()
         end
         local dlExt = U.fileExt(entry.url)
         if dlExt and DL_EXT[dlExt] then return U.download(entry.url, dlExt) end
-        local html = U.httpGet(entry.url)
+        local html, stalePage
+        if entry.post then
+
+            html = U.httpPost(entry.url, entry.post, U.pageUA())
+        else
+            local cached, stale = U.readPageCache(entry.url)
+            stalePage = stale and cached or nil
+            if cached and not stale then
+                html = cached
+            else
+                local okNet, body = pcall(U.httpGet, entry.url, U.pageUA())
+                if okNet and type(body) == "string" and body ~= "" then
+                    html = body
+                    U.writePageCache(entry.url, html)
+                elseif stalePage then
+                    html = stalePage
+                    entry.cacheFallback = true
+                else
+                    error(body or "Falha ao carregar a pagina", 0)
+                end
+            end
+        end
+
+        pcall(U.mediaScan, html, entry.url)
         local title = html:match("<[tT][iI][tT][lL][eE][^>]*>(.-)</[tT][iI][tT][lL][eE]>")
         title = title and U.plain(title) or ""
         if title == "" then title = U.hostOf(entry.url) end
@@ -8384,27 +9008,18 @@ local function makeBrowserScreen()
                 end
             end
         end
-        local imgs, seenImg = {}, {}
-        for tag in html:gmatch("<[iI][mM][gG][^>]->") do
-            local s = tag:match('[%s"]data%-src="(.-)"') or tag:match('[%s"]data%-original="(.-)"') or tag:match('[%s"]src="(.-)"') or tag:match("[%s']src='(.-)'")
-            if not s then
-                local ss = tag:match('srcset="(.-)"')
-                if ss then s = ss:match("^%s*(%S+)") end
-            end
-            if s then
-                local link = U.resolve(entry.url, s)
-                local low = link and link:lower() or ""
-                if link and not seenImg[link] and not low:find("pixel", 1, true) and not low:find("spacer", 1, true) and not low:find("1x1", 1, true) and not low:match("%.ico") then
-                    seenImg[link] = true
-                    local alt = tag:match('alt="(.-)"') or ""
-                    table.insert(imgs, {url = link, thumb = link, title = U.plain(alt):sub(1, 80), gif = low:match("%.gif") ~= nil or nil})
-                    if #imgs >= 30 then break end
-                end
-            end
+        local imgs = {}
+        local okMedia, extractedMedia = pcall(U.extractPageMedia, html, entry.url, 180)
+        if okMedia and type(extractedMedia) == "table" then
+            imgs = extractedMedia
         end
+
         local rich = U.rich(html)
         local readRich = U.rich(html, 30000)
-        return {kind = "page", html = (#html > 1000000 and html:sub(1, 1000000) or html), title = title:sub(1, 80), rich = rich, readRich = readRich, items = items, images = imgs, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
+
+        local layoutHtml = html:gsub("<[sS][cC][rR][iI][pP][tT][^>]*>.-</[sS][cC][rR][iI][pP][tT]%s*>", "")
+        if #layoutHtml > 20000000 then layoutHtml = layoutHtml:sub(1, 20000000) end
+        return {kind = "page", html = layoutHtml, title = title:sub(1, 80), rich = rich, readRich = readRich, items = items, images = imgs, cacheFallback = entry.cacheFallback == true, preview = (rich:gsub("<[^>]->", "")):sub(1, 110)}
     end
 
     loadEntry = function(tab, entry)
@@ -8624,9 +9239,6 @@ local function makeBrowserScreen()
     end)
     findX.MouseButton1Click:Connect(closeFind)
 
-    ---------------------------------------------------------------- BUSCAR NESTE SITE
-    -- Pesquisa DENTRO do site aberto (tipo a lupa/search do proprio site): usa o operador "site:dominio termo"
-    -- nos buscadores do navegador (Brave / DuckDuckGo). Fica num do-block para nao gastar variaveis locais.
     do
         local siteBar = new("Frame", {Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.toolbar, BorderSizePixel = 0, Visible = false, ZIndex = 12}, area)
         local siteBox = new("TextBox", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -84, 0, 26), BackgroundColor3 = C.pill, BorderSizePixel = 0, Text = "", PlaceholderText = "Buscar neste site", PlaceholderColor3 = C.sub, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 11, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13}, siteBar)
@@ -8684,10 +9296,6 @@ local function makeBrowserScreen()
         siteBox.FocusLost:Connect(function(enter) if enter then submitSite() end end)
     end
 
-
-    ---------------------------------------------------------------- MODO LAYOUT
-    -- Renderizador estático aprimorado: HTML + CSS + recursos de imagem em objetos Roblox.
-    -- Não executa JavaScript; embeds externos são apresentados como cartões clicáveis.
 ;(function()
         local function tset(s) local t = {} for w in s:gmatch("%S+") do t[w] = true end return t end
         local VOID = tset("area base br col embed hr img input link meta param source track wbr")
@@ -8716,7 +9324,7 @@ local function makeBrowserScreen()
 
         local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
-        local MEDIATAG = {img = true, picture = true, video = true}
+        local MEDIATAG = {img = true, picture = true, video = true, ["amp-img"] = true}
         local function hasImgTag(node, depth)
             if depth > 5 then return false end
             for _, k in ipairs(node.kids or {}) do
@@ -8731,7 +9339,9 @@ local function makeBrowserScreen()
         end
 
         local VARS, KF = {}, {}
+
         local VW = 360
+        local VH = 640
         local AVAILW = 250
 
         local function subVars(v)
@@ -8843,7 +9453,7 @@ local function makeBrowserScreen()
             elseif u == "em" then return n * fs
             elseif u == "rem" then return n * 12
             elseif u == "vw" then return n * VW * 0.75 / 100
-            elseif u == "vh" then return n * 640 * 0.75 / 100
+            elseif u == "vh" then return n * VH * 0.75 / 100
             elseif u == "%" then return nil, n / 100 end
             return nil
         end
@@ -8965,11 +9575,14 @@ local function makeBrowserScreen()
             return t
         end
 
-        -- grid-template-columns com tamanhos diferentes ("250px 1fr", "2fr 1fr", "20% 1fr 1fr"...):
-        -- devolve a fracao (0..1) de cada coluna; nil quando for uniforme/auto-fit (usa o caminho antigo)
         local function trackFractions(lv, cols)
             if lv:find("subgrid") or lv:find("%[") then return nil end
-            local autoCount = math.max(1, math.min(6, math.floor(AVAILW / 150)))
+
+            local minTrack = tonumber(lv:match("minmax%(%s*([%d%.]+)px"))
+                or tonumber(lv:match("minmax%(%s*([%d%.]+)rem")) and ((tonumber(lv:match("minmax%(%s*([%d%.]+)rem")) or 16) * 16)
+                or tonumber(lv:match("minmax%(%s*([%d%.]+)em")) and ((tonumber(lv:match("minmax%(%s*([%d%.]+)em")) or 16) * 16)
+                or 150
+            local autoCount = math.max(1, math.min(8, math.floor((AVAILW + 8) / math.max(72, minTrack))))
             lv = lv:gsub("repeat%(%s*auto%-fit%s*,%s*minmax%b()%s*%)", "repeat(" .. autoCount .. ", 1fr)")
             lv = lv:gsub("repeat%(%s*auto%-fill%s*,%s*minmax%b()%s*%)", "repeat(" .. autoCount .. ", 1fr)")
             local ex = lv:gsub("repeat%(%s*(%d+)%s*,%s*([^%(%)]-)%s*%)", function(n, body)
@@ -9029,9 +9642,11 @@ local function makeBrowserScreen()
                 local c = parseColor(val)
                 if c then st.color = U.dk(c, "fg") end
             elseif prop == "background-color" then
+                st.bgSpecified = true
                 st.bg, st.bga = parseBg(val)
                 if st.bg then st.bg = U.dk(st.bg, "bg") end
             elseif prop == "background" or prop == "background-image" then
+                if prop == "background" then st.bgSpecified = true end
                 if prop == "background" then st.bg = nil; st.bga = nil; st.grad = nil; st.bgimg = nil end
                 local gr = parseGradient(lv)
                 if gr then
@@ -9069,7 +9684,8 @@ local function makeBrowserScreen()
             elseif prop == "display" then
                 st.display = lv:match("^%S+") or lv
             elseif prop == "visibility" then
-                if lv == "hidden" then st.display = "none" end
+                st.visHidden = (lv == "hidden" or lv == "collapse")
+                if lv == "visible" then st.visHidden = false end
             elseif prop == "flex-direction" then
                 st.dir = lv:find("column") and "column" or "row"
                 st.rev = lv:find("reverse") ~= nil
@@ -9078,6 +9694,21 @@ local function makeBrowserScreen()
             elseif prop == "flex-basis" then
                 local o, sc = parseLen(lv, fs)
                 if (o and o > 0) or (sc and sc > 0) then st.fbasis = {o, sc} end
+            elseif prop == "flex-grow" then
+                st.grow = (tonumber(lv) or 0) > 0
+            elseif prop == "flex-shrink" then
+                st.shrink = tonumber(lv) or 1
+            elseif prop == "flex" then
+                local nums = {}
+                for token in lv:gmatch("%S+") do
+                    local n = tonumber(token)
+                    if n then nums[#nums + 1] = n
+                    elseif token ~= "auto" and token ~= "none" and token ~= "initial" then
+                        local o, sc = parseLen(token, fs)
+                        if (o and o > 0) or (sc and sc > 0) then st.fbasis = {o, sc} end
+                    end
+                end
+                if #nums > 0 then st.grow = nums[1] > 0; st.shrink = nums[2] or 1 end
             elseif prop == "grid-column" or prop == "grid-column-end" then
                 local sp = tonumber(lv:match("span%s+(%d+)"))
                 if not sp then
@@ -9096,14 +9727,47 @@ local function makeBrowserScreen()
                 st.font = fontFor(val)
                 st.mono = st.font == Enum.Font.Code
             elseif prop == "border-radius" then
-                local a = lv:match("^%S+")
-                if a:find("%%") then
-                    st.rs = math.min(0.5, (tonumber(a:match("[%d%.]+")) or 0) / 100)
-                    st.radius = 0
-                else
-                    local o = parseLen(a, fs)
-                    if o then st.radius = math.min(o, 500); st.rs = nil end
+
+                local vals = {}
+                for token in lv:gmatch("[^/]+") do
+                    for a in token:gmatch("%S+") do vals[#vals + 1] = a end
+                    break
                 end
+                local a = vals[1]
+                if a then
+                    if a:find("%%") then
+                        st.rs = math.min(0.5, (tonumber(a:match("[%d%.]+")) or 0) / 100)
+                        st.radius = 0
+                    else
+                        local o = parseLen(a, fs)
+                        if o then st.radius = math.min(o, 500); st.rs = nil end
+                    end
+                end
+            elseif prop == "border-color" then
+                local c = parseColor(val)
+                if c then st.borderColor = c end
+            elseif prop == "border-width" then
+                local n = tonumber(lv:match("[%d%.]+"))
+                if n then st.borderWidth = math.clamp(n, 0, 8) end
+            elseif prop == "border-style" then
+                st.borderStyle = lv
+            elseif prop == "outline" or prop == "outline-color" then
+                local c = parseColor(val)
+                if c then st.outlineColor = c end
+            elseif prop == "line-height" then
+                local n = tonumber(lv:match("^[%d%.]+"))
+                if n then
+                    if lv:find("%%") then st.lh = math.clamp(n / 100, 0.8, 2.5)
+                    elseif n <= 3 then st.lh = math.clamp(n, 0.8, 2.5)
+                    else st.lh = math.clamp(n / math.max(1, fs), 0.8, 2.5) end
+                end
+            elseif prop == "text-transform" then
+                st.textTransform = lv
+            elseif prop == "letter-spacing" then
+                local n = parseLen(lv, fs)
+                if n then st.letterSpacing = math.clamp(n, -2, 8) end
+            elseif prop == "box-sizing" then
+                st.boxSizing = lv
             elseif prop == "padding" then
                 local ptk = {}
                 for tk in lv:gmatch("%S+") do ptk[#ptk + 1] = tk end
@@ -9141,6 +9805,7 @@ local function makeBrowserScreen()
                     if o or sc then st[key] = {o, sc} end
                 end
             elseif BORDERKEY[prop] or prop == "border" then
+                st.borderSpecified = true
                 local key = BORDERKEY[prop] or "b"
                 if lv:find("none") or lv == "0" or lv:find("^0px") or lv:find("hidden") then
                     st[key] = nil
@@ -9186,12 +9851,18 @@ local function makeBrowserScreen()
                     end
                 end
             elseif prop == "grid-template-columns" then
+
+                lv = lv:gsub("%s*,%s*", ", ")
                 local n = lv:match("repeat%(%s*(%d+)")
                 if n then
                     st.cols = tonumber(n)
                 elseif lv:find("auto%-fit") or lv:find("auto%-fill") then
-                    local mpx = tonumber(lv:match("minmax%(%s*([%d%.]+)px")) or tonumber(lv:match("([%d%.]+)px")) or 250
-                    st.cols = math.max(1, math.floor(VW / mpx))
+                    local mpx = tonumber(lv:match("minmax%(%s*([%d%.]+)px"))
+                        or tonumber(lv:match("minmax%(%s*([%d%.]+)rem")) and ((tonumber(lv:match("minmax%(%s*([%d%.]+)rem")) or 16) * 16)
+                        or tonumber(lv:match("minmax%(%s*([%d%.]+)em")) and ((tonumber(lv:match("minmax%(%s*([%d%.]+)em")) or 16) * 16)
+                        or tonumber(lv:match("([%d%.]+)px")) or 250
+                    local minCard = math.clamp(mpx, 112, math.max(112, math.min(260, VW * 0.72)))
+                    st.cols = math.max(1, math.min(4, math.floor((AVAILW + 8) / math.max(112, minCard))))
                 else
                     local c = 0
                     for _ in lv:gsub("%b()", "x"):gmatch("%S+") do c = c + 1 end
@@ -9219,9 +9890,18 @@ local function makeBrowserScreen()
             elseif prop == "object-position" then
                 st.objpos = lv
             elseif prop == "background-size" then
-                if lv:find("contain") then st.bgfit = "contain"
-                elseif lv:find("cover") then st.bgfit = "cover"
-                elseif lv:find("%d+px") then st.bgfit = "contain" end
+
+                if lv:find("contain") then
+                    st.bgfit = "contain"
+                elseif lv:find("cover") then
+                    st.bgfit = "cover"
+                elseif lv:find("100%%") and (lv:find("100%%", 6) or lv:find("100%%$")) then
+                    st.bgfit = "fill"
+                elseif lv:match("^%s*%d+%.?%d*px%s+%d+%.?%d*px%s*$") then
+                    st.bgfit = "fill"
+                elseif lv:match("^%s*%d+%.?%d*%%?%s*$") then
+                    st.bgfit = "contain"
+                end
             elseif prop == "background-repeat" then
                 st.bgrepeat = lv
             elseif prop == "aspect-ratio" then
@@ -9248,6 +9928,9 @@ local function makeBrowserScreen()
                 st.tt = lv
             elseif prop == "position" then
                 st.pos = lv
+            elseif prop == "z-index" then
+                local zi = tonumber(lv)
+                if zi then st.z = math.clamp(math.floor(zi), 1, 100) end
             elseif prop == "list-style" or prop == "list-style-type" then
                 st.lsn = lv:find("none") ~= nil
             elseif prop == "animation" or prop == "animation-name" then
@@ -9275,10 +9958,8 @@ local function makeBrowserScreen()
             end
         end
 
-        -- seletores: tag, .classe, #id e combinações; descendentes ("a b" / "a > b")
         local function parseCompound(tok)
-            -- extrai seletores de atributo [a] [a=v] [a^=v] [a$=v] [a*=v] [a~=v] [a|=v], so fora de (..)
-            -- (dentro de :not(..) eles pertencem ao composto interno)
+
             local atl, badAt = {}, false
             do
                 local out, i, n, dP = {}, 1, #tok, 0
@@ -9347,9 +10028,6 @@ local function makeBrowserScreen()
             return c
         end
 
-        -- tokeniza em compostos + combinadores (" " descendente, ">" filho, "+" irmao adjacente, "~" irmaos
-        -- seguintes), respeitando [..], (..) e aspas. Cada composto guarda em .comb o combinador que o
-        -- liga ao composto ANTERIOR.
         local function parseSelector(s)
             local parts, buf, comb = {}, {}, " "
             local dB, dP, q = 0, 0, nil
@@ -9389,7 +10067,6 @@ local function makeBrowserScreen()
             return parts
         end
 
-        -- divide por virgulas so no nivel de topo (ignora (..), [..] e aspas)
         local function splitTop(str)
             local out, buf, dB, dP, q = {}, {}, 0, 0, nil
             for i = 1, #str do
@@ -9410,14 +10087,13 @@ local function makeBrowserScreen()
             return out
         end
 
-        -- "h1, :is(a, b) > c, x:not(.p, .q)"  ->  {"h1", "a > c", "b > c", "x:not(.p):not(.q)"}
         local function expandSel(sel, depth)
             depth = depth or 0
             local res = {}
             for _, one in ipairs(splitTop(sel)) do
                 one = trim(one)
                 if one ~= "" then
-                    -- :not(:is(a, b)) = nao-a E nao-b (nao pode virar "ou")
+
                     for _, nm in ipairs({"is", "where"}) do
                         one = (one:gsub(":not%(:" .. nm .. "%(([^%(%)]*)%)%)", function(inner)
                             local t = {}
@@ -9572,7 +10248,6 @@ local function makeBrowserScreen()
             return nil
         end
 
-        -- node ja casa parts[k]; confere os compostos anteriores respeitando cada combinador
         local function matchRuleAt(node, parts, k)
             if k <= 1 then return true end
             local comb, want = parts[k].comb, parts[k - 1]
@@ -9608,7 +10283,6 @@ local function makeBrowserScreen()
             return matchRuleAt(node, parts, #parts)
         end
 
-        -- ---------------------------------------------------------- parser HTML
         local function parseHtml(html)
             local root = {tag = "#root", attrs = {}, kids = {}}
             local stack = {root}
@@ -9621,7 +10295,7 @@ local function makeBrowserScreen()
                 local p = top()
                 p.kids[#p.kids + 1] = {text = U.decode(t), parent = p}
             end
-            while pos <= n and count < 12000 do
+            while pos <= n and count < 300000 do
                 local lt = html:find("<", pos, true)
                 if not lt then addText(html:sub(pos)) break end
                 if lt > pos then addText(html:sub(pos, lt - 1)) end
@@ -9674,10 +10348,22 @@ local function makeBrowserScreen()
                         for k, v in attrStr:gmatch("([%w:_%-]+)=([^%s\"'>]+)") do
                             if attrs[k:lower()] == nil then attrs[k:lower()] = U.decode(v) end
                         end
+
+                        for k in attrStr:gmatch("[%s/]([%w:_%-]+)[%s/>]") do
+                            k = k:lower()
+                            if attrs[k] == nil then attrs[k] = "" end
+                        end
                         if attrStr:find("%shidden%f[%W]") then attrs.hidden = "" end
                         local selfClose = attrStr:sub(-1) == "/"
                         local t0 = top()
                         if t0.tag == "p" and BLOCKT[name] then stack[#stack] = nil end
+
+                        if name == "p" and t0.tag == "p" then stack[#stack] = nil end
+                        if (name == "li" and t0.tag == "li") or
+                           ((name == "dt" or name == "dd") and (t0.tag == "dt" or t0.tag == "dd")) or
+                           (name == "option" and t0.tag == "option") or
+                           (name == "button" and t0.tag == "button") then stack[#stack] = nil end
+                        if name:match("^h[1-6]$") and t0.tag:match("^h[1-6]$") then stack[#stack] = nil end
                         local cl = CLOSES[name]
                         if cl then
                             while #stack > 1 and cl[top().tag] do stack[#stack] = nil end
@@ -9696,7 +10382,7 @@ local function makeBrowserScreen()
                             if (attrs.rel or ""):lower():find("stylesheet") and attrs.href and (attrs.media or "") ~= "print" then
                                 sheets[#sheets + 1] = attrs.href
                             end
-                        elseif not VOID[name] and not selfClose and #stack < 120 then
+                        elseif not VOID[name] and not selfClose and #stack < 2000 then
                             stack[#stack + 1] = node
                         end
                     end
@@ -9709,7 +10395,6 @@ local function makeBrowserScreen()
             return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
         end
 
-        -- ---------------------------------------------------------- construtor principal
         U.makeVideo = function(o)
             local function mk(cls, props, parent)
                 local i = Instance.new(cls)
@@ -9906,7 +10591,6 @@ local function makeBrowserScreen()
             return (okS and tonumber(vS)) or 1
         end
 
-        -- moldura da pagina: altura acompanha o conteudo (mesmo quando encolhido) e corta qualquer excesso lateral
         U.fitSetup = function(holder, canvas)
             local function syncHeight()
                 if not holder.Parent or not canvas.Parent then return end
@@ -9917,10 +10601,9 @@ local function makeBrowserScreen()
             syncHeight()
         end
 
-        -- "ajustada final": se algo ainda passar da largura da tela, encolhe a pagina inteira ate caber
-        -- (igual aos navegadores de celular), com piso de 55%
         U.fitRun = function(holder, canvas, alive)
-            local MINS = 0.55
+            local mobile = U.mobileOn and U.mobileOn()
+            local MINS = mobile and 0.8 or 0.55
             local sc = canvas:FindFirstChild("FitScale")
             if not sc then
                 sc = Instance.new("UIScale")
@@ -9954,8 +10637,57 @@ local function makeBrowserScreen()
                 end
                 return (maxR - left) / cw
             end
+
+            local function reflow()
+                local left0 = canvas.AbsolutePosition.X
+                local cw = math.max(canvas.AbsoluteSize.X, 1)
+                local right = left0 + cw + 2
+                local cnt, changed, done = 0, 0, {}
+                for _, d in ipairs(canvas:GetDescendants()) do
+                    cnt = cnt + 1
+                    if cnt % 400 == 0 then
+                        task.wait()
+                        if not alive() then return 0 end
+                    end
+
+                    if d:IsA("GuiObject") and d.Visible and d.AbsolutePosition.X + d.AbsoluteSize.X > right
+                        and d.AbsoluteSize.X > cw * 0.5 then
+                        local par = d.Parent
+                        local clipped = false
+                        local p = par
+                        while p and p ~= canvas do
+                            if done[p] or p:IsA("ScrollingFrame") or (p:IsA("GuiObject") and p.ClipsDescendants) then clipped = true break end
+                            p = p.Parent
+                        end
+                        if not clipped and par and par:IsA("GuiObject") then
+                            local lay = par:FindFirstChildOfClass("UIListLayout")
+                            if lay and lay.FillDirection == Enum.FillDirection.Horizontal then
+                                local okW, wr = pcall(function() return lay.Wraps end)
+                                if okW and not wr then
+                                    pcall(function() lay.Wraps = true end)
+                                    done[par] = true
+                                    changed = changed + 1
+                                end
+                            elseif d.Size.X.Offset > 0 or d.Size.X.Scale > 1 then
+                                d.Size = UDim2.new(1, 0, d.Size.Y.Scale, d.Size.Y.Offset)
+                                local sc2 = d:FindFirstChildOfClass("UISizeConstraint")
+                                if sc2 then sc2.MaxSize = Vector2.new(math.huge, sc2.MaxSize.Y) end
+                                done[d] = true
+                                changed = changed + 1
+                            end
+                        end
+                    end
+                end
+                return changed
+            end
             local function pass()
                 if not alive() or not holder.Parent then return end
+                local fixed = 0
+                if mobile then fixed = reflow() end
+                if mobile and fixed > 0 then
+                    task.wait(0.1)
+                    if not alive() then return end
+                end
                 local r = extentRatio()
                 if not alive() then return end
                 if r > 1.015 and sc.Scale > MINS + 0.001 then
@@ -9976,16 +10708,15 @@ local function makeBrowserScreen()
         U.layoutBuild = function(entry, canvas, html, alive, setStatus, openImg)
         BASE.color = U.dark.on and Color3.fromRGB(228, 230, 233) or Color3.fromRGB(0, 0, 0)
             local root, styleTexts, sheets = parseHtml(html)
-            -- Discord e outros SPAs entregam um shell HTML e montam a interface via JavaScript.
-            -- Guardamos o sinal para mostrar um aviso honesto quando a resposta nao tem conteudo renderizavel.
+
             local sourceLower = tostring(html or ""):lower()
             local isDiscordShell = entry.url and entry.url:lower():find("discord.com", 1, true) and
                 (sourceLower:find("discordapp", 1, true) or sourceLower:find("webpack", 1, true) or sourceLower:find("__next", 1, true))
             entry.isDiscordShell = isDiscordShell and true or false
-            -- Respeita <base href>, usado por muitos sites para resolver CSS, imagens e links.
+
             local docBase = entry.url
             local function findBase(n, depth)
-                if depth > 40 then return nil end
+                if depth > 400 then return nil end
                 if n.tag == "base" and n.attrs and n.attrs.href and n.attrs.href ~= "" then return n.attrs.href end
                 for _, child in ipairs(n.kids or {}) do
                     if child.tag then
@@ -10011,12 +10742,15 @@ local function makeBrowserScreen()
             end
             do
                 local us = totScale()
+
                 local w0 = canvas.AbsoluteSize.X
                 if w0 < 40 then w0 = pageView.AbsoluteSize.X - 20 * us end
                 local localW = (w0 > 40) and (w0 / us) or 268
-                localW = math.clamp(localW, 160, 600)
-                AVAILW = math.max(140, localW - 14)
-                VW = math.max(280, math.floor(localW / 0.75))
+                local localH = math.max(1, pageView.AbsoluteSize.Y / us)
+                AVAILW = math.max(80, localW - 14)
+
+                VW = math.max(1, U.mobileOn() and localW or (localW / 0.75))
+                VH = math.max(1, U.mobileOn() and localH or (localH / 0.75))
             end
             local hidx = {}
 
@@ -10024,17 +10758,45 @@ local function makeBrowserScreen()
                 c = c:lower()
                 if c:find("prefers%-color%-scheme:%s*dark") and not U.dark.on then return false end
                 if c:find("prefers%-color%-scheme:%s*light") and U.dark.on then return false end
-                if c:find("prefers%-reduced%-motion:%s*reduce") or c:find("print") or c:find("orientation:%s*landscape") then return false end
+                if c:find("print") then return false end
+
+                local vpH = math.max(1, pageView.AbsoluteSize.Y / math.max(0.01, totScale()) / 0.75)
+                local vpW = math.max(1, VW)
+                VH = vpH
+                local landscape = vpW >= vpH
+                local orientation = c:match("orientation%s*:%s*(%a+)")
+                if orientation == "landscape" and not landscape then return false end
+                if orientation == "portrait" and landscape then return false end
                 for kind, num, unit in c:gmatch("(m[ai][xn])%-width%s*:%s*([%d%.]+)(%a*)") do
                     num = tonumber(num)
                     if unit == "em" or unit == "rem" then num = num * 16 end
-                    if kind == "max" and not (VW <= num) then return false end
-                    if kind == "min" and not (VW >= num) then return false end
+                    if kind == "max" and not (vpW <= num) then return false end
+                    if kind == "min" and not (vpW >= num) then return false end
                 end
+                for kind, num, unit in c:gmatch("(m[ai][xn])%-height%s*:%s*([%d%.]+)(%a*)") do
+                    num = tonumber(num)
+                    if unit == "em" or unit == "rem" then num = num * 16 end
+                    if kind == "max" and not (vpH <= num) then return false end
+                    if kind == "min" and not (vpH >= num) then return false end
+                end
+                if c:find("prefers%-reduced%-motion:%s*reduce") then return true end
                 return true
             end
 
-            local function addCss(text)
+            local function addCss(text, cssBase)
+
+                if cssBase and cssBase ~= "" then
+                    text = text:gsub("url%s*%(%s*([^%)]+)%)", function(rawUrl)
+                        local candidate = trim(rawUrl):gsub("^[\"']", ""):gsub("[\"']$", "")
+                        if candidate == "" or candidate:match("^data:") or candidate:match("^blob:")
+                            or candidate:match("^https?://") or candidate:sub(1, 2) == "//" then
+                            return "url(" .. rawUrl .. ")"
+                        end
+                        local absolute = U.resolve(cssBase, candidate)
+                        if absolute then return 'url("' .. absolute .. '")' end
+                        return "url(" .. rawUrl .. ")"
+                    end)
+                end
                 text = text:gsub("/%*.-%*/", "")
                 text = text:gsub("@import[^;]*;", ""):gsub("@charset[^;]*;", "")
                 local i, n = 1, #text
@@ -10056,18 +10818,67 @@ local function makeBrowserScreen()
                         if kfn then
                             KF[kfn:lower()] = body
                         elseif sel:find("^@media") then
-                            if mediaOk(sel) then addCss(body) end
-                        elseif sel:find("^@supports") or sel:find("^@layer") then
-                            addCss(body)
+                            if mediaOk(sel) then addCss(body, cssBase) end
+                        elseif sel:find("^@supports") or sel:find("^@layer") or sel:find("^@scope") then
+                            addCss(body, cssBase)
+                        elseif sel:find("^@container") then
+
+                            if mediaOk(sel) then addCss(body, cssBase) end
                         end
                     end
-                    if sel:sub(1, 1) ~= "@" and #rules < 6000 then
+
+                    if sel:sub(1, 1) ~= "@" and body:find("{", 1, true) then
+                        local flat, nested = {}, {}
+                        local p2, m2 = 1, #body
+                        while p2 <= m2 do
+                            local ob2 = body:find("{", p2, true)
+                            local sc2 = body:find(";", p2, true)
+                            if not ob2 then flat[#flat + 1] = body:sub(p2) break end
+                            if sc2 and sc2 < ob2 then
+                                flat[#flat + 1] = body:sub(p2, sc2)
+                                p2 = sc2 + 1
+                            else
+                                local inner = trim(body:sub(p2, ob2 - 1))
+                                local d2, q2 = 1, ob2 + 1
+                                while d2 > 0 do
+                                    local k2 = body:find("[{}]", q2)
+                                    if not k2 then q2 = m2 + 1 break end
+                                    if body:byte(k2) == 123 then d2 = d2 + 1 else d2 = d2 - 1 end
+                                    q2 = k2 + 1
+                                end
+                                nested[#nested + 1] = {inner, body:sub(ob2 + 1, q2 - 2)}
+                                p2 = q2
+                            end
+                        end
+                        body = table.concat(flat)
+                        for _, nb in ipairs(nested) do
+                            local childSel, childBody = nb[1], nb[2]
+                            if childSel:sub(1, 1) == "@" then
+                                addCss(childSel .. "{" .. sel .. "{" .. childBody .. "}}")
+                            else
+                                local combo = {}
+                                for _, ps0 in ipairs(splitTop(sel)) do
+                                    local par0 = trim(ps0)
+                                    for _, cs0 in ipairs(splitTop(childSel)) do
+                                        local ch0 = trim(cs0)
+                                        if ch0:find("&", 1, true) then
+                                            combo[#combo + 1] = (ch0:gsub("&", (par0:gsub("%%", "%%%%"))))
+                                        else
+                                            combo[#combo + 1] = par0 .. " " .. ch0
+                                        end
+                                    end
+                                end
+                                if #combo > 0 then addCss(table.concat(combo, ", ") .. "{" .. childBody .. "}") end
+                            end
+                        end
+                    end
+                    if sel:sub(1, 1) ~= "@" and #rules < 400000 then
                         local isRoot = sel:find(":root", 1, true) ~= nil or sel == "html" or sel == "body" or sel == "*" or sel == "html, body"
                         local decl = parseDecls(body, isRoot)
                         if #decl > 0 then
                             for _, s0 in ipairs(expandSel(sel)) do
                                 local s = (trim(s0):gsub(":root", "html"))
-                                -- pseudo-elemento ::before / ::after (ou :before / :after da sintaxe antiga)
+
                                 local pe
                                 do
                                     local sb, pn = s:match("^(.-)::?(before)$")
@@ -10098,7 +10909,7 @@ local function makeBrowserScreen()
                                             r.pe = pe
                                             local pt = idx["@pe"]
                                             if not pt then pt = {}; idx["@pe"] = pt end
-                                            if (pt["@n"] or 0) < 1500 then
+                                            if (pt["@n"] or 0) < 40000 then
                                                 pt["@n"] = (pt["@n"] or 0) + 1
                                                 pt[key] = pt[key] or {}
                                                 table.insert(pt[key], r)
@@ -10118,16 +10929,38 @@ local function makeBrowserScreen()
             end
 
             setStatus("baixando estilos…")
-            -- Carrega CSS externo e @import em profundidade limitada. Isso melhora temas
-            -- modernos sem permitir que uma página dispare downloads ilimitados.
+
             local cssSeen, cssCount = {}, 0
             local function loadCss(url, depth)
-                if not url or depth > 2 or cssCount >= 10 or cssSeen[url] then return end
+                if not url or depth > 8 or cssCount >= 160 or cssSeen[url] then return end
                 cssSeen[url] = true
                 cssCount = cssCount + 1
-                local okG, body = pcall(U.httpGet, url)
+
+                U.cssMem = U.cssMem or {}
+                local body = U.cssMem[url]
+                local cssFile = "PHONE/Cache/css_" .. U.hash2(url) .. ".css"
+                if not body then
+                    local okF, has = pcall(isfile, cssFile)
+                    if okF and has then
+                        local okR, b = pcall(readfile, cssFile)
+                        if okR and type(b) == "string" and #b > 0 then body = b end
+                    end
+                end
+                if not body then
+                    for attempt = 1, 3 do
+                        local okG, b = pcall(U.httpGet, url)
+                        if okG and type(b) == "string" and b ~= "" then body = b break end
+                        if not alive() then return end
+                        task.wait(0.4 * attempt)
+                    end
+                    if body and #body <= 8000000 then
+                        pcall(function() if not isfolder("PHONE/Cache") then makefolder("PHONE/Cache") end end)
+                        pcall(writefile, cssFile, body)
+                    end
+                end
+                if body then U.cssMem[url] = body end
                 if not alive() then return end
-                if not okG or type(body) ~= "string" or #body > 600000 then return end
+                if type(body) ~= "string" or #body > 8000000 then return end
                 local imports = {}
                 for u in body:gmatch("@import%s+url%(%s*['\"]?(.-)['\"]?%s*%)") do
                     if u ~= "" then imports[#imports + 1] = u end
@@ -10136,21 +10969,25 @@ local function makeBrowserScreen()
                     if u ~= "" then imports[#imports + 1] = u end
                 end
                 for _, imp in ipairs(imports) do
-                    if cssCount >= 10 then break end
+                    if cssCount >= 160 then break end
                     loadCss(U.resolve(url, imp), depth + 1)
                 end
-                addCss(body)
+                addCss(body, url)
             end
             for i, href in ipairs(sheets) do
-                if i > 6 then break end
+                if i > 120 then break end
                 loadCss(U.resolve(docBase, href), 0)
                 if not alive() then return end
             end
-            for _, t in ipairs(styleTexts) do addCss(t) end
-            if not alive() then return end
+            for _, t in ipairs(styleTexts) do
+                addCss(t, docBase)
+            end
+            if not alive() then
+                return
+            end
 
             local stopped = false
-            local B = {el = 0, max = 3500, cut = false}
+            local B = {el = 0, max = math.clamp(200000 + math.floor(#(html or "") / 100), 200000, 2000000), cut = false, imgSeen = {}}
             local function tick()
                 B.el = B.el + 1
                 if B.el > B.max then stopped = true; B.cut = true return end
@@ -10184,10 +11021,10 @@ local function makeBrowserScreen()
                 elseif tag == "a" then st.color = U.dk(Color3.fromRGB(0, 0, 238), "fg"); st.under = true
                 elseif tag == "center" then st.align = "center"
                 elseif tag == "blockquote" then st.mt = st.size; st.mb = st.size; st.pl = 30
-                elseif tag == "p" or tag == "dl" or tag == "figure" or tag == "fieldset" then st.mt = st.size; st.mb = st.size
+                elseif tag == "p" or tag == "dl" or tag == "figure" or tag == "fieldset" then st.mt = st.size * 0.55; st.mb = st.size * 0.55
                 elseif tag == "ul" or tag == "ol" then
                     local nested = node.parent and node.parent.tag == "li"
-                    st.mt = nested and 0 or st.size
+                    st.mt = nested and 0 or st.size * 0.55
                     st.mb = st.mt
                     st.pl = 30
                 elseif tag == "dd" then st.pl = 30
@@ -10195,13 +11032,7 @@ local function makeBrowserScreen()
                 elseif tag == "mark" then st.bg = U.dk(Color3.fromRGB(255, 240, 120), "bg")
                 end
                 local at = node.attrs
-                -- Defaults semânticos leves para controles HTML sem CSS explícito.
-                if tag == "button" or tag == "input" or tag == "select" then
-                    st.radius = st.radius or 5
-                    st.pt = st.pt or 6; st.pb = st.pb or 6
-                    st.pl = st.pl or 8; st.pr = st.pr or 8
-                    if not st.bg then st.bg = U.dk(Color3.fromRGB(242, 244, 247), "bg") end
-                end
+
                 if at.bgcolor then st.bg = U.dk(parseColor(at.bgcolor), "bg") end
                 if at.color and tag == "font" then st.color = U.dk(parseColor(at.color), "fg") or st.color end
                 if at.align == "center" or at.align == "right" then st.align = at.align end
@@ -10227,6 +11058,24 @@ local function makeBrowserScreen()
                 end
                 if at.style then
                     for _, d in ipairs(parseDecls(at.style)) do applyDecl(st, d[1], d[2], ps) end
+                end
+                if not st.bgimg and tag ~= "img" then
+
+                    local lb = at["data-bg"] or at["data-background"] or at["data-background-image"] or at["data-bg-src"] or at["data-bg-image"] or at["data-bgset"] or at["data-lazy-background"] or at["data-image-background"]
+                    if lb and lb ~= "" then
+                        local u2 = lb:match("url%(%s*['\"]?(.-)['\"]?%s*%)") or lb:match("^%s*([^%s,]+)")
+                        if u2 and u2 ~= "" and u2:sub(1, 5) ~= "data:" then st.bgimg = u2 end
+                    end
+                end
+
+                if st.opacity and st.opacity < 0.05 then
+                    local rc = (at.class or ""):lower()
+                    if at["data-aos"] or at["data-sal"] or at["data-wow-delay"] or at["data-scroll"] or at["data-animate"]
+                        or rc:find("aos", 1, true) or rc:find("reveal", 1, true) or rc:find("fade", 1, true) or rc:find("wow", 1, true)
+                        or rc:find("animat", 1, true) or rc:find("lazy", 1, true) or rc:find("appear", 1, true)
+                        or rc:find("scroll", 1, true) or rc:find("in-view", 1, true) or rc:find("inview", 1, true) or rc:find("hidden-on-load", 1, true) then
+                        st.opacity = 1
+                    end
                 end
                 if st.opacity == 0 and not st.anim and not hasImgTag(node, 0) and not st.bgimg then st.display = "none" end
                 local hc = {}
@@ -10258,7 +11107,6 @@ local function makeBrowserScreen()
                 return st
             end
 
-            -- utilitários de árvore
             local function textOf(node, cap)
                 local out, len = {}, 0
                 local function rec(n)
@@ -10301,7 +11149,14 @@ local function makeBrowserScreen()
             local function hasBlock(node) return hasTag(node, BLOCKONLY, 0) end
             local function hiddenClass(node)
                 local c = node.attrs.class
-                return c ~= nil and (c:find("sr%-only") or c:find("visually%-hidden") or c:find("screen%-reader") or c:find("d%-none")) ~= nil
+                if c == nil then return false end
+                if c:find("sr%-only") or c:find("visually%-hidden") or c:find("screen%-reader") then return true end
+                if c:find("d%-none") then
+
+                    if c:find("d%-%a%a%-block") or c:find("d%-%a%a%-flex") or c:find("d%-%a%a%-inline") or c:find("d%-%a%a%-grid") then return false end
+                    return true
+                end
+                return false
             end
             local function resolveHref(h)
                 if not h or h == "" then return nil end
@@ -10318,8 +11173,6 @@ local function makeBrowserScreen()
                 return '<font color="' .. hexOf(s.color) .. '"' .. sz .. ">" .. t .. "</font>"
             end
 
-            -- ::before / ::after: so texto (content: "..", attr(x), open-quote/close-quote, escapes \201C).
-            -- Icon-fonts (area privada \E000-\F8FF) nao existem no Roblox: so alguns glifos comuns sao mapeados.
             local FAICON = {f054 = "\u{203A}", f105 = "\u{203A}", f053 = "\u{2039}", f104 = "\u{2039}", f101 = "\u{00BB}", f100 = "\u{00AB}", f067 = "+", f068 = "-", f111 = "\u{25CF}"}
             local function pseudoContent(val, node)
                 local lv = trim(val):lower()
@@ -10454,7 +11307,7 @@ local function makeBrowserScreen()
 
             local TOG, idMap = {}, {}
             local function scanToggles(n, depth)
-                if depth > 60 then return end
+                if depth > 500 then return end
                 local at = n.attrs
                 if at then
                     local t = at["data-bs-target"] or at["data-target"] or at["aria-controls"]
@@ -10579,9 +11432,9 @@ local function makeBrowserScreen()
                 end
                 local nid = opts.node and opts.node.attrs and opts.node.attrs.id
                 if nid and TOG[nid] then idMap[nid] = f end
-                if st._hide then f.Visible = false end
+                if st._hide or st.visHidden then f.Visible = false end
                 f.BorderSizePixel = 0
-                f.ZIndex = 4
+                f.ZIndex = st.z or 4
                 local barW = st.bl and math.max(1, st.bl.w) or 0
                 local sx
                 local wcap
@@ -10635,9 +11488,17 @@ local function makeBrowserScreen()
                 end
                 if st.grad and st.bg then applyGrad(f, st.grad) end
                 if st.bgimg then
-                    f.ScaleType = (st.bgfit == "contain") and Enum.ScaleType.Fit or Enum.ScaleType.Crop
+                    if st.bgfit == "contain" then
+                        f.ScaleType = Enum.ScaleType.Fit
+                    elseif st.bgfit == "fill" then
+                        f.ScaleType = Enum.ScaleType.Stretch
+                    else
+                        f.ScaleType = Enum.ScaleType.Crop
+                    end
                     local url = U.resolve(docBase, st.bgimg)
-                    if url and queueBgImage then queueBgImage(f, url) end
+                    if url and queueBgImage then
+                        queueBgImage(f, url)
+                    end
                 end
                 local lay = Instance.new("UIListLayout")
                 lay.SortOrder = Enum.SortOrder.LayoutOrder
@@ -10697,7 +11558,7 @@ local function makeBrowserScreen()
                     sk.Parent = f
                 end
                 if st.clip then f.ClipsDescendants = true end
-                
+
                 local function edgeLine(b)
                     local l = Instance.new("Frame")
                     l.Size = UDim2.new(1, 0, 0, math.max(1, b.w))
@@ -10815,10 +11676,10 @@ local function makeBrowserScreen()
                     tcap.MaxSize = Vector2.new(math.max(40, AVAILW - 2), math.huge)
                     tcap.Parent = l
                 else
-                    l.TextWrapped = true
+
+                    l.TextWrapped = not st.nowrap
                     l.Size = UDim2.new(1, 0, 0, 0)
                     l.AutomaticSize = Enum.AutomaticSize.Y
-                    if st.nowrap then l.TextWrapped = false end
                     if st.ell then l.TextTruncate = Enum.TextTruncate.AtEnd end
                 end
                 place(ctx, l)
@@ -10868,12 +11729,27 @@ local function makeBrowserScreen()
                     end)
                 end
             end
-            -- imagens (fila com 3 downloads simultâneos)
+
             local imgQ, imgActive, imgTotal = {}, 0, 0
-            -- Imagens responsivas: recalculadas quando o viewport/canvas muda,
-            -- sem observar o tamanho do próprio cartão (evita ciclos de redução).
+
             local responsiveImageJobs = {}
             local responsiveRefreshQueued = false
+
+            local function containerW(inst)
+                local sc = math.max(0.01, totScale())
+                local p = inst.Parent
+                while p and p ~= canvas and p:IsA("GuiObject") do
+                    local au = p.AutomaticSize
+                    if au ~= Enum.AutomaticSize.X and au ~= Enum.AutomaticSize.XY and p.AbsoluteSize.X > 4 then
+                        local w = p.AbsoluteSize.X / sc
+                        local pad = p:FindFirstChildOfClass("UIPadding")
+                        if pad then w = w - pad.PaddingLeft.Offset - pad.PaddingRight.Offset - w * (pad.PaddingLeft.Scale + pad.PaddingRight.Scale) end
+                        return math.max(24, math.min(AVAILW, w))
+                    end
+                    p = p.Parent
+                end
+                return AVAILW
+            end
             local function refreshResponsiveImages()
                 if responsiveRefreshQueued then return end
                 responsiveRefreshQueued = true
@@ -10882,25 +11758,26 @@ local function makeBrowserScreen()
                     if not alive() then return end
                     local scaleNow = math.max(0.1, totScale())
                     local canvasW = math.max(1, canvas.AbsoluteSize.X / scaleNow)
-                    local localW = math.clamp(canvasW, 160, 600)
-                    local availNow = math.max(140, localW - 14)
+                    local localW = canvasW
+                    local localH = math.max(1, pageView.AbsoluteSize.Y / scaleNow)
+                    local availNow = math.max(80, localW - 14)
                     AVAILW = availNow
-                    VW = math.max(280, math.floor(localW / 0.75))
+                    VW = math.max(1, localW / 0.75)
+                    VH = math.max(1, localH / 0.75)
                     for i = #responsiveImageJobs, 1, -1 do
                         local job = responsiveImageJobs[i]
                         local img = job.img
                         if not img or not img.Parent then
                             table.remove(responsiveImageJobs, i)
                         else
-                            local target = math.min(job.intrinsicW or availNow, availNow * (job.layoutRatio or 1))
+                            local boxW = containerW(img)
+                            local target = math.min(job.intrinsicW or boxW, boxW)
                             if job.cssWidthPct then
-                                target = math.min(availNow * job.cssWidthPct + (job.cssWidthOffset or 0), availNow)
+                                target = math.min(boxW * job.cssWidthPct + (job.cssWidthOffset or 0), boxW)
                             elseif job.cssWidthPx then
-                                target = math.min(job.cssWidthPx, availNow)
+                                target = math.min(job.cssWidthPx, boxW)
                             end
-                            -- Usa a proporção inicial do cartão em relação à página.
-                            -- Não mede o pai novamente: isso evita realimentação de AutoSize
-                            -- que fazia algumas imagens encolherem progressivamente.
+
                             target = math.max(8, target)
                             local height = job.fixedHeight or (job.fixedAspect and (target / job.fixedAspect)) or (target * (job.ratio or 0.6875))
                             if math.abs(img.Size.X.Offset - target) > 1 or math.abs(img.Size.Y.Offset - height) > 1 then
@@ -10913,12 +11790,41 @@ local function makeBrowserScreen()
             canvas:GetPropertyChangedSignal("AbsoluteSize"):Connect(refreshResponsiveImages)
             local pumpImages
             pumpImages = function()
-                while imgActive < 4 and #imgQ > 0 do
+                while imgActive < 5 and #imgQ > 0 do
                     local job = table.remove(imgQ, 1)
                     imgActive = imgActive + 1
                     task.spawn(function()
-                        local ok, a = pcall(U.cacheImage, job.url, 6000000, job.referer or entry.url)
+
+                        local ok, a = false, nil
+                        local candidates = job.urls or {job.url}
+                        local svgOnly = true
+                        for _, c in ipairs(candidates) do
+                            if not U.isSvgUrl(c) then svgOnly = false break end
+                        end
+                        for attempt = 1, (svgOnly and 1 or 3) do
+                            for ci, candidate in ipairs(candidates) do
+                                if type(candidate) == "string" and candidate ~= "" then
+                                    ok, a = pcall(U.cacheImage, candidate, 60000000, job.referer or entry.url)
+                                    if ok and a then job.loadedUrl = candidate; break end
+                                end
+                            end
+                            if ok and a then break end
+                            if attempt < 3 then
+                                task.wait(0.8 * attempt)
+                                if not alive() or not job.img.Parent then break end
+                            end
+                        end
                         imgActive = imgActive - 1
+                        if not (ok and a) and not svgOnly and (job.late or 0) < 2 and alive() and job.img.Parent then
+                            job.late = (job.late or 0) + 1
+                            task.delay(2.5 * job.late, function()
+                                if alive() and job.img.Parent then
+                                    imgQ[#imgQ + 1] = job
+                                    pumpImages()
+                                end
+                            end)
+                        end
+                        local okPost = pcall(function()
                         if alive() and job.img.Parent then
                             if job.bg or job.fill then
                                 if ok and a then
@@ -10929,16 +11835,16 @@ local function makeBrowserScreen()
                                     end
                                 end
                             elseif ok and a then
- local w, h = U.dimsFor(job.url)
+ local w, h = U.dimsFor(job.loadedUrl or job.url)
                                 local aw, ah = job.aw, job.ah
                                 if not w or not h then w, h = aw or 160, ah or 110 end
-                                local availW = math.min(AVAILW, math.max(40, ((job.img.Parent.AbsoluteSize.X > 0 and job.img.Parent.AbsoluteSize.X or canvas.AbsoluteSize.X) / totScale()) - 4))
+                                local availW = containerW(job.img)
                                 local dw = math.min(availW, math.max(8, (aw or w) * 0.75))
                                 local sw, sh = job.sw, job.sh
                                 if sw then
                                     if sw[2] then dw = availW * sw[2] + (sw[1] or 0) elseif sw[1] then dw = math.min(availW, sw[1]) end
                                 end
-                                local dh = math.min(900, dw * h / w)
+                                local dh = math.min(12000, dw * h / w)
                                 if job.ar then
                                     dh = dw / job.ar
                                     job.img.ScaleType = Enum.ScaleType.Crop
@@ -10949,13 +11855,13 @@ local function makeBrowserScreen()
                                 else job.img.ScaleType = Enum.ScaleType.Fit end
                                 job.img.Size = UDim2.new(0, dw, 0, dh)
                                 job.img.Image = a
-                                -- A miniatura carregada não deve manter o fundo de preenchimento.
+
                                 job.img.BackgroundTransparency = 1
                                 for _, child in ipairs(job.img:GetChildren()) do
                                     if child.Name == "ImageFallback" or child.Name == "ImageLoadingPlaceholder" then child:Destroy() end
                                 end
                                 local imgRatio = dh / math.max(1, dw)
-                                local intrinsicW = math.min(900, math.max(8, (aw or w) * 0.75))
+                                local intrinsicW = math.min(4000, math.max(8, (aw or w) * 0.75))
                                 local cssWidthPct, cssWidthOffset, cssWidthPx = nil, nil, nil
                                 if sw then
                                     if sw[2] then
@@ -10977,10 +11883,11 @@ local function makeBrowserScreen()
                                     fixedAspect = job.ar or nil
                                 }
                                 task.defer(refreshResponsiveImages)
+
+                                task.delay(0.35, refreshResponsiveImages)
+                                task.delay(1.2, refreshResponsiveImages)
                             else
-                                -- Falha silenciosa: não desenha cartão cinza nem texto sobre a página.
-                                -- Preserva a geometria já reservada pelo layout para evitar deslocar
-                                -- os elementos seguintes quando uma imagem não puder ser obtida.
+
                                 job.img.Visible = true
                                 job.img.Image = ""
                                 job.img.BackgroundTransparency = 1
@@ -10991,6 +11898,7 @@ local function makeBrowserScreen()
                                 end
                             end
                         end
+                        end)
                         pumpImages()
                     end)
                 end
@@ -11003,14 +11911,28 @@ local function makeBrowserScreen()
 
             local function renderImage(ctx, node, st, href)
                 local at = node.attrs
-                local src = at["data-src"] or at["data-original"] or at["data-lazy-src"] or at["data-lazy"] or at["data-original-src"] or at["data-image"] or at["data-img"] or at["data-image-src"] or at["data-full"] or at["data-hi-res-src"] or at["data-thumb"] or at["data-thumbnail"] or at["data-thumb-src"] or at["data-preview"] or at["data-src-hq"] or at["data-fallback-src"] or at["data-url"] or at.src
+
+                local sourceAttrs = {"data-src", "data-original", "data-lazy-src", "data-lazy", "data-original-src", "data-image", "data-img", "data-image-src", "data-full", "data-hi-res-src", "data-thumb", "data-thumbnail", "data-thumb-src", "data-preview", "data-src-hq", "data-fallback-src", "data-url", "data-actualsrc", "data-cfsrc", "data-echo", "data-lazyload", "data-src-url", "data-image-url", "data-remote", "data-raw-src", "data-zoom-image", "data-flickity-lazyload", "data-ks-lazyload", "src"}
+                local sourceCandidates = {}
+                for _, attrName in ipairs(sourceAttrs) do
+                    local candidate = at[attrName]
+                    if type(candidate) == "string" and candidate ~= "" and candidate:sub(1, 5) ~= "data:" then
+                        local resolved = U.resolve(docBase, candidate)
+                        if resolved then
+                            local duplicate = false
+                            for _, prior in ipairs(sourceCandidates) do if prior == resolved then duplicate = true break end end
+                            if not duplicate then sourceCandidates[#sourceCandidates + 1] = resolved end
+                        end
+                    end
+                end
+                local src = sourceCandidates[1]
                 local srcset = at["data-srcset"] or at["data-lazy-srcset"] or at["data-original-srcset"] or at["data-src-set"] or at["data-lazy-src-set"] or at.srcset
-                -- <picture><source srcset=...><img ...></picture>: usa a fonte responsiva mais adequada.
+
                 if node.parent and node.parent.tag == "picture" then
                     for _, sibling in ipairs(node.parent.kids or {}) do
                         if sibling.tag == "source" and sibling.attrs then
                             local media = (sibling.attrs.media or ""):lower()
-                            local mediaOk = media == "" or (media:find("max%-width") and AVAILW <= (tonumber(media:match("([%d%.]+)px")) or AVAILW)) or (media:find("min%-width") and AVAILW >= (tonumber(media:match("([%d%.]+)px")) or AVAILW))
+                            local mediaOk = media == "" or (media:find("max%-width") and VW <= (tonumber(media:match("([%d%.]+)px")) or VW)) or (media:find("min%-width") and VW >= (tonumber(media:match("([%d%.]+)px")) or VW))
                             if mediaOk and (sibling.attrs.srcset or sibling.attrs["data-srcset"]) then
                                 srcset = sibling.attrs["data-srcset"] or sibling.attrs.srcset
                                 break
@@ -11019,33 +11941,56 @@ local function makeBrowserScreen()
                     end
                 end
                 if srcset and srcset ~= "" then
-                    -- srcset e <picture> tem prioridade sobre src de baixa resolucao,
-                    -- como acontece em navegadores: escolhe a variante adequada ao celular.
-                    local candidates, bestUrl, bestW, largestUrl, largestW = {}, nil, math.huge, nil, 0
+
+                    local variants, bestUrl, bestW, largestUrl, largestW = {}, nil, math.huge, nil, 0
                     for item in srcset:gmatch("[^,]+") do
                         local u, desc = item:match("^%s*(%S+)%s*(.-)%s*$")
                         local w = desc and tonumber(desc:match("([%d%.]+)w"))
                         local d = desc and tonumber(desc:match("([%d%.]+)x"))
                         local score = w or ((d or 1) * AVAILW)
-                        if u and u ~= "" and u:sub(1, 5) ~= "data:" then
-                            if score > largestW then largestW, largestUrl = score, u end
-                            if score >= AVAILW and score < bestW then bestW, bestUrl = score, u end
+                        local resolved = u and u ~= "" and u:sub(1, 5) ~= "data:" and U.resolve(docBase, u) or nil
+                        if resolved then
+                            local duplicate = false
+                            for _, prior in ipairs(variants) do if prior.url == resolved then duplicate = true break end end
+                            if not duplicate then variants[#variants + 1] = {url = resolved, score = score} end
+                            if score > largestW then largestW, largestUrl = score, resolved end
+                            if score >= AVAILW and score < bestW then bestW, bestUrl = score, resolved end
                         end
                     end
-                    src = bestUrl or largestUrl or srcset:match("^%s*(%S+)")
+                    table.sort(variants, function(a, b) return a.score < b.score end)
+                    local selected = bestUrl or largestUrl or (variants[1] and variants[1].url)
+                    if selected then
+                        local ordered, added = {selected}, {[selected] = true}
+
+                        for _, item in ipairs(variants) do
+                            if not added[item.url] then ordered[#ordered + 1] = item.url; added[item.url] = true end
+                        end
+                        for _, prior in ipairs(sourceCandidates) do
+                            if not added[prior] then ordered[#ordered + 1] = prior; added[prior] = true end
+                        end
+                        sourceCandidates = ordered
+                        src = selected
+                    end
                 end
-                if not src or src == "" or src:sub(1, 5) == "data:" then return end
+                if not src or src == "" or src:sub(1, 5) == "data:" then
+                    if #sourceCandidates == 0 then return end
+                    src = sourceCandidates[1]
+                end
                 local url = U.resolve(docBase, src)
                 if not url then return end
+                if #sourceCandidates == 0 then sourceCandidates[1] = url end
+
+                if node.fromNoscript and B.imgSeen[url] then return end
+                B.imgSeen[url] = true
                 local aw = tonumber((at.width or ""):match("^%d+"))
                 local ah = tonumber((at.height or ""):match("^%d+"))
                 if aw and aw <= 2 then return end
                 imgTotal = imgTotal + 1
-                -- Sem limite fixo de quantidade: permite listar todas as imagens encontradas na pagina.
+
                 local img = Instance.new("ImageButton")
                 img.AutoButtonColor = false
                 img.BackgroundColor3 = U.dk(Color3.fromRGB(232, 234, 238), "bg")
-                -- Sem bloco cinza permanente: o fundo só é usado como fallback se falhar.
+
                 img.BackgroundTransparency = 1
                 img.BorderSizePixel = 0
                 local fit = st.objfit or "contain"
@@ -11065,16 +12010,14 @@ local function makeBrowserScreen()
                     if href then navigate(tabs[cur], {url = href})
                     else openImg({url = url, thumb = url, title = at.alt or ""}) end
                 end)
-                imgQ[#imgQ + 1] = {img = img, url = url, aw = aw, ah = ah, sw = st.w, sh = st.h, ar = st.ar, fill = ctx.fillTarget ~= nil, fit = fit, alt = at.alt or at.title or "", referer = entry.url}
+                imgQ[#imgQ + 1] = {img = img, url = url, urls = sourceCandidates, aw = aw, ah = ah, sw = st.w, sh = st.h, ar = st.ar, fill = ctx.fillTarget ~= nil, fit = fit, alt = at.alt or at.title or "", referer = entry.url}
                 if st.radius or st.rs then corner(img, UDim.new(st.rs or 0, math.min(st.radius or 0, 500))) end
                 pumpImages()
-                -- GIFs em paginas tambem podem animar: o Roblox nao reproduz GIF nativamente,
-                -- entao decodificamos os quadros para PNG e alternamos duas ImageLabels.
+
                 local lowUrl = url:lower()
                 local gifCandidate = lowUrl:match("%.gif([%?#].*)?$") or lowUrl:find("format=gif", 1, true) or lowUrl:find("image/gif", 1, true) or (at.type or ""):lower() == "image/gif"
                 if not ctx.fillTarget then
-                    -- Muitos CDNs escondem o formato numa URL sem extensao (ex.: /media/abc).
-                    -- Aguarda a requisicao normal identificar o MIME/conteudo antes de decidir.
+
                     task.spawn(function()
                         if not alive() or not img.Parent then return end
                         if not gifCandidate then
@@ -11089,7 +12032,7 @@ local function makeBrowserScreen()
                         if not gifCandidate or not alive() or not img.Parent then return end
                         local gifBody = U.gifBody(url, entry.url)
                         if not gifBody then
-                            -- APNG/WebP animados: tenta conversao para GIF com mais de um quadro.
+
                             local okRaw, raw = pcall(U.httpGetImage, url, entry.url)
                             if okRaw and type(raw) == "string" then
                                 gifBody = U.animatedImageAsGif(url, entry.url, raw)
@@ -11100,7 +12043,7 @@ local function makeBrowserScreen()
                         local info = Nav.gif.load(gifKey, #gifBody)
                         if not info then
                             info = Nav.gif.bake(gifKey, gifBody, {
-                                maxFrames = 24, maxDim = 320, pixelBudget = 18000000,
+                                maxFrames = 48, maxDim = 360, pixelBudget = 24000000,
                                 yield = task.wait,
                                 cancelled = function() return not alive() or not img.Parent end,
                             }, url:match("([^/]+%.gif)") or gifKey)
@@ -11114,8 +12057,7 @@ local function makeBrowserScreen()
                         over.BackgroundTransparency = 1
                         over.BorderSizePixel = 0
                         over.BorderSizePixel = 0
-                        -- Overlay pertence ao proprio <img>: nao cria uma nova linha,
-                        -- nao altera LayoutOrder e acompanha qualquer resize responsivo.
+
                         over.AnchorPoint = Vector2.new(0, 0)
                         over.Position = UDim2.new(0, 0, 0, 0)
                         over.Size = UDim2.new(1, 0, 1, 0)
@@ -11132,7 +12074,6 @@ local function makeBrowserScreen()
                 end
             end
 
-            -- formulários
             local function formOf(node)
                 local p = node.parent
                 while p do
@@ -11147,7 +12088,6 @@ local function makeBrowserScreen()
             local function submitForm(form, btn)
                 if not form or form.dummy then return end
                 local method = (form.attrs.method or "get"):lower()
-                if method ~= "get" then toast("Formulário POST não é suportado") return end
                 local action = form.attrs.action or ""
                 local base = (action ~= "" and U.resolve(docBase, action)) or docBase
                 base = base:gsub("#.*$", "")
@@ -11167,6 +12107,10 @@ local function makeBrowserScreen()
                 if btn and btn.attrs.name and btn.attrs.name ~= "" then
                     q[#q + 1] = HttpService:UrlEncode(btn.attrs.name) .. "=" .. HttpService:UrlEncode(btn.attrs.value or "")
                 end
+                if method == "post" then
+                    navigate(tabs[cur], {url = base, post = table.concat(q, "&")})
+                    return
+                end
                 local sep = base:find("?", 1, true) and "&" or "?"
                 navigate(tabs[cur], {url = base .. (#q > 0 and (sep .. table.concat(q, "&")) or "")})
             end
@@ -11175,7 +12119,7 @@ local function makeBrowserScreen()
                 local tag, at = node.tag, node.attrs
                 local ty = (at.type or "text"):lower()
                 local form = formOf(node) or {dummy = true, attrs = {}, fs = {inputs = {}}}
-                
+
                 if tag == "input" and ty == "hidden" then
                     if form and at.name then form.fs.inputs[at.name] = {value = at.value or ""} end
                     return
@@ -11319,41 +12263,69 @@ local function makeBrowserScreen()
                 if tag == "input" and (ty == "file" or ty == "range" or ty == "color") then return end
                 if tag == "textarea" or (tag == "input" and ty ~= "submit" and ty ~= "button" and ty ~= "image" and ty ~= "reset") then
                     local tb = Instance.new("TextBox")
-                    tb.Size = (ctx.auto or ctx.row) and UDim2.new(0, 150, 0, 26) or UDim2.new(1, 0, 0, tag == "textarea" and 60 or 26)
-                    tb.BackgroundColor3 = st.bg or U.dk(Color3.fromRGB(246, 247, 250), "bg")
+                    local defaultInputH = tag == "textarea" and 72 or 34
+                    tb.Size = (ctx.auto or ctx.row) and UDim2.new(0, 150, 0, defaultInputH) or UDim2.new(1, 0, 0, defaultInputH)
+
+                    local nativeField = not st.bgSpecified
+                    local nativeFieldBg = U.dark.on and Color3.fromRGB(43, 46, 53) or Color3.fromRGB(255, 255, 255)
+                    tb.BackgroundColor3 = st.bg or (nativeField and nativeFieldBg or Color3.new(1, 1, 1))
+                    tb.BackgroundTransparency = st.bg and (1 - (st.bga or 1)) or (nativeField and 0 or 1)
                     tb.BorderSizePixel = 0
-                    tb.TextColor3 = U.dk(Color3.fromRGB(32, 33, 36), "fg")
-                    tb.PlaceholderColor3 = Color3.fromRGB(130, 134, 142)
+                    tb.TextColor3 = st.color or U.dk(Color3.fromRGB(32, 33, 36), "fg")
+                    tb.PlaceholderColor3 = st.placeholderColor or (U.dark.on and Color3.fromRGB(174, 180, 190) or Color3.fromRGB(130, 134, 142))
                     tb.PlaceholderText = at.placeholder or ""
                     tb.Text = tag == "textarea" and textOf(node, 2000) or (at.value or "")
                     tb.ClearTextOnFocus = false
-                    tb.Font = Enum.Font.Gotham
-                    tb.TextSize = math.clamp(st.size, 9, 18)
+                    tb.Font = st.font or Enum.Font.Gotham
+                    tb.TextSize = math.clamp(st.size, 8, 32)
                     tb.TextXAlignment = Enum.TextXAlignment.Left
                     tb.TextYAlignment = tag == "textarea" and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
                     tb.MultiLine = tag == "textarea"
                     tb.ClipsDescendants = true
                     tb.ZIndex = 5
-                    corner(tb, UDim.new(st.rs or 0, st.radius or 6))
-                    stroke(tb, (st.b and st.b.c) or Color3.fromRGB(200, 204, 212), (st.b and st.b.w) or 1)
+                    if st.radius or st.rs then corner(tb, UDim.new(st.rs or 0, st.radius or 0)) end
+                    if st.b and st.b.w > 0 and st.borderStyle ~= "none" then
+                        stroke(tb, st.b.c or st.borderColor or st.color or Color3.fromRGB(190, 194, 202), st.b.w)
+                    elseif st.borderWidth and st.borderWidth > 0 and st.borderStyle ~= "none" then
+                        stroke(tb, st.borderColor or Color3.fromRGB(190, 194, 202), st.borderWidth)
+                    elseif not st.borderSpecified and st.borderStyle ~= "none" and nativeField then
+                        stroke(tb, U.dark.on and Color3.fromRGB(105, 112, 124) or Color3.fromRGB(190, 194, 202), 1)
+                    end
                     if st.w then
- if st.w[2] then tb.Size = UDim2.new(st.w[2], (st.w[1] or 0), 0, tb.Size.Y.Offset)
- elseif st.w[1] then tb.Size = UDim2.new(0, math.min(st.w[1], 255), 0, tb.Size.Y.Offset) end
- end
-                    if st.h and st.h[1] then tb.Size = UDim2.new(tb.Size.X.Scale, tb.Size.X.Offset, 0, st.h[1]) end
+                        if st.w[2] then tb.Size = UDim2.new(st.w[2], (st.w[1] or 0), 0, tb.Size.Y.Offset)
+                        elseif st.w[1] then
+                            if st.w[1] >= AVAILW then tb.Size = UDim2.new(1, 0, 0, tb.Size.Y.Offset)
+                            else tb.Size = UDim2.new(0, math.max(24, st.w[1]), 0, tb.Size.Y.Offset) end
+                        end
+                    end
+                    if st.h and st.h[1] then tb.Size = UDim2.new(tb.Size.X.Scale, tb.Size.X.Offset, 0, math.max(18, st.h[1])) end
                     local pad = Instance.new("UIPadding")
-                    pad.PaddingLeft = UDim.new(0, 8); pad.PaddingRight = UDim.new(0, 8)
+                    pad.PaddingLeft = UDim.new(0, math.max(0, st.pl or 9)); pad.PaddingRight = UDim.new(0, math.max(0, st.pr or 9))
+                    pad.PaddingTop = UDim.new(0, math.max(0, st.pt or 5)); pad.PaddingBottom = UDim.new(0, math.max(0, st.pb or 5))
                     pad.Parent = tb
                     place(ctx, tb)
                     if form then form.fs.inputs[at.name or "q"] = tb end
                     if tag == "input" then
                         tb.FocusLost:Connect(function(enter)
-                            if enter and form and not form.dummy then submitForm(form, nil) end
+                            if not enter then return end
+                            if form and not form.dummy then
+                                submitForm(form, nil)
+                            else
+
+                                local txt = tb.Text:gsub("^%s+", ""):gsub("%s+$", "")
+                                local hint = ((at.type or "") .. " " .. (at.name or "") .. " " .. (at.placeholder or "") .. " " .. (at["aria-label"] or "") .. " " .. (at.role or "") .. " " .. (at.id or "") .. " " .. (at.class or "")):lower()
+                                local isSearch = hint:find("search") or hint:find("pesquis") or hint:find("busca") or hint:find("procur") or hint:match("%f[%w]q%f[%W]") or hint:find("query")
+                                local host = (docBase or ""):match("^https?://([^/%?#]+)")
+                                if txt ~= "" and isSearch and host then
+                                    host = host:gsub("^www%.", ""):gsub("^m%.", "")
+                                    navigate(tabs[cur], {q = "site:" .. host .. " " .. txt})
+                                end
+                            end
                         end)
                     end
                     return
                 end
-                -- botões (só os que enviam o formulário)
+
                 local label = at.value or textOf(node, 40)
                 if label == "" then
                     if tag == "button" and ty ~= "submit" then return end
@@ -11361,30 +12333,45 @@ local function makeBrowserScreen()
                 end
                 local full = st.w and st.w[2] and st.w[2] >= 0.99
                 local b = Instance.new("TextButton")
-                b.Size = UDim2.new(full and 1 or 0, 0, 0, 0)
-                b.AutomaticSize = full and Enum.AutomaticSize.Y or Enum.AutomaticSize.XY
-                b.BackgroundColor3 = st.bg or U.dk(Color3.fromRGB(239, 239, 239), "bg")
-                b.BackgroundTransparency = st.bg and (1 - (st.bga or 1)) or 0
+                local buttonH = (st.h and st.h[1]) or st.minh and st.minh[1] or math.max(28, math.ceil((st.size or 14) * (st.lh or 1.25) + (st.pt or 5) + (st.pb or 5)))
+                if full then
+                    b.Size = UDim2.new(st.w[2], st.w[1] or 0, 0, buttonH)
+                    b.AutomaticSize = Enum.AutomaticSize.None
+                else
+                    b.Size = UDim2.new(0, 0, 0, buttonH)
+                    b.AutomaticSize = Enum.AutomaticSize.X
+                end
+                b.BackgroundColor3 = st.bg or Color3.new(1, 1, 1)
+                b.BackgroundTransparency = st.bg and (1 - (st.bga or 1)) or 1
                 b.BorderSizePixel = 0
                 b.Text = label
-                b.TextColor3 = st.bg and st.color or U.dk(Color3.fromRGB(16, 16, 16), "fg")
+                b.TextColor3 = st.color or (st.bg and st.color or U.dk(Color3.fromRGB(16, 16, 16), "fg"))
                 b.Font = st.font or (st.bold and Enum.Font.GothamBold or Enum.Font.Gotham)
-                b.TextSize = st.size
-                b.TextWrapped = false
+                b.TextSize = math.clamp(st.size, 8, 32)
+                b.TextWrapped = true
+                b.TextTruncate = Enum.TextTruncate.AtEnd
+                b.TextXAlignment = (st.align == "left" and Enum.TextXAlignment.Left) or (st.align == "right" and Enum.TextXAlignment.Right) or Enum.TextXAlignment.Center
+                b.TextYAlignment = Enum.TextYAlignment.Center
+                b.ClipsDescendants = true
                 b.AutoButtonColor = false
                 b.ZIndex = 5
-                corner(b, UDim.new(st.rs or 0, st.radius or 2))
-                if st.b then
-                    stroke(b, st.b.c, math.max(0.75, st.b.w))
-                elseif not st.bg then
-                    stroke(b, Color3.fromRGB(118, 118, 118), 1)
+                if st.radius or st.rs then corner(b, UDim.new(st.rs or 0, st.radius or 0)) end
+                if st.b and st.b.w > 0 and st.borderStyle ~= "none" then
+                    stroke(b, st.b.c or st.borderColor or st.color or Color3.fromRGB(190, 194, 202), st.b.w)
+                elseif st.borderWidth and st.borderWidth > 0 and st.borderStyle ~= "none" then
+                    stroke(b, st.borderColor or Color3.fromRGB(190, 194, 202), st.borderWidth)
                 end
                 local pad = Instance.new("UIPadding")
-                pad.PaddingTop = UDim.new(0, st.pt or 1)
-                pad.PaddingBottom = UDim.new(0, st.pb or 1)
-                pad.PaddingLeft = UDim.new(0, st.pl or 5)
-                pad.PaddingRight = UDim.new(0, st.pr or 5)
+                pad.PaddingTop = UDim.new(0, math.max(0, st.pt or 5))
+                pad.PaddingBottom = UDim.new(0, math.max(0, st.pb or 5))
+                pad.PaddingLeft = UDim.new(0, math.max(0, st.pl or 9))
+                pad.PaddingRight = UDim.new(0, math.max(0, st.pr or 9))
                 pad.Parent = b
+                if st.w then
+                    if st.w[2] then b.Size = UDim2.new(st.w[2], st.w[1] or 0, 0, buttonH)
+                    elseif st.w[1] then b.Size = UDim2.new(0, math.max(24, st.w[1]), 0, buttonH); b.AutomaticSize = Enum.AutomaticSize.None end
+                end
+                if st.h and st.h[1] then b.Size = UDim2.new(b.Size.X.Scale, b.Size.X.Offset, 0, math.max(18, st.h[1])); b.AutomaticSize = Enum.AutomaticSize.None end
                 if st.minh and st.minh[1] then
                     local mc = Instance.new("UISizeConstraint")
                     mc.MinSize = Vector2.new(0, st.minh[1])
@@ -11398,10 +12385,7 @@ local function makeBrowserScreen()
                     if act then act() return end
                     if ty == "reset" then return end
                     if href then navigate(tabs[cur], {url = href}) return end
-                    if form.dummy or ty == "button" then
-                        toast("Esse botão depende de JavaScript do site (não suportado)")
-                        return
-                    end
+
                     submitForm(form, node)
                 end)
             end
@@ -11540,9 +12524,8 @@ local function makeBrowserScreen()
             local vidCount = 0
             local function renderVideo(ctx, node, st)
                 vidCount = vidCount + 1
-                if vidCount > 6 then return end
-                local at = node.attrs
-                local src = at.src
+                local at = node.attrs or {}
+                local src = at.src or at["data-src"] or at["data-video-src"] or at["data-lazy-src"]
                 if not src or src == "" then
                     for _, k in ipairs(node.kids) do
                         if k.tag == "source" and k.attrs.src then
@@ -11556,10 +12539,35 @@ local function makeBrowserScreen()
                     end
                 end
                 local url = src and U.resolve(docBase, src)
-                local poster = at.poster and U.resolve(docBase, at.poster)
-                local aw = tonumber((at.width or ""):match("^%d+"))
-                local ah = tonumber((at.height or ""):match("^%d+"))
-                local fr = U.makeVideo({url = url, poster = poster, aspect = (aw and ah and ah > 0) and aw / ah or (16 / 9), loop = at.loop ~= nil, muted = at.muted ~= nil, autoplay = at.autoplay ~= nil and vidCount == 1, sw = st.w, radius = st.radius, rs = st.rs, auto = ctx.auto})
+                local posterSrc = at.poster or at["data-poster"] or at["data-thumbnail"] or at["data-thumb"]
+                local poster = posterSrc and U.resolve(docBase, posterSrc)
+                local aw = tonumber((at.width or ""):match("^%d+")) or (st.w and st.w[1])
+                local ah = tonumber((at.height or ""):match("^%d+")) or (st.h and st.h[1])
+                local ratio = (aw and ah and ah > 0) and aw / ah or st.ar or (16 / 9)
+
+                if not url and poster then
+                    local thumb = Instance.new("ImageButton")
+                    thumb.Name = "VideoPosterFallback"
+                    thumb.AutoButtonColor = false
+                    thumb.BackgroundTransparency = 1
+                    thumb.BorderSizePixel = 0
+                    thumb.Size = UDim2.new(1, 0, 0, 0)
+                    thumb.AutomaticSize = Enum.AutomaticSize.None
+                    local ar = Instance.new("UIAspectRatioConstraint")
+                    ar.AspectRatio = math.clamp(ratio, 0.4, 3)
+                    ar.Parent = thumb
+                    thumb.ScaleType = Enum.ScaleType.Crop
+                    thumb.ZIndex = 5
+                    place(ctx, thumb)
+                    imgQ[#imgQ + 1] = {img = thumb, url = poster, aw = aw, ah = ah, sw = st.w, sh = st.h, ar = ratio, fit = "cover", alt = at.title or "Miniatura do vídeo", referer = entry.url}
+                    thumb.MouseButton1Click:Connect(function()
+                        local link = at.href and U.resolve(docBase, at.href)
+                        if link then navigate(tabs[cur], {url = link}) end
+                    end)
+                    pumpImages()
+                    return
+                end
+                local fr = U.makeVideo({url = url, poster = poster, aspect = ratio, loop = at.loop ~= nil, muted = at.muted ~= nil, autoplay = at.autoplay ~= nil and vidCount == 1, sw = st.w, radius = st.radius, rs = st.rs, auto = ctx.auto})
                 place(ctx, fr)
             end
 
@@ -11577,7 +12585,7 @@ local function makeBrowserScreen()
                 local kh = h
                 local tag = k.tag
                 if tag == "a" and k.attrs.href then kh = resolveHref(k.attrs.href) or h end
-                if tag == "img" then renderImage(wb, k, ks, kh) elseif tag == "video" then renderVideo(wb, k, ks)
+                if tag == "img" or tag == "amp-img" then renderImage(wb, k, ks, kh) elseif tag == "video" then renderVideo(wb, k, ks)
                 elseif tag == "input" or tag == "button" or tag == "textarea" or tag == "select" then
                     renderControl(wb, k, ks, kh)
                 elseif tag == "table" or tag == "pre" or tag == "hr" or tag == "ul" or tag == "ol" then
@@ -11602,6 +12610,8 @@ local function makeBrowserScreen()
                 elseif tag == "table" then renderTable(ctx, node, st) return
                 elseif tag == "pre" then renderPre(ctx, node, st) return
                 elseif tag == "iframe" then
+
+                    do return end
                     local src = node.attrs.src and U.resolve(docBase, node.attrs.src)
                     local title = node.attrs.title or "Conteúdo incorporado"
                     local card = makeBox(ctx, {bg = U.dk(Color3.fromRGB(238, 241, 246), "bg"), radius = 8, pt = 12, pb = 12, pl = 12, pr = 12, minh = {72}}, {node = node, href = src})
@@ -11688,12 +12698,8 @@ local function makeBrowserScreen()
                     mode = "cols"
                     cols = st.cols
                 elseif isRow and #kids >= 2 then
-                    if st.wrap and not flexSmall(node) then
-                        mode = "cols"
-                        cols = (#kids <= 4) and #kids or 3
-                    else
-                        mode = "flex"
-                    end
+
+                    mode = "flex"
                 end
                 if mode == "stack" then
                     local ratio = st.ar or ((st.ptp and st.ptp >= 10) and (100 / st.ptp) or nil)
@@ -11753,7 +12759,18 @@ local function makeBrowserScreen()
                     end
                 end
                 local fitsRow = est <= (AVAILW - 4)
-                local box = makeBox(ctx, st, {row = true, wraps = (not anyFill) and ((not sp) or (not fitsRow)), node = node})
+
+                local hasCardMedia = false
+                for _, k in ipairs(kids) do
+                    if hasTag(k, IMGLIKE, 1) or k.tag == "img" or k.tag == "video" then hasCardMedia = true break end
+                end
+
+                local wrapRow = st.wrap == true
+                if not st.wrap then
+                    wrapRow = (not anyFill) and ((not sp) or (not fitsRow))
+                end
+                if hasCardMedia and not anyFill and st.wrap ~= false then wrapRow = true end
+                local box = makeBox(ctx, st, {row = true, wraps = wrapRow, node = node})
                 for i, k in ipairs(kids) do
                     local ks = styleFor(k)
                     local fixedW = nil
@@ -11820,7 +12837,24 @@ local function makeBrowserScreen()
                             end
                         else
                             local tag = c.tag
-                            if (tag == "video" or tag == "iframe" or not SKIP[tag]) and not c.attrs.hidden then
+                            if tag == "amp-img" then tag = "img" end
+                            if tag == "noscript" and not c.attrs.hidden then
+
+                                local function noscriptImgs(nd, depth)
+                                    if depth > 60 then return end
+                                    for _, k2 in ipairs(nd.kids or {}) do
+                                        if k2.tag == "img" or k2.tag == "amp-img" then
+                                            k2.fromNoscript = true
+                                            flush()
+                                            curRow = nil
+                                            renderImage(ctx, k2, styleFor(k2), h)
+                                        elseif k2.tag then
+                                            noscriptImgs(k2, depth + 1)
+                                        end
+                                    end
+                                end
+                                noscriptImgs(c, 0)
+                            elseif (tag == "video" or tag == "iframe" or not SKIP[tag]) and not c.attrs.hidden then
                                 local cs = styleFor(c)
                                 tick()
                                 if cs.display == "none" and c.attrs.id and TOG[c.attrs.id] then
@@ -11831,7 +12865,9 @@ local function makeBrowserScreen()
                                     cs = cp
                                 end
                                 if cs.display ~= "none" and not hiddenClass(c) and not (cs.pos == "absolute" and tag ~= "img" and textLen(c, 3) == 0 and not cs.bgimg and not hasImgTag(c, 0)) then
-                                    if tag == "br" then
+                                    if cs.display == "contents" then
+                                        walk(c, cs, h)
+                                    elseif tag == "br" then
                                         if buf.hasText then buf.rich = buf.rich .. "\n" end
  curRow = nil
                                     elseif tag == "video" then
@@ -11895,7 +12931,6 @@ local function makeBrowserScreen()
                 flush()
             end
 
-            -- ---------------------------------------------------------- execução
             local function findTag(n, tag, depth)
                 if depth > 6 then return nil end
                 for _, k in ipairs(n.kids or {}) do
@@ -12005,7 +13040,7 @@ local function makeBrowserScreen()
                         if c:IsA("TextLabel") then c.Visible = false end
                     end
                     holder.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
-                    -- o icone fica num quadrado inscrito na bolinha (centralizado), senao os cantos vazam pra fora do circulo
+
                     local img = new("ImageLabel", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.64, 0, 0.64, 0), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, Image = a, ZIndex = holder.ZIndex + 2}, holder)
                     corner(img, UDim.new(0.18, 0))
                 end
@@ -12116,8 +13151,8 @@ local function makeBrowserScreen()
                                 local iw, ih = U.dimsFor(t.item.thumb)
                                 if iw and ih then t.ar = ih / iw; schedule() end
                             elseif ph then
-                                ph.Text = hasAssetFn and "×" or "sem getcustomasset"
-                                ph.TextSize = hasAssetFn and 14 or 8
+                                ph.Text = "×"
+                                ph.TextSize = 14
                             end
                         end
                     end
@@ -12236,7 +13271,7 @@ local function makeBrowserScreen()
             if view.more and #view.items > 0 then
                 local foot = label("Role para carregar mais…", 10, C.sub, Enum.Font.Gotham, 26)
                 foot.TextXAlignment = Enum.TextXAlignment.Center
-                foot.LayoutOrder = 1000000   -- rodape sempre por ultimo; novos resultados entram antes dele
+                foot.LayoutOrder = 1000000
                 local function check()
                     if view.loading or view.exhausted or not foot.Parent or not pageView.Visible then return end
                     if pageView.CanvasPosition.Y + pageView.AbsoluteSize.Y < pageView.AbsoluteCanvasSize.Y - 260 * uiScale() then return end
@@ -12314,6 +13349,36 @@ local function makeBrowserScreen()
                     end, openViewer)
                     if not alive() then return end
                     if not okB or (type(res) == "number" and res < 4) then
+                        if not okB then end
+
+                        if view.html and not entry.triedNoscript and view.html:find("<[nN][oO][sS][cC][rR][iI][pP][tT]") then
+                            local unwrapped, nrep = view.html:gsub("<[nN][oO][sS][cC][rR][iI][pP][tT][^>]*>(.-)</[nN][oO][sS][cC][rR][iI][pP][tT]%s*>", "<div>%1</div>")
+                            if nrep > 0 and unwrapped ~= view.html then
+                                entry.triedNoscript = true
+                                if statusLbl.Parent then statusLbl.Text = "lendo conteúdo alternativo…" end
+                                view.html = unwrapped
+                                render()
+                                return
+                            end
+                        end
+
+                        if U.mobileOn() and entry.url and not entry.post and not entry.triedDesktop then
+                            entry.triedDesktop = true
+                            if statusLbl.Parent then statusLbl.Text = "tentando versão alternativa do site…" end
+                            task.spawn(function()
+                                local okH, h2 = pcall(U.httpGet, entry.url, U.SEARCH_UA)
+                                if entry.rid ~= myRid then return end
+                                if okH and type(h2) == "string" and #h2 > 200 and h2 ~= view.html then
+                                    h2 = h2:gsub("<[sS][cC][rR][iI][pP][tT][^>]*>.-</[sS][cC][rR][iI][pP][tT]%s*>", "")
+                                    view.html = (#h2 > 20000000) and h2:sub(1, 20000000) or h2
+                                else
+                                    entry.simple = true
+                                    toast("Página sem conteúdo montável, abrindo em texto")
+                                end
+                                render()
+                            end)
+                            return
+                        end
                         entry.simple = true
                         toast(okB and "Página sem conteúdo montável, abrindo em texto" or "Falha ao montar a página, abrindo em texto")
                         render()
@@ -12527,7 +13592,7 @@ local function makeBrowserScreen()
     heartBtn = iconButton(menu, Icons.heart, 18, C.text, UDim2.new(0, 100, 0, 2), UDim2.new(0, 50, 0, 38), 31)
     local reBtn = iconButton(menu, Icons.reset, 18, C.text, UDim2.new(0, 150, 0, 2), UDim2.new(0, 50, 0, 38), 31)
     new("Frame", {Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromRGB(70, 72, 76), BorderSizePixel = 0, ZIndex = 31}, menu)
-    local menuScroll = new("ScrollingFrame", {Position = UDim2.new(0, 0, 0, 46), Size = UDim2.new(1, 0, 1, -50), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.sub, CanvasSize = UDim2.new(0, 0, 0, 308), ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 31}, menu)
+    local menuScroll = new("ScrollingFrame", {Position = UDim2.new(0, 0, 0, 46), Size = UDim2.new(1, 0, 1, -50), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.sub, CanvasSize = UDim2.new(0, 0, 0, 392), ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 31}, menu)
     menuScroll.ClipsDescendants = true
 
     local engBtn
@@ -12559,8 +13624,7 @@ local function makeBrowserScreen()
         local e = curEntry()
         local clip = setclipboard or toclipboard
         if not e.url then toast("Nenhuma URL para copiar")
-        elseif type(clip) == "function" then pcall(clip, e.url); toast("Link copiado")
-        else toast("Clipboard indisponível") end
+        elseif type(clip) == "function" then pcall(clip, e.url); toast("Link copiado") end
     end)
     menuItem("Limpar histórico", 158, function()
         phoneSettings.browserHistory = {}
@@ -12583,7 +13647,7 @@ local function makeBrowserScreen()
         toast("Modo " .. nm)
     end)
     menuItem("Buscar neste site", 270, function()
-        if U.openSite then U.openSite() else toast("Busca neste site indisponível") end
+        if U.openSite then U.openSite() end
     end)
     U.darkBtn = menuItem("Modo escuro: " .. (U.dark.on and "ligado" or "desligado"), 298, function()
         U.dark.on = not U.dark.on
@@ -12592,6 +13656,20 @@ local function makeBrowserScreen()
         toast(U.dark.on and "Modo escuro ligado" or "Modo escuro desligado")
         local e = curEntry()
         if e and e.view and e.view.kind == "page" then render() end
+    end)
+    U.mobileBtn = menuItem("Modo celular: " .. (U.mobileOn() and "ligado" or "desligado"), 326, function()
+        phoneSettings.browserMobile = not U.mobileOn()
+        saveSettings()
+        U.mobileBtn.Text = "Modo celular: " .. (U.mobileOn() and "ligado" or "desligado")
+        toast(U.mobileOn() and "Sites na versão de celular" or "Sites na versão de computador")
+        local e = curEntry()
+        if e and e.url and not e.ntp then reload() end
+    end)
+    U.cacheBtn = menuItem("Cache inteligente: " .. (phoneSettings.browserCache == false and "desligado" or "ligado"), 354, function()
+        phoneSettings.browserCache = not (phoneSettings.browserCache ~= false)
+        saveSettings()
+        U.cacheBtn.Text = "Cache inteligente: " .. (phoneSettings.browserCache and "ligado" or "desligado")
+        toast(phoneSettings.browserCache and "Cache de páginas e imagens ativado" or "Cache de páginas desativado")
     end)
 
     backBtn.MouseButton1Click:Connect(function()
@@ -12670,7 +13748,7 @@ local function makeBrowserScreen()
         if t.pos > 1 then t.pos = t.pos - 1; showEntry(t); return true end
         return false
     end
-    -- fecha o app de verdade: descarta todas as guias e volta pra "Nova guia"
+
     Nav.web.reset = function()
         pcall(function() address:ReleaseFocus() end)
         viewer.Visible = false
@@ -13290,19 +14368,19 @@ do
 
     function Icons.camera(parent, S, color, z)
         local c, u = iconRoot(parent, S)
-        -- corpo principal da câmera (retângulo arredondado grande)
+
         Draw.rrect(c, 12 * u, 13.6 * u, 20 * u, 14.2 * u, 3.6 * u, color, T(2.2, u), z)
-        -- saliência do visor (topo centro)
+
         Draw.rrect(c, 10.5 * u, 6.4 * u, 6.6 * u, 2.8 * u, 1.3 * u, color, nil, z)
-        -- lente principal (anel externo)
+
         Draw.circle(c, 12 * u, 13.9 * u, 8.2 * u, color, T(2.0, u), z)
-        -- lente interna (anel intermediário)
+
         Draw.circle(c, 12 * u, 13.9 * u, 5.2 * u, color, T(1.4, u), z)
-        -- pupila da lente (círculo cheio)
+
         Draw.circle(c, 12 * u, 13.9 * u, 2.2 * u, color, nil, z)
-        -- flash LED (canto superior direito do corpo)
+
         Draw.circle(c, 18.6 * u, 7.6 * u, 1.8 * u, color, nil, z)
-        -- botão disparador (topo direita)
+
         Draw.rrect(c, 17.6 * u, 7.1 * u, 2.6 * u, 1.4 * u, 0.7 * u, color, nil, z)
         return c
     end
@@ -13492,16 +14570,14 @@ do
             btnTimer.TextColor3 = t > 0 and ACC or WHITE
             btnGrid.TextColor3 = S.grid and ACC or WHITE
             gridFrame.Visible = S.grid
-            -- indicador visual do modo boneco
+
             btnBoneco.TextColor3 = S.boneco and ACC or WHITE
             btnBoneco.BackgroundTransparency = S.boneco and 0 or 0.45
             btnBoneco.BackgroundColor3 = S.boneco and ACC or DARK
         end
 
-        -- Modo câmera: "normal" | "selfie" | "boneco"
-        -- "boneco" = câmera recua e enquadra o corpo inteiro do personagem
-        local BONECO_DIST = 9    -- distância atrás-e-acima do personagem
-        local BONECO_FOV  = 55   -- FOV mais fechado para enquadrar bem
+        local BONECO_DIST = 9
+        local BONECO_FOV  = 55
 
         local selfieConn, bonecoConn, prevCamType
         local function setSelfie(on)
@@ -13529,7 +14605,6 @@ do
             setZoom(S.zoom)
         end
 
-        -- ── MODO BONECO: enquadra o corpo inteiro do personagem ────────────
         local function setBoneco(on)
             if on == S.boneco then return end
             S.boneco = on
@@ -13544,9 +14619,9 @@ do
                     local head = ch:FindFirstChild("Head")
                     local c = cam()
                     if root and head and c then
-                        -- ponto de foco = meio entre a cabeça e a raiz (centro do corpo)
+
                         local focus = (head.Position + root.Position) / 2 + Vector3.new(0, 0.5, 0)
-                        -- câmera posicionada à frente e levemente acima do personagem
+
                         local fwd   = root.CFrame.LookVector
                         local pos   = root.Position + fwd * BONECO_DIST + Vector3.new(0, 2.5, 0)
                         c.CFrame = c.CFrame:Lerp(CFrame.lookAt(pos, focus), 0.28)
@@ -13574,13 +14649,13 @@ do
         local function deactivate()
             if not S.active then return end
             S.cancel = true
-            -- desliga todos os modos de câmera
+
             if S.boneco then setBoneco(false) end
             if S.selfie  then setSelfie(false) end
             S.active = false
             if cam() then cam().FieldOfView = S.origFov end
             if ccEffect then ccEffect:Destroy() ccEffect = nil end
-            -- libera fotos da sessão da câmera ao fechar
+
             for _, p in ipairs(S.photos) do pcall(releasePhoto, p) end
             S.photos = {}
         end
@@ -13603,13 +14678,11 @@ do
             vf.CurrentCamera = vc
             local origin = c.CFrame.Position
             local list = {}
-            -- personagem local: clona o Model inteiro para preservar joints/Motor6D
-            -- e o exclui do scan normal (evitar partes soltas/desmembradas no vf)
+
             local lchar = Player and Player.Character
             local function consider(inst, depth)
                 if inst == c or inst:IsA("Terrain") then return end
-                -- ignora instâncias que são descendentes do personagem local
-                -- (serão clonados como Model completo abaixo)
+
                 if lchar and (inst == lchar or inst:IsDescendantOf(lchar)) then return end
                 if inst:IsA("BasePart") then
                     local d = (inst.Position - origin).Magnitude - inst.Size.Magnitude / 2
@@ -13640,15 +14713,11 @@ do
                     clone.Parent = vf
                 end
             end
-            -- ── PERSONAGEM LOCAL NO VIEWPORT ─────────────────────────────────
-            -- ViewportFrame NÃO renderiza o LocalPlayer.Character via clone normal.
-            -- Solução: snapshot parte-por-parte com CFrame absoluto congelado.
-            -- Inclui Humanoid (para BodyColors/aparência), roupas e acessórios.
+
             if lchar then
                 local charHolder = Instance.new("Model")
                 charHolder.Name = "CharSnapshot"
 
-                -- tipos não-BasePart que afetam a aparência e precisam ser copiados
                 local APPEARANCE_TYPES = {
                     "Humanoid", "HumanoidDescription",
                     "BodyColors",
@@ -13674,11 +14743,11 @@ do
                             end
                             partClone.Anchored   = true
                             partClone.CanCollide = false
-                            partClone.CFrame     = inst.CFrame  -- pose congelada
+                            partClone.CFrame     = inst.CFrame
                             partClone.Parent     = charHolder
                         end
                     elseif isAppearance(inst) then
-                        -- clona direto para o charHolder (sem reparenting condicional)
+
                         pcall(function()
                             local cl = inst:Clone()
                             cl.Parent = charHolder
@@ -13686,7 +14755,6 @@ do
                     end
                 end
 
-                -- copia BodyColors do nível raiz do personagem também (R6 coloca lá)
                 for _, inst in ipairs(lchar:GetChildren()) do
                     if isAppearance(inst) then
                         pcall(function()
@@ -13722,12 +14790,8 @@ do
             local vs = cam().ViewportSize
             local photo = {aspect = vs.X / math.max(vs.Y, 1), filter = FILTERS[S.filter], time = os.date("%d/%m/%Y  %H:%M")}
 
-            -- Modo boneco ou selfie: câmera já está enquadrando o personagem.
-            -- Usamos screenshot real (CaptureService) com a ScreenGui oculta.
-            -- O engine renderiza o personagem com todas as texturas corretamente.
-            -- NÃO usamos ViewportFrame aqui — ele não renderiza texturas de avatar.
             if S.boneco or S.selfie then
-                -- aguarda a câmera do bonecoConn/selfieConn estabilizar na pose
+
                 RunService.RenderStepped:Wait()
                 RunService.RenderStepped:Wait()
                 ScreenGui.Enabled = false
@@ -13745,13 +14809,12 @@ do
                     photo.kind, photo.id = "capture", id
                     return photo
                 end
-                -- fallback: se CaptureService falhou, vf sem personagem é melhor que travar
+
                 photo.kind = "vf"
                 photo.vf = makeVFPhoto()
                 return photo
             end
 
-            -- Modo normal: fluxo original (tenta CaptureService, cai em VF)
             ScreenGui.Enabled = false
             RunService.RenderStepped:Wait()
             RunService.RenderStepped:Wait()
@@ -13844,11 +14907,6 @@ do
             frame:Destroy()
         end
 
-        -- ============================================================
-        --  SALVAR NA GALERIA: toda foto tirada vai para PHONE/Photos
-        --  1) .camphoto (instantâneo): guarda o id da captura -> aparece já na Galeria
-        --  2) PNG real (em segundo plano): sobrevive a novas sessões; substitui o .camphoto
-        -- ============================================================
         local galleryCounter = 0
         local function be32(n)
             return string.char(math.floor(n / 16777216) % 256, math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256)
@@ -13897,7 +14955,6 @@ do
             return table.concat(out)
         end
 
-        -- EditableImage -> PNG (RGB, reduzido para no máx. 640px de largura)
         local function editableToPng(ed)
             local sz = ed.Size
             local W, H = math.floor(sz.X), math.floor(sz.Y)
@@ -13925,8 +14982,7 @@ do
 
         local function saveToGallery(photo)
             if not photo or photo.saved or not photo.kind then return end
-            -- FOTO VIEWPORTFRAME (sem imagem real): vira entrada virtual da Galeria.
-            -- Guardamos um CLONE próprio da cena congelada, pois a Câmera libera o original ao fechar.
+
             if photo.kind == "vf" then
                 if not photo.vf then return end
                 photo.saved = true
@@ -13965,7 +15021,7 @@ do
             else
                 toast("Não foi possível salvar na Galeria")
             end
-            -- upgrade para PNG permanente (o id temporário da captura some ao sair do jogo)
+
             if photo.ed then
                 task.spawn(function()
                     local okP, png = pcall(editableToPng, photo.ed)
@@ -13985,7 +15041,7 @@ do
             task.spawn(saveToGallery, photo)
             table.insert(S.photos, photo)
             while #S.photos > MAX_PHOTOS do releasePhoto(table.remove(S.photos, 1)) end
-            -- expõe a lista para a Galeria via _G
+
             _G.TZE_CameraPhotos = S.photos
             _G.TZE_CameraFillPhoto = fillPhoto
         end
@@ -14134,12 +15190,12 @@ do
         btnFlash.MouseButton1Click:Connect(function() ping(1.2) S.flash = not S.flash refreshTop() end)
         btnTimer.MouseButton1Click:Connect(function() ping(1.2) S.timerIdx = S.timerIdx % #TIMERS + 1 refreshTop() end)
         btnGrid.MouseButton1Click:Connect(function() ping(1.2) S.grid = not S.grid refreshTop() end)
-        -- Modo Boneco: enquadra o personagem inteiro; exclusivo com selfie
+
         btnBoneco.MouseButton1Click:Connect(function()
             ping(1.2)
             local next = not S.boneco
             if next then
-                -- desativa selfie se estiver ativo
+
                 if S.selfie then setSelfie(false) end
                 setBoneco(true)
             else
@@ -14153,7 +15209,7 @@ do
             if cam() then
                 local next = not S.selfie
                 if next then
-                    -- desativa boneco se estiver ativo
+
                     if S.boneco then setBoneco(false) end
                     setSelfie(true)
                 else
@@ -14187,21 +15243,21 @@ do
             setZoom(S.zoom, true)
         end
         Nav.camera.onClose = function()
-            -- fecha painéis internos
+
             roll.Visible = false
             viewer.Visible = false
-            -- remove conteúdo do viewer para não manter ViewportFrames vivas
+
             for _, ch in ipairs(vwInner:GetChildren()) do ch:Destroy() end
-            -- cancela contagem regressiva pendente
+
             S.cancel = true
-            -- desativa câmera e libera todos os recursos (efeitos, fotos, conexões)
+
             deactivate()
         end
 
         applyFilter(1, true)
         setZoom(1, true)
         refreshTop()
-        -- expõe lista de fotos e renderizador para o app Galeria
+
         _G.TZE_CameraPhotos    = S.photos
         _G.TZE_CameraFillPhoto = fillPhoto
         return f
@@ -14225,16 +15281,16 @@ do
     local function safeAppIcon(label, drawFn, col, pos)
         local mk = Nav.__mkIconFn or createAppIcon
         if type(mk) ~= "function" then
-            warn("[TZE PHONE] createAppIcon indisponivel (tipo: " .. typeof(mk) .. ")")
+
             return nil
         end
         if type(drawFn) ~= "function" then
-            warn("[TZE PHONE] icone '" .. tostring(label) .. "' sem funcao de desenho (tipo: " .. typeof(drawFn) .. ")")
+
             return nil
         end
         local okIcon, icon = pcall(mk, label, drawFn, col, pos)
         if not okIcon then
-            warn("[TZE PHONE] falha ao criar icone '" .. tostring(label) .. "': " .. tostring(icon))
+
             return nil
         end
         return icon
@@ -14251,7 +15307,6 @@ do
         if cameraIcon then cameraIcon.MouseButton1Click:Connect(function() if Nav.homeSwiped then return end showScreen("camera", true) end) end
     end
 end
-
 
 screens.home      = {frame = PhoneHome}
 screens.music     = {frame = MainFrame,      app = true, name = "Música",     color = Color3.fromRGB(0, 180, 255),  icon = Icons.music,     onOpen = function() refreshFiles(); if restoreMusic then restoreMusic() end end, onClose = function() stopMusic() end}
@@ -15484,7 +16539,7 @@ do
 
         local ok, pose = pcall(SP.evalFn, now - SP.t0)
         if not ok or not pose then
-            warn("[TZE PHONE 3D] erro no avaliador: " .. tostring(pose))
+
             SP.stopNow()
             return
         end
@@ -15509,7 +16564,7 @@ do
         if not char or not evalFn then return false end
         local J, rig = spJoints(char)
         if not J.rsh then
-            warn("[TZE PHONE 3D] nenhuma junta do braço direito encontrada (rig diferente?)")
+
             return false
         end
         SP.J, SP.char, SP.evalFn = J, char, evalFn
@@ -15561,10 +16616,10 @@ do
         local J = spJoints(char)
         local rig, why = detectRig(char, J)
         if not (J.rsh and rig) then
-            warn("[TZE PHONE 3D] braço direito não encontrado (R15 ou R6 necessário). Checker: " .. tostring(why))
+
             return false
         end
-        print("[TZE PHONE 3D] Rig detectado: " .. rig .. " (" .. why .. ")")
+
         local hand = (rig == "R15") and char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
         if not hand then return false end
         state.joints, state.rig = J, rig
@@ -16076,7 +17131,7 @@ do
             ov.Visible = true
             local ok = pcall(function() (setclipboard or toclipboard)(txt) end)
             bCopy.Text = ok and "✅ Copiado!" or "📋 Copiar"
-            print("[TZE PHONE 3D] ---- CONFIG EXPORTADA ----\n" .. txt)
+
         end)
         bCopy.MouseButton1Click:Connect(function()
             local ok = pcall(function() (setclipboard or toclipboard)(expBox.Text) end)
@@ -16134,11 +17189,7 @@ do
     RunService:BindToRenderStep("TZE_Phone3D", Enum.RenderPriority.Character.Value + 5, onStep)
 
     LP.CharacterAdded:Connect(function() SP.stopNow(); state.char = nil; state.alpha = 0; lastLTM = -1 end)
-    print("[TZE PHONE] Celular 3D carregado (R15 + R6, motor de pose do Stand). Ajuste os valores em CFG se a posição na mão ficar torta.")
+
 end
 
-end, function(e) return debug.traceback(tostring(e), 2) end)
-
-if not __ok then
-    warn("[TZE PHONE] Erro ao iniciar: " .. tostring(__err))
-end
+end)
